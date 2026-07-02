@@ -1064,6 +1064,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <td>Private RSS feed of your inbox (token protected)</td>
                             </tr>
                             <tr>
+                                <td>Remote agent</td>
+                                <td>Not available</td>
+                                <td>Monitor and manage any remote mailbox</td>
+                            </tr>
+                            <tr>
                                 <td>Address privacy</td>
                                 <td>Public — anyone with the address can read emails</td>
                                 <td>Temp addresses shareable; Personal addresses private (login required)</td>

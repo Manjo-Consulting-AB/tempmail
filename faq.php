@@ -90,6 +90,11 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
                     <p class="mb-0">Attachments are stored temporarily and download links are signed to prevent unauthorised access. Links and files expire according to the service's retention rules.</p>
                 </div>
 
+                <div class="mb-3">
+                    <strong>Is Client Agent safe?</strong>
+                    <p class="mb-0">Client Agent is designed with security in mind. It uses industry-standard encryption and follows best practices to protect your data. All communications are encrypted, and sensitive information is never stored in plain text. Agent runs on your own server with your data under your control.</p>
+                </div>
+
                 <h3 class="mt-4">Troubleshooting</h3>
                 <div class="mb-3">
                     <strong>I didn't receive an expected message — what now?</strong>
