@@ -1,0 +1,1303 @@
+/**
+ * TempMail - JavaScript funktionalitet
+ * Hanterar UI-interaktioner och AJAX-calls
+ */
+
+class TempMailApp {
+    constructor() {
+        this.currentAddress = '';
+        this.expiresAt = null;
+        this.validityTimer = null;
+        this.refreshInterval = null;
+        this.refreshRate = 10000; // 10 sekunder
+        this.autoRefreshEnabled = true;
+        this.autoRefreshCount = 0; // Räknar auto-refresh cykler
+        this.lastKnownEmailId = 0; // track latest known email id to avoid full reloads
+        this.isPersonalAddress = false; // track if current address is personal/private
+
+        this.init();
+
+        // Debug: Exponera app globalt för console-access
+        window.tempMailApp = this;
+        console.log('TempMail app initialized, available as window.tempMailApp');
+    }
+    
+    /**
+     * Initialisera applikationen
+     */
+    init() {
+        this.bindEvents();
+        this.updateImageToggleButton();
+        this.startAutoRefresh();
+        
+        // Ladda statistik efter en kort fördröjning för att undvika initialiseringsproblem
+        setTimeout(() => {
+            this.loadStats();
+        }, 1000);
+        
+        // Prioritera URL-adress över sparad adress
+        const urlAddress = window.tempMailConfig?.urlAddress;
+        const urlExpiresAt = window.tempMailConfig?.urlExpiresAt;
+        const savedAddress = localStorage.getItem('tempmail_address');
+
+        // Helper: call server to check owner of address
+        const checkAddressOwner = (address) => {
+            return $.ajax({
+                url: 'index.php',
+                method: 'POST',
+                data: { action: 'check_address_owner', address },
+                dataType: 'json'
+            });
+        };
+
+        const handleLoadedAddress = async (address, expiresAtStr, fromUrl = false) => {
+            let isPersonal = false;
+            try {
+                if (!address) return;
+                const res = await checkAddressOwner(address);
+                if (res && res.success) {
+                    isPersonal = res.is_personal || false;
+                    // Only block access if address is personal AND user is not the owner
+                    if (res.is_personal && res.owner_pro_user_id && !res.is_owner) {
+                        // Address is personal and belongs to a pro user but current session is not owner -> clear saved address
+                        console.warn('Personal address belongs to pro user and current session is not owner. Clearing saved address.');
+                        try { localStorage.removeItem('tempmail_address'); } catch (e) {}
+                        // Show neutral UI (no address)
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed owner check for address', address, e);
+                // If owner check fails, be conservative and do not show personal address by default
+            }
+
+            // If we reach here, either address is not personal or current session is owner
+            this.currentAddress = address;
+            this.isPersonalAddress = isPersonal;
+            try { localStorage.setItem('tempmail_address', address); } catch (e) {}
+            if (expiresAtStr && expiresAtStr !== 'null') {
+                this.expiresAt = new Date(expiresAtStr.replace(' ', 'T'));
+            } else {
+                this.expiresAt = null;
+            }
+            this.updateUI();
+            this.loadEmails();
+            console.log('Loaded address:', address, 'expiresAt:', this.expiresAt, 'isPersonal:', isPersonal, 'fromUrl:', !!fromUrl);
+        };
+
+        if (urlAddress) {
+            // URL-adress har högst prioritet but verify ownership before showing
+            handleLoadedAddress(urlAddress, urlExpiresAt, true);
+        } else if (savedAddress) {
+            // Verify saved address ownership before showing
+            handleLoadedAddress(savedAddress, null, false).then(() => {}).catch(()=>{});
+        }
+
+        console.log('TempMail application initialized');
+    }
+
+    /**
+     * Hämta expiresAt från backend om den saknas
+     */
+    async fetchExpiresAt(address) {
+        if (!address) return null;
+        try {
+            const response = await $.ajax({
+                url: 'index.php',
+                method: 'POST',
+                data: { action: 'get_expires_at', address },
+                dataType: 'json'
+            });
+            if (response.success && response.expires_at) {
+                return new Date(response.expires_at.replace(' ', 'T'));
+            }
+        } catch (error) {
+            console.error('Failed to fetch expiresAt:', error);
+        }
+        return null;
+    }
+    
+    /**
+     * Bind event handlers
+     */
+    bindEvents() {
+        // Generera ny adress
+        $(document).on('click', '#generateBtn, #newAddressBtn', (e) => {
+            const $el = $(e.currentTarget);
+            // If the element is a link with an explicit navigation href, allow normal navigation
+            const href = $el.attr('href');
+            if ($el.is('a') && href && href !== '#' && !href.startsWith('javascript:')) {
+                // Let the browser follow the link (e.g. /pro_login.php)
+                return;
+            }
+            e.preventDefault();
+            console.log('Generate button clicked');
+            this.generateNewAddress();
+        });
+        
+        // Kopiera adress
+        $(document).on('click', '#copyBtn', () => {
+            this.copyAddress();
+        });
+        
+        // Dela länk
+        $(document).on('click', '#shareBtn', () => {
+            this.shareLink();
+        });
+        
+        // Theme removed: no theme toggle handler
+        
+        // Uppdatera e-post (med IMAP-refresh)
+        $(document).on('click', '#refreshBtn', () => {
+            console.log('Refresh button clicked, current address:', this.currentAddress);
+            this.loadEmails(true);
+        });
+        
+        // Toggle auto-refresh
+        $(document).on('click', '.auto-refresh', () => {
+            this.toggleAutoRefresh();
+        });
+        
+        // Öppna e-post
+        $(document).on('click', '.email-item', (e) => {
+            const emailId = $(e.currentTarget).data('email-id');
+            this.openEmail(emailId);
+        });
+
+        // Load external image when user clicks the placeholder button
+        $(document).on('click', '.tm-load-img', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const $btn = $(this);
+            const $placeholder = $btn.closest('.tm-img-placeholder');
+            const src = $placeholder.data('src');
+            if (!src) return;
+            // Direct load into user's browser with privacy-preserving referrer policy
+            const $img = $(`<img src="${src}" referrerpolicy="no-referrer" loading="lazy" decoding="async" alt="image" class="tm-proxied-image"/>`);
+            $placeholder.empty().append($img);
+        });
+
+        // Modal-level 'Visa bilder' button: load all images inside the modal
+        $(document).on('click', '#modalShowImagesBtn', (e) => {
+            e.preventDefault();
+            const $btn = $('#modalShowImagesBtn');
+            $btn.prop('disabled', true).text('Laddar...');
+            try {
+                const $modal = $('#emailModal');
+                // Trigger per-image buttons if present
+                $modal.find('.tm-img-placeholder').each(function() {
+                    const $ph = $(this);
+                    const $loadBtn = $ph.find('.tm-load-img');
+                    if ($loadBtn.length) {
+                        $loadBtn.trigger('click');
+                    } else {
+                        // If placeholder without button, attempt to load data-src directly
+                        const src = $ph.data('src');
+                        if (src) {
+                            const $img = $(`<img src="${src}" referrerpolicy="no-referrer" loading="lazy" decoding="async" alt="image" class="tm-proxied-image"/>`);
+                            $ph.empty().append($img);
+                        }
+                    }
+                });
+                // For any remaining plain <img> ensure referrerpolicy is set
+                $modal.find('#emailContent img').each(function() {
+                    if (!$(this).attr('referrerpolicy')) $(this).attr('referrerpolicy', 'no-referrer');
+                });
+            } catch (err) {
+                console.error('Failed to load images in modal:', err);
+            } finally {
+                setTimeout(() => {
+                    $btn.prop('disabled', false).text('Visa bilder');
+                }, 800);
+            }
+        });
+
+        // Open pro profile modal
+        // Open pro profile modal (custom show to avoid Bootstrap Modal constructor issues)
+        $(document).on('click', '#proProfileBtn', async (e) => {
+            // If the profile control is a normal link (navigates to profile page), allow default navigation
+            const $btn = $(e.currentTarget);
+            const href = $btn.attr('href');
+            if (href && href !== '#' && !href.startsWith('javascript:')) {
+                // Let the browser follow the link
+                return;
+            }
+            e.preventDefault();
+            const $modal = $('#proProfileModal');
+            // create backdrop if missing
+            if ($('.custom-modal-backdrop').length === 0) {
+                $('<div class="modal-backdrop fade show custom-modal-backdrop"></div>').appendTo('body');
+            }
+            // show modal (bootstrap styles rely on classes)
+            $modal.addClass('show').css('display', 'block').attr('aria-hidden', 'false');
+            $('body').addClass('modal-open');
+
+            // Show loading state in modal
+            $('#proProfileAlert').html('<div class="alert alert-info">Loading profile...</div>');
+
+            try {
+                const res = await $.post('pro_profile.php', { action: 'get_profile' }, null, 'json');
+                if (res && res.success && res.profile) {
+                    $('#proEmail').val(res.profile.email || '');
+                    $('#proPassword').val('');
+                    $('#proPasswordConfirm').val('');
+                    $('#proPasswordCurrent').val('');
+                    $('#proProfileAlert').html('');
+                    if (res.profile.has_password) {
+                        $('#proPasswordCurrentGroup').removeClass('d-none');
+                    } else {
+                        $('#proPasswordCurrentGroup').addClass('d-none');
+                    }
+                } else {
+                    $('#proProfileAlert').html('<div class="alert alert-warning">Could not load profile data.</div>');
+                }
+            } catch (err) {
+                console.error('Failed to load pro profile', err);
+                $('#proProfileAlert').html('<div class="alert alert-danger">Network error while loading profile</div>');
+            }
+        });
+
+        // Close handlers for our custom modal behavior
+        $(document).on('click', '#proProfileModal .btn-close, #proProfileModal [data-bs-dismiss="modal"]', (e) => {
+            e.preventDefault();
+            const $modal = $('#proProfileModal');
+            $modal.removeClass('show').css('display', 'none').attr('aria-hidden', 'true');
+            $('.custom-modal-backdrop').remove();
+            $('body').removeClass('modal-open');
+        });
+
+        // Close handlers for email modal (close button, footer close button, any data-bs-dismiss)
+        $(document).on('click', '#emailModal .btn-close, #emailModal [data-bs-dismiss="modal"], #emailModal .modal-footer .btn', (e) => {
+            e.preventDefault();
+            const $modal = $('#emailModal');
+            try {
+                // Prefer Bootstrap's hide to properly remove backdrop
+                $modal.modal('hide');
+            } catch (err) {
+                // Fallback: manually remove show classes
+                $modal.removeClass('show').css('display', 'none').attr('aria-hidden', 'true');
+            }
+            // Remove any backdrops (both custom and bootstrap default)
+            $('.custom-modal-backdrop').remove();
+            $('.modal-backdrop').remove();
+            $('body').removeClass('modal-open');
+        });
+
+        // Close on ESC
+        $(document).on('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const $modal = $('#proProfileModal');
+                if ($modal.hasClass('show')) {
+                    $modal.removeClass('show').css('display', 'none').attr('aria-hidden', 'true');
+                    $('.custom-modal-backdrop').remove();
+                    $('body').removeClass('modal-open');
+                }
+            }
+        });
+
+        // Save profile email
+        $(document).on('click', '#saveProfileEmailBtn', async (e) => {
+            e.preventDefault();
+            const email = $('#proEmail').val();
+            try {
+                const res = await $.post('pro_profile.php', { action: 'update_email', email }, null, 'json');
+                if (res.success) {
+                    var msg = res.message || 'Confirmation link sent to the new email address';
+                    $('#proProfileAlert').html('<div class="alert alert-success">' + msg + '</div>');
+                } else {
+                    $('#proProfileAlert').html('<div class="alert alert-danger">' + (res.error || 'Failed') + '</div>');
+                }
+            } catch (err) {
+                $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+            }
+        });
+
+        // Save profile password
+        $(document).on('click', '#saveProfilePasswordBtn', async (e) => {
+            e.preventDefault();
+            const password = $('#proPassword').val();
+            const confirm = $('#proPasswordConfirm').val();
+            try {
+                const payload = { action: 'set_password', password, confirm };
+                const res = await $.post('pro_profile.php', payload, null, 'json');
+                if (res.success) {
+                    $('#proProfileAlert').html('<div class="alert alert-success">Password set</div>');
+                    $('#proPassword').val('');
+                    $('#proPasswordConfirm').val('');
+                } else {
+                    $('#proProfileAlert').html('<div class="alert alert-danger">' + (res.error || 'Failed') + '</div>');
+                }
+            } catch (err) {
+                $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+            }
+        });
+
+        // Cancel pending profile change (from dashboard)
+        $(document).on('click', '.btn-cancel-pending', async function(e) {
+            e.preventDefault();
+            var id = $(this).data('id');
+            if (!id) return;
+            if (!confirm('Avbryt denna väntande ändring?')) return;
+            try {
+                const res = await $.post('pro_profile.php', { action: 'cancel_pending_change', id: id }, null, 'json');
+                        if (res && res.success) {
+                            var $item = $('#pending-item-' + id);
+                            var $card = $item.closest('.card');
+                            $item.fadeOut(200, function(){
+                                $(this).remove();
+                                // If no more pending items, remove the whole card/module
+                                var remaining = $card.find('.list-group-item').length;
+                                if (remaining === 0) {
+                                    $card.fadeOut(200, function(){ $(this).remove(); });
+                                } else {
+                                    // Update header badge count text
+                                    $card.find('.card-header .badge').text(remaining + ' pending');
+                                }
+                            });
+                        } else {
+                    alert('Kunde inte avbryta: ' + (res && res.error ? res.error : 'Unknown'));
+                }
+            } catch (err) {
+                alert('Network error');
+            }
+        });
+
+        // Resend pending profile confirmation email (from dashboard)
+        $(document).on('click', '.resend-pending-link', async function(e) {
+            e.preventDefault();
+            var id = $(this).data('id');
+            if (!id) return;
+            try {
+                const res = await $.post('pro_profile.php', { action: 'resend_pending_change', id: id }, null, 'json');
+                if (res && res.success) {
+                    alert(res.message || 'Confirmation email resent successfully.');
+                } else {
+                    alert('Kunde inte skicka om: ' + (res && res.error ? res.error : 'Unknown'));
+                }
+            } catch (err) {
+                alert('Network error');
+            }
+        });
+
+        // Toggle block images button
+        $(document).on('click', '#imageToggle', () => {
+            try {
+                const currentlyBlocked = localStorage.getItem('block_images') === '1';
+                localStorage.setItem('block_images', currentlyBlocked ? '0' : '1');
+                this.updateImageToggleButton();
+            } catch (e) {
+                console.warn('Could not toggle block_images in localStorage', e);
+            }
+        });
+        
+        // Hantera keyboard shortcuts
+        $(document).keydown((e) => {
+            // Ctrl/Cmd + R = Refresh
+            if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+                e.preventDefault();
+                this.loadEmails();
+            }
+            
+            // Ctrl/Cmd + N = New address
+            if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+                e.preventDefault();
+                // If user is a logged-in pro user, generate normally. Otherwise navigate to pro login.
+                try {
+                    const isPro = window.tempMailConfig && window.tempMailConfig.isPro;
+                    if (isPro) {
+                        this.generateNewAddress();
+                    } else {
+                        // navigate guests to pro login page
+                        window.location.href = '/pro_login.php';
+                    }
+                } catch (err) {
+                    // Fallback: navigate to pro login for safety
+                    window.location.href = '/pro_login.php';
+                }
+            }
+            
+            // Ctrl/Cmd + C = Copy address (when focused on address)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $('.email-address').is(':focus')) {
+                e.preventDefault();
+                this.copyAddress();
+            }
+        });
+        
+        // Fokus på adress när man klickar
+        $(document).on('click', '.email-address', function() {
+            $(this).focus().select();
+        });
+    }
+    
+    /**
+     * Generera ny e-postadress
+     */
+    async generateNewAddress() {
+        try {
+            this.showLoading('#generateBtn, #newAddressBtn', 'Genererar...');
+
+            const response = await $.ajax({
+                url: 'index.php',
+                method: 'POST',
+                data: { action: 'generate' },
+                dataType: 'json',
+                error: function(xhr, status, error) {
+                    console.error('AJAX error:', status, error, xhr.responseText);
+                    $('#generateBtn, #newAddressBtn').removeClass('btn-primary').addClass('btn-danger');
+                    $('#generateBtn, #newAddressBtn').text('Error! Try again');
+                    window.tempMailApp?.showNotification('AJAX error: ' + status + ' ' + error, 'error');
+                }
+            });
+
+            console.log('AJAX response (generate):', response);
+
+            if (response.success && response.address) {
+                this.currentAddress = response.address;
+                localStorage.setItem('tempmail_address', this.currentAddress);
+                this.expiresAt = response.expires_at ? new Date(response.expires_at.replace(' ', 'T')) : null;
+                this.updateURL();
+                this.updateUI();
+                this.startValidityCountdown();
+                this.loadEmails();
+                this.showNotification('New email address generated!', 'success');
+                $('#generateBtn, #newAddressBtn').removeClass('btn-danger').addClass('btn-primary');
+                $('#generateBtn, #newAddressBtn').text('Generate New Address');
+            } else {
+                this.showNotification('Could not generate address: ' + (response.error || 'Unknown error'), 'error');
+                console.error('Backend error (generate):', response);
+                $('#generateBtn, #newAddressBtn').removeClass('btn-primary').addClass('btn-danger');
+                $('#generateBtn, #newAddressBtn').text('Error! Try again');
+            }
+
+        } catch (error) {
+            console.error('Error generating address (catch):', error);
+            this.showNotification('Network error when generating address: ' + error, 'error');
+            $('#generateBtn, #newAddressBtn').removeClass('btn-primary').addClass('btn-danger');
+            $('#generateBtn, #newAddressBtn').text('Network error! Try again');
+        } finally {
+            setTimeout(() => {
+                $('#generateBtn, #newAddressBtn').removeClass('btn-danger').addClass('btn-primary');
+                $('#generateBtn, #newAddressBtn').text('Generate New Address');
+            }, 4000);
+            this.hideLoading('#generateBtn, #newAddressBtn', 'Generate new address');
+        }
+    }
+    
+    /**
+     * Ladda e-postmeddelanden (utan IMAP-refresh)
+     */
+    async loadEmails(forceRefresh = false) {
+        if (!this.currentAddress) {
+            return;
+        }
+        
+        try {
+            const actionText = forceRefresh ? 'Fetching from server...' : 'Updating...';
+            this.showLoading('#refreshBtn', actionText);
+            this.updateStatus('loading');
+            
+            const requestData = { 
+                action: forceRefresh ? 'refresh_emails' : 'get_emails',
+                address: this.currentAddress 
+            };
+            
+            console.log('Loading emails with data:', requestData);
+            
+            const response = await $.ajax({
+                url: 'index.php',
+                method: 'POST',
+                data: requestData,
+                dataType: 'json'
+            });
+            
+            console.log('Email response:', response);
+            
+            if (response.success) {
+                this.displayEmails(response.emails || []);
+                this.updateStatus('online');
+                
+                // Uppdatera tidsstämpel
+                $('#lastUpdate').text(this.formatTime(new Date()));
+            } else {
+                    if ((response.error || '').toLowerCase().includes('ogiltig adress')) {
+                        this.showNotification('Invalid address, new address created', 'info');
+                        await this.generateNewAddress();
+                    } else {
+                        this.showNotification('Could not load emails: ' + (response.error || 'Unknown error'), 'error');
+                        this.updateStatus('offline');
+                    }
+            }
+            
+        } catch (error) {
+            console.error('Error loading emails:', error);
+            this.showNotification('Network error when loading emails', 'error');
+            this.updateStatus('offline');
+        } finally {
+            this.hideLoading('#refreshBtn', 'Refresh');
+        }
+    }
+    
+    /**
+     * Visa e-postmeddelanden
+     */
+    displayEmails(emails) {
+        const container = $('#emailList');
+        
+        if (emails.length === 0) {
+            container.html(`
+                <div class="text-center py-5">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">No messages yet</h5>
+                    <p class="text-muted">Email messages will appear here automatically</p>
+                </div>
+            `);
+            // Uppdatera email counter badge till 0
+            $('#emailCount').text(0);
+            return;
+        }
+        
+        const emailsHtml = emails.map(email => {
+            const time = this.formatTime(new Date(email.received_at));
+            const preview = this.getEmailPreview(email.body_text || email.body_html);
+            // Extract local part (before @) for display
+            let toLocal = '';
+            if (email.to_address) {
+                try {
+                    toLocal = String(email.to_address).split('@')[0];
+                } catch (e) {
+                    toLocal = email.to_address;
+                }
+            }
+            
+            return `
+                <div class="email-item fade-in" data-email-id="${email.id}">
+                    <div class="email-header">
+                        <div>
+                            <div class="d-flex align-items-center" style="gap:8px;">
+                                <h6 class="email-from mb-0 me-2">${this.escapeHtml(email.from_address)}</h6>
+                                ${toLocal ? `<span class="badge bg-light text-dark small">To: ${this.escapeHtml(toLocal)}</span>` : ''}
+                            </div>
+                            <div class="d-flex align-items-center mt-1" style="gap:8px;">
+                                <div class="email-subject">${this.escapeHtml(email.subject || '(No subject)')}</div>
+                            </div>
+                        </div>
+                        <span class="email-time">${time}</span>
+                    </div>
+                    <div class="email-preview">${preview}</div>
+                </div>
+            `;
+        }).join('');
+        
+        container.html(emailsHtml);
+        
+        // Uppdatera email counter badge
+        $('#emailCount').text(emails.length);
+
+        // Update lastKnownEmailId to avoid unnecessary full reloads
+        try {
+            if (emails && emails.length) {
+                let maxId = 0;
+                emails.forEach(e => { if (e && e.id && Number(e.id) > maxId) maxId = Number(e.id); });
+                if (maxId > this.lastKnownEmailId) this.lastKnownEmailId = maxId;
+            } else {
+                // if no emails, keep lastKnown as-is (no change)
+            }
+        } catch (e) {
+            console.warn('Failed updating lastKnownEmailId', e);
+        }
+        
+        // Animera in nya e-postmeddelanden
+        container.find('.email-item').each((index, item) => {
+            setTimeout(() => {
+                $(item).addClass('fade-in');
+            }, index * 100);
+        });
+    }
+
+    /**
+     * Lightweight check to see whether there are new emails since last known id
+     */
+    async checkForNewEmails() {
+        if (!this.currentAddress) return { success: false };
+        try {
+            const response = await $.ajax({
+                url: 'index.php',
+                method: 'POST',
+                data: { action: 'has_new_emails', address: this.currentAddress, last_known_id: this.lastKnownEmailId || 0 },
+                dataType: 'json',
+                timeout: 5000
+            });
+            return response;
+        } catch (err) {
+            // Don't spam console — treat as non-fatal
+            console.warn('checkForNewEmails failed', err);
+            return { success: false };
+        }
+    }
+    
+    /**
+     * Öppna e-postmeddelande i modal
+     */
+    async openEmail(emailId) {
+        try {
+            const response = await $.ajax({
+                url: 'index.php',
+                method: 'POST',
+                data: { 
+                    action: 'get_email',
+                    email_id: emailId 
+                },
+                dataType: 'json'
+            });
+            
+            if (response.success && response.email) {
+                // Attach attachments array to email object for modal display
+                response.email.attachments = response.attachments || [];
+                this.showEmailModal(response.email);
+            } else {
+                // If the server indicates the message has expired, show a friendly toast
+                const err = (response && response.error) ? response.error.toString().toLowerCase() : '';
+                if (err.includes('förfall') || err.includes('expired') || err.includes('har förfallit')) {
+                    this.showNotification('Det här meddelandet har förfallit och kan inte visas.', 'warning', 5000);
+                } else {
+                    this.showNotification(response.error || 'Could not load email message', 'error');
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error loading email:', error);
+            this.showNotification('Network error when loading message', 'error');
+        }
+    }
+    
+    /**
+     * Visa e-post i modal
+     */
+    showEmailModal(email) {
+        const modal = $('#emailModal');
+        
+        // Sätt innehåll
+        modal.find('.modal-title').text(email.subject || '(No subject)');
+        modal.find('#emailFrom').text(email.from_address);
+        modal.find('#emailTo').text(email.to_address);
+        modal.find('#emailDate').text(this.formatTime(new Date(email.received_at)));
+        
+        // Visa innehåll
+        const contentContainer = modal.find('#emailContent');
+        if (email.body_html) {
+            // Sanera HTML-innehåll
+            const cleanHtml = this.sanitizeHtml(email.body_html || '');
+            // Decode any HTML entities so markup like &lt;strong&gt; becomes <strong>
+            const decodedHtml = this.decodeHtmlEntities(cleanHtml);
+            // Replace <img> with placeholders to avoid auto-loading external images
+            try {
+                const tmp = document.createElement('div');
+                tmp.innerHTML = decodedHtml;
+                const imgs = tmp.querySelectorAll('img');
+                const blockImages = (localStorage.getItem('block_images') === '1');
+                imgs.forEach(img => {
+                    const src = img.getAttribute('src') || img.getAttribute('data-src');
+                    const host = (function(u){try{return new URL(u).host}catch(e){return '';}})(src);
+                    if (!src) return;
+                    if (!blockImages) {
+                        // Allow browser to load image directly but strip referrer
+                        img.setAttribute('referrerpolicy', 'no-referrer');
+                        img.setAttribute('loading', 'lazy');
+                        img.setAttribute('decoding', 'async');
+                        img.classList.add('tm-proxied-image');
+                    } else {
+                        // Replace with placeholder and a per-image load button
+                        const placeholder = document.createElement('div');
+                        placeholder.className = 'tm-img-placeholder';
+                        if (host) {
+                            const hostSpan = document.createElement('small');
+                            hostSpan.className = 'tm-img-host';
+                            hostSpan.textContent = host;
+                            placeholder.appendChild(hostSpan);
+                        }
+                        const btn = document.createElement('button');
+                        btn.className = 'btn btn-sm btn-outline-secondary tm-load-img';
+                        btn.textContent = 'Ladda bild';
+                        placeholder.appendChild(btn);
+                        if (src) placeholder.setAttribute('data-src', src);
+                        img.parentNode.replaceChild(placeholder, img);
+                    }
+                });
+                contentContainer.html(tmp.innerHTML);
+            } catch (e) {
+                contentContainer.html(this.decodeHtmlEntities(cleanHtml));
+            }
+        } else if (email.body_text) {
+            // Escape HTML then parse simple Markdown-like markers (**bold**, *italic*, _italic_)
+            const escaped = this.escapeHtml(email.body_text);
+            const parsed = this.parseSimpleMarkdown(escaped);
+            contentContainer.html(parsed);
+        } else {
+            contentContainer.html('<p class="text-muted">No content available</p>');
+        }
+        
+        // Visa attachments (if any)
+        const attachments = email.attachments || [];
+        const attachmentsHtml = [];
+        if (attachments.length) {
+            attachments.forEach(att => {
+                const url = att.download_url || ('/files.php?id=' + encodeURIComponent(att.id));
+                const dl = `<div class="tm-attachment-item mb-2">
+                    <a class="btn btn-sm btn-outline-primary" href="${url}" target="_blank" rel="noreferrer noopener">Ladda ner</a>
+                    <small class="ms-2">${this.escapeHtml(att.filename)}</small>
+                </div>`;
+                attachmentsHtml.push(dl);
+            });
+        }
+
+        // Visa modal
+        // Show or hide the modal-level "Visa bilder" button depending on content
+        const hasPlaceholders = contentContainer.find('.tm-img-placeholder').length > 0;
+        const modalBtn = modal.find('#modalShowImagesBtn');
+        if (modalBtn && modalBtn.length) {
+            if (hasPlaceholders) {
+                modalBtn.show();
+            } else {
+                // If there are no placeholders but images exist, still show the button
+                const hasImages = contentContainer.find('img').length > 0;
+                if (hasImages) modalBtn.show(); else modalBtn.hide();
+            }
+        }
+
+        // Render attachments section below content
+        const attachmentsContainer = modal.find('#emailAttachments');
+        if (attachmentsContainer && attachmentsContainer.length) {
+            if (attachmentsHtml.length) {
+                attachmentsContainer.html(attachmentsHtml.join('\n'));
+                attachmentsContainer.show();
+            } else {
+                attachmentsContainer.hide();
+            }
+        }
+
+        modal.modal('show');
+    }
+    
+    /**
+     * Kopiera e-postadress
+     */
+    async copyAddress() {
+        if (!this.currentAddress) {
+            this.showNotification('No address to copy', 'error');
+            return;
+        }
+        
+        const fullAddress = `${this.currentAddress}@${window.tempMailConfig.domain}`;
+        
+        try {
+            await navigator.clipboard.writeText(fullAddress);
+            this.showNotification('Adress kopierad!', 'success');
+        } catch (error) {
+            // Fallback för äldre webbläsare
+            const textArea = document.createElement('textarea');
+            textArea.value = fullAddress;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            this.showNotification('Adress kopierad!', 'success');
+        }
+    }
+    
+    /**
+     * Dela länk för aktuell adress
+     */
+    async shareLink() {
+        if (!this.currentAddress) {
+            this.showNotification('No address to share', 'error');
+            return;
+        }
+        
+        const shareUrl = `${window.location.origin}${window.location.pathname}?address=${this.currentAddress}`;
+        
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+            this.showNotification('Länk kopierad! Andra kan nu använda samma adress.', 'success');
+        } catch (error) {
+            // Fallback för äldre webbläsare
+            const textArea = document.createElement('textarea');
+            textArea.value = shareUrl;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            this.showNotification('Länk kopierad! Andra kan nu använda samma adress.', 'success');
+        }
+    }
+    
+    /**
+     * Hämta och uppdatera statistik
+     */
+    async loadStats() {
+        try {
+            const response = await $.ajax({
+                url: 'index.php',
+                method: 'POST', 
+                data: { action: 'get_stats' },
+                dataType: 'json'
+            });
+            
+            if (response.success && response.stats) {
+                const stats = response.stats;
+                
+                // Uppdatera statistik på sidan med animation
+                this.animateStatNumber('#statsTotal', stats.emails_total || 0);
+                this.animateStatNumber('#statsProcessed', stats.emails_processed || 0);
+                this.animateStatNumber('#statsCreated', stats.emails_created || 0);
+                this.animateStatNumber('#statsAttachments', stats.attachments_processed || 0);
+            }
+        } catch (error) {
+            console.error('Error loading stats:', error);
+        }
+    }
+    
+    /**
+     * Animera sifferuppdatering för statistik
+     */
+    animateStatNumber(selector, newValue) {
+        const $element = $(selector);
+        const currentValue = parseInt($element.text()) || 0;
+        
+        if (currentValue !== newValue) {
+            $element.prop('Counter', currentValue).animate({
+                Counter: newValue
+            }, {
+                duration: 1000,
+                easing: 'swing',
+                step: function (now) {
+                    $element.text(Math.ceil(now).toLocaleString('sv-SE'));
+                }
+            });
+        }
+    }
+    
+    // Theme removed: no toggleTheme/loadTheme methods
+
+    updateImageToggleButton() {
+        const btn = document.getElementById('imageToggle');
+        if (!btn) return;
+        const blocked = (localStorage.getItem('block_images') === '1');
+        const icon = btn.querySelector('i');
+        if (blocked) {
+            btn.classList.add('btn-danger');
+            btn.classList.remove('btn-outline-light');
+            btn.title = 'Bilder blockeras (klicka för att visa)';
+            if (icon) icon.className = 'fas fa-eye-slash';
+        } else {
+            btn.classList.remove('btn-danger');
+            btn.classList.add('btn-outline-light');
+            btn.title = 'Blockera externa bilder';
+            if (icon) icon.className = 'fas fa-image';
+        }
+    }
+    
+    /**
+     * Animera sifferuppdatering för statistik
+     */
+    animateStatNumber(selector, newValue) {
+        const $element = $(selector);
+        const currentValue = parseInt($element.text()) || 0;
+        
+        if (currentValue !== newValue) {
+            $element.prop('Counter', currentValue).animate({
+                Counter: newValue
+            }, {
+                duration: 1000,
+                easing: 'swing',
+                step: function (now) {
+                    $element.text(Math.ceil(now).toLocaleString('sv-SE'));
+                }
+            });
+        }
+    }
+    
+    /**
+     * Starta automatisk uppdatering
+     */
+    startAutoRefresh() {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+        }
+        
+        if (this.autoRefreshEnabled) {
+            this.refreshInterval = setInterval(() => {
+                if (document.visibilityState === 'visible') {
+                    this.autoRefreshCount++;
+                    
+                    // Hämta e-post om vi har en adress
+                    if (this.currentAddress) {
+                        // Gör en IMAP-refresh var 5:e auto-refresh (var 50:e sekund)
+                        const shouldForceRefresh = (this.autoRefreshCount % 5 === 0);
+                        if (shouldForceRefresh) {
+                            this.loadEmails(true);
+                        } else {
+                            // Background check: only fetch full emails if there are new ones
+                            (async () => {
+                                try {
+                                    const chk = await this.checkForNewEmails();
+                                    if (chk && chk.success && chk.has_new) {
+                                        this.loadEmails(false);
+                                    }
+                                } catch (e) {
+                                    // ignore background check failures
+                                }
+                            })();
+                        }
+                    }
+                    
+                    // Hämta statistik var 6:e auto-refresh (var minut)
+                    if (this.autoRefreshCount % 6 === 0) {
+                        this.loadStats();
+                    }
+                }
+            }, this.refreshRate);
+            
+            this.updateAutoRefreshIndicator();
+        }
+    }
+    
+    /**
+     * Toggle automatisk uppdatering
+     */
+    toggleAutoRefresh() {
+        this.autoRefreshEnabled = !this.autoRefreshEnabled;
+        
+        if (this.autoRefreshEnabled) {
+            this.startAutoRefresh();
+            this.showNotification('Auto-refresh enabled', 'success');
+        } else {
+            if (this.refreshInterval) {
+                clearInterval(this.refreshInterval);
+                this.refreshInterval = null;
+            }
+            this.showNotification('Auto-refresh disabled', 'info');
+        }
+        
+        this.updateAutoRefreshIndicator();
+    }
+    
+    /**
+     * Uppdatera UI
+     */
+    updateUI() {
+        if (this.currentAddress) {
+            const fullAddress = `${this.currentAddress}@${window.tempMailConfig.domain}`;
+            $('#currentEmail').text(fullAddress);
+            $('.email-container').removeClass('d-none');
+            $('#initial-generator').addClass('d-none');
+            $('#generateBtn, #newAddressBtn').text('Generate New Address');
+            console.log('updateUI: expiresAt =', this.expiresAt, 'isPersonal =', this.isPersonalAddress);
+            this.startValidityCountdown();
+            // Update privacy indicator
+            if (this.isPersonalAddress) {
+                $('#privacyIndicator').removeClass('d-none');
+                $('#privacyText').text('Private');
+                $('#privacyIndicator i').removeClass('fa-globe').addClass('fa-lock');
+            } else {
+                $('#privacyIndicator').removeClass('d-none');
+                $('#privacyText').text('Public');
+                $('#privacyIndicator i').removeClass('fa-lock').addClass('fa-globe');
+            }
+        } else {
+            $('.email-container').addClass('d-none');
+            $('#initial-generator').removeClass('d-none');
+            $('#generateBtn, #newAddressBtn').text('Get Email Address');
+            this.stopValidityCountdown();
+            $('#validityText').text('Valid for 24 hours');
+            $('#privacyIndicator').addClass('d-none');
+        }
+    }
+
+    /**
+     * Starta och uppdatera nedräkning för giltighet
+     */
+    startValidityCountdown() {
+        this.stopValidityCountdown();
+        if (!this.expiresAt) {
+            $('#validityText').text('Valid for 24 hours');
+            return;
+        }
+        this.updateValidityText();
+        this.validityTimer = setInterval(() => {
+            this.updateValidityText();
+        }, 1000);
+    }
+
+    stopValidityCountdown() {
+        if (this.validityTimer) {
+            clearInterval(this.validityTimer);
+            this.validityTimer = null;
+        }
+    }
+
+    /**
+     * Uppdatera giltighetstexten
+     */
+    updateValidityText() {
+        if (!this.expiresAt) {
+            $('#validityText').text('Valid for 24 hours till automatically deleted');
+            return;
+        }
+        const now = new Date();
+        let diff = Math.floor((this.expiresAt.getTime() - now.getTime()) / 1000);
+        // Treat very long expirations as 'Unlimited' (e.g. personal/pro addresses with multi-year TTL)
+        const unlimitedThresholdSeconds = 60 * 60 * 24 * 365 * 5; // 5 years
+        if (diff > unlimitedThresholdSeconds) {
+            $('#validityText').text('Unlimited');
+            return;
+        }
+        if (diff <= 0) {
+            $('#validityText').text('Utgången – automatically deleted');
+            this.stopValidityCountdown();
+            return;
+        }
+        const hours = Math.floor(diff / 3600);
+        const minutes = Math.floor((diff % 3600) / 60);
+        let timeText = '';
+        if (hours > 0) {
+            timeText = `${hours}h ${minutes}m`;
+        } else if (minutes > 0) {
+            timeText = `${minutes}m`;
+        } else {
+            timeText = `${diff % 60}s`;
+        }
+        $('#validityText').text(`${timeText} till automatically deleted`);
+    }
+    
+    /**
+     * Uppdatera URL med aktuell adress
+     */
+    updateURL() {
+        if (this.currentAddress && history.pushState) {
+            const newUrl = `${window.location.pathname}?address=${this.currentAddress}`;
+            history.pushState({address: this.currentAddress}, '', newUrl);
+        }
+    }
+    
+    /**
+     * Uppdatera status-indikator
+     */
+    updateStatus(status, text = '') {
+        const indicator = $('.status-indicator');
+        indicator.removeClass('status-online status-offline loading');
+        
+        switch (status) {
+            case 'online':
+                indicator.addClass('status-online').html('<i class="fas fa-circle"></i> Online ' + text);
+                break;
+            case 'offline':
+                indicator.addClass('status-offline').html('<i class="fas fa-exclamation-circle"></i> Offline');
+                break;
+            case 'loading':
+                indicator.addClass('loading').html('<div class="spinner"></div> Laddar...');
+                break;
+        }
+    }
+    
+    /**
+     * Uppdatera auto-refresh indikator
+     */
+    updateAutoRefreshIndicator() {
+        let indicator = $('.auto-refresh');
+        
+        if (indicator.length === 0) {
+            indicator = $('<div class="auto-refresh"></div>').appendTo('body');
+        }
+        
+        if (this.autoRefreshEnabled) {
+            indicator.html('<i class="fas fa-sync-alt"></i> Auto-refresh: ON').show();
+        } else {
+            indicator.html('<i class="fas fa-pause"></i> Auto-refresh: OFF').show();
+        }
+    }
+    
+    /**
+     * Visa loading-state för knapp
+     */
+    showLoading(selector, text) {
+        const btn = $(selector);
+        btn.prop('disabled', true);
+        btn.data('original-text', btn.text());
+        btn.html(`<span class="spinner-border spinner-border-sm me-2"></span>${text}`);
+    }
+    
+    /**
+     * Dölj loading-state för knapp
+     */
+    hideLoading(selector, text = null) {
+        const btn = $(selector);
+        btn.prop('disabled', false);
+        const originalText = text || btn.data('original-text');
+        btn.text(originalText);
+    }
+    
+    /**
+     * Visa notification
+     */
+    showNotification(message, type = 'info', duration = 3000) {
+        // Ta bort befintliga notifikationer
+        $('.copy-notification').remove();
+        
+        const notification = $(`
+            <div class="copy-notification ${type}">
+                <i class="fas fa-${this.getNotificationIcon(type)}"></i> ${message}
+            </div>
+        `);
+        
+        $('body').append(notification);
+        
+        // Animera in
+        setTimeout(() => notification.addClass('show'), 100);
+        
+        // Animera ut efter duration
+        setTimeout(() => {
+            notification.removeClass('show');
+            setTimeout(() => notification.remove(), 300);
+        }, duration);
+    }
+    
+    /**
+     * Hämta ikon för notifikation
+     */
+    getNotificationIcon(type) {
+        switch (type) {
+            case 'success': return 'check';
+            case 'error': return 'exclamation-triangle';
+            case 'warning': return 'exclamation';
+            default: return 'info';
+        }
+    }
+    
+    /**
+     * Formatera tid
+     */
+    formatTime(date) {
+        const now = new Date();
+        const diff = now.getTime() - date.getTime();
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+        
+        if (minutes < 1) return 'Nu';
+        if (minutes < 60) return `${minutes}m sedan`;
+        if (hours < 24) return `${hours}t sedan`;
+        if (days < 7) return `${days}d sedan`;
+        
+        return date.toLocaleDateString('sv-SE', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+    
+    /**
+     * Hämta förhandsvisning av e-post
+     */
+    getEmailPreview(content, maxLength = 150) {
+        if (!content) return 'Inget innehåll tillgängligt';
+        
+        // Ta bort HTML-taggar
+        const text = content.replace(/<[^>]*>/g, '');
+        
+        // Ta bort extra whitespace
+        const cleaned = text.replace(/\s+/g, ' ').trim();
+        
+        if (cleaned.length <= maxLength) return cleaned;
+        
+        return cleaned.substring(0, maxLength) + '...';
+    }
+    
+    /**
+     * Escape HTML
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Decode HTML entities (e.g. turn &lt;strong&gt; into <strong>)
+     */
+    decodeHtmlEntities(html) {
+        if (!html) return html;
+        const txt = document.createElement('textarea');
+        // Setting innerHTML allows the browser to decode entities
+        txt.innerHTML = html;
+        return txt.value;
+    }
+
+    /**
+     * Parse a very small subset of Markdown in plain text: **bold**, *italic* or _italic_
+     * The function first expects an already-escaped input (so HTML is safe), then
+     * converts the markdown markers to <strong>/<em> tags and preserves paragraphs/line breaks.
+     */
+    parseSimpleMarkdown(escapedText) {
+        if (!escapedText) return escapedText;
+
+        // Normalize newlines
+        let s = escapedText.replace(/\r\n?/g, '\n');
+
+        // Convert **bold** first (non-greedy)
+        s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+        // Convert _italic_ (underscores) and *italic* (single asterisks)
+        // After bold is replaced, single asterisks represent italics.
+        s = s.replace(/_(.+?)_/g, '<em>$1</em>');
+        s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+        // Split into paragraphs on double newlines, and convert single newlines to <br>
+        const paras = s.split(/\n\n+/).map(p => p.replace(/\n/g, '<br>'));
+        return paras.map(p => `<p>${p}</p>`).join('');
+    }
+    
+    /**
+     * Sanera HTML-innehåll (grundläggande)
+     */
+    sanitizeHtml(html) {
+        // Ta bort potentiellt skadliga taggar och attribut
+        const clean = html
+            .replace(/<script[^>]*>.*?<\/script>/gi, '')
+            .replace(/<iframe[^>]*>.*?<\/iframe>/gi, '')
+            .replace(/javascript:/gi, '')
+            .replace(/on\w+="[^"]*"/gi, '')
+            .replace(/on\w+='[^']*'/gi, '');
+        
+        return clean;
+    }
+}
+
+// Initialisera när DOM är laddat
+$(document).ready(() => {
+    window.tempMailApp = new TempMailApp();
+});
+
+// Hantera visibility change för att pausa/återuppta auto-refresh
+document.addEventListener('visibilitychange', () => {
+    if (window.tempMailApp) {
+        if (document.visibilityState === 'visible') {
+            window.tempMailApp.startAutoRefresh();
+        }
+    }
+});
+
+// Service Worker registration (för offline support)
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        // Register service worker from its new location
+        navigator.serviceWorker.register('/assets/js/sw.js')
+            .then(registration => {
+                console.log('SW registered: ', registration);
+            })
+            .catch(registrationError => {
+                console.log('SW registration failed: ', registrationError);
+            });
+    });
+}

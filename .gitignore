@@ -1,0 +1,23 @@
+# Local environment and secrets
+.env.*
+!.env.example
+
+# Runtime uploads and generated files
+attachments/*
+!attachments/.gitkeep
+
+# Local logs
+*.log
+
+# Client agent generated private files (must never be committed)
+client/agent/client-agent*.local.php
+client/agent/client-agent.key
+client/agent/client-agent.config-map.json
+
+# Client agent runtime data
+client/agent/storage/*.json
+client/agent/storage/*.log
+client/agent/storage/*.bak
+
+# Client backend runtime storage (legacy/local test state)
+client/backend/storage/*.json

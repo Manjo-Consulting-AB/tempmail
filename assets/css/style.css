@@ -1,0 +1,745 @@
+/* TempMail - Modern UI Styling */
+
+/* Grundläggande styling */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px 0;
+}
+
+.main-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Utility: make cards match main content width and center them */
+.card-main-width {
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Make all cards inside main container match the site's main width and center them.
+   This keeps visual alignment across the site while keeping responsive behavior. */
+.main-container .card {
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Modals matching main content width */
+.modal-dialog.modal-main {
+    /* Desktop preferred width (keeps small side gutters) */
+    max-width: 1200px; /* match .main-container max-width */
+    width: calc(100% - 48px);
+    margin: 1.75rem auto;
+}
+
+/* Responsive adjustments following Bootstrap breakpoints */
+@media (max-width: 992px) {
+    .modal-dialog.modal-main {
+        max-width: 860px;
+        width: calc(100% - 32px);
+    }
+}
+
+@media (max-width: 768px) {
+    .modal-dialog.modal-main {
+        max-width: 640px;
+        width: calc(100% - 24px);
+        margin: 1rem auto;
+    }
+}
+
+@media (max-width: 576px) {
+    .modal-dialog.modal-main {
+        /* On very small screens, allow nearly full width with a small gutter */
+        max-width: calc(100% - 20px);
+        width: calc(100% - 20px);
+        margin: 0.5rem auto;
+    }
+}
+
+/* Ensure modal content is usable on small viewports */
+.modal-dialog.modal-main .modal-content {
+    max-height: calc(100vh - 120px);
+    overflow: hidden;
+}
+.modal-dialog.modal-main .modal-body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Fullscreen on small devices helper (uses same naming as Bootstrap's helper)
+   Applied together with .modal-main to make mobile experience immersive */
+.modal-dialog.modal-fullscreen-sm-down {
+    max-width: 100%;
+    width: 100%;
+    margin: 0.5rem auto;
+}
+.modal-dialog.modal-fullscreen-sm-down .modal-content {
+    height: calc(100vh - 16px);
+    border-radius: 6px;
+    overflow: hidden;
+}
+.modal-dialog.modal-fullscreen-sm-down .modal-body {
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Header styling */
+.header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.header h1 {
+    color: white;
+    font-weight: 300;
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.header .lead {
+    color: rgba(255,255,255,0.9);
+    font-size: 1.1rem;
+    font-weight: 300;
+}
+
+/* Card styling */
+.card {
+    border: none;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    backdrop-filter: blur(10px);
+    background: rgba(255,255,255,0.95);
+    margin-bottom: 2rem;
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+}
+
+/* Statistik styling */
+.stat-box {
+    padding: 1.5rem 1rem;
+    border-radius: 10px;
+    background: linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0.2));
+    border: 1px solid rgba(255,255,255,0.2);
+    transition: all 0.3s ease;
+}
+
+.stat-box:hover {
+    background: linear-gradient(45deg, rgba(255,255,255,0.2), rgba(255,255,255,0.3));
+    transform: translateY(-2px);
+}
+
+.stat-number {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: #333;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.card-header {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+    border-radius: 15px 15px 0 0 !important;
+    border: none;
+    padding: 1.5rem;
+}
+
+.card-header h3 {
+    margin: 0;
+    font-weight: 500;
+}
+
+.card-body {
+    padding: 2rem;
+}
+
+/* Email address display */
+.email-display {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+    padding: 1.5rem;
+    border-radius: 15px;
+    margin: 1.5rem 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.email-display::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+    z-index: 1;
+}
+
+.email-display > * {
+    position: relative;
+    z-index: 2;
+}
+
+.email-address {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 1.2rem;
+    font-weight: 600;
+    word-break: break-all;
+    margin: 0;
+}
+
+.email-info {
+    font-size: 0.9rem;
+    opacity: 0.9;
+    margin-top: 0.5rem;
+}
+
+/* Button styling */
+.btn {
+    border-radius: 25px;
+    padding: 0.75rem 2rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+    border: none;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+    background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
+}
+
+.btn-success:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(79, 172, 254, 0.6);
+}
+
+.btn-outline-secondary {
+    color: #495057;
+    border: 2px solid rgba(73, 80, 87, 0.6);
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+}
+
+.btn-outline-secondary:hover {
+    background: rgba(73, 80, 87, 0.9);
+    color: white;
+    border-color: #495057;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(73, 80, 87, 0.3);
+}
+
+/* Centralized styling for the personal-create button used in profile */
+.btn-create-personal {
+    background: linear-gradient(90deg, #2ac2ff 0%, #5ee7a6 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 18px rgba(46, 199, 255, 0.18);
+    border-radius: 999px;
+    padding: 0.45rem 1.1rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+.btn-create-personal:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(46, 199, 255, 0.22);
+}
+.btn-create-personal:disabled,
+.btn-create-personal[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* Removed dark-theme specific rules to keep site uniformly light */
+
+/* Email list styling */
+.email-list {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.email-item {
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    background: white;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.email-item:hover {
+    border-color: #4facfe;
+    box-shadow: 0 5px 15px rgba(79, 172, 254, 0.2);
+    transform: translateY(-2px);
+}
+
+.email-item.unread {
+    border-left: 4px solid #4facfe;
+    background: linear-gradient(90deg, rgba(79, 172, 254, 0.05) 0%, white 10%);
+}
+
+.email-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.email-from {
+    font-weight: 600;
+    color: #495057;
+    margin: 0;
+}
+
+.email-time {
+    font-size: 0.85rem;
+    color: #6c757d;
+    white-space: nowrap;
+}
+
+.email-subject {
+    font-weight: 500;
+    color: #212529;
+    margin-bottom: 0.5rem;
+}
+
+.email-preview {
+    color: #6c757d;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+/* Status och loading indicators */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin: 0.5rem 0;
+}
+
+/* Image placeholder for proxied/external images */
+.tm-img-placeholder {
+    border: 1px dashed #dcdcdc;
+    padding: 8px;
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    background: #fafafa;
+    border-radius: 6px;
+}
+.tm-img-placeholder .tm-img-host {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-right: 6px;
+}
+.tm-proxied-image {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+
+.status-online {
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+    color: white;
+}
+
+.status-offline {
+    background: linear-gradient(135deg, #f44336, #d32f2f);
+    color: white;
+}
+
+.loading {
+    display: inline-flex;
+    align-items: center;
+    color: #4facfe;
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #e9ecef;
+    border-top: 2px solid #4facfe;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 0.5rem;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Responsive webhook list fixes (moved from pro_profile_page.php) */
+#webhookList .list-group-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+#webhookList .list-group-item > .me-3 {
+    /* Allow the text column to shrink and wrap properly */
+    min-width: 0;
+    flex: 1 1 auto;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+#webhookList .list-group-item .btn-group {
+    /* Keep buttons on the right, don't force them to wrap the text */
+    flex: 0 0 auto;
+    margin-left: 0.5rem;
+}
+@media (max-width: 575.98px) {
+    #webhookList .list-group-item .text-muted.small {
+        font-size: 0.85rem;
+    }
+}
+
+/* Auto-refresh indicator */
+.auto-refresh {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background: rgba(79, 172, 254, 0.9);
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 25px;
+    backdrop-filter: blur(10px);
+    font-size: 0.85rem;
+    font-weight: 500;
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+.auto-refresh:hover {
+    background: rgba(79, 172, 254, 1);
+    transform: scale(1.05);
+}
+
+/* Email modal styling */
+.modal-content {
+    border-radius: 15px;
+    border: none;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+    border-radius: 15px 15px 0 0;
+    border: none;
+}
+
+.modal-body {
+    padding: 2rem;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.email-content {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    body {
+        padding: 10px 0;
+    }
+    
+    .header h1 {
+        font-size: 2rem;
+    }
+    
+    .card-body {
+        padding: 1.5rem;
+    }
+    
+    .email-display {
+        padding: 1rem;
+    }
+    
+    .email-address {
+        font-size: 1rem;
+    }
+    
+    .btn {
+        padding: 0.625rem 1.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .auto-refresh {
+        bottom: 1rem;
+        right: 1rem;
+        padding: 0.5rem 1rem;
+        font-size: 0.8rem;
+    }
+}
+
+/* Theme removed: site no longer supports manual dark theme. */
+
+/* Animationer */
+.fade-in {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-up {
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* Copy notification */
+.copy-notification {
+    position: fixed;
+    top: 2rem;
+    right: 2rem;
+    background: #28a745;
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 10px;
+    font-weight: 500;
+    z-index: 1001;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+}
+
+.copy-notification.show {
+    transform: translateX(0);
+}
+
+/* ========================================
+   HEADER NAVBAR STYLES
+   ======================================== */
+
+.header-navbar {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 0.75rem 1.25rem;
+    margin-top: 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.navbar-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.navbar-left {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.navbar-user-info {
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 0.9rem;
+}
+
+.navbar-user-info .badge {
+    font-weight: 500;
+    padding: 0.35em 0.65em;
+}
+
+.navbar-pro-status {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.navbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.navbar-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: white;
+    text-decoration: none;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.navbar-link:hover {
+    background: rgba(255, 255, 255, 0.25);
+    color: white;
+    transform: translateY(-1px);
+}
+
+.navbar-link i {
+    font-size: 0.95rem;
+}
+
+.navbar-logout {
+    background: rgba(220, 53, 69, 0.2);
+    border-color: rgba(220, 53, 69, 0.3);
+}
+
+.navbar-logout:hover {
+    background: rgba(220, 53, 69, 0.4);
+}
+
+/* ========================================
+   HAMBURGER MENU (MOBILE)
+   ======================================== */
+
+.hamburger-btn {
+    display: none;
+    flex-direction: column;
+    justify-content: space-around;
+    width: 30px;
+    height: 24px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    z-index: 1010;
+}
+
+.hamburger-line {
+    width: 100%;
+    height: 3px;
+    background: white;
+    border-radius: 3px;
+    transition: all 0.3s ease;
+    transform-origin: center;
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(1) {
+    transform: rotate(45deg) translate(6px, 6px);
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger-btn.active .hamburger-line:nth-child(3) {
+    transform: rotate(-45deg) translate(6px, -6px);
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+    .hamburger-btn {
+        display: flex;
+    }
+    
+    .navbar-content {
+        position: relative;
+    }
+    
+    .navbar-left {
+        flex: 1;
+    }
+    
+    .navbar-right {
+        position: absolute;
+        top: 100%;
+        left: -1.25rem;
+        right: -1.25rem;
+        flex-direction: column;
+        background: rgba(102, 126, 234, 0.98);
+        backdrop-filter: blur(10px);
+        padding: 1rem;
+        border-radius: 0 0 12px 12px;
+        gap: 0.5rem;
+        z-index: 9999;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-10px);
+        transition: all 0.3s ease;
+        margin-top: 0.75rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+    
+    .navbar-right.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+    
+    .navbar-link {
+        width: 100%;
+        justify-content: center;
+        padding: 0.75rem 1rem;
+    }
+    
+    .nav-text {
+        display: inline;
+    }
+    
+    /* Ensure header has proper stacking context */
+    .header {
+        position: relative;
+        z-index: 100;
+    }
+    
+    .header-navbar {
+        position: relative;
+        z-index: 9998;
+    }
+}
+
+/* Very small screens */
+@media (max-width: 480px) {
+    .header-navbar {
+        padding: 0.6rem 1rem;
+    }
+    
+    .navbar-user-info {
+        font-size: 0.8rem;
+    }
+    
+    .navbar-pro-status {
+        font-size: 0.75rem;
+    }
+}

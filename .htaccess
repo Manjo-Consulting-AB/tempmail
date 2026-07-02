@@ -1,0 +1,22 @@
+# TempMail Apache Configuration
+# Säkerhetsinställningar och URL-hantering
+
+# Aktivera mod_rewrite
+RewriteEngine On
+
+# Sätt standardindex-fil
+DirectoryIndex index.php
+
+# Blockera åtkomst till känsliga filer
+<FilesMatch "\.(env|log|sql|backup)$">
+    Require all denied
+</FilesMatch>
+
+# Blockera åtkomst till Docker-filer
+<FilesMatch "^(Dockerfile|docker-compose)">
+    Require all denied
+</FilesMatch>
+
+# Sätt korrekt MIME-types
+AddType text/css .css
+AddType application/javascript .js

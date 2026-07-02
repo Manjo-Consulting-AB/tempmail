@@ -1,0 +1,234 @@
+<?php
+
+require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/../agent/bootstrap.php';
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
+header('Content-Type: application/json');
+
+$method = $_SERVER['REQUEST_METHOD'];
+$path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '', '/');
+$segments = $path === '' ? [] : explode('/', $path);
+$userId = clientBackendGetCurrentUserId();
+
+if ($userId === null) {
+    http_response_code(401);
+    echo json_encode(['status' => 'error', 'message' => 'Authentication required']);
+    exit;
+}
+
+if ($method === 'POST' && ($segments[0] ?? '') === 'api' && ($segments[1] ?? '') === 'mailfilter' && ($segments[2] ?? '') === 'create') {
+    $input = $_POST;
+    if (empty($input)) {
+        $rawBody = file_get_contents('php://input');
+        $decoded = json_decode($rawBody, true);
+        if (is_array($decoded)) {
+            $input = $decoded;
+        }
+    }
+
+    $script = clientBackendCreateScript(array_merge($input, ['owner_pro_user_id' => $userId]));
+    echo json_encode(['status' => 'ok', 'script' => $script]);
+    exit;
+}
+
+if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($segments[2] ?? '') === 'scripts' || isset($segments[2]))) {
+    if (($segments[2] ?? '') === 'scripts') {
+        $scripts = clientBackendGetScriptsForUser($userId);
+        $summaries = [];
+        foreach ($scripts as $scriptId => $script) {
+            $summaries[] = [
+                'script_id' => $scriptId,
+                'label' => $script['label'] ?? null,
+                'sync_status' => $script['sync_status'] ?? 'idle',
+                'sync_message' => $script['sync_message'] ?? null,
+                'last_webhook_sent_at' => $script['last_webhook_sent_at'] ?? null,
+                'updated_at' => $script['updated_at'] ?? null,
+            ];
+        }
+        echo json_encode(['status' => 'ok', 'scripts' => $summaries]);
+        exit;
+    }
+
+    $scriptId = $segments[2];
+    $script = clientBackendGetScript($scriptId);
+
+    if ($script === null || !clientBackendCanAccessScript($script, $userId)) {
+        http_response_code(404);
+        echo json_encode(['status' => 'error', 'message' => 'Script not found']);
+        exit;
+    }
+
+    if ($method === 'GET' && ($segments[3] ?? '') === 'status') {
+        $summary = clientBackendGetStatusSummary($scriptId);
+        echo json_encode(['status' => 'ok', 'script' => $summary]);
+        exit;
+    }
+
+    if ($method === 'DELETE' && ($segments[3] ?? '') === '') {
+        $scripts = clientBackendGetScripts();
+        if (!isset($scripts[$scriptId])) {
+            http_response_code(404);
+            echo json_encode(['status' => 'error', 'message' => 'Script not found']);
+            exit;
+        }
+
+        unset($scripts[$scriptId]);
+        clientBackendSaveScripts($scripts);
+        echo json_encode(['status' => 'ok', 'deleted_script_id' => $scriptId]);
+        exit;
+    }
+
+    if ($method === 'GET') {
+        echo json_encode(['status' => 'ok', 'script' => $script]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[3] ?? '') === 'whitelist') {
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        if (empty($input) && !empty($_POST)) {
+            $input = $_POST;
+        }
+        $pattern = (string) ($input['pattern'] ?? '');
+        $updated = clientBackendAddListItem($scriptId, 'whitelist', $pattern);
+        $syncStatus = $updated['sync_status'] ?? 'sent';
+        $isFailure = $syncStatus !== 'sent';
+        if ($isFailure) {
+            http_response_code(502);
+        }
+        echo json_encode([
+            'status' => $isFailure ? 'warning' : 'ok',
+            'message' => $updated['sync_message'] ?? null,
+            'script' => $updated,
+        ]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[3] ?? '') === 'blacklist') {
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        if (empty($input) && !empty($_POST)) {
+            $input = $_POST;
+        }
+        $pattern = (string) ($input['pattern'] ?? '');
+        $updated = clientBackendAddListItem($scriptId, 'blacklist', $pattern);
+        $syncStatus = $updated['sync_status'] ?? 'sent';
+        $isFailure = $syncStatus !== 'sent';
+        if ($isFailure) {
+            http_response_code(502);
+        }
+        echo json_encode([
+            'status' => $isFailure ? 'warning' : 'ok',
+            'message' => $updated['sync_message'] ?? null,
+            'script' => $updated,
+        ]);
+        exit;
+    }
+
+    if ($method === 'DELETE' && ($segments[3] ?? '') === 'whitelist') {
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        if (empty($input) && !empty($_POST)) {
+            $input = $_POST;
+        }
+        $pattern = (string) ($input['pattern'] ?? '');
+        $updated = clientBackendRemoveListItem($scriptId, 'whitelist', $pattern);
+        echo json_encode(['status' => 'ok', 'script' => $updated]);
+        exit;
+    }
+
+    if ($method === 'DELETE' && ($segments[3] ?? '') === 'blacklist') {
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        if (empty($input) && !empty($_POST)) {
+            $input = $_POST;
+        }
+        $pattern = (string) ($input['pattern'] ?? '');
+        $updated = clientBackendRemoveListItem($scriptId, 'blacklist', $pattern);
+        echo json_encode(['status' => 'ok', 'script' => $updated]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[3] ?? '') === 'spam-filters') {
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        if (empty($input) && !empty($_POST)) {
+            $input = $_POST;
+        }
+        $updated = clientBackendAddSpamFilter($scriptId, $input);
+        echo json_encode([
+            'status' => ($updated['sync_status'] ?? 'sent') !== 'sent' ? 'warning' : 'ok',
+            'message' => $updated['sync_message'] ?? null,
+            'script' => $updated,
+        ]);
+        exit;
+    }
+
+    if ($method === 'DELETE' && ($segments[3] ?? '') === 'spam-filters') {
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        if (empty($input) && !empty($_POST)) {
+            $input = $_POST;
+        }
+        $ruleId = (string) ($input['rule_id'] ?? '');
+        $updated = clientBackendRemoveSpamFilter($scriptId, $ruleId);
+        echo json_encode([
+            'status' => 'ok',
+            'script' => $updated,
+        ]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[3] ?? '') === 'schedule-sync') {
+        $updated = clientBackendScheduleSync($scriptId);
+        echo json_encode(['status' => 'ok', 'script' => $updated]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[3] ?? '') === 'run-cycle') {
+        $result = clientAgentRunCycle($scriptId);
+        echo json_encode(['status' => 'ok', 'result' => $result]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[3] ?? '') === 'cancel-sync') {
+        $updated = clientBackendCancelSync($scriptId);
+        echo json_encode(['status' => 'ok', 'script' => $updated]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[3] ?? '') === 'sync') {
+        $updated = clientBackendRunPendingSyncs();
+        echo json_encode(['status' => 'ok', 'results' => $updated]);
+        exit;
+    }
+
+    if ($method === 'PATCH' && ($segments[3] ?? '') === 'settings') {
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        if (empty($input) && !empty($_POST)) {
+            $input = $_POST;
+        }
+        $updated = clientBackendUpdateSettings($scriptId, $input);
+        $syncStatus = $updated['sync_status'] ?? 'sent';
+        $isFailure = $syncStatus !== 'sent';
+        if ($isFailure) {
+            http_response_code(502);
+        }
+        echo json_encode([
+            'status' => $isFailure ? 'warning' : 'ok',
+            'message' => $updated['sync_message'] ?? null,
+            'script' => $updated,
+        ]);
+        exit;
+    }
+
+    if ($method === 'PATCH') {
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        if (empty($input) && !empty($_POST)) {
+            $input = $_POST;
+        }
+        $updated = clientBackendUpdateScript($scriptId, array_merge($input, ['owner_pro_user_id' => $userId]));
+        echo json_encode(['status' => 'ok', 'script' => $updated]);
+        exit;
+    }
+}
+
+echo json_encode(['status' => 'ok', 'message' => 'Backend scaffold ready']);
