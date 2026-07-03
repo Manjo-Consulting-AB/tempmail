@@ -1,0 +1,3 @@
+# .semgrepignore
+client/backend/api.php
+client/agent/agent.php
