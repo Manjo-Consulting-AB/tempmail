@@ -149,8 +149,7 @@ if (!empty($where)) {
 $sql .= ' ORDER BY created_at DESC LIMIT ' . (int)$limit;
 
 try {
-    // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
-    $stmt = $pdo->prepare($sql);
+    $stmt = $pdo->prepare($sql); // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
     $stmt->execute($params);
     $rows = $stmt->fetchAll();
 } catch (Exception $e) {
