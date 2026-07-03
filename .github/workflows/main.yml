@@ -13,18 +13,17 @@ jobs:
       image: semgrep/semgrep
     steps:
       - name: Hämta källkod
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5 # Uppgraderad till v5 för att slippa Node-varningen
 
       - name: Kör Semgrep Säkerhetsscan
         run: semgrep scan --config p/php --config p/security-audit --error
 
   # JOBB 2: Kolla om dina externa Composer-bibliotek har kända säkerhetshål
-  # Vi använder GitHubs inbyggda miljö som redan har PHP/Composer installerat i bakgrunden
   composer-audit:
     runs-on: ubuntu-latest
     steps:
       - name: Hämta källkod
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5 # Uppgraderad till v5 för att slippa Node-varningen
 
       - name: Kontrollera sårbarheter i Composer-paket
         run: composer audit
