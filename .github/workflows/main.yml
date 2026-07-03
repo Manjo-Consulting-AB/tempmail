@@ -7,27 +7,32 @@ on:
   workflow_dispatch: # Gör att du kan köra den manuellt när du vill
 
 jobs:
-  security-scan:
+  # JOBB 1: Scanna din egenutvecklade PHP-kod efter sårbarheter (SQLi, XSS, etc.)
+  semgrep-scan:
     runs-on: ubuntu-latest
-
+    container:
+      image: semgrep/semgrep
     steps:
       - name: Hämta källkod
         uses: actions/checkout@v4
 
-      # Del 1: Scanna din egenutvecklade kod efter säkerhetshål (SQLi, XSS, etc.)
-      - name: Semgrep Säkerhetsscan
-        uses: semgrep/semgrep-action@v1
-        with:
-          config: >-
-            p/security-audit
-            p/php
-        # Det här steget kommer att varna dig om du t.ex. har skrivit en osäker SQL-fråga
+      - name: Kör Semgrep Säkerhetsscan
+        run: semgrep scan --config p/php --config p/security-audit --error
 
-      # Del 2: Kolla om dina externa PHP-bibliotek har kända sårbarheter
-      - name: Sätt upp PHP (för Composer)
+  # JOBB 2: Kolla om dina externa Composer-bibliotek har kända säkerhetshål
+  composer-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hämta källkod
+        uses: actions/checkout@v4
+
+      # Vi använder Composers inbyggda audit-verktyg (kräver PHP installerat på GitHubs maskin)
+      - name: Sätt upp PHP och Composer
         uses: shivamathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.2'
+          tools: composer
 
+      # Denna kollar din composer.lock mot Packagists officiella sårbarhetsdatabas
       - name: Kontrollera sårbarheter i Composer-paket
-        uses: symfonyorg/github-actions/local-php-security-checker@main
+        run: composer audit
