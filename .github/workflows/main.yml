@@ -1,0 +1,29 @@
+name: Säkerhetsscanning (PHP)
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+jobs:
+  # JOBB 1: Scanna din egenutvecklade PHP-kod efter sårbarheter (SQLi, XSS, etc.)
+  semgrep-scan:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Hämta källkod
+        uses: actions/checkout@v5
+
+      - name: Kör Semgrep Säkerhetsscan
+        run: semgrep scan --config p/php --config p/security-audit --error
+
+  # JOBB 2: Kolla om dina externa Composer-bibliotek har kända säkerhetshål
+  composer-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hämta källkod
+        uses: actions/checkout@v5
+
+      - name: Kontrollera sårbarheter i Composer-paket
+        run: composer audit --locked
