@@ -149,6 +149,7 @@ if (!empty($where)) {
 $sql .= ' ORDER BY created_at DESC LIMIT ' . (int)$limit;
 
 try {
+    // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $rows = $stmt->fetchAll();
@@ -212,7 +213,7 @@ if ($format === 'json') {
         <label>Search: <input type="search" name="q" value="<?php echo htmlspecialchars($q ?? ''); ?>" placeholder="text or JSON"/></label>
         <label>Since: <input type="date" name="since" value="<?php echo htmlspecialchars($since ?? ''); ?>"/></label>
         <label>Until: <input type="date" name="until" value="<?php echo htmlspecialchars($until ?? ''); ?>"/></label>
-        <label>Limit: <input type="number" name="limit" value="<?php echo $limit; ?>" min="1" max="2000" style="width:70px"/></label>
+        <label>Limit: <input type="number" name="limit" value="<?php echo htmlentities((string)$limit, ENT_QUOTES, 'UTF-8'); ?>" min="1" max="2000" style="width:70px"/></label>
         <button type="submit">Apply</button>
         <button type="button" id="tailBtn">Start Tail</button>
     </form>

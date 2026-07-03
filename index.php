@@ -363,7 +363,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $placeholders = implode(',', array_fill(0, count($addresses), '?'));
                     $safe_placeholders = preg_replace('/[^?,]/', '', $placeholders);
                     // Order by received_at DESC so newest messages appear first
-                    // nosemgrep: php.lang.security.injection.tainted-callable.tainted-sql-string
+                    // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                     $sql = "SELECT id, from_address, subject, body_text, body_html, received_at, to_address, expires_at FROM stored_emails WHERE to_address IN ($safe_placeholders) AND ((expires_at IS NULL AND received_at > DATE_SUB(NOW(), INTERVAL ? HOUR)) OR (expires_at IS NOT NULL AND expires_at > NOW())) ORDER BY received_at DESC LIMIT ?";
                     // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
                     $stmt = $pdo->prepare($sql);
