@@ -2,9 +2,8 @@ name: Säkerhetsscanning (PHP)
 
 on:
   schedule:
-    # Körs varje måndag kl 08:00 UTC
     - cron: '0 8 * * 1'
-  workflow_dispatch: # Gör att du kan köra den manuellt när du vill
+  workflow_dispatch:
 
 jobs:
   # JOBB 1: Scanna din egenutvecklade PHP-kod efter sårbarheter (SQLi, XSS, etc.)
@@ -20,19 +19,12 @@ jobs:
         run: semgrep scan --config p/php --config p/security-audit --error
 
   # JOBB 2: Kolla om dina externa Composer-bibliotek har kända säkerhetshål
+  # Vi använder GitHubs inbyggda miljö som redan har PHP/Composer installerat i bakgrunden
   composer-audit:
     runs-on: ubuntu-latest
     steps:
       - name: Hämta källkod
         uses: actions/checkout@v4
 
-      # Vi använder Composers inbyggda audit-verktyg (kräver PHP installerat på GitHubs maskin)
-      - name: Sätt upp PHP och Composer
-        uses: shivamathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          tools: composer
-
-      # Denna kollar din composer.lock mot Packagists officiella sårbarhetsdatabas
       - name: Kontrollera sårbarheter i Composer-paket
         run: composer audit
