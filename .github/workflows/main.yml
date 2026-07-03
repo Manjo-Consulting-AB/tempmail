@@ -5,6 +5,10 @@ on:
     - cron: '0 8 * * 1'
   workflow_dispatch:
 
+permissions:
+  issues: write
+  contents: read
+
 jobs:
   # JOBB 1: Scanna din egenutvecklade PHP-kod efter sårbarheter (SQLi, XSS, etc.)
   semgrep-scan:
@@ -27,3 +31,24 @@ jobs:
 
       - name: Kontrollera sårbarheter i Composer-paket
         run: composer audit --locked
+
+  # JOBB 3: Skapa ett Issue om JOBB 1 eller JOBB 2 misslyckades
+  create-issue-on-failure:
+    runs-on: ubuntu-latest
+    needs: [semgrep-scan, composer-audit]
+    if: failure() # Körs bara om något av jobben ovan rapporterade fel
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Skapa GitHub Issue via officiella CLI
+        run: |
+          gh issue create \
+            --title "⚠️ Säkerhetsrisker hittade i senaste scanningen" \
+            --assignee "@me" \
+            --body "Automatiska säkerhetsscanningen har upptäckt potentiella sårbarheter i din PHP-kod eller i dina Composer-beroenden.
+            
+            Klicka på länken nedan för att se exakt vilka filer, kodrader eller paket som är drabbade:
+            👉 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ---
+            *Detta ärende skapades automatiskt av ett schemalagt cron-jobb.*"
