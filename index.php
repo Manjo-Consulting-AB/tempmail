@@ -188,8 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $ins = $pdo->prepare("INSERT INTO temp_emails (unique_address, expires_at, pro_user_id, is_personal) VALUES (?, ?, ?, 1)");
                     $ins->execute([$local, $expiresAt, $_SESSION['pro_user_id']]);
                     logMessage('INFO', 'Personal address created', ['user_id' => $_SESSION['pro_user_id'], 'address' => $local]);
-                    // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
-                    echo json_encode(['success' => true, 'address' => $local, 'full_address' => $local . '@' . $config['email']['domain'], 'expires_at' => $expiresAt]);
+                    echo json_encode(['success' => true, 'address' => $local, 'full_address' => $local . '@' . $config['email']['domain'], 'expires_at' => $expiresAt]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                 } catch (Exception $e) {
                     logMessage('ERROR', 'Failed creating personal address', ['error' => $e->getMessage()]);
                     echo json_encode(['success' => false, 'error' => 'Could not create address']);
@@ -380,8 +379,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'addresses_included' => $addresses
                 ]);
                 
-                // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
-                echo json_encode([
+                echo json_encode([ // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                     'success' => true,
                     'emails' => $emails
                 ]);
@@ -426,8 +424,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $cnt = (int)($row['cnt'] ?? 0);
 
                     $hasNew = $latest > $lastKnown;
-                    // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
-                    echo json_encode(['success' => true, 'has_new' => $hasNew, 'latest_id' => $latest, 'count' => $cnt]);
+                    echo json_encode(['success' => true, 'has_new' => $hasNew, 'latest_id' => $latest, 'count' => $cnt]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                 } catch (Exception $e) {
                     logMessage('WARNING', 'has_new_emails check failed', ['error' => $e->getMessage(), 'address' => $address]);
                     echo json_encode(['success' => false, 'error' => 'Could not check for new emails']);
@@ -558,8 +555,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ? ($newEmailsFromImap > 0 ? "Hämtade $newEmailsFromImap nya e-postmeddelanden" : "Inga nya e-postmeddelanden hittades")
                     : "IMAP-hämtning misslyckades: $imapMessage";
                     
-                // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
-                echo json_encode([
+                echo json_encode([ // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                     'success' => true,
                     'emails' => $emails,
                     'refreshed' => $imapSuccess,

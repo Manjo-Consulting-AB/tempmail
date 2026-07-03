@@ -189,8 +189,7 @@ try {
             if (!empty($suspicious)) {
                 logMessage('WARNING', 'Suspicious email update attempt', ['patterns' => $suspicious, 'user_id' => $userId]);
                 // Flagga IP för blockering
-                // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
-                flagMaliciousActivity(getVisitorIp(), 'Suspicious email update: ' . implode(', ', $suspicious));
+                flagMaliciousActivity(getVisitorIp(), 'Suspicious email update: ' . implode(', ', $suspicious)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                 send_json(['success' => false, 'error' => 'Invalid request']);
             }
             $newEmail = sanitizeEmail($rawEmail);
@@ -457,8 +456,7 @@ try {
             if ($updatedExpires) {
                 $response['expires_at'] = $updatedExpires;
             }
-            // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
-            echo json_encode($response);
+            echo json_encode($response); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
             break;
 
         case 'webhooks_list':
@@ -525,8 +523,7 @@ try {
                 if (!empty($suspicious)) {
                     logMessage('WARNING', 'Suspicious webhook input', ['patterns' => $suspicious, 'user_id' => $userId]);
                     // Flagga IP för blockering
-                    // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
-                    flagMaliciousActivity(getVisitorIp(), 'Suspicious webhook input: ' . implode(', ', $suspicious));
+                    flagMaliciousActivity(getVisitorIp(), 'Suspicious webhook input: ' . implode(', ', $suspicious)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                     send_json(['success' => false, 'error' => 'Invalid request']);
                 }
             }

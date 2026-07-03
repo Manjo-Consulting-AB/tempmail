@@ -756,8 +756,7 @@ if ($requestMethod === 'POST' || $action === 'update_lists') {
     }
 
     $result = clientAgentHandleWebhook($scriptId, $payload, is_string($rawBody) ? $rawBody : '');
-        echo json_encode([
-            // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+        echo json_encode([ // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
             'status' => $result['status'] ?? 'error',
             'script_id' => $result['script_id'] ?? $scriptId,
             'action' => $result['action'] ?? $action,
@@ -767,8 +766,7 @@ if ($requestMethod === 'POST' || $action === 'update_lists') {
 }
 
 $result = clientAgentRunCycle($scriptId);
-    echo json_encode([
-        // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+    echo json_encode([ // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
         'status' => $result['status'] ?? 'error',
         'script_id' => $result['script_id'] ?? $scriptId,
         'message' => $result['message'] ?? null,
