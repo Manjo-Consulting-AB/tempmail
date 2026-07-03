@@ -5,25 +5,41 @@ on:
     - cron: '0 8 * * 1'
   workflow_dispatch:
 
+# Vi måste ge detta workflow rättighet att faktiskt skriva och skapa Issues
+permissions:
+  issues: write
+  contents: read
+
 jobs:
-  # JOBB 1: Scanna din egenutvecklade PHP-kod efter sårbarheter (SQLi, XSS, etc.)
-  semgrep-scan:
+  security-scan:
     runs-on: ubuntu-latest
-    container:
-      image: semgrep/semgrep
     steps:
       - name: Hämta källkod
         uses: actions/checkout@v5
 
+      # 1. Kör Semgrep (Egen kod)
+      # Vi tillåter att den fortsätter även om den hittar fel, så att vi hinner köra Composer också
       - name: Kör Semgrep Säkerhetsscan
-        run: semgrep scan --config p/php --config p/security-audit --error
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" semgrep/semgrep semgrep scan --config p/php --config p/security-audit --error
 
-  # JOBB 2: Kolla om dina externa Composer-bibliotek har kända säkerhetshål
-  composer-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Hämta källkod
-        uses: actions/checkout@v5
-
+      # 2. Kör Composer Audit (Externa paket)
       - name: Kontrollera sårbarheter i Composer-paket
         run: composer audit --locked
+
+      # 3. Skapa ett Issue om NÅGOT av stegen ovan hittade sårbarheter
+      - name: Skapa GitHub Issue vid hittade sårbarheter
+        if: failure()
+        uses: rishabhgupta/git-action-issue@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "⚠️ Säkerhetsrisker hittade i senaste scanningen"
+          body: |
+            Automatiska säkerhetsscanningen har upptäckt potentiella sårbarheter i din PHP-kod eller i dina Composer-beroenden.
+            
+            Klicka på länken nedan för att se exakt vilka filer, kodrader eller paket som är drabbade:
+            👉 [Se detaljerad rapport här](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ---
+            *Detta ärende skapades automatiskt av ett schemalagt cron-jobb.*
+          assignees: ${{ github.actor }}
