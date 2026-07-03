@@ -14,6 +14,10 @@ $path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '', '/');
 $segments = $path === '' ? [] : explode('/', $path);
 $userId = clientBackendGetCurrentUserId();
 
+function clientBackendIsValidScriptId(string $scriptId): bool {
+    return preg_match('/^[a-z0-9]{6,64}$/', $scriptId) === 1;
+}
+
 if ($userId === null) {
     http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Authentication required']);
@@ -54,6 +58,12 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
     }
 
     $scriptId = $segments[2];
+    if (!clientBackendIsValidScriptId($scriptId)) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Invalid script id']);
+        exit;
+    }
+
     $script = clientBackendGetScript($scriptId);
 
     if ($script === null || !clientBackendCanAccessScript($script, $userId)) {
@@ -63,7 +73,7 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
     }
 
     if ($method === 'GET' && ($segments[3] ?? '') === 'status') {
-        $summary = clientBackendGetStatusSummary($scriptId);
+        $summary = clientBackendGetStatusSummary($scriptId, $userId);
         echo json_encode(['status' => 'ok', 'script' => $summary]);
         exit;
     }
@@ -94,6 +104,11 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
         }
         $pattern = (string) ($input['pattern'] ?? '');
         $updated = clientBackendAddListItem($scriptId, 'whitelist', $pattern);
+        if ($updated === null) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid whitelist pattern']);
+            exit;
+        }
         $syncStatus = $updated['sync_status'] ?? 'sent';
         $isFailure = $syncStatus !== 'sent';
         if ($isFailure) {
@@ -114,6 +129,11 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
         }
         $pattern = (string) ($input['pattern'] ?? '');
         $updated = clientBackendAddListItem($scriptId, 'blacklist', $pattern);
+        if ($updated === null) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid blacklist pattern']);
+            exit;
+        }
         $syncStatus = $updated['sync_status'] ?? 'sent';
         $isFailure = $syncStatus !== 'sent';
         if ($isFailure) {
@@ -134,6 +154,11 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
         }
         $pattern = (string) ($input['pattern'] ?? '');
         $updated = clientBackendRemoveListItem($scriptId, 'whitelist', $pattern);
+        if ($updated === null) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid whitelist pattern']);
+            exit;
+        }
         echo json_encode(['status' => 'ok', 'script' => $updated]);
         exit;
     }
@@ -145,6 +170,11 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
         }
         $pattern = (string) ($input['pattern'] ?? '');
         $updated = clientBackendRemoveListItem($scriptId, 'blacklist', $pattern);
+        if ($updated === null) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid blacklist pattern']);
+            exit;
+        }
         echo json_encode(['status' => 'ok', 'script' => $updated]);
         exit;
     }
@@ -155,6 +185,11 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
             $input = $_POST;
         }
         $updated = clientBackendAddSpamFilter($scriptId, $input);
+        if ($updated === null) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid spam filter rule']);
+            exit;
+        }
         echo json_encode([
             'status' => ($updated['sync_status'] ?? 'sent') !== 'sent' ? 'warning' : 'ok',
             'message' => $updated['sync_message'] ?? null,
@@ -169,6 +204,11 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
             $input = $_POST;
         }
         $ruleId = (string) ($input['rule_id'] ?? '');
+        if ($ruleId === '') {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'rule_id is required']);
+            exit;
+        }
         $updated = clientBackendRemoveSpamFilter($scriptId, $ruleId);
         echo json_encode([
             'status' => 'ok',

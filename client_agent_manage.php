@@ -39,6 +39,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                     <li>Run installer in SSH: <code>php install.php --install</code></li>
                     <li>Installer saves private files outside web-root (no env var required on most hosts)</li>
                     <li>Return here and click <strong>Run cycle</strong></li>
+                    <li>Connect agent.php to a CRON-task that runs periodically</li>
                 </ol>
 
                 <div class="mb-3">
@@ -234,7 +235,13 @@ return [
             alert.innerHTML = '';
             return;
         }
-        alert.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+        const allowedTypes = ['success', 'danger', 'warning', 'info', 'secondary'];
+        const tone = allowedTypes.includes(type) ? type : 'secondary';
+        const wrapper = document.createElement('div');
+        wrapper.className = `alert alert-${tone}`;
+        wrapper.textContent = String(message);
+        alert.innerHTML = '';
+        alert.appendChild(wrapper);
     }
 
     async function requestJson(path, options = {}) {
@@ -319,24 +326,67 @@ return [
         const webhookOk = lastWebhook && lastWebhook.success;
         const webhookTone = webhookOk ? 'success' : 'danger';
         const lastWebhookText = lastWebhook && lastWebhook.http_code != null ? `${lastWebhook.http_code}` : 'Not sent yet';
+        const formattedWebhookTime = formatWebhookTime(summary.last_webhook_sent_at, summary.user_timezone || null, true);
+        const formattedSettingsTime = formatWebhookTime(summary.updated_at, summary.user_timezone || null, false);
 
         container.innerHTML = `
             <div class="col-md-6">
                 <div class="border rounded p-3 h-100">
                     <div class="small text-uppercase text-muted mb-2">Sync status</div>
                     <div class="fw-semibold">${escapeHtml(summary.sync_status || 'idle')}</div>
+                    <div class="small text-muted mt-2">Last settings update: ${escapeHtml(formattedSettingsTime)}</div>
                     <div class="small text-muted mt-2">${escapeHtml(summary.sync_message || 'No status message yet.')}</div>
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="border rounded p-3 h-100">
-                    <div class="small text-uppercase text-muted mb-2">Last webhook</div>
+                    <div class="small text-uppercase text-muted mb-2">Last webhook attempt</div>
                     <div class="fw-semibold text-${webhookTone}">${webhookOk ? 'Delivered' : 'Not delivered'}</div>
                     <div class="small text-muted mt-2">Code: ${escapeHtml(lastWebhookText)}</div>
-                    <div class="small text-muted">Time: ${escapeHtml(summary.last_webhook_sent_at || 'Not sent yet')}</div>
+                    <div class="small text-muted">Time: ${escapeHtml(formattedWebhookTime)}</div>
                 </div>
             </div>
         `;
+    }
+
+    function formatWebhookTime(timestamp, timeZone, assumeUtcNoOffset = false) {
+        if (!timestamp) {
+            return 'Not sent yet';
+        }
+
+        let source = String(timestamp).trim();
+        if (assumeUtcNoOffset) {
+            const noOffsetSpace = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+            const noOffsetT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+            if (noOffsetSpace.test(source)) {
+                source = source.replace(' ', 'T') + 'Z';
+            } else if (noOffsetT.test(source)) {
+                source = source + 'Z';
+            }
+        }
+
+        const date = new Date(source);
+        if (Number.isNaN(date.getTime())) {
+            return String(timestamp);
+        }
+
+        try {
+            const formatter = new Intl.DateTimeFormat('sv-SE', {
+                timeZone: timeZone || undefined,
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+            });
+
+            const formatted = formatter.format(date);
+            return timeZone ? `${formatted} (${timeZone})` : formatted;
+        } catch (e) {
+            return String(timestamp);
+        }
     }
 
     async function loadScripts() {
@@ -509,21 +559,29 @@ return [
         }
     }
 
-    document.getElementById('addWhitelistBtn').addEventListener('click', async () => {
+    function bindClick(id, handler) {
+        const el = document.getElementById(id);
+        if (!el) {
+            return;
+        }
+        el.addEventListener('click', handler);
+    }
+
+    bindClick('addWhitelistBtn', async () => {
         const value = document.getElementById('whitelistInput').value.trim();
         if (!value) return;
         await updateListItem('whitelist', value, 'add');
         document.getElementById('whitelistInput').value = '';
     });
 
-    document.getElementById('addBlacklistBtn').addEventListener('click', async () => {
+    bindClick('addBlacklistBtn', async () => {
         const value = document.getElementById('blacklistInput').value.trim();
         if (!value) return;
         await updateListItem('blacklist', value, 'add');
         document.getElementById('blacklistInput').value = '';
     });
 
-    document.getElementById('addSpamFilterBtn').addEventListener('click', async () => {
+    bindClick('addSpamFilterBtn', async () => {
         const pattern = document.getElementById('spamFilterPattern').value.trim();
         if (!pattern) return;
         await updateSpamFilter({
@@ -535,7 +593,7 @@ return [
         document.getElementById('spamFilterPattern').value = '';
     });
 
-    document.getElementById('runCycleBtn').addEventListener('click', async () => {
+    bindClick('runCycleBtn', async () => {
         if (!state.activeScriptId) {
             return;
         }
@@ -548,7 +606,7 @@ return [
         }
     });
 
-    document.getElementById('deleteScriptBtn').addEventListener('click', async () => {
+    bindClick('deleteScriptBtn', async () => {
         if (!state.activeScriptId) {
             return;
         }

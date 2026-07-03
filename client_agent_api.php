@@ -5,8 +5,11 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 $route = $_GET['route'] ?? ($_POST['route'] ?? '');
 if (is_string($route) && $route !== '') {
-    $_SERVER['REQUEST_URI'] = '/' . ltrim($route, '/');
-    $_SERVER['PATH_INFO'] = '/' . ltrim($route, '/');
+    $normalizedRoute = '/' . ltrim($route, '/');
+    if (preg_match('/^\/[a-zA-Z0-9_\-\/]+$/', $normalizedRoute) === 1) {
+        $_SERVER['REQUEST_URI'] = $normalizedRoute;
+        $_SERVER['PATH_INFO'] = $normalizedRoute;
+    }
 }
 
 require_once __DIR__ . '/client/backend/api.php';

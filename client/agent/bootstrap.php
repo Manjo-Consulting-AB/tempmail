@@ -351,12 +351,21 @@ function clientAgentHandleWebhook(string $scriptId, array $payload, string $rawB
                 if (!is_array($rule)) {
                     continue;
                 }
+                $pattern = trim((string) ($rule['pattern'] ?? ''));
+                $type = isset($rule['type']) && strtolower((string) $rule['type']) === 'regex' ? 'regex' : 'text';
+                $caseInsensitive = !empty($rule['case_insensitive']);
+                if ($pattern === '' || strlen($pattern) > 512) {
+                    continue;
+                }
+                if ($type === 'regex' && !clientAgentIsSafeRegexPattern($pattern, $caseInsensitive)) {
+                    continue;
+                }
                 $normalized[] = [
                     'rule_id' => isset($rule['rule_id']) ? (string) $rule['rule_id'] : 'r_' . bin2hex(random_bytes(8)),
-                    'type' => isset($rule['type']) && strtolower((string) $rule['type']) === 'regex' ? 'regex' : 'text',
+                    'type' => $type,
                     'scope' => isset($rule['scope']) && in_array((string) $rule['scope'], ['subject', 'body', 'from', 'any'], true) ? (string) $rule['scope'] : 'any',
-                    'pattern' => trim((string) ($rule['pattern'] ?? '')),
-                    'case_insensitive' => !empty($rule['case_insensitive']),
+                    'pattern' => $pattern,
+                    'case_insensitive' => $caseInsensitive,
                 ];
             }
             $settings['spam_filters'] = $normalized;
@@ -404,11 +413,21 @@ function clientAgentMatchesPattern(string $senderEmail, string $pattern): bool {
     return $senderEmail === $pattern;
 }
 
+function clientAgentIsSafeRegexPattern(string $pattern, bool $caseInsensitive = false): bool {
+    if ($pattern === '' || strlen($pattern) > 512) {
+        return false;
+    }
+
+    $regex = '~' . str_replace('~', '\\~', $pattern) . '~' . ($caseInsensitive ? 'i' : '');
+    $ok = @preg_match($regex, '');
+    return $ok !== false && preg_last_error() === PREG_NO_ERROR;
+}
+
     function clientAgentDoesSpamRuleMatch(array $rule, string $senderEmail, string $subject, string $body): bool {
         $scope = isset($rule['scope']) ? (string) $rule['scope'] : 'any';
         $type = isset($rule['type']) ? strtolower((string) $rule['type']) : 'text';
         $pattern = trim((string) ($rule['pattern'] ?? ''));
-        if ($pattern === '') {
+        if ($pattern === '' || strlen($pattern) > 512) {
             return false;
         }
 
@@ -424,10 +443,15 @@ function clientAgentMatchesPattern(string $senderEmail, string $pattern): bool {
         }
 
         if ($type === 'regex') {
+            $caseInsensitive = !empty($rule['case_insensitive']);
+            if (!clientAgentIsSafeRegexPattern($pattern, $caseInsensitive)) {
+                return false;
+            }
+
             $delimiter = '~';
-            $regex = $delimiter . str_replace($delimiter, '\\' . $delimiter, $pattern) . $delimiter . (!empty($rule['case_insensitive']) ? 'i' : '');
+            $regex = $delimiter . str_replace($delimiter, '\\' . $delimiter, $pattern) . $delimiter . ($caseInsensitive ? 'i' : '');
             foreach ($fields as $field) {
-                if (@preg_match($regex, (string) $field) === 1) {
+                if (preg_match($regex, (string) $field) === 1) {
                     return true;
                 }
             }

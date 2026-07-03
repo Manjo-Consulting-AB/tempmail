@@ -117,7 +117,87 @@ function clientBackendEncodeJsonList(array $items): string {
     return is_string($json) ? $json : '[]';
 }
 
-function clientBackendNormalizeSpamFilterRule(array $rule): array {
+function clientBackendNormalizeTargetHost($value): ?string {
+    $raw = strtolower(trim((string) $value));
+    if ($raw === '') {
+        return null;
+    }
+
+    if (preg_match('/[\/?#@]/', $raw) === 1) {
+        return null;
+    }
+
+    $parts = explode(':', $raw, 2);
+    $host = trim($parts[0]);
+    $port = $parts[1] ?? null;
+
+    if ($host === '' || strlen($host) > 253) {
+        return null;
+    }
+
+    $isIp = filter_var($host, FILTER_VALIDATE_IP) !== false;
+    $isDomain = preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host) === 1;
+    if (!$isIp && !$isDomain) {
+        return null;
+    }
+
+    if ($isIp) {
+        $allowPrivate = (getenv('CLIENT_BACKEND_ALLOW_PRIVATE_TARGETS') ?: '0') === '1';
+        if (!$allowPrivate) {
+            $publicIp = filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+            if ($publicIp === false) {
+                return null;
+            }
+        }
+    }
+
+    if ($port !== null) {
+        if (!ctype_digit($port)) {
+            return null;
+        }
+        $portNo = (int) $port;
+        if ($portNo < 1 || $portNo > 65535) {
+            return null;
+        }
+        return $host . ':' . $portNo;
+    }
+
+    return $host;
+}
+
+function clientBackendNormalizeTargetPath($value): string {
+    $path = trim((string) $value);
+    if ($path === '') {
+        return '/client/agent/agent.php';
+    }
+
+    if (preg_match('/^https?:\/\//i', $path) === 1) {
+        return '/client/agent/agent.php';
+    }
+
+    $pathOnly = parse_url($path, PHP_URL_PATH);
+    if (!is_string($pathOnly) || $pathOnly === '') {
+        return '/client/agent/agent.php';
+    }
+
+    $pathOnly = '/' . ltrim($pathOnly, '/');
+    $pathOnly = preg_replace('/[^a-zA-Z0-9_\-\.\/]/', '', $pathOnly) ?? '/client/agent/agent.php';
+
+    return $pathOnly !== '' ? $pathOnly : '/client/agent/agent.php';
+}
+
+function clientBackendNormalizeListPattern($value): ?string {
+    $pattern = trim((string) $value);
+    if ($pattern === '' || strlen($pattern) > 255) {
+        return null;
+    }
+    if (preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $pattern) === 1) {
+        return null;
+    }
+    return $pattern;
+}
+
+function clientBackendNormalizeSpamFilterRule(array $rule): ?array {
     $ruleId = isset($rule['rule_id']) && is_string($rule['rule_id']) && trim($rule['rule_id']) !== ''
         ? trim($rule['rule_id'])
         : 'r_' . bin2hex(random_bytes(8));
@@ -127,6 +207,18 @@ function clientBackendNormalizeSpamFilterRule(array $rule): array {
         ? (string) $rule['scope']
         : 'any';
     $pattern = trim((string) ($rule['pattern'] ?? ''));
+
+    if ($pattern === '' || strlen($pattern) > 512) {
+        return null;
+    }
+
+    if ($type === 'regex') {
+        $testRegex = '~' . str_replace('~', '\\~', $pattern) . '~' . (!empty($rule['case_insensitive']) ? 'i' : '');
+        $ok = @preg_match($testRegex, '');
+        if ($ok === false || preg_last_error() !== PREG_NO_ERROR) {
+            return null;
+        }
+    }
 
     return [
         'rule_id' => $ruleId,
@@ -150,7 +242,10 @@ function clientBackendDecodeJsonObjects($json): array {
     $items = [];
     foreach ($data as $value) {
         if (is_array($value)) {
-            $items[] = clientBackendNormalizeSpamFilterRule($value);
+            $normalized = clientBackendNormalizeSpamFilterRule($value);
+            if (is_array($normalized)) {
+                $items[] = $normalized;
+            }
         }
     }
 
@@ -161,7 +256,10 @@ function clientBackendEncodeJsonObjects(array $items): string {
     $normalized = [];
     foreach ($items as $item) {
         if (is_array($item)) {
-            $normalized[] = clientBackendNormalizeSpamFilterRule($item);
+            $rule = clientBackendNormalizeSpamFilterRule($item);
+            if (is_array($rule)) {
+                $normalized[] = $rule;
+            }
         }
     }
 
@@ -226,41 +324,56 @@ function clientBackendDbSaveScripts(array $scripts): void {
         $existingIds = $existingStmt ? array_map(static fn($value): string => (string) $value, $existingStmt->fetchAll(PDO::FETCH_COLUMN)) : [];
         $keepIds = [];
 
-        $columns = [
-            'script_id', 'owner_pro_user_id', 'label', 'target_host', 'target_path', 'greylist_days',
-            'whitelist_json', 'blacklist_json', 'pending_sync_at', 'last_webhook_sent_at',
-            'sync_status', 'sync_message', 'last_webhook_result_json', 'dry_run'
-        ];
-        $values = [
-            ':script_id', ':owner_pro_user_id', ':label', ':target_host', ':target_path', ':greylist_days',
-            ':whitelist_json', ':blacklist_json', ':pending_sync_at', ':last_webhook_sent_at',
-            ':sync_status', ':sync_message', ':last_webhook_result_json', ':dry_run'
-        ];
         if ($hasSpamFiltersColumn) {
-            array_splice($columns, 8, 0, ['spam_filters_json']);
-            array_splice($values, 8, 0, [':spam_filters_json']);
+            $sql = 'INSERT INTO client_scripts (
+                script_id, owner_pro_user_id, label, target_host, target_path, greylist_days,
+                whitelist_json, blacklist_json, spam_filters_json, pending_sync_at, last_webhook_sent_at,
+                sync_status, sync_message, last_webhook_result_json, dry_run
+            ) VALUES (
+                :script_id, :owner_pro_user_id, :label, :target_host, :target_path, :greylist_days,
+                :whitelist_json, :blacklist_json, :spam_filters_json, :pending_sync_at, :last_webhook_sent_at,
+                :sync_status, :sync_message, :last_webhook_result_json, :dry_run
+            ) ON DUPLICATE KEY UPDATE
+                owner_pro_user_id = VALUES(owner_pro_user_id),
+                label = VALUES(label),
+                target_host = VALUES(target_host),
+                target_path = VALUES(target_path),
+                greylist_days = VALUES(greylist_days),
+                whitelist_json = VALUES(whitelist_json),
+                blacklist_json = VALUES(blacklist_json),
+                spam_filters_json = VALUES(spam_filters_json),
+                pending_sync_at = VALUES(pending_sync_at),
+                last_webhook_sent_at = VALUES(last_webhook_sent_at),
+                sync_status = VALUES(sync_status),
+                sync_message = VALUES(sync_message),
+                last_webhook_result_json = VALUES(last_webhook_result_json),
+                dry_run = VALUES(dry_run),
+                updated_at = CURRENT_TIMESTAMP';
+        } else {
+            $sql = 'INSERT INTO client_scripts (
+                script_id, owner_pro_user_id, label, target_host, target_path, greylist_days,
+                whitelist_json, blacklist_json, pending_sync_at, last_webhook_sent_at,
+                sync_status, sync_message, last_webhook_result_json, dry_run
+            ) VALUES (
+                :script_id, :owner_pro_user_id, :label, :target_host, :target_path, :greylist_days,
+                :whitelist_json, :blacklist_json, :pending_sync_at, :last_webhook_sent_at,
+                :sync_status, :sync_message, :last_webhook_result_json, :dry_run
+            ) ON DUPLICATE KEY UPDATE
+                owner_pro_user_id = VALUES(owner_pro_user_id),
+                label = VALUES(label),
+                target_host = VALUES(target_host),
+                target_path = VALUES(target_path),
+                greylist_days = VALUES(greylist_days),
+                whitelist_json = VALUES(whitelist_json),
+                blacklist_json = VALUES(blacklist_json),
+                pending_sync_at = VALUES(pending_sync_at),
+                last_webhook_sent_at = VALUES(last_webhook_sent_at),
+                sync_status = VALUES(sync_status),
+                sync_message = VALUES(sync_message),
+                last_webhook_result_json = VALUES(last_webhook_result_json),
+                dry_run = VALUES(dry_run),
+                updated_at = CURRENT_TIMESTAMP';
         }
-
-        $updateColumns = [
-            'owner_pro_user_id = VALUES(owner_pro_user_id)',
-            'label = VALUES(label)',
-            'target_host = VALUES(target_host)',
-            'target_path = VALUES(target_path)',
-            'greylist_days = VALUES(greylist_days)',
-            'whitelist_json = VALUES(whitelist_json)',
-            'blacklist_json = VALUES(blacklist_json)',
-        ];
-        if ($hasSpamFiltersColumn) {
-            $updateColumns[] = 'spam_filters_json = VALUES(spam_filters_json)';
-        }
-        $updateColumns[] = 'pending_sync_at = VALUES(pending_sync_at)';
-        $updateColumns[] = 'last_webhook_sent_at = VALUES(last_webhook_sent_at)';
-        $updateColumns[] = 'sync_status = VALUES(sync_status)';
-        $updateColumns[] = 'sync_message = VALUES(sync_message)';
-        $updateColumns[] = 'last_webhook_result_json = VALUES(last_webhook_result_json)';
-        $updateColumns[] = 'dry_run = VALUES(dry_run)';
-
-        $sql = 'INSERT INTO client_scripts (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ') ON DUPLICATE KEY UPDATE ' . implode(",\n            ", $updateColumns) . ', updated_at = CURRENT_TIMESTAMP';
         $stmt = $db->prepare($sql);
 
         foreach ($scripts as $scriptId => $script) {
@@ -333,6 +446,33 @@ function clientBackendGetCurrentUserId(): ?int {
     return is_numeric($userId) ? (int) $userId : null;
 }
 
+function clientBackendGetUserTimezone(int $userId): ?string {
+    $db = clientBackendGetDb();
+    if (!$db || !clientBackendHasDbTable('pro_users')) {
+        return null;
+    }
+
+    try {
+        $stmt = $db->prepare('SELECT digest_tz FROM pro_users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            return null;
+        }
+
+        $tz = trim((string)($row['digest_tz'] ?? ''));
+        if ($tz === '') {
+            return null;
+        }
+
+        // Validate timezone identifier to avoid returning invalid values to the client.
+        new DateTimeZone($tz);
+        return $tz;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
 function clientBackendCanAccessScript(array $script, ?int $userId): bool {
     if ($userId === null) {
         return false;
@@ -352,12 +492,14 @@ function clientBackendGetScriptsForUser(int $userId): array {
 function clientBackendCreateScript(array $input): array {
     $scripts = clientBackendGetScripts();
     $scriptId = clientBackendGenerateScriptId();
+    $targetHost = clientBackendNormalizeTargetHost($input['target_host'] ?? null);
+    $targetPath = clientBackendNormalizeTargetPath($input['target_path'] ?? '/client/agent/agent.php');
     $script = [
         'script_id' => $scriptId,
         'owner_pro_user_id' => isset($input['owner_pro_user_id']) ? (int) $input['owner_pro_user_id'] : null,
         'label' => $input['label'] ?? 'New script',
-        'target_host' => $input['target_host'] ?? null,
-        'target_path' => $input['target_path'] ?? '/client/agent/agent.php',
+        'target_host' => $targetHost,
+        'target_path' => $targetPath,
         'greylist_days' => 30,
         'whitelist' => [],
         'blacklist' => [],
@@ -418,6 +560,10 @@ function clientBackendAddListItem(string $scriptId, string $type, string $patter
     }
 
     $listKey = $type === 'blacklist' ? 'blacklist' : 'whitelist';
+    $pattern = clientBackendNormalizeListPattern($pattern);
+    if ($pattern === null) {
+        return null;
+    }
     $list = $script[$listKey] ?? [];
     if (!in_array($pattern, $list, true)) {
         $list[] = $pattern;
@@ -440,6 +586,12 @@ function clientBackendAddSpamFilter(string $scriptId, array $rule): ?array {
 
     $rules = is_array($script['spam_filters'] ?? null) ? $script['spam_filters'] : [];
     $normalized = clientBackendNormalizeSpamFilterRule($rule);
+    if (!is_array($normalized)) {
+        return null;
+    }
+    if (count($rules) >= 100) {
+        return null;
+    }
     $rules[] = $normalized;
     $script['spam_filters'] = $rules;
     $script['updated_at'] = gmdate('c');
@@ -476,6 +628,10 @@ function clientBackendRemoveListItem(string $scriptId, string $type, string $pat
     }
 
     $listKey = $type === 'blacklist' ? 'blacklist' : 'whitelist';
+    $pattern = clientBackendNormalizeListPattern($pattern);
+    if ($pattern === null) {
+        return null;
+    }
     $list = $script[$listKey] ?? [];
     $script[$listKey] = array_values(array_filter($list, static function ($value) use ($pattern): bool {
         return $value !== $pattern;
@@ -503,11 +659,11 @@ function clientBackendUpdateSettings(string $scriptId, array $changes): ?array {
         $changesToApply['label'] = $script['label'];
     }
     if (isset($changes['target_host'])) {
-        $script['target_host'] = (string) $changes['target_host'];
+        $script['target_host'] = clientBackendNormalizeTargetHost($changes['target_host']);
         $changesToApply['target_host'] = $script['target_host'];
     }
     if (isset($changes['target_path'])) {
-        $script['target_path'] = (string) $changes['target_path'];
+        $script['target_path'] = clientBackendNormalizeTargetPath($changes['target_path']);
         $changesToApply['target_path'] = $script['target_path'];
     }
 
@@ -948,23 +1104,36 @@ function clientBackendVerifyWebhookFlow(string $scriptId, string $targetHost, st
         return ['status' => 'error', 'message' => 'Script not found'];
     }
 
-    $script['target_host'] = $targetHost;
-    $script['target_path'] = $targetPath;
-    clientBackendUpdateScript($scriptId, ['target_host' => $targetHost, 'target_path' => $targetPath]);
+    $normalizedHost = clientBackendNormalizeTargetHost($targetHost);
+    $normalizedPath = clientBackendNormalizeTargetPath($targetPath);
+    if ($normalizedHost === null) {
+        return ['status' => 'error', 'message' => 'Invalid target host'];
+    }
+
+    $script['target_host'] = $normalizedHost;
+    $script['target_path'] = $normalizedPath;
+    clientBackendUpdateScript($scriptId, ['target_host' => $normalizedHost, 'target_path' => $normalizedPath]);
     return clientBackendDispatchWebhookToScript($scriptId);
 }
 
-function clientBackendGetStatusSummary(string $scriptId): array {
+function clientBackendGetStatusSummary(string $scriptId, ?int $userId = null): array {
     $script = clientBackendGetScript($scriptId);
     if ($script === null) {
         return ['status' => 'error', 'message' => 'Script not found'];
+    }
+
+    $timezone = null;
+    if ($userId !== null && $userId > 0) {
+        $timezone = clientBackendGetUserTimezone($userId);
     }
 
     return [
         'script_id' => $scriptId,
         'sync_status' => $script['sync_status'] ?? 'idle',
         'sync_message' => $script['sync_message'] ?? null,
+        'updated_at' => $script['updated_at'] ?? null,
         'last_webhook_sent_at' => $script['last_webhook_sent_at'] ?? null,
         'last_webhook_result' => $script['last_webhook_result'] ?? null,
+        'user_timezone' => $timezone,
     ];
 }
