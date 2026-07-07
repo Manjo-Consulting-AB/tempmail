@@ -17,7 +17,7 @@ jobs:
       - name: Hämta källkod
         uses: actions/checkout@v5
       - name: Kör Semgrep Säkerhetsscan
-        run: semgrep scan --config p/php --config p/security-audit --error backend/
+        run: semgrep scan --config p/php --config p/security-audit --error ./
   # JOBB 2: Kolla om externa Composer-bibliotek har kända säkerhetshål
   composer-audit:
     runs-on: ubuntu-latest
