@@ -1,8 +1,11 @@
 name: Deploy to Production (Security gated)
+
 on:
   push:
     branches:
       - main   # <-- Byt till den branch du pushar till (t.ex. master eller dev)
+  workflow_dispatch:
+
 permissions:
   contents: read
   pages: write
