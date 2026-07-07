@@ -42,7 +42,7 @@ jobs:
         # annars nästlar sftp-uppladdningen in dem igen), inte till prod. De flyttas
         # tillbaka efter uppladdningen så att checkout-actionens egen efterstädning
         # (som behöver .git) fortfarande fungerar.
-        run: mv .git .github .gitignore .semgrepignore CLAUDE.md documentaion ..
+        run: mv .git .github .gitignore .semgrepignore CLAUDE.md documentaion composer.lock composer.json ../
       - name: Ladda upp via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
@@ -55,4 +55,4 @@ jobs:
           sftp_only: true # Kontot saknar skal-/exec-åtkomst (endast SFTP-protokollet) - annars stänger servern anslutningen vid mkdir-kommandot
       - name: Återställ undanflyttade filer (för checkout-actionens efterstädning)
         if: always()
-        run: mv ../.git ../.github ../.gitignore ../.semgrepignore ../CLAUDE.md ../documentaion .
+        run: mv ../.git ../.github ../.gitignore ../.semgrepignore ../CLAUDE.md ../documentaion ../composer.lock ../composer.json .
