@@ -93,13 +93,23 @@ try {
         $from = htmlspecialchars($e['from_address'] ?? '(unknown)');
         $pub = isset($e['received_at']) ? date(DATE_RSS, strtotime($e['received_at'])) : date(DATE_RSS);
 
-        // Prefer HTML body if available
+        // Prefer HTML body if available. body_html is raw inbound email HTML -
+        // fully attacker-controlled by anyone who emails this address, with no
+        // login required. There's no HTML sanitizer library in this project, and
+        // strip_tags() alone doesn't neutralize event-handler attributes or
+        // javascript: URLs in allowed tags, so flatten to plain text (preserving
+        // line breaks) rather than attempting a tag allowlist.
         $content = '';
         if (!empty($e['body_html'])) {
-            $content = $e['body_html'];
+            $withBreaks = preg_replace('/<(br|\/p|\/div|\/tr|\/li)\s*\/?>/i', "\n", $e['body_html']);
+            $content = nl2br(htmlspecialchars(strip_tags($withBreaks)));
         } elseif (!empty($e['body_text'])) {
             $content = nl2br(htmlspecialchars($e['body_text']));
         }
+        // Defense in depth: neutralize the CDATA terminator sequence so nothing
+        // in the (now fully escaped/tag-stripped) content can break out of the
+        // CDATA section below, even if this code changes in the future.
+        $content = str_replace(']]>', ']] >', $content);
 
         // Fetch attachments for this email
         $attStmt = $pdo->prepare("SELECT id, filename, mime_type FROM email_attachments WHERE email_id = ? ORDER BY id ASC");

@@ -5,6 +5,7 @@ Hämtar e-post via IMAP för Docker-miljö utan PHP IMAP-tillägg
 """
 
 import sys
+import os
 import json
 import imaplib
 import email
@@ -19,36 +20,59 @@ def log_message(level, message):
     print(f"[{timestamp}] [{level}] Python IMAP: {message}", file=sys.stderr)
 
 def connect_to_database():
-    """Anslut till MySQL-databasen"""
+    """Anslut till MySQL-databasen.
+
+    Credentials come from environment variables only - this script is invoked
+    via PHP's shell_exec(), which inherits the parent process's environment
+    (populated by config.php's loadEnvironmentVariables()/putenv() from the
+    .env file), so no secrets need to be hardcoded or passed as arguments.
+    """
     try:
         conn = mysql.connector.connect(
-            host='db',
-            database='tempmail',
-            user='tempmail_user',
-            password='SecurePassword123!'
+            host=os.environ.get('DB_HOST', 'localhost'),
+            port=int(os.environ.get('DB_PORT') or 3306),
+            database=os.environ.get('DB_NAME', 'tempmail'),
+            user=os.environ.get('DB_USER', ''),
+            password=os.environ.get('DB_PASSWORD', '')
         )
         return conn
     except mysql.connector.Error as e:
         log_message('ERROR', f'Databasanslutning misslyckades: {e}')
         return None
 
+def parse_imap_server(server_str):
+    """Parse config.php's PHP-imap-style '{host:port/imap/ssl}MAILBOX' into (host, port)."""
+    match = re.match(r'\{([^:/}]+)(?::(\d+))?', server_str or '')
+    if not match:
+        return None, None
+    host = match.group(1)
+    port = int(match.group(2)) if match.group(2) else 993
+    return host, port
+
 def connect_to_imap():
-    """Anslut till IMAP-server"""
+    """Anslut till IMAP-server (credentials from environment variables - see connect_to_database)."""
     try:
-        log_message('INFO', 'Ansluter till IMAP-server: imap.websupport.se')
-        
+        host, port = parse_imap_server(os.environ.get('IMAP_SERVER', ''))
+        user = os.environ.get('IMAP_USER', '')
+        password = os.environ.get('IMAP_PASSWORD', '')
+        if not host or not user or not password:
+            log_message('ERROR', 'IMAP-inställningar saknas (IMAP_SERVER/IMAP_USER/IMAP_PASSWORD miljövariabler)')
+            return None
+
+        log_message('INFO', f'Ansluter till IMAP-server: {host}')
+
         # Anslut via SSL
-        imap = imaplib.IMAP4_SSL('imap.websupport.se', 993)
-        
+        imap = imaplib.IMAP4_SSL(host, port)
+
         # Logga in
-        imap.login('catch-all@manjo.me', ',CBS;?vT5/KR(l{/@Wo.')
-        
+        imap.login(user, password)
+
         # Välj INBOX
         imap.select('INBOX')
-        
+
         log_message('INFO', 'IMAP-anslutning lyckades')
         return imap
-        
+
     except Exception as e:
         log_message('ERROR', f'IMAP-anslutning misslyckades: {e}')
         return None

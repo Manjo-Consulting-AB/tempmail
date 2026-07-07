@@ -7,6 +7,26 @@ if (php_sapi_name() === 'cli' && (getenv('DOCKER_ENV') === false || getenv('DOCK
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/php_imap_processor.php';
 
+// This is a verbose debug script: it prints every active temp_emails address,
+// live mailbox subjects/headers, and actually runs mail processing (dryRun only
+// suppresses delete/expunge, not DB writes). Restrict the same way as
+// cron/run_imap_once.php (CLI, localhost, or a shared secret over HTTP) -
+// previously this had no access control at all and was directly web-reachable.
+$isCli = php_sapi_name() === 'cli';
+if (!$isCli) {
+    $cronHttpSecret = $_ENV['CRON_HTTP_SECRET'] ?? ($config['cron']['http_secret'] ?? null);
+    $remote = $_SERVER['REMOTE_ADDR'] ?? null;
+    if ($remote !== '127.0.0.1') {
+        $provided = $_SERVER['HTTP_X_CRON_SECRET'] ?? ($_GET['key'] ?? null);
+        if (empty($cronHttpSecret) || empty($provided) || !hash_equals((string)$cronHttpSecret, (string)$provided)) {
+            http_response_code(403);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "Access denied\n";
+            exit(1);
+        }
+    }
+}
+
 // Debug: show which environment was chosen and key env values (helps CLI detection)
 echo "[DEBUG] detectEnvironment result: " . (isset($environment) ? $environment : '(unset)') . "\n";
 echo "[DEBUG] getenv DOCKER_ENV=" . (getenv('DOCKER_ENV') ?: '(none)') . " APP_ENV=" . (getenv('APP_ENV') ?: '(none)') . "\n";

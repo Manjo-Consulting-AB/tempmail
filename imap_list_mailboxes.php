@@ -1,6 +1,24 @@
 <?php
 require_once __DIR__ . '/config.php';
 
+// This is a diagnostic script that opens live IMAP connections with production
+// credentials and prints mailbox names/counts - restrict the same way as
+// cron/run_imap_once.php (CLI, localhost, or a shared secret over HTTP).
+$isCli = php_sapi_name() === 'cli';
+if (!$isCli) {
+    $cronHttpSecret = $_ENV['CRON_HTTP_SECRET'] ?? ($config['cron']['http_secret'] ?? null);
+    $remote = $_SERVER['REMOTE_ADDR'] ?? null;
+    if ($remote !== '127.0.0.1') {
+        $provided = $_SERVER['HTTP_X_CRON_SECRET'] ?? ($_GET['key'] ?? null);
+        if (empty($cronHttpSecret) || empty($provided) || !hash_equals((string)$cronHttpSecret, (string)$provided)) {
+            http_response_code(403);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "Access denied\n";
+            exit(1);
+        }
+    }
+}
+
 if (!extension_loaded('imap')) {
     echo "PHP IMAP extension not loaded\n";
     exit(1);

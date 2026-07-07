@@ -358,6 +358,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                // Caller has now proven knowledge of these addresses - allow get_email
+                // to serve individual messages for them later in this session.
+                grantSessionAddressAccess($addresses);
+
                 // Query stored_emails for any of the addresses
                 try {
                     $placeholders = implode(',', array_fill(0, count($addresses), '?'));
@@ -394,6 +398,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new Exception('Ogiltig adress');
                 }
 
+                // Check if this address is marked as personal - only personal addresses require authentication
+                // (same check as get_emails - this was previously missing here, letting anyone who
+                // guesses a Pro user's personal alias learn whether that mailbox has new messages)
+                $ownerCheck = $pdo->prepare("SELECT pro_user_id, is_personal FROM temp_emails WHERE unique_address = ? LIMIT 1");
+                $ownerCheck->execute([$address]);
+                $ownerRow = $ownerCheck->fetch(PDO::FETCH_ASSOC);
+                if ($ownerRow && !empty($ownerRow['pro_user_id']) && !empty($ownerRow['is_personal'])) {
+                    $ownerId = (int)$ownerRow['pro_user_id'];
+                    $currentUserId = (int)($_SESSION['pro_user_id'] ?? 0);
+                    if ($currentUserId !== $ownerId) {
+                        logMessage('WARNING', 'Unauthorized access attempt to personal address', [
+                            'address' => $address,
+                            'owner_id' => $ownerId,
+                            'requester_id' => $currentUserId ?: 'anonymous'
+                        ]);
+                        throw new Exception('Authentication required to access this personal address');
+                    }
+                }
+
                 // Build same addresses list as in get_emails (include personal addresses for pro users)
                 $fullAddress = $address . '@' . $config['email']['domain'];
                 $addresses = [$fullAddress];
@@ -412,6 +435,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // best-effort: continue with requested address only
                     }
                 }
+
+                grantSessionAddressAccess($addresses);
 
                 try {
                     $placeholders = implode(',', array_fill(0, count($addresses), '?'));
@@ -441,7 +466,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$address || !isValidAddress($address)) {
                     throw new Exception('Ogiltig adress');
                 }
-                
+
+                // Check if this address is marked as personal - only personal addresses require authentication
+                // (same check as get_emails - this was previously missing here, letting anyone who
+                // guesses a Pro user's personal alias read that mailbox's messages)
+                $ownerCheck = $pdo->prepare("SELECT pro_user_id, is_personal FROM temp_emails WHERE unique_address = ? LIMIT 1");
+                $ownerCheck->execute([$address]);
+                $ownerRow = $ownerCheck->fetch(PDO::FETCH_ASSOC);
+                if ($ownerRow && !empty($ownerRow['pro_user_id']) && !empty($ownerRow['is_personal'])) {
+                    $ownerId = (int)$ownerRow['pro_user_id'];
+                    $currentUserId = (int)($_SESSION['pro_user_id'] ?? 0);
+                    if ($currentUserId !== $ownerId) {
+                        logMessage('WARNING', 'Unauthorized access attempt to personal address', [
+                            'address' => $address,
+                            'owner_id' => $ownerId,
+                            'requester_id' => $currentUserId ?: 'anonymous'
+                        ]);
+                        throw new Exception('Authentication required to access this personal address');
+                    }
+                }
+
                 logMessage('DEBUG', 'Starting refresh_emails for address', ['address' => $address]);
                 // Build and log the full address set we will consider (include personal addresses for pro users)
                 try {
@@ -484,9 +528,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'new_emails' => 0,
                             'message' => 'PHP IMAP extension saknas på servern'
                         ];
+                    } elseif (!shouldRunGlobalImapRefresh($pdo)) {
+                        // A sync ran very recently (triggered by this or another
+                        // caller) - skip re-fetching from IMAP and just return
+                        // whatever's already stored, same as get_emails would.
+                        $imapResult = [
+                            'success' => true,
+                            'new_emails' => 0,
+                            'message' => 'A refresh already ran recently'
+                        ];
                     } else {
                         require_once __DIR__ . '/php_imap_processor.php';
-                        
+
                         $imapProcessor = new ImapProcessor($config, $pdo, $config['app']['debug_mode']);
                         $imapResult = $imapProcessor->processEmails();
                     }
@@ -530,6 +583,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $addresses = [$fullAddress];
                     }
                 }
+
+                grantSessionAddressAccess($addresses);
 
                 try {
                     $placeholders = implode(',', array_fill(0, count($addresses), '?'));
@@ -586,11 +641,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($email && !empty($email['to_address'])) {
                         // Extract local part from to_address (e.g., "abc123" from "abc123@domain.com")
                         $toLocal = explode('@', $email['to_address'])[0] ?? '';
+                        $isPersonalOwned = false;
                         if ($toLocal !== '') {
                             $ownerCheck = $pdo->prepare("SELECT pro_user_id, is_personal FROM temp_emails WHERE unique_address = ? LIMIT 1");
                             $ownerCheck->execute([$toLocal]);
                             $ownerRow = $ownerCheck->fetch(PDO::FETCH_ASSOC);
                             if ($ownerRow && !empty($ownerRow['pro_user_id']) && !empty($ownerRow['is_personal'])) {
+                                $isPersonalOwned = true;
                                 $ownerId = (int)$ownerRow['pro_user_id'];
                                 $currentUserId = (int)($_SESSION['pro_user_id'] ?? 0);
                                 if ($currentUserId !== $ownerId) {
@@ -602,6 +659,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     throw new Exception('Authentication required to access this personal email');
                                 }
                             }
+                        }
+
+                        // stored_emails.id is a bare sequential integer - without this check,
+                        // anyone could enumerate email_id=1,2,3,... and read every message ever
+                        // received by any non-personal address on the service. Require the caller
+                        // to have already proven knowledge of this address this session (via
+                        // get_emails/refresh_emails/has_new_emails, which validate + own-check it).
+                        if (!$isPersonalOwned && !hasSessionAddressAccess($email['to_address'])) {
+                            logMessage('WARNING', 'Unauthorized get_email access attempt', [
+                                'email_id' => $emailId,
+                                'to_address' => $email['to_address']
+                            ]);
+                            throw new Exception('Authentication required to access this email');
                         }
                     }
 

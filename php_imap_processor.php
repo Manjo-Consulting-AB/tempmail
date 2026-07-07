@@ -412,6 +412,16 @@ class ImapProcessor
             $headers[] = 'X-TempMail-Signature: sha256=' . hash_hmac('sha256', $payloadJson, $secret);
         }
 
+        // This is the real, recurring webhook delivery path (fired on every new
+        // email) - webhook_create's validation in pro_profile.php only gates what
+        // URL gets saved, so re-validate + pin the resolved IP here too, otherwise
+        // a URL that was public at creation time (or that resolves differently via
+        // DNS rebinding) could be used to reach internal services on every delivery.
+        $target = function_exists('resolveUrlToPublicTarget') ? resolveUrlToPublicTarget($url) : null;
+        if ($target === null) {
+            return ['code' => 0, 'body' => 'Target host could not be resolved to a permitted address'];
+        }
+
         if (function_exists('curl_init')) {
             $ch = curl_init($url);
             curl_setopt($ch, CURLOPT_POST, 1);
@@ -419,6 +429,8 @@ class ImapProcessor
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+            curl_setopt($ch, CURLOPT_RESOLVE, [$target['host'] . ':' . $target['port'] . ':' . $target['ip']]);
             $resp = curl_exec($ch);
             $err = curl_error($ch);
             $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);

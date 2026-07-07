@@ -37,8 +37,12 @@ function encrypt_webhook_secret($plaintext) {
     if (empty($plaintext)) return null;
     $key = $_ENV['WEBHOOKS_KEY'] ?? null;
     if (empty($key)) {
-        // No key configured — store plaintext (but log warning)
-        logMessage('WARNING', 'WEBHOOKS_KEY not set; storing webhook secret in plaintext');
+        // No key configured — store plaintext. This is a real misconfiguration
+        // (webhook secrets should be encrypted at rest), but rejecting webhook
+        // creation outright would be a bigger functional regression than
+        // logging loudly, since we can't verify WEBHOOKS_KEY is meant to be set
+        // in every deployment. Logged at ERROR so it's actionable in log_viewer.php.
+        logMessage('ERROR', 'WEBHOOKS_KEY not set; storing webhook secret in plaintext');
         return $plaintext;
     }
     $method = 'AES-256-CBC';
@@ -183,6 +187,16 @@ try {
             break;
 
         case 'update_email':
+            // Since account-recovery-relevant and doesn't require the current
+            // password (many accounts here are magic-link-only, with no password
+            // set at all), this is a high-value CSRF target - the confirmation
+            // link goes to the attacker-supplied new address, so a forged request
+            // combined with the attacker clicking their own emailed link would be
+            // a full account takeover.
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin update_email request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
             $rawEmail = $_POST['email'] ?? '';
             // Detect suspicious patterns
             $suspicious = detectSuspiciousPatterns((string)$rawEmail);
@@ -288,6 +302,13 @@ try {
             break;
 
         case 'rotate_signing_keys':
+            // Executes immediately with no confirmation step at all - a forged
+            // cross-site request would silently invalidate the victim's client-agent
+            // signing keys, breaking their configured mail filtering (CSRF-triggered DoS).
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin rotate_signing_keys request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
             try {
                 $keys = clientBackendRotateUserSigningKeys($userId);
                 if (!$keys) {
@@ -544,12 +565,17 @@ try {
             if (strlen($url) > 2048) {
                 send_json(['success' => false, 'error' => 'URL too long (max 2048 characters)']);
             }
-            // Only allow https URLs (except localhost for testing)
+            // Only allow https URLs that resolve to a public (non-internal) address.
+            // Webhooks are meant for third-party external services, so unlike some
+            // other integrations in this app there's no legitimate case for allowing
+            // localhost/private-network targets here.
             $parsedUrl = parse_url($url);
-            $host = $parsedUrl['host'] ?? '';
             $scheme = $parsedUrl['scheme'] ?? '';
-            if ($scheme !== 'https' && !in_array($host, ['localhost', '127.0.0.1'])) {
+            if ($scheme !== 'https') {
                 send_json(['success' => false, 'error' => 'Only HTTPS URLs are allowed']);
+            }
+            if (resolveUrlToPublicTarget($url) === null) {
+                send_json(['success' => false, 'error' => 'URL must resolve to a public address']);
             }
             if (!in_array($kind, ['generic', 'pushover'])) {
                 send_json(['success' => false, 'error' => 'Invalid kind']);
@@ -642,7 +668,14 @@ try {
                                 $headers[] = 'X-TempMail-Signature: sha256=' . hash_hmac('sha256', $payloadJson, $secretPlain);
                             }
                         }
-                        if (function_exists('curl_init')) {
+                        // Re-resolve right before dispatch (not just at validation time above) and
+                        // pin the connection to the validated IP, so a DNS change between
+                        // validation and connect time can't redirect the request internally.
+                        $dispatchTarget = resolveUrlToPublicTarget($url);
+                        if ($dispatchTarget === null) {
+                            $respBody = 'Target host could not be resolved to a permitted address';
+                            $httpCode = 0;
+                        } elseif (function_exists('curl_init')) {
                             $ch = curl_init($url);
                             curl_setopt($ch, CURLOPT_POST, 1);
                             curl_setopt($ch, CURLOPT_POSTFIELDS, $payloadJson);
@@ -650,6 +683,7 @@ try {
                             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
                             curl_setopt($ch, CURLOPT_TIMEOUT, 5);
                             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+                            curl_setopt($ch, CURLOPT_RESOLVE, [$dispatchTarget['host'] . ':' . $dispatchTarget['port'] . ':' . $dispatchTarget['ip']]);
                             $respBody = curl_exec($ch);
                             $err = curl_error($ch);
                             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE) ?: 0;

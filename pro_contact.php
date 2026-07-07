@@ -33,14 +33,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo json_encode(['success' => false, 'error' => 'Invalid category selected']);
         exit;
     }
-    
+
+    if ($message === '') {
+        echo json_encode(['success' => false, 'error' => 'Message is required']);
+        exit;
+    }
+    if (strlen($message) > 5000) {
+        echo json_encode(['success' => false, 'error' => 'Message too long (max 5000 characters)']);
+        exit;
+    }
+
+    // Previously this block only fetched pro_expires_at (unrelated - needed for the
+    // page render below) and fell through without ever storing/sending the message
+    // or returning JSON, so every contact form submission was silently discarded.
+    logMessage('INFO', 'Pro contact form submission', [
+        'user_id' => $userId,
+        'email' => $userEmail,
+        'category' => $category,
+        'message' => $message
+    ]);
+
+    try {
+        $supportTo = $_ENV['SUPPORT_EMAIL'] ?? ('support@' . ($config['email']['domain'] ?? 'manjo.me'));
+        $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
+        $subject = 'TempMail Pro contact form: ' . $category;
+        $body = "From: {$userEmail} (user_id {$userId})\nCategory: {$category}\n\n{$message}";
+        $headers = [];
+        $headers[] = 'From: TempMail <' . $from . '>';
+        $headers[] = 'Reply-To: ' . $userEmail;
+        $headers[] = 'MIME-Version: 1.0';
+        $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+        @mail($supportTo, $subject, $body, implode("\r\n", $headers));
+    } catch (Exception $e) {
+        logMessage('WARNING', 'Failed emailing contact form submission', ['error' => $e->getMessage(), 'user_id' => $userId]);
+    }
+
+    echo json_encode(['success' => true, 'message' => 'Thanks! Your message has been sent.']);
+    exit;
+}
+
 try {
     $pstmt = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
     $pstmt->execute([$userId]);
     $prow = $pstmt->fetch(PDO::FETCH_ASSOC);
     $proExpires = $prow['pro_expires_at'] ?? null;
-} catch (Exception $e) {}
-    }
+} catch (Exception $e) {
+    $proExpires = null;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">

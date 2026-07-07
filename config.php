@@ -1031,19 +1031,149 @@ function saveNewAddress($address, $proUserId = null, $isPersonal = 0) {
  */
 function isValidAddress($address) {
     global $pdo, $config;
-    
+
     try {
+        // Personal (Pro) addresses carry a long-lived expires_at far past
+        // cleanup_hours - checking created_at here (instead of expiry) used
+        // to lock Pro users out of their own addresses after 24h. Fall back
+        // to the created_at check only for legacy rows with no expires_at,
+        // mirroring the same pattern already used for stored_emails lookups.
         $stmt = $pdo->prepare("
-            SELECT COUNT(*) 
-            FROM temp_emails 
-            WHERE unique_address = ? 
-            AND created_at > DATE_SUB(NOW(), INTERVAL ? HOUR)
+            SELECT COUNT(*)
+            FROM temp_emails
+            WHERE unique_address = ?
+            AND (
+                (expires_at IS NOT NULL AND expires_at > NOW())
+                OR (expires_at IS NULL AND created_at > DATE_SUB(NOW(), INTERVAL ? HOUR))
+            )
         ");
         $stmt->execute([$address, $config['app']['cleanup_hours']]);
         return $stmt->fetchColumn() > 0;
     } catch (PDOException $e) {
         logMessage('ERROR', 'Kunde inte validera adress: ' . $e->getMessage(), ['address' => $address]);
         return false;
+    }
+}
+
+// Session-scoped capability grant: an address becomes "unlocked" for the
+// current session once the caller has proven knowledge of it (by passing
+// isValidAddress() + any ownership check in get_emails/refresh_emails). Used
+// by get_email so stored_emails' sequential integer id can't be enumerated
+// to read messages for addresses the caller never demonstrated knowing.
+function grantSessionAddressAccess(array $fullAddresses): void {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return;
+    }
+    $existing = $_SESSION['unlocked_addresses'] ?? [];
+    $_SESSION['unlocked_addresses'] = array_values(array_unique(array_merge($existing, $fullAddresses)));
+}
+
+function hasSessionAddressAccess(string $fullAddress): bool {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return false;
+    }
+    return in_array($fullAddress, $_SESSION['unlocked_addresses'] ?? [], true);
+}
+
+function isPublicIpAddress(string $ip): bool {
+    return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+}
+
+// Resolves a URL's host to a concrete public IP, rejecting private/loopback/
+// link-local/reserved addresses (SSRF protection). Unlike checking the literal
+// host string, this also catches a domain that *resolves* to an internal
+// address (including via DNS rebinding, since this should be called again
+// right before each dispatch, not just once at save time). Returns null if
+// the URL is malformed or resolves to any non-public address.
+function resolveUrlToPublicTarget(string $url): ?array {
+    $parts = parse_url($url);
+    if (!is_array($parts) || empty($parts['host'])) {
+        return null;
+    }
+
+    $host = strtolower((string) $parts['host']);
+    $scheme = strtolower((string) ($parts['scheme'] ?? 'https'));
+    $port = (int) ($parts['port'] ?? ($scheme === 'http' ? 80 : 443));
+
+    if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+        if (!isPublicIpAddress($host)) {
+            return null;
+        }
+        return ['host' => $host, 'port' => $port, 'ip' => $host];
+    }
+
+    $ips = [];
+    $records = @dns_get_record($host, DNS_A + DNS_AAAA);
+    if (is_array($records)) {
+        foreach ($records as $record) {
+            if (!empty($record['ip'])) {
+                $ips[] = $record['ip'];
+            } elseif (!empty($record['ipv6'])) {
+                $ips[] = $record['ipv6'];
+            }
+        }
+    }
+    if (empty($ips)) {
+        $legacy = @gethostbynamel($host);
+        if (is_array($legacy)) {
+            $ips = $legacy;
+        }
+    }
+    if (empty($ips)) {
+        return null;
+    }
+
+    foreach ($ips as $ip) {
+        if (!isPublicIpAddress($ip)) {
+            return null;
+        }
+    }
+
+    return ['host' => $host, 'port' => $port, 'ip' => $ips[0]];
+}
+
+// Lightweight CSRF mitigation for specific high-value endpoints. This app has
+// no CSRF-token infrastructure (a larger, separate undertaking), but checking
+// Origin (falling back to Referer) against the app's own configured host is a
+// real, low-effort defense against forged cross-site requests, recommended by
+// OWASP as a mitigation where full token-based protection isn't in place yet.
+// Modern browsers reliably send Origin on same-origin POST/XHR/fetch requests
+// (how this app's own JS makes these calls), so this shouldn't affect
+// legitimate use.
+function requireSameOriginRequest(): bool {
+    global $config;
+    $source = $_SERVER['HTTP_ORIGIN'] ?? ($_SERVER['HTTP_REFERER'] ?? null);
+    if (empty($source)) {
+        return false;
+    }
+    $sourceHost = parse_url($source, PHP_URL_HOST);
+    $expectedHost = parse_url($config['email']['base_url'] ?? '', PHP_URL_HOST);
+    if (empty($sourceHost) || empty($expectedHost)) {
+        return false;
+    }
+    return strcasecmp($sourceHost, $expectedHost) === 0;
+}
+
+// refresh_emails triggers a full IMAP fetch/parse/DB-write cycle across every
+// currently valid address, not just the one requested, with no per-request
+// cost. Without a global cooldown, anyone can hammer that action to force
+// repeated full-mailbox syncs (cost-amplification DoS against the mail
+// server and DB). The UPDATE below only succeeds for one caller at a time
+// once the cooldown has elapsed, so concurrent requests can't all pass.
+function shouldRunGlobalImapRefresh(PDO $pdo, int $cooldownSeconds = 5): bool {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS imap_refresh_state (
+            id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+            last_run_at DATETIME NULL
+        ) ENGINE=InnoDB");
+        $pdo->exec("INSERT IGNORE INTO imap_refresh_state (id, last_run_at) VALUES (1, NULL)");
+
+        $upd = $pdo->prepare("UPDATE imap_refresh_state SET last_run_at = NOW() WHERE id = 1 AND (last_run_at IS NULL OR last_run_at <= DATE_SUB(NOW(), INTERVAL ? SECOND))");
+        $upd->execute([$cooldownSeconds]);
+        return $upd->rowCount() > 0;
+    } catch (Exception $e) {
+        logMessage('WARNING', 'IMAP refresh cooldown check failed, allowing run', ['error' => $e->getMessage()]);
+        return true;
     }
 }
 
@@ -1217,8 +1347,9 @@ function cleanupOldData() {
     try {
         $pdo->beginTransaction();
         
-        // Radera gamla adresser
-        $stmt = $pdo->prepare("DELETE FROM temp_emails WHERE created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)");
+        // Radera gamla adresser (aldrig personliga Pro-adresser - matchar
+        // filtret i cron/cleanup.php, som är den faktiska aktiva cleanup-koden)
+        $stmt = $pdo->prepare("DELETE FROM temp_emails WHERE is_personal = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)");
         $stmt->execute([$config['app']['cleanup_hours']]);
         $deletedAddresses = $stmt->rowCount();
         
