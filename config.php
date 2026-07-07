@@ -228,7 +228,9 @@ $baseConfig = [
     'app' => [
         'cleanup_hours' => 24,
         'address_length' => 12,
-        'max_emails_per_address' => 50
+        'max_emails_per_address' => 50,
+        // Displayed in the site footer. Bump this on release.
+        'version' => '2.23'
     ],
     'cleanup' => [
         // Default retention; can be overridden with environment variable LOG_RETENTION_DAYS
