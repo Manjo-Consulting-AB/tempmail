@@ -99,8 +99,35 @@ if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
 // PRO duration to add (30 days)
 $durationDays = 30;
 
+// Replay protection: dedupe on the provider's event/payment id (falling back to a
+// hash of the exact payload if the event has no id) so a captured valid
+// (payload, signature) pair can't be resent to repeatedly grant free PRO time.
+$eventId = (string) ($data['id'] ?? $data['payment_id'] ?? hash('sha256', $payload));
+
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS bmac_webhook_events (
+        event_id VARCHAR(191) NOT NULL PRIMARY KEY,
+        received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Exception $e) {
+    logMessage('ERROR', 'Failed to ensure bmac_webhook_events table exists', ['error' => $e->getMessage()]);
+}
+
 try {
     $pdo->beginTransaction();
+
+    try {
+        $dedupeStmt = $pdo->prepare("INSERT INTO bmac_webhook_events (event_id) VALUES (?)");
+        $dedupeStmt->execute([$eventId]);
+    } catch (PDOException $e) {
+        // Duplicate primary key = this event was already processed. Roll back and
+        // acknowledge with 200 so BMAC doesn't keep retrying it as a failure.
+        $pdo->rollBack();
+        logMessage('WARNING', 'BMAC webhook replay detected, ignoring', ['event_id' => $eventId]);
+        http_response_code(200);
+        echo json_encode(['status' => 'ignored', 'reason' => 'duplicate event']);
+        exit;
+    }
 
     // Lock or fetch user
     $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email = ? FOR UPDATE");
