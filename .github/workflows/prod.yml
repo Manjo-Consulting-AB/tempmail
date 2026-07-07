@@ -34,13 +34,25 @@ jobs:
     steps:
       - name: Hämta källkod
         uses: actions/checkout@v5
-      - name: Ladda upp ./ via SFTP
+      - name: Förbered deploy-katalog (exkludera .git, .github, interna docs m.m.)
+        run: |
+          mkdir -p deploy_staging
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.gitignore' \
+            --exclude='.semgrepignore' \
+            --exclude='CLAUDE.md' \
+            --exclude='documentaion/' \
+            --exclude='deploy_staging/' \
+            ./ ./deploy_staging/
+      - name: Ladda upp via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
           username: ${{ secrets.SFTP_USERNAME }}
           password: ${{ secrets.SFTP_PASSWORD }}
           server: ${{ secrets.SFTP_SERVER }}
           port: 22
-          local_path: './'
+          local_path: './deploy_staging/'
           remote_path: './manjo.me/public_html/' # Kontot landar i hemkatalogen, webbroten en nivå ner
           sftp_only: true # Kontot saknar skal-/exec-åtkomst (endast SFTP-protokollet) - annars stänger servern anslutningen vid mkdir-kommandot
