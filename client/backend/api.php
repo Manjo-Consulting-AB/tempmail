@@ -236,8 +236,12 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
     }
 
     if ($method === 'POST' && ($segments[3] ?? '') === 'sync') {
-        $updated = clientBackendRunPendingSyncs();
-        echo json_encode(['status' => 'ok', 'results' => $updated]);
+        // Force-send the current state to this script's webhook now, regardless
+        // of pending_sync_at (manual "resend" action) - see
+        // documentaion/backend/LIST_MANAGEMENT_API.md. Scoped to $scriptId only,
+        // whose ownership was already verified above.
+        $result = clientBackendDispatchWebhookToScript($scriptId);
+        echo json_encode(['status' => 'ok', 'result' => $result]);
         exit;
     }
 

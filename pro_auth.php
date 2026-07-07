@@ -108,6 +108,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'error' => 'Invalid email address']);
         exit;
     }
+
+    // Rate limiting: without this, an attacker can mail-bomb any inbox by
+    // repeatedly requesting login links for it (measured by IP only, same
+    // pattern as password_login's brute-force guard below).
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $rateLimited = false;
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS magic_link_requests (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ip VARCHAR(45) NOT NULL,
+            requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_ip_time (ip, requested_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $windowMinutes = 15;
+        $maxRequests = 5;
+        $s1 = $pdo->prepare("SELECT COUNT(*) FROM magic_link_requests WHERE ip = ? AND requested_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)");
+        $s1->execute([$ip, $windowMinutes]);
+        if ((int) $s1->fetchColumn() >= $maxRequests) {
+            $rateLimited = true;
+            if (function_exists('flagMaliciousActivity')) {
+                flagMaliciousActivity($ip, 'Magic link request rate limit exceeded');
+            }
+            logMessage('WARNING', 'Magic link request rate limit exceeded', ['ip' => $ip]);
+        } else {
+            $ins = $pdo->prepare("INSERT INTO magic_link_requests (ip) VALUES (?)");
+            $ins->execute([$ip]);
+        }
+    } catch (Exception $e) {
+        // Fail open (don't block legitimate logins if the check itself breaks), but log it.
+        logMessage('ERROR', 'Magic link rate-check failed', ['error' => $e->getMessage()]);
+    }
+
+    if ($rateLimited) {
+        // Same generic response as every other branch below, so a rate-limited
+        // caller can't distinguish this from "link sent" or "unknown account".
+        echo json_encode(['success' => true]);
+        exit;
+    }
+
     // Check PRO status before sending magic link. Do NOT create a new pro user here.
     $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email = ? LIMIT 1");
     $stmt->execute([$email]);

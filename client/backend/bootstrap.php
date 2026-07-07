@@ -479,7 +479,7 @@ function clientBackendCanAccessScript(array $script, ?int $userId): bool {
     }
 
     $ownerId = $script['owner_pro_user_id'] ?? null;
-    return $ownerId === null || (int) $ownerId === $userId;
+    return $ownerId !== null && (int) $ownerId === $userId;
 }
 
 function clientBackendGetScriptsForUser(int $userId): array {
@@ -529,6 +529,18 @@ function clientBackendUpdateScript(string $scriptId, array $changes): ?array {
     if (!isset($scripts[$scriptId])) {
         return null;
     }
+
+    // Always route target_host/target_path through normalization, regardless of
+    // caller, so no code path can set an unvalidated SSRF target (e.g. a private
+    // or loopback address) on the script record.
+    if (array_key_exists('target_host', $changes)) {
+        $changes['target_host'] = clientBackendNormalizeTargetHost($changes['target_host']);
+    }
+    if (array_key_exists('target_path', $changes)) {
+        $changes['target_path'] = clientBackendNormalizeTargetPath($changes['target_path']);
+    }
+    // script_id is the array key and must not be overwritten via a generic update.
+    unset($changes['script_id']);
 
     foreach ($changes as $key => $value) {
         $scripts[$scriptId][$key] = $value;
@@ -906,6 +918,66 @@ function clientBackendBuildWebhookSignature(string $body, array $script): ?strin
     return 'rsa-sha256=' . base64_encode($signature);
 }
 
+function clientBackendIsPublicIp(string $ip): bool {
+    return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+}
+
+// Resolves the webhook URL's host to a concrete IP and validates it is not
+// private/loopback/link-local. clientBackendNormalizeTargetHost() only checks
+// syntax for domain names (it can't know what they'll resolve to), so a target
+// domain could otherwise point at an internal address - either at save time
+// (attacker-controlled DNS) or later via DNS rebinding. Resolving and pinning
+// here, right before the request is made, closes both gaps for the curl path.
+function clientBackendResolveDispatchTarget(string $url): ?array {
+    $parts = parse_url($url);
+    if (!is_array($parts) || empty($parts['host'])) {
+        return null;
+    }
+
+    $host = strtolower((string) $parts['host']);
+    $scheme = strtolower((string) ($parts['scheme'] ?? 'http'));
+    $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+    $allowPrivate = (getenv('CLIENT_BACKEND_ALLOW_PRIVATE_TARGETS') ?: '0') === '1';
+
+    if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+        if (!$allowPrivate && !clientBackendIsPublicIp($host)) {
+            return null;
+        }
+        return ['host' => $host, 'port' => $port, 'ip' => $host];
+    }
+
+    $ips = [];
+    $records = @dns_get_record($host, DNS_A + DNS_AAAA);
+    if (is_array($records)) {
+        foreach ($records as $record) {
+            if (!empty($record['ip'])) {
+                $ips[] = $record['ip'];
+            } elseif (!empty($record['ipv6'])) {
+                $ips[] = $record['ipv6'];
+            }
+        }
+    }
+    if (empty($ips)) {
+        $legacy = @gethostbynamel($host);
+        if (is_array($legacy)) {
+            $ips = $legacy;
+        }
+    }
+    if (empty($ips)) {
+        return null;
+    }
+
+    if (!$allowPrivate) {
+        foreach ($ips as $ip) {
+            if (!clientBackendIsPublicIp($ip)) {
+                return null;
+            }
+        }
+    }
+
+    return ['host' => $host, 'port' => $port, 'ip' => $ips[0]];
+}
+
 function clientBackendSendJsonRequest(string $url, array $payload, array $script): array {
     $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     if ($body === false) {
@@ -927,6 +999,16 @@ function clientBackendSendJsonRequest(string $url, array $payload, array $script
         ];
     }
 
+    $target = clientBackendResolveDispatchTarget($url);
+    if ($target === null) {
+        return [
+            'success' => false,
+            'http_code' => 0,
+            'response_body' => '',
+            'error' => 'Target host could not be resolved to a permitted address',
+        ];
+    }
+
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_POST, true);
@@ -934,7 +1016,11 @@ function clientBackendSendJsonRequest(string $url, array $payload, array $script
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Accept: application/json', 'X-Client-Webhook-Signature: ' . $signature]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        // Redirect targets are unvalidated, so don't follow them.
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        // Pin the connection to the IP we just validated so a DNS change
+        // between validation and connect time can't redirect the request.
+        curl_setopt($ch, CURLOPT_RESOLVE, [$target['host'] . ':' . $target['port'] . ':' . $target['ip']]);
 
         $responseBody = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
