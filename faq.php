@@ -112,7 +112,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
         <footer class="text-center mt-5 py-4">
             <div class="container">
                 <p class="text-light mb-0 mt-1">
-                    <small>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</small>
+                    <small>&copy; <?php echo date('Y'); ?> Manjo Consulting AB | v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
                 </p>
                 <div class="mt-2"></div>
             </div>

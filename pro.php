@@ -376,7 +376,7 @@ try {
                     <footer class="text-center mt-5 py-4">
                         <div class="container">
                             <p class="text-light mb-0">
-                                <small>TempMail Pro - Secure temporary email | All messages deleted after 24 hours</small>
+                                <small>TempMail Pro - Secure temporary email | All messages deleted after 24 hours | v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
                             </p>
                             <p class="text-light mb-0 mt-1">
                                 <small>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</small>
