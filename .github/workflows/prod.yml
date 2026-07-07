@@ -43,3 +43,4 @@ jobs:
           port: 22
           local_path: './'
           remote_path: './manjo.me/public_html/' # Kontot landar i hemkatalogen, webbroten en nivå ner
+          sftp_only: true # Kontot saknar skal-/exec-åtkomst (endast SFTP-protokollet) - annars stänger servern anslutningen vid mkdir-kommandot
