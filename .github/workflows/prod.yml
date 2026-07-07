@@ -37,18 +37,12 @@ jobs:
     steps:
       - name: Hämta källkod
         uses: actions/checkout@v5
-      - name: Förbered deploy-katalog (exkludera .git, .github, interna docs m.m.)
-        run: |
-          mkdir -p deploy_staging
-          rsync -a \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='.gitignore' \
-            --exclude='.semgrepignore' \
-            --exclude='CLAUDE.md' \
-            --exclude='documentaion/' \
-            --exclude='deploy_staging/' \
-            ./ ./deploy_staging/
+      - name: Flytta undan filer som inte ska till prod (.git, .github, interna docs m.m.)
+        # Flyttas bara ut tillfälligt (inte till en katalog UNDER arbetskatalogen -
+        # annars nästlar sftp-uppladdningen in dem igen), inte till prod. De flyttas
+        # tillbaka efter uppladdningen så att checkout-actionens egen efterstädning
+        # (som behöver .git) fortfarande fungerar.
+        run: mv .git .github .gitignore .semgrepignore CLAUDE.md documentaion ..
       - name: Ladda upp via SFTP
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
@@ -56,6 +50,9 @@ jobs:
           password: ${{ secrets.SFTP_PASSWORD }}
           server: ${{ secrets.SFTP_SERVER }}
           port: 22
-          local_path: './deploy_staging/'
+          local_path: './'
           remote_path: './manjo.me/public_html/' # Kontot landar i hemkatalogen, webbroten en nivå ner
           sftp_only: true # Kontot saknar skal-/exec-åtkomst (endast SFTP-protokollet) - annars stänger servern anslutningen vid mkdir-kommandot
+      - name: Återställ undanflyttade filer (för checkout-actionens efterstädning)
+        if: always()
+        run: mv ../.git ../.github ../.gitignore ../.semgrepignore ../CLAUDE.md ../documentaion .
