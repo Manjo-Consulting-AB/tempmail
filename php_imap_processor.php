@@ -644,12 +644,15 @@ class ImapProcessor
     private function sanitizeSavedBody($body)
     {
         if (empty($body) || !is_string($body)) return $body;
+        // Strip actual inline data: URIs (embedded images/attachments) before storage.
+        // A previous second pass here flagged *any* run of 200+ base64-alphabet
+        // characters anywhere in the body as "probably an embedded attachment" -
+        // with no awareness of HTML/URL context, this also matched long opaque
+        // tokens in legitimate links (e.g. mailing-list subscription-confirmation
+        // URLs), truncating them to "...[removed base64]" and breaking the link
+        // before it was even saved. Removed - the data: URI match above already
+        // covers the documented intent.
         $body = preg_replace('/data:[^;\"]+;base64,[A-Za-z0-9+\/=\r\n]+/i', '[attachment removed]', $body);
-        $body = preg_replace_callback('/([A-Za-z0-9+\/=\r\n]{200,})/', function ($m) {
-            $s = preg_replace('/\s+/', '', $m[1]);
-            if (preg_match('/^[A-Za-z0-9+\/=]{200,}$/', $s)) return '[removed base64]';
-            return $m[1];
-        }, $body);
         return $body;
     }
 
