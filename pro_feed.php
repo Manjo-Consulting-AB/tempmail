@@ -4,10 +4,58 @@
  */
 require_once __DIR__ . '/config.php';
 
+$vendorAutoload = __DIR__ . '/vendor/autoload.php';
+if (file_exists($vendorAutoload)) {
+    require_once $vendorAutoload;
+}
+
 // Minimal hardening
 if (php_sapi_name() === 'cli') {
     fwrite(STDERR, "This script is intended to be invoked via HTTP.\n");
     exit(2);
+}
+
+/**
+ * Sanitize inbound email HTML (fully attacker-controlled, no login required to
+ * trigger) down to a safe formatting/image allowlist using HTMLPurifier, so
+ * RSS readers still get bold/links/images without the XSS / CDATA-breakout
+ * risk that came from embedding raw HTML (see git history on this file).
+ * Falls back to the plain-text flatten if the library isn't installed.
+ */
+function purifyEmailHtml(string $html): ?string {
+    if (!class_exists('HTMLPurifier') || !class_exists('HTMLPurifier_Config')) {
+        return null;
+    }
+
+    static $purifier = null;
+    if ($purifier === null) {
+        $config = HTMLPurifier_Config::createDefault();
+        // No writable cache dir is guaranteed on shared hosting; recomputing
+        // the (small) definition per-request is cheap enough for a feed that
+        // browsers/readers already cache for 60s (see Cache-Control below).
+        $config->set('Cache.DefinitionImpl', null);
+        $config->set('HTML.Allowed', implode(',', [
+            'p[style]', 'br', 'b', 'strong', 'i', 'em', 'u', 's',
+            'a[href|title]', 'img[src|alt|title|width|height]',
+            'ul', 'ol', 'li', 'blockquote', 'hr',
+            'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+            'span[style]', 'div[style]', 'font[color|size|face]',
+            'table[style]', 'thead', 'tbody', 'tr',
+            'td[style|colspan|rowspan]', 'th[style|colspan|rowspan]',
+        ]));
+        $config->set('CSS.AllowedProperties', [
+            'color', 'background-color', 'font-size', 'font-weight', 'font-style',
+            'text-align', 'text-decoration', 'padding', 'margin', 'border',
+            'width', 'height', 'max-width',
+        ]);
+        // Only allow schemes that can't execute script content (blocks
+        // javascript:, data:, vbscript:, etc.).
+        $config->set('URI.AllowedSchemes', ['http' => true, 'https' => true, 'mailto' => true]);
+        $config->set('HTML.TargetBlank', true);
+        $purifier = new HTMLPurifier($config);
+    }
+
+    return $purifier->purify($html);
 }
 
 $rawToken = $_GET['token'] ?? '';
@@ -95,14 +143,18 @@ try {
 
         // Prefer HTML body if available. body_html is raw inbound email HTML -
         // fully attacker-controlled by anyone who emails this address, with no
-        // login required. There's no HTML sanitizer library in this project, and
-        // strip_tags() alone doesn't neutralize event-handler attributes or
-        // javascript: URLs in allowed tags, so flatten to plain text (preserving
-        // line breaks) rather than attempting a tag allowlist.
+        // login required - so it's run through HTMLPurifier's allowlist (see
+        // purifyEmailHtml()) rather than embedded as-is. If the library is
+        // unavailable for any reason, fall back to the safe plain-text flatten.
         $content = '';
         if (!empty($e['body_html'])) {
-            $withBreaks = preg_replace('/<(br|\/p|\/div|\/tr|\/li)\s*\/?>/i', "\n", $e['body_html']);
-            $content = nl2br(htmlspecialchars(strip_tags($withBreaks)));
+            $purified = purifyEmailHtml($e['body_html']);
+            if ($purified !== null) {
+                $content = $purified;
+            } else {
+                $withBreaks = preg_replace('/<(br|\/p|\/div|\/tr|\/li)\s*\/?>/i', "\n", $e['body_html']);
+                $content = nl2br(htmlspecialchars(strip_tags($withBreaks)));
+            }
         } elseif (!empty($e['body_text'])) {
             $content = nl2br(htmlspecialchars($e['body_text']));
         }

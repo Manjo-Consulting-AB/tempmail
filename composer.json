@@ -1,6 +1,7 @@
 {
     "require": {
         "php-mime-mail-parser/php-mime-mail-parser": "^1.0",
-        "zbateson/mail-mime-parser": "^3.0"
+        "zbateson/mail-mime-parser": "^3.0",
+        "ezyang/htmlpurifier": "^4.17"
     }
 }
