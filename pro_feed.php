@@ -152,7 +152,12 @@ try {
             if ($purified !== null) {
                 $content = $purified;
             } else {
-                $withBreaks = preg_replace('/<(br|\/p|\/div|\/tr|\/li)\s*\/?>/i', "\n", $e['body_html']);
+                // strip_tags() only removes the <style>/<script> tags themselves,
+                // not their text content, so CSS-heavy emails (nearly all of them
+                // put their rules in a <head><style> block) would otherwise dump
+                // raw CSS source into the feed. Drop those elements entirely first.
+                $withoutStyleScript = preg_replace('/<(style|script)\b[^>]*>.*?<\/\1>/is', '', $e['body_html']);
+                $withBreaks = preg_replace('/<(br|\/p|\/div|\/tr|\/li)\s*\/?>/i', "\n", $withoutStyleScript);
                 $content = nl2br(htmlspecialchars(strip_tags($withBreaks)));
             }
         } elseif (!empty($e['body_text'])) {
