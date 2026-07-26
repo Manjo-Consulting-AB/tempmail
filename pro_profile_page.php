@@ -105,10 +105,10 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                         </div>
                         <div>
                             <span id="personalCounterLabel" class="text-muted">You have</span>
-                            <span id="personalCounterBadge" class="badge bg-secondary ms-2">0/3</span>
+                            <span id="personalCounterBadge" class="badge bg-secondary ms-2">0/10</span>
                         </div>
                         <div id="personalList" class="mt-3"></div>
-                        <div class="form-text">Create up to 3 personal addresses. These persist for pro accounts.</div>
+                        <div class="form-text">Create up to 10 personal addresses. These persist for pro accounts.</div>
                     </div>
 
                     <hr>
@@ -390,11 +390,12 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
             }, 'json');
 
             // Personal addresses handlers (moved from main page)
+            var MAX_PERSONAL_ADDRESSES = 10;
             function renderPersonalList(items) {
                 var $container = $('#personalList');
                 if (!items || items.length === 0) {
                     $container.html('<p class="text-muted">No personal addresses yet.</p>');
-                    $('#personalCounterBadge').text('0/3');
+                    $('#personalCounterBadge').text('0/' + MAX_PERSONAL_ADDRESSES);
                     return;
                 }
                 var html = '<div class="list-group">';
@@ -404,10 +405,10 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                 html += '\n</div>';
                 $container.html(html);
                 var count = items.length || 0;
-                $('#personalCounterBadge').text(count + '/3');
-                if (count >= 3) {
+                $('#personalCounterBadge').text(count + '/' + MAX_PERSONAL_ADDRESSES);
+                if (count >= MAX_PERSONAL_ADDRESSES) {
                     $('#createPersonalBtn').prop('disabled', true);
-                    $('#personalMsg').css('color', '#ff6b6b').text('Max 3 personal addresses reached');
+                    $('#personalMsg').css('color', '#ff6b6b').text('Max ' + MAX_PERSONAL_ADDRESSES + ' personal addresses reached');
                     $('#personalCounterBadge').addClass('quota-reached bg-danger').removeClass('bg-secondary');
                     $('#personalCounterLabel').addClass('text-danger');
                 } else {
@@ -430,8 +431,8 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
 
             // Create personal
             $('#createPersonalBtn').on('click', function(){
-                if ($('#personalList .list-group-item').length >= 3) {
-                    $('#personalMsg').css('color', '#ff6b6b').text('You already have 3 personal addresses');
+                if ($('#personalList .list-group-item').length >= MAX_PERSONAL_ADDRESSES) {
+                    $('#personalMsg').css('color', '#ff6b6b').text('You already have ' + MAX_PERSONAL_ADDRESSES + ' personal addresses');
                     return;
                 }
                 var local = $('#personalLocal').val().trim();
