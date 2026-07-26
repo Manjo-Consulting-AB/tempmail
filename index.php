@@ -166,14 +166,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'error' => 'Address already taken']);
                     break;
                 }
-                // Enforce max 3 personal addresses per pro user
+                // Enforce max 10 personal addresses per pro user
                 try {
                     $cntStmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
                     $cntStmt->execute([$_SESSION['pro_user_id']]);
                     $cntRow = $cntStmt->fetch(PDO::FETCH_ASSOC);
                     $existingCount = (int)($cntRow['cnt'] ?? 0);
-                    if ($existingCount >= 3) {
-                        echo json_encode(['success' => false, 'error' => 'Maximum of 3 personal addresses allowed']);
+                    if ($existingCount >= 10) {
+                        echo json_encode(['success' => false, 'error' => 'Maximum of 10 personal addresses allowed']);
                         break;
                     }
                 } catch (Exception $e) {
@@ -1125,7 +1125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <tr>
                                 <td>Personal addresses</td>
                                 <td>Not available</td>
-                                <td>Create up to 3 persistent personal addresses</td>
+                                <td>Create up to 10 persistent personal addresses</td>
                             </tr>
                             <tr>
                                 <td>Webhooks</td>

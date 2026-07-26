@@ -59,7 +59,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 
                 <div class="mb-3">
                     <strong>How many addresses can I create?</strong>
-                    <p class="mb-0">Basic visitors can generate temporary addresses from the homepage as needed; these are not tied to accounts and are deleted after their TTL. Pro users may have one active non-personal temporary address at a time and up to three personal addresses that they manage from their profile.</p>
+                    <p class="mb-0">Basic visitors can generate temporary addresses from the homepage as needed; these are not tied to accounts and are deleted after their TTL. Pro users may have one active non-personal temporary address at a time and up to ten personal addresses that they manage from their profile.</p>
                 </div>
 
                 <h3 class="mt-4">Pro Settings</h3>
@@ -69,7 +69,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
                     <ul>
                         <li>Set a password for direct access (optional).</li>
                         <li>Configure the default address TTL (within allowed range).</li>
-                        <li>Create and manage up to three personal addresses (long-lived).</li>
+                        <li>Create and manage up to ten personal addresses (long-lived).</li>
                         <li>Delete personal addresses and view address expiry information.</li>
                     </ul>
                 </div>
