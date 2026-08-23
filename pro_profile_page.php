@@ -32,6 +32,9 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
+    <style>
+        #tfaQrContainer svg { max-width: 200px; width: 100%; height: auto; }
+    </style>
 </head>
 <body>
     <div class="main-container">
@@ -186,6 +189,81 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                     <div class="mb-3">
                         <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password!</button>
                     </div>
+
+                    <hr>
+                    <h6>Two-factor authentication</h6>
+                    <div class="mb-3" id="twoFactorSection">
+                        <p id="tfaStatusLine" class="mb-2">Loading status...</p>
+                        <p class="form-text">Protects password sign-in with a code from your authenticator app. Email sign-in links already require access to your inbox and keep working as before.</p>
+                        <div id="tfaNoPasswordNote" class="alert alert-info d-none">
+                            Two-factor authentication only takes effect once you have a password set — <a href="#proPassword">set one above</a> to activate protection after enrolling.
+                        </div>
+                        <div id="tfaAlert"></div>
+
+                        <div id="tfaDisabledState" class="d-none">
+                            <button type="button" id="tfaEnableBtn" class="btn btn-primary">Enable 2FA</button>
+                        </div>
+
+                        <div id="tfaEnrollStep" class="d-none">
+                            <p>Scan with 1Password, Authy, Google Authenticator, or a similar app.</p>
+                            <div id="tfaQrContainer" class="mb-2"></div>
+                            <details class="mb-3">
+                                <summary style="cursor:pointer;">Can't scan?</summary>
+                                <div class="mt-2 d-flex align-items-center flex-wrap" style="gap:8px;">
+                                    <code id="tfaManualKey"></code>
+                                    <button type="button" id="tfaCopyKeyBtn" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                </div>
+                            </details>
+                            <div class="mb-2">
+                                <label class="form-label" for="tfaCodeInput">Enter the 6-digit code from your app</label>
+                                <input type="text" class="form-control" id="tfaCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
+                            </div>
+                            <button type="button" id="tfaConfirmBtn" class="btn btn-primary">Confirm and enable</button>
+                            <button type="button" id="tfaCancelEnrollBtn" class="btn btn-link">Cancel</button>
+                        </div>
+
+                        <div id="tfaRecoveryCodesBox" class="d-none">
+                            <div class="alert alert-warning">
+                                <strong>Save these recovery codes now.</strong> They are shown this one time only. Store them somewhere safe — each one can be used once if you lose access to your authenticator app.
+                            </div>
+                            <pre id="tfaRecoveryCodesList" class="p-3 border rounded" style="white-space:pre-wrap; word-break:break-word;"></pre>
+                            <div class="mb-2">
+                                <button type="button" id="tfaCopyRecoveryBtn" class="btn btn-sm btn-outline-secondary">Copy all</button>
+                                <button type="button" id="tfaDownloadRecoveryBtn" class="btn btn-sm btn-outline-secondary">Download as .txt</button>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="tfaSavedCodesCheck">
+                                <label class="form-check-label" for="tfaSavedCodesCheck">I have saved my codes</label>
+                            </div>
+                            <button type="button" id="tfaCloseRecoveryBtn" class="btn btn-primary" disabled>Done</button>
+                        </div>
+
+                        <div id="tfaEnabledState" class="d-none">
+                            <div id="tfaLowCodesWarning" class="alert alert-warning d-none">
+                                You have <span id="tfaCodesLeftCount"></span> recovery codes left.
+                                <button type="button" id="tfaRegenBtn" class="btn btn-sm btn-warning ms-2">Generate new codes</button>
+                            </div>
+                            <p class="form-text">If you lose your device: sign in with your email login link and disable two-factor authentication here.</p>
+                            <button type="button" id="tfaDisableBtn" class="btn btn-outline-danger">Disable 2FA</button>
+                        </div>
+
+                        <div id="tfaRegenForm" class="d-none mt-2">
+                            <label class="form-label" for="tfaRegenCodeInput">Enter a current code to generate new recovery codes</label>
+                            <input type="text" class="form-control mb-2" id="tfaRegenCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
+                            <button type="button" id="tfaRegenConfirmBtn" class="btn btn-primary btn-sm">Generate</button>
+                            <button type="button" id="tfaRegenCancelBtn" class="btn btn-link btn-sm">Cancel</button>
+                        </div>
+
+                        <div id="tfaDisableForm" class="d-none mt-2">
+                            <div id="tfaDisablePasswordField" class="mb-2">
+                                <label class="form-label" for="tfaDisablePasswordInput">Enter your password to confirm</label>
+                                <input type="password" class="form-control" id="tfaDisablePasswordInput" style="max-width:260px;">
+                            </div>
+                            <button type="button" id="tfaDisableConfirmBtn" class="btn btn-danger btn-sm">Disable 2FA</button>
+                            <button type="button" id="tfaDisableCancelBtn" class="btn btn-link btn-sm">Cancel</button>
+                        </div>
+                    </div>
+
                     <hr>
                     <h6>Danger zone</h6>
                     <div class="mb-3">
@@ -245,6 +323,221 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                     $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
                 });
             });
+
+            // Two-factor authentication (TOTP)
+            function tfaAlert(type, msg) {
+                $('#tfaAlert').empty().append($('<div>').addClass('alert alert-' + type).text(msg));
+            }
+
+            var tfaState = {};
+
+            function tfaResetPanels() {
+                $('#tfaDisabledState, #tfaEnrollStep, #tfaRecoveryCodesBox, #tfaEnabledState, #tfaRegenForm, #tfaDisableForm').addClass('d-none');
+            }
+
+            function tfaRenderStatus(st) {
+                tfaState = st;
+                tfaResetPanels();
+                if (!st.has_password) {
+                    $('#tfaNoPasswordNote').removeClass('d-none');
+                } else {
+                    $('#tfaNoPasswordNote').addClass('d-none');
+                }
+
+                if (st.enabled) {
+                    var left = parseInt(st.recovery_codes_left || 0, 10);
+                    var text = 'Active';
+                    if (st.confirmed_at) {
+                        var d = new Date(st.confirmed_at + ' UTC');
+                        var dd = String(d.getUTCDate()).padStart(2, '0');
+                        var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+                        var yyyy = d.getUTCFullYear();
+                        text += ' since ' + dd + '/' + mm + '/' + yyyy;
+                    }
+                    text += ' — ' + left + (left === 1 ? ' recovery code left' : ' recovery codes left');
+                    $('#tfaStatusLine').text(text);
+                    $('#tfaCodesLeftCount').text(left);
+                    $('#tfaLowCodesWarning').toggleClass('d-none', left > 3);
+                    $('#tfaEnabledState').removeClass('d-none');
+                } else if (st.pending) {
+                    $('#tfaStatusLine').text('Setup started, not yet confirmed');
+                    $('#tfaDisabledState').removeClass('d-none');
+                } else {
+                    $('#tfaStatusLine').text('Disabled');
+                    $('#tfaDisabledState').removeClass('d-none');
+                }
+            }
+
+            function tfaLoadStatus() {
+                $.post('pro_profile.php', { action: 'totp_status' }, function(res){
+                    if (res && res.success) {
+                        tfaRenderStatus(res);
+                    } else {
+                        $('#tfaStatusLine').text('Could not load status');
+                    }
+                }, 'json').fail(function(){
+                    $('#tfaStatusLine').text('Network error loading status');
+                });
+            }
+
+            $('#tfaEnableBtn').on('click', function(){
+                tfaAlert('info', 'Starting setup...');
+                $.post('pro_profile.php', { action: 'totp_begin_enroll' }, function(res){
+                    if (res && res.success) {
+                        $('#tfaAlert').empty();
+                        tfaResetPanels();
+                        $('#tfaEnrollStep').removeClass('d-none');
+                        if (res.qr_svg) {
+                            // Server-rendered SVG derived from our own otpauth URI, not user input.
+                            $('#tfaQrContainer').html(res.qr_svg);
+                            $('#tfaEnrollStep details').prop('open', false);
+                        } else {
+                            $('#tfaQrContainer').empty().append($('<p>').addClass('text-muted').text('QR code unavailable — enter the key manually below.'));
+                            $('#tfaEnrollStep details').prop('open', true);
+                        }
+                        $('#tfaManualKey').text(res.manual_key || '');
+                        $('#tfaCodeInput').val('').trigger('focus');
+                    } else {
+                        tfaAlert('danger', (res && res.error) ? res.error : 'Could not start setup');
+                    }
+                }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+            });
+
+            $('#tfaCopyKeyBtn').on('click', function(){
+                var key = ($('#tfaManualKey').text() || '').replace(/\s+/g, '');
+                if (!key) return;
+                navigator.clipboard && navigator.clipboard.writeText(key).catch(function(){
+                    alert('Could not copy to clipboard');
+                });
+            });
+
+            $('#tfaCancelEnrollBtn').on('click', function(){
+                $('#tfaEnrollStep').addClass('d-none');
+                $('#tfaCodeInput').val('');
+                $('#tfaManualKey').empty();
+                $('#tfaQrContainer').empty();
+                $('#tfaAlert').empty();
+                tfaLoadStatus();
+            });
+
+            $('#tfaConfirmBtn').on('click', function(){
+                var code = ($('#tfaCodeInput').val() || '').trim();
+                if (!code) { tfaAlert('danger', 'Enter the 6-digit code'); return; }
+                tfaAlert('info', 'Confirming...');
+                $.post('pro_profile.php', { action: 'totp_confirm_enroll', code: code }, function(res){
+                    if (res && res.success) {
+                        $('#tfaAlert').empty();
+                        $('#tfaEnrollStep').addClass('d-none');
+                        $('#tfaCodeInput').val('');
+                        $('#tfaManualKey').empty();
+                        $('#tfaQrContainer').empty();
+                        tfaShowRecoveryCodes(res.recovery_codes || []);
+                    } else {
+                        tfaAlert('danger', (res && res.error) ? res.error : 'Could not confirm code');
+                    }
+                }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+            });
+
+            function tfaShowRecoveryCodes(codes) {
+                var $list = $('#tfaRecoveryCodesList').empty();
+                codes.forEach(function(c){
+                    $list.append(document.createTextNode(c + '\n'));
+                });
+                $('#tfaSavedCodesCheck').prop('checked', false);
+                $('#tfaCloseRecoveryBtn').prop('disabled', true);
+                $('#tfaRecoveryCodesBox').removeClass('d-none').data('codes', codes);
+            }
+
+            $('#tfaSavedCodesCheck').on('change', function(){
+                $('#tfaCloseRecoveryBtn').prop('disabled', !this.checked);
+            });
+
+            $('#tfaCopyRecoveryBtn').on('click', function(){
+                var codes = $('#tfaRecoveryCodesBox').data('codes') || [];
+                if (!codes.length) return;
+                navigator.clipboard && navigator.clipboard.writeText(codes.join('\n')).catch(function(){
+                    alert('Could not copy to clipboard');
+                });
+            });
+
+            $('#tfaDownloadRecoveryBtn').on('click', function(){
+                var codes = $('#tfaRecoveryCodesBox').data('codes') || [];
+                if (!codes.length) return;
+                var blob = new Blob([codes.join('\n') + '\n'], { type: 'text/plain' });
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = 'tempmail-recovery-codes.txt';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+            });
+
+            $('#tfaCloseRecoveryBtn').on('click', function(){
+                $('#tfaRecoveryCodesBox').addClass('d-none').removeData('codes');
+                $('#tfaRecoveryCodesList').empty();
+                tfaLoadStatus();
+            });
+
+            $('#tfaRegenBtn').on('click', function(){
+                $('#tfaRegenForm').removeClass('d-none');
+                $('#tfaRegenCodeInput').val('').trigger('focus');
+            });
+
+            $('#tfaRegenCancelBtn').on('click', function(){
+                $('#tfaRegenForm').addClass('d-none');
+                $('#tfaRegenCodeInput').val('');
+            });
+
+            $('#tfaRegenConfirmBtn').on('click', function(){
+                var code = ($('#tfaRegenCodeInput').val() || '').trim();
+                if (!code) { tfaAlert('danger', 'Enter a current code'); return; }
+                tfaAlert('info', 'Generating new codes...');
+                $.post('pro_profile.php', { action: 'totp_recovery_regenerate', code: code }, function(res){
+                    if (res && res.success) {
+                        $('#tfaAlert').empty();
+                        $('#tfaRegenForm').addClass('d-none');
+                        $('#tfaRegenCodeInput').val('');
+                        $('#tfaEnabledState').addClass('d-none');
+                        tfaShowRecoveryCodes(res.recovery_codes || []);
+                    } else {
+                        tfaAlert('danger', (res && res.error) ? res.error : 'Could not generate new codes');
+                    }
+                }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+            });
+
+            $('#tfaDisableBtn').on('click', function(){
+                $('#tfaDisableForm').removeClass('d-none');
+                $('#tfaDisablePasswordField').toggleClass('d-none', !tfaState.has_password);
+                $('#tfaDisablePasswordInput').val('').trigger('focus');
+            });
+
+            $('#tfaDisableCancelBtn').on('click', function(){
+                $('#tfaDisableForm').addClass('d-none');
+                $('#tfaDisablePasswordInput').val('');
+            });
+
+            $('#tfaDisableConfirmBtn').on('click', function(){
+                if (!window.confirm('Disable two-factor authentication?')) return;
+                var post = { action: 'totp_disable' };
+                if (tfaState.has_password) {
+                    post.password = $('#tfaDisablePasswordInput').val();
+                }
+                tfaAlert('info', 'Disabling...');
+                $.post('pro_profile.php', post, function(res){
+                    if (res && res.success) {
+                        $('#tfaDisableForm').addClass('d-none');
+                        $('#tfaDisablePasswordInput').val('');
+                        tfaAlert('success', 'Two-factor authentication disabled');
+                        tfaLoadStatus();
+                    } else {
+                        tfaAlert('danger', (res && res.error) ? res.error : 'Could not disable two-factor authentication');
+                    }
+                }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+            });
+
+            tfaLoadStatus();
 
             $('#rotateSigningKeysBtn').on('click', function(e){
                 e.preventDefault();
