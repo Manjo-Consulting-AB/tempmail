@@ -43,6 +43,28 @@ function createLoginToken($userId, $validMinutes = 30) {
     return $token;
 }
 
+// Hjälpfunktion: verifiera och förbruka en magic link-token i ett enda steg.
+// Delad av pro_login.php och GET-token-endpointen nedan så att formatvalidering,
+// engångsanvändning och utgångskontroll bara finns på ett ställe (se issue #12).
+// Returnerar ['user_id' => ..., 'email' => ...] vid en giltig, oanvänd token
+// (och markerar den som använd), annars null.
+function consumeLoginToken(string $token): ?array {
+    global $pdo;
+    // Tokenformat: hex-sträng, 48-96 tecken
+    if (!preg_match('/^[a-f0-9]+$/i', $token) || strlen($token) < 48 || strlen($token) > 96) {
+        return null;
+    }
+    $stmt = $pdo->prepare("SELECT lt.id, lt.user_id, lt.expires_at, lt.used, pu.email FROM login_tokens lt JOIN pro_users pu ON lt.user_id = pu.id WHERE lt.token = ? LIMIT 1");
+    $stmt->execute([$token]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row || $row['used'] || strtotime($row['expires_at']) < time()) {
+        return null;
+    }
+    $upd = $pdo->prepare("UPDATE login_tokens SET used = 1 WHERE id = ?");
+    $upd->execute([$row['id']]);
+    return ['user_id' => $row['user_id'], 'email' => $row['email']];
+}
+
 // Hjälpfunktion: skicka e-post med login-länk
 function sendLoginEmail($email, $token) {
     global $config;
@@ -150,6 +172,12 @@ function send_2fa_recovery_code_used_email($userId) {
         logMessage('WARNING', 'Failed sending 2FA recovery code used email', ['error' => $e->getMessage(), 'user_id' => $userId]);
     }
 }
+
+// Endpointerna nedan ska bara köras när pro_auth.php anropas direkt — inte när
+// filen require:as från pro_login.php enbart för consumeLoginToken(). Annars
+// skulle t.ex. GET-token-grenen nedan konsumera token och avsluta requesten
+// innan pro_login.php hunnit rendera sin HTML-sida.
+if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === realpath(__FILE__)):
 
 // Endpoint: begär inloggningslänk
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'request_login_link') {
@@ -535,30 +563,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Endpoint: verifiera token och logga in
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['token'])) {
-    $token = $_GET['token'];
-    global $pdo;
-    $stmt = $pdo->prepare("SELECT lt.id, lt.user_id, lt.expires_at, lt.used, pu.email FROM login_tokens lt JOIN pro_users pu ON lt.user_id = pu.id WHERE lt.token = ? LIMIT 1");
-    $stmt->execute([$token]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
+    $token = trim((string) $_GET['token']);
+
+    $result = consumeLoginToken($token);
+    if ($result === null) {
         echo "Invalid or expired link.";
         exit;
     }
-    if ($row['used']) {
-        echo "This link has already been used.";
-        exit;
-    }
-    if (strtotime($row['expires_at']) < time()) {
-        echo "This link has expired.";
-        exit;
-    }
-    // Markera token som använd
-    $stmt = $pdo->prepare("UPDATE login_tokens SET used = 1 WHERE id = ?");
-    $stmt->execute([$row['id']]);
-    // Logga in användaren (sätt session)
+
+    // Magic link is itself two factors (knowledge of the address + inbox
+    // access) — it must never trigger a pending_2fa challenge, and any
+    // leftover half-login from a password attempt must not survive into
+    // this session. See documentaion/2FA_DESIGN.md.
     session_start();
-    $_SESSION['pro_user_id'] = $row['user_id'];
-    $_SESSION['pro_user_email'] = $row['email'];
+    unset($_SESSION['pending_2fa']);
+    session_regenerate_id(true);
+    $_SESSION['pro_user_id'] = $result['user_id'];
+    $_SESSION['pro_user_email'] = $result['email'];
     // Redirect to dashboard so server-side will load the user's latest active temp address
     header('Location: pro.php');
     exit;
@@ -853,3 +874,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
 http_response_code(400);
 echo json_encode(['success' => false, 'error' => 'Ogiltig begäran']);
 exit;
+
+endif;

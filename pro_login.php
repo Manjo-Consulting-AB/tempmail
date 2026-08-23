@@ -4,6 +4,7 @@
  * Handles token verification and user session
  */
 require_once 'config.php';
+require_once __DIR__ . '/pro_auth.php';
 
 session_start();
 
@@ -14,30 +15,21 @@ if (isset($_SESSION['pro_user_id'])) {
 }
 
 // Handle token from GET
-    $token = isset($_GET['token']) ? trim($_GET['token']) : '';
-    $error = '';
-// Validate token format: hex string, 48-96 chars
-if ($token && (!preg_match('/^[a-f0-9]+$/i', $token) || strlen($token) < 48 || strlen($token) > 96)) {
-    $token = ''; // Invalid format, treat as no token
-    $error = 'Invalid token format.';
-}
+$token = isset($_GET['token']) ? trim($_GET['token']) : '';
+$error = '';
 if ($token) {
-    $stmt = $pdo->prepare("SELECT lt.id, lt.user_id, lt.expires_at, lt.used, pu.email FROM login_tokens lt JOIN pro_users pu ON lt.user_id = pu.id WHERE lt.token = ? LIMIT 1");
-    $stmt->execute([$token]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row) {
-            $error = "Invalid or expired link.";
-        } elseif ($row['used']) {
-            $error = "This link has already been used.";
-        } elseif (strtotime($row['expires_at']) < time()) {
-            $error = "The link has expired.";
+    $result = consumeLoginToken($token);
+    if ($result === null) {
+        $error = "Invalid or expired link.";
     } else {
-        // Mark token as used
-        $stmt = $pdo->prepare("UPDATE login_tokens SET used = 1 WHERE id = ?");
-        $stmt->execute([$row['id']]);
-        // Log in user
-        $_SESSION['pro_user_id'] = $row['user_id'];
-        $_SESSION['pro_user_email'] = $row['email'];
+        // Magic link is itself two factors (knowledge of the address +
+        // inbox access) — it must never trigger a pending_2fa challenge, and
+        // any leftover half-login from a password attempt must not survive
+        // into this session. See documentaion/2FA_DESIGN.md.
+        unset($_SESSION['pending_2fa']);
+        session_regenerate_id(true);
+        $_SESSION['pro_user_id'] = $result['user_id'];
+        $_SESSION['pro_user_email'] = $result['email'];
         header('Location: pro.php');
         exit;
     }
