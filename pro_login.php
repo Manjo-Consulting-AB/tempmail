@@ -79,7 +79,7 @@ if ($token) {
                     <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
                 <?php endif; ?>
 
-                <div class="mb-3">
+                <div class="mb-3" id="loginModeToggle">
                     <div class="d-flex align-items-center">
                         <div class="btn-group me-3" role="group" aria-label="Login mode">
                         <input type="radio" class="btn-check" name="loginMode" id="modeMagic" autocomplete="off" checked>
@@ -93,7 +93,7 @@ if ($token) {
                     </div>
                 </div>
 
-                <hr>
+                <hr id="loginModeDivider">
                 <h5 id="redeemHeading" style="display:none;">Redeem voucher</h5>
                 <div id="redeemBlock" style="display:none;">
                     <form id="redeemForm">
@@ -136,6 +136,30 @@ if ($token) {
                         <button type="submit" class="btn btn-primary w-100">Sign in</button>
                     </form>
                     <div id="passwordLoginMsg" class="mt-3"></div>
+                </div>
+
+                <div id="twoFactorBlock" style="display:none;">
+                    <p class="text-muted">Open your authenticator app (1Password, Authy, Google Authenticator &hellip;) and enter the 6-digit code for TempMail.</p>
+                    <form id="twoFactorForm">
+                        <input type="hidden" name="action" value="verify_2fa">
+                        <div class="mb-3">
+                            <label for="twoFactorCode" class="form-label" id="twoFactorCodeLabel">Authentication code</label>
+                            <input type="text" class="form-control" name="code" id="twoFactorCode"
+                                   inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*"
+                                   autofocus required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Verify</button>
+                    </form>
+                    <div class="mt-3">
+                        <a href="#" id="useRecoveryCodeLink">Use a recovery code instead</a>
+                    </div>
+                    <div class="mt-2">
+                        <a href="#" id="lostAuthenticatorLink">Lost your authenticator? Sign in with an email link instead</a>
+                    </div>
+                    <div class="mt-2">
+                        <a href="#" id="cancel2faLink">Cancel</a>
+                    </div>
+                    <div id="twoFactorMsg" class="mt-3"></div>
                 </div>
             </div>
         </div>
@@ -206,6 +230,106 @@ if ($token) {
 
         $('input[name="loginMode"]').on('change', function(){
             if ($('#modePassword').is(':checked')) showMode('password'); else showMode('magic');
+        });
+
+        // --- 2FA challenge (shown after password_login responds with requires_2fa) ---
+        var usingRecoveryCode = false;
+
+        function resetTwoFactorField() {
+            usingRecoveryCode = false;
+            $('#twoFactorCode').attr({
+                maxlength: 6,
+                inputmode: 'numeric',
+                pattern: '[0-9]*',
+                autocomplete: 'one-time-code'
+            });
+            $('#twoFactorCodeLabel').text('Authentication code');
+            $('#useRecoveryCodeLink').text('Use a recovery code instead');
+        }
+
+        function showTwoFactorBlock() {
+            $('#loginModeToggle, #loginModeDivider, #magicBlock, #passwordBlock, #redeemBlock, #redeemHeading').hide();
+            resetTwoFactorField();
+            $('#twoFactorMsg').html('');
+            $('#twoFactorCode').val('');
+            $('#twoFactorBlock').show();
+            $('#twoFactorCode').trigger('focus');
+        }
+
+        function hideTwoFactorBlock(restoreMode) {
+            $('#twoFactorBlock').hide();
+            $('#loginModeToggle, #loginModeDivider').show();
+            $('#twoFactorMsg').html('');
+            $('#twoFactorCode').val('');
+            showMode(restoreMode);
+            if (restoreMode === 'password') {
+                $('#modePassword').prop('checked', true);
+            } else {
+                $('#modeMagic').prop('checked', true);
+            }
+        }
+
+        // Best-effort: tell the server to drop pending_2fa, then continue
+        // regardless of whether the request succeeded (the session entry
+        // also expires on its own after 10 minutes).
+        function cancelTwoFactor(callback) {
+            $.post('pro_auth.php', { action: 'cancel_2fa' }, function(){}, 'json').always(callback);
+        }
+
+        $('#twoFactorCode').on('input', function(){
+            if (!usingRecoveryCode) {
+                this.value = this.value.replace(/[^0-9]/g, '');
+                if (this.value.length === 6) {
+                    $('#twoFactorForm').trigger('submit');
+                }
+            }
+        });
+
+        $('#twoFactorForm').on('submit', function(e){
+            e.preventDefault();
+            var code = $('#twoFactorCode').val();
+            if (!code) return;
+            $('#twoFactorMsg').html('<div class="alert alert-info">Verifying...</div>');
+            $.post('pro_auth.php', { action: 'verify_2fa', code: code }, function(res){
+                if (res && res.success) {
+                    window.location = res.redirect || 'pro.php';
+                } else {
+                    $('#twoFactorMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Incorrect code') + '</div>');
+                    $('#twoFactorCode').val('').trigger('focus');
+                }
+            }, 'json').fail(function(){
+                $('#twoFactorMsg').html('<div class="alert alert-danger">Network error</div>');
+                $('#twoFactorCode').val('').trigger('focus');
+            });
+        });
+
+        $('#useRecoveryCodeLink').on('click', function(e){
+            e.preventDefault();
+            usingRecoveryCode = !usingRecoveryCode;
+            if (usingRecoveryCode) {
+                $('#twoFactorCode').attr({
+                    maxlength: 11,
+                    inputmode: 'text',
+                    pattern: '[A-Za-z0-9-]*',
+                    autocomplete: 'off'
+                });
+                $('#twoFactorCodeLabel').text('Recovery code');
+                $(this).text('Use your authenticator app instead');
+            } else {
+                resetTwoFactorField();
+            }
+            $('#twoFactorMsg').html('');
+            $('#twoFactorCode').val('').trigger('focus');
+        });
+
+        $('#lostAuthenticatorLink').on('click', function(e){
+            e.preventDefault();
+            cancelTwoFactor(function(){ hideTwoFactorBlock('magic'); });
+        });
+
+        $('#cancel2faLink').on('click', function(e){
+            e.preventDefault();
+            cancelTwoFactor(function(){ hideTwoFactorBlock('password'); });
         });
 
         $('#loginRequestForm').on('submit', function(e){
@@ -299,8 +423,13 @@ if ($token) {
             $('#passwordLoginMsg').html('<div class="alert alert-info">Signing in...</div>');
             $.post('pro_auth.php', { action: 'password_login', email: email, password: password }, function(res){
                 if (res && res.success) {
-                    // Redirect to dashboard
-                    window.location = res.redirect || 'pro.php';
+                    if (res.requires_2fa) {
+                        $('#passwordLoginMsg').html('');
+                        showTwoFactorBlock();
+                    } else {
+                        // Redirect to dashboard
+                        window.location = res.redirect || 'pro.php';
+                    }
                 } else {
                     $('#passwordLoginMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Login failed') + '</div>');
                 }
