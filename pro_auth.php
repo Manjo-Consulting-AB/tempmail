@@ -4,6 +4,7 @@
  * Endpoints: request_login_link, verify_token
  */
 require_once 'config.php';
+require_once __DIR__ . '/TwoFactorAuth.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
@@ -99,6 +100,55 @@ function sendLoginEmail($email, $token) {
     }
 
     return $sent;
+}
+
+// Hjälpfunktion: hämta senaste aktiva temp-adress för en pro-användare.
+// Bruten ut ur password_login så samma svarsform kan återanvändas av verify_2fa.
+function getProUserLatestAddress(PDO $pdo, array $config, $userId) {
+    try {
+        $col = 'unique_address';
+        $colStmt = $pdo->query("SHOW COLUMNS FROM temp_emails LIKE 'unique_address'");
+        if ($colStmt->rowCount() === 0) {
+            $col = 'address';
+        }
+        $ae = $pdo->prepare("SELECT $col AS local_part, expires_at FROM temp_emails WHERE pro_user_id = ? AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1");
+        $ae->execute([$userId]);
+        $ar = $ae->fetch(PDO::FETCH_ASSOC);
+        if ($ar && !empty($ar['local_part'])) {
+            return [
+                'current_address' => $ar['local_part'] . '@' . ($config['email']['domain'] ?? 'manjo.me'),
+                'expires_at' => $ar['expires_at'] ?? null,
+            ];
+        }
+    } catch (Exception $e) {
+        // fall through to null result below
+    }
+    return ['current_address' => null, 'expires_at' => null];
+}
+
+// Hjälpfunktion: notismail när en engångskod (recovery code) förbrukas vid
+// inloggning. Se documentaion/2FA_DESIGN.md §5.4/§9 — aldrig koden själv.
+function send_2fa_recovery_code_used_email($userId) {
+    global $pdo, $config;
+    try {
+        $stmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
+        $stmt->execute([$userId]);
+        $email = $stmt->fetchColumn();
+        if (!$email) {
+            return;
+        }
+        $subject = 'A two-factor recovery code was used to sign in to TempMail Pro';
+        $message = "Hello,\n\nA two-factor recovery code was just used to sign in to your TempMail Pro account. Recovery codes are meant as a backup — consider generating new ones from your profile if you're running low.\n\nIf you did not sign in just now, sign in using your magic link, disable two-factor authentication and change your password immediately.\n\nRegards,\nThe TempMail Team";
+        $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
+        $headers = [];
+        $headers[] = 'From: TempMail <' . $from . '>';
+        $headers[] = 'MIME-Version: 1.0';
+        $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+        $headersStr = implode("\r\n", $headers);
+        @mail($email, $subject, $message, $headersStr);
+    } catch (Exception $e) {
+        logMessage('WARNING', 'Failed sending 2FA recovery code used email', ['error' => $e->getMessage(), 'user_id' => $userId]);
+    }
 }
 
 // Endpoint: begär inloggningslänk
@@ -370,8 +420,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'error' => 'Incorrect email or password']);
         exit;
     }
-    // Sätt session och logga in
     session_start();
+
+    // Correct password does not grant a session by itself when 2FA is
+    // active — the magic link path (unaffected by this) already gives full
+    // access without a code; here the password is only the first factor.
+    // No login_attempts row is written for this half-authenticated step: the
+    // IP rate limit above already guards the password itself, and the real
+    // attempt gets recorded (against the code) in verify_2fa.
+    if (TwoFactorAuth::isEnabledFor($user['id'])) {
+        $_SESSION['pending_2fa'] = [
+            'user_id' => $user['id'],
+            'email' => $user['email'],
+            'created_at' => time(),
+        ];
+        echo json_encode(['success' => true, 'requires_2fa' => true]);
+        exit;
+    }
+
+    // Sätt session och logga in
     $_SESSION['pro_user_id'] = $user['id'];
     $_SESSION['pro_user_email'] = $user['email'];
     // Record successful attempt
@@ -382,29 +449,87 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // ignore
     }
     logMessage('INFO', 'Pro user logged in via password', ['user_id' => $user['id']]);
-    // Also try to fetch the latest active temporary address for this pro user
-    try {
-        $col = 'unique_address';
-        $colStmt = $pdo->query("SHOW COLUMNS FROM temp_emails LIKE 'unique_address'");
-        if ($colStmt->rowCount() === 0) {
-            $col = 'address';
-        }
-        $ae = $pdo->prepare("SELECT $col AS local_part, expires_at FROM temp_emails WHERE pro_user_id = ? AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1");
-        $ae->execute([$user['id']]);
-        $ar = $ae->fetch(PDO::FETCH_ASSOC);
-        if ($ar && !empty($ar['local_part'])) {
-            $currentAddress = $ar['local_part'] . '@' . ($config['email']['domain'] ?? 'manjo.me');
-            $expiresAt = $ar['expires_at'] ?? null;
-        } else {
-            $currentAddress = null;
-            $expiresAt = null;
-        }
-    } catch (Exception $e) {
-        $currentAddress = null;
-        $expiresAt = null;
+
+    $addr = getProUserLatestAddress($pdo, $config, $user['id']);
+    echo json_encode(['success' => true, 'redirect' => 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
+    exit;
+}
+
+// Endpoint: verifiera 2FA-kod (eller engångskod) efter password_login med
+// pending_2fa. Se documentaion/2FA_DESIGN.md §4-§6.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_2fa') {
+    if (!requireSameOriginRequest()) {
+        logMessage('WARNING', 'Rejected cross-origin verify_2fa request');
+        echo json_encode(['success' => false, 'error' => 'Invalid request origin']);
+        exit;
     }
 
-    echo json_encode(['success' => true, 'redirect' => 'pro.php', 'current_address' => $currentAddress, 'expires_at' => $expiresAt]);
+    session_start();
+
+    $pending = $_SESSION['pending_2fa'] ?? null;
+    if (
+        !is_array($pending)
+        || empty($pending['user_id'])
+        || empty($pending['created_at'])
+        || (time() - (int) $pending['created_at']) > 600
+    ) {
+        unset($_SESSION['pending_2fa']);
+        echo json_encode(['success' => false, 'error' => 'Login session expired. Please sign in again.']);
+        exit;
+    }
+
+    $userId = (int) $pending['user_id'];
+    $pendingEmail = $pending['email'] ?? '';
+    $ip = getVisitorIp();
+
+    // Locked out: same generic response as an incorrect code below. The IP
+    // side of this already calls flagMaliciousActivity() internally.
+    if (TwoFactorAuth::isChallengeBlocked($userId, $ip)) {
+        echo json_encode(['success' => false, 'error' => 'Incorrect code']);
+        exit;
+    }
+
+    $code = trim((string) ($_POST['code'] ?? ''));
+
+    $valid = TwoFactorAuth::verifyForUser($userId, $code);
+    $usedRecoveryCode = false;
+    if (!$valid) {
+        $usedRecoveryCode = TwoFactorAuth::consumeRecoveryCode($userId, $code);
+        $valid = $usedRecoveryCode;
+    }
+
+    if (!$valid) {
+        TwoFactorAuth::recordAttempt($userId, $ip, false);
+        // Generic error: never reveal whether the code was wrong or the
+        // account/IP is locked.
+        echo json_encode(['success' => false, 'error' => 'Incorrect code']);
+        exit;
+    }
+
+    TwoFactorAuth::recordAttempt($userId, $ip, true);
+
+    // Promote pending_2fa to a real session. Regenerate the session ID
+    // (session fixation protection) before granting pro_user_id.
+    session_regenerate_id(true);
+    $_SESSION['pro_user_id'] = $userId;
+    $_SESSION['pro_user_email'] = $pendingEmail;
+    unset($_SESSION['pending_2fa']);
+
+    try {
+        $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
+        $ins->execute([$ip, $pendingEmail, $userId]);
+    } catch (Exception $e) {
+        // ignore
+    }
+    logMessage('INFO', 'Pro user logged in via password + 2FA', ['user_id' => $userId]);
+
+    if ($usedRecoveryCode) {
+        logMessage('WARNING', '2fa_recovery_code_used', ['user_id' => $userId]);
+        send_2fa_recovery_code_used_email($userId);
+    }
+
+    $addr = getProUserLatestAddress($pdo, $config, $userId);
+    echo json_encode(['success' => true, 'redirect' => 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
     exit;
 }
 
