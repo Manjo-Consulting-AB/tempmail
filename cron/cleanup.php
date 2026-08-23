@@ -6,6 +6,7 @@
 
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../TwoFactorAuth.php';
 
 // Säkerhetskontroll - endast CLI eller localhost eller HTTP-anrop med giltig hemlig nyckel
 // För att tillåta cron via HTTP (wget/curl), sätt miljövariabeln CRON_HTTP_SECRET i produktion
@@ -248,6 +249,22 @@ function optimizeDatabase() {
 }
 
 /**
+ * Rensa utgångna "remember this browser"-cookies (2FA trusted devices)
+ */
+function cleanupExpiredTrustedDevices() {
+    try {
+        $count = TwoFactorAuth::cleanupExpiredTrustedDevices();
+        if ($count > 0) {
+            logMessage('INFO', 'Expired trusted devices cleaned up', ['count' => $count]);
+        }
+        return $count;
+    } catch (PDOException $e) {
+        logMessage('ERROR', 'Failed to cleanup expired trusted devices: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Rensa personliga adresser för utgångna PRO-konton och nollställ vissa fält
  */
 function cleanupExpiredProUsers() {
@@ -433,6 +450,12 @@ function runCleanup($options = []) {
     $proUsersResult = cleanupExpiredProUsers();
     if ($proUsersResult !== false) {
         $results['expired_pro_users_cleaned'] = $proUsersResult;
+    }
+
+    // Rensa utgångna 2FA trusted-device-cookies
+    $trustedDevicesResult = cleanupExpiredTrustedDevices();
+    if ($trustedDevicesResult !== false) {
+        $results['trusted_devices_cleaned'] = $trustedDevicesResult;
     }
     
     // Optimera databas (om begärt)

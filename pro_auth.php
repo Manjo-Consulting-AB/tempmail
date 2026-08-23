@@ -148,6 +148,20 @@ function getProUserLatestAddress(PDO $pdo, array $config, $userId) {
     return ['current_address' => null, 'expires_at' => null];
 }
 
+// Hjälpfunktion: sätt/uppdatera trusted-device-cookien (§2 i designdokumentet).
+// HttpOnly + Secure + SameSite=Lax, path '/', så den bara går till servern
+// över HTTPS och aldrig till JS. $expiresAt är en 'Y-m-d H:i:s'-sträng.
+function setTrustedDeviceCookie(string $value, string $expiresAt): void {
+    setcookie(TwoFactorAuth::TRUSTED_DEVICE_COOKIE, $value, [
+        'expires' => strtotime($expiresAt) ?: (time() + 30 * 86400),
+        'path' => '/',
+        'domain' => '',
+        'secure' => true,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+
 // Hjälpfunktion: notismail när en engångskod (recovery code) förbrukas vid
 // inloggning. Se documentaion/2FA_DESIGN.md §5.4/§9 — aldrig koden själv.
 function send_2fa_recovery_code_used_email($userId) {
@@ -457,6 +471,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // IP rate limit above already guards the password itself, and the real
     // attempt gets recorded (against the code) in verify_2fa.
     if (TwoFactorAuth::isEnabledFor($user['id'])) {
+        // A valid, unexpired trusted-device cookie for this exact user_id
+        // skips the challenge entirely — checked BEFORE the challenge is
+        // shown, per documentaion/2FA_DESIGN.md §2/§5.2. The validator is
+        // rotated on every use so the cookie value is never reused.
+        $trustedCookie = (string) ($_COOKIE[TwoFactorAuth::TRUSTED_DEVICE_COOKIE] ?? '');
+        $rotated = $trustedCookie !== '' ? TwoFactorAuth::verifyAndRotateTrustedDevice($user['id'], $trustedCookie) : null;
+
+        if ($rotated !== null) {
+            setTrustedDeviceCookie($rotated['cookie_value'], $rotated['expires_at']);
+
+            session_regenerate_id(true);
+            $_SESSION['pro_user_id'] = $user['id'];
+            $_SESSION['pro_user_email'] = $user['email'];
+            try {
+                $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
+                $ins->execute([$ip, $email, $user['id']]);
+            } catch (Exception $e) {
+                // ignore
+            }
+            logMessage('INFO', 'Pro user logged in via password + trusted device', ['user_id' => $user['id']]);
+
+            $addr = getProUserLatestAddress($pdo, $config, $user['id']);
+            echo json_encode(['success' => true, 'redirect' => 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
+            exit;
+        }
+
         $_SESSION['pending_2fa'] = [
             'user_id' => $user['id'],
             'email' => $user['email'],
@@ -542,6 +582,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $_SESSION['pro_user_id'] = $userId;
     $_SESSION['pro_user_email'] = $pendingEmail;
     unset($_SESSION['pending_2fa']);
+
+    // "Remember this browser" checkbox: only ever creates a trusted-device
+    // row AFTER a successful verification above, never before — see
+    // documentaion/2FA_DESIGN.md §2.
+    if (!empty($_POST['remember_device'])) {
+        $label = TwoFactorAuth::summarizeUserAgent((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        $device = TwoFactorAuth::createTrustedDevice($userId, $label);
+        setTrustedDeviceCookie($device['cookie_value'], $device['expires_at']);
+    }
 
     try {
         $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
@@ -712,6 +761,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             // Mark original pending as used
             $m = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ?");
             $m->execute([$row['id']]);
+
+            // A password change invalidates any "remember this browser"
+            // cookies — see documentaion/2FA_DESIGN.md §2.
+            TwoFactorAuth::revokeAllTrustedDevices($userId);
 
             // Notify old email that password has changed (no undo link)
             try {

@@ -553,10 +553,68 @@ try {
                 }
 
                 $recoveryCodes = TwoFactorAuth::generateRecoveryCodes($userId);
+                // Regenerating codes is a security-sensitive event similar to a
+                // password change — revoke trusted devices per the design doc
+                // so a compromised device can't keep skipping the challenge.
+                TwoFactorAuth::revokeAllTrustedDevices($userId);
                 send_json(['success' => true, 'recovery_codes' => $recoveryCodes]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed regenerating 2FA recovery codes', ['error' => $e->getMessage(), 'user_id' => $userId]);
                 send_json(['success' => false, 'error' => 'Could not regenerate recovery codes']);
+            }
+            break;
+
+        case 'trusted_devices_list':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                send_json(['success' => false, 'error' => 'Method not allowed']);
+            }
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin trusted_devices_list request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            try {
+                $devices = TwoFactorAuth::listTrustedDevices($userId);
+                send_json(['success' => true, 'devices' => array_map(function ($d) {
+                    return [
+                        'id' => (int) $d['id'],
+                        'label' => $d['label'],
+                        'created_at' => $d['created_at'],
+                        'last_used_at' => $d['last_used_at'],
+                        'expires_at' => $d['expires_at'],
+                    ];
+                }, $devices)]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed listing trusted devices', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not list trusted devices']);
+            }
+            break;
+
+        case 'trusted_devices_revoke':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                send_json(['success' => false, 'error' => 'Method not allowed']);
+            }
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin trusted_devices_revoke request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            try {
+                if (!empty($_POST['all'])) {
+                    TwoFactorAuth::revokeAllTrustedDevices($userId);
+                    send_json(['success' => true]);
+                }
+
+                $deviceId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+                if ($deviceId <= 0) {
+                    send_json(['success' => false, 'error' => 'Invalid device id']);
+                }
+                $revoked = TwoFactorAuth::revokeTrustedDevice($userId, $deviceId);
+                if (!$revoked) {
+                    send_json(['success' => false, 'error' => 'Device not found']);
+                }
+                send_json(['success' => true]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed revoking trusted device', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not revoke device']);
             }
             break;
 

@@ -23,6 +23,9 @@ final class TwoFactorAuth
     private const TOTP_PERIOD = 30;
     private const TOTP_DIGITS = 6;
 
+    public const TRUSTED_DEVICE_COOKIE = 'tm_td';
+    private const TRUSTED_DEVICE_TTL_DAYS = 30;
+
     private static bool $schemaEnsured = false;
 
     /**
@@ -63,6 +66,18 @@ final class TwoFactorAuth
                 attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_ip_time (ip, attempt_at),
                 INDEX idx_user_time (user_id, attempt_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            $pdo->exec("CREATE TABLE IF NOT EXISTS pro_trusted_devices (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                selector CHAR(32) NOT NULL UNIQUE,
+                validator_hash CHAR(64) NOT NULL,
+                label VARCHAR(255) NULL DEFAULT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL,
+                INDEX idx_user (user_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
             self::$schemaEnsured = true;
@@ -476,8 +491,9 @@ final class TwoFactorAuth
     }
 
     /**
-     * Removes 2FA entirely for a user: the TOTP row and all recovery codes.
-     * Trusted devices are out of scope for this class.
+     * Removes 2FA entirely for a user: the TOTP row, all recovery codes and
+     * all trusted devices (a stale trusted-device cookie must not keep
+     * skipping a challenge that no longer exists).
      */
     public static function disable(int $userId): void
     {
@@ -486,6 +502,7 @@ final class TwoFactorAuth
 
         $pdo->prepare('DELETE FROM pro_user_totp WHERE user_id = ?')->execute([$userId]);
         $pdo->prepare('DELETE FROM pro_user_recovery_codes WHERE user_id = ?')->execute([$userId]);
+        self::revokeAllTrustedDevices($userId);
 
         logMessage('INFO', '2fa_disabled', ['user_id' => $userId]);
     }
@@ -598,6 +615,157 @@ final class TwoFactorAuth
         $stmt = $pdo->prepare('SELECT COUNT(*) FROM pro_user_recovery_codes WHERE user_id = ? AND used_at IS NULL');
         $stmt->execute([$userId]);
         return (int) $stmt->fetchColumn();
+    }
+
+    // ---------------------------------------------------------------------
+    // Trusted devices (pro_trusted_devices) — "remember this browser for 30
+    // days" for the password login challenge. See documentaion/2FA_DESIGN.md
+    // §2. Never touched by the magic link flow.
+    // ---------------------------------------------------------------------
+
+    /**
+     * Short, sanitized summary of a User-Agent string for the trusted-device
+     * label (e.g. "Safari on macOS"), max 255 chars. Never the raw UA string.
+     */
+    public static function summarizeUserAgent(string $userAgent): string
+    {
+        $browser = 'Unknown browser';
+        if (preg_match('/Edg\//', $userAgent)) {
+            $browser = 'Edge';
+        } elseif (preg_match('/OPR\//', $userAgent)) {
+            $browser = 'Opera';
+        } elseif (preg_match('/CriOS\//', $userAgent)) {
+            $browser = 'Chrome';
+        } elseif (preg_match('/FxiOS\//', $userAgent)) {
+            $browser = 'Firefox';
+        } elseif (preg_match('/Chrome\//', $userAgent) && !preg_match('/Chromium\//', $userAgent)) {
+            $browser = 'Chrome';
+        } elseif (preg_match('/Firefox\//', $userAgent)) {
+            $browser = 'Firefox';
+        } elseif (preg_match('/Safari\//', $userAgent)) {
+            $browser = 'Safari';
+        }
+
+        $os = 'unknown device';
+        if (preg_match('/iPhone|iPad|iPod/', $userAgent)) {
+            $os = 'iOS';
+        } elseif (preg_match('/Mac OS X/', $userAgent)) {
+            $os = 'macOS';
+        } elseif (preg_match('/Android/', $userAgent)) {
+            $os = 'Android';
+        } elseif (preg_match('/Windows/', $userAgent)) {
+            $os = 'Windows';
+        } elseif (preg_match('/Linux/', $userAgent)) {
+            $os = 'Linux';
+        }
+
+        return mb_substr($browser . ' on ' . $os, 0, 255);
+    }
+
+    /**
+     * Creates a trusted-device row for a user and returns the cookie value
+     * (`selector.validator`, both from random_bytes()) to set — never
+     * persisted or logged in plaintext, only validator_hash is stored.
+     */
+    public static function createTrustedDevice(int $userId, string $label): array
+    {
+        global $pdo;
+        self::ensureSchema($pdo);
+
+        $selector = bin2hex(random_bytes(16));
+        $validator = bin2hex(random_bytes(32));
+        $expiresAt = date('Y-m-d H:i:s', time() + self::TRUSTED_DEVICE_TTL_DAYS * 86400);
+
+        $stmt = $pdo->prepare('
+            INSERT INTO pro_trusted_devices (user_id, selector, validator_hash, label, last_used_at, expires_at)
+            VALUES (?, ?, ?, ?, NOW(), ?)
+        ');
+        $stmt->execute([$userId, $selector, hash('sha256', $validator), $label, $expiresAt]);
+
+        logMessage('INFO', '2fa_trusted_device_added', ['user_id' => $userId]);
+
+        return ['cookie_value' => $selector . '.' . $validator, 'expires_at' => $expiresAt];
+    }
+
+    /**
+     * Verifies a `selector.validator` trusted-device cookie belongs to this
+     * user and hasn't expired, and — on success — rotates the validator so
+     * the same cookie value is never valid twice. Returns the new cookie
+     * value to set, or null if the cookie doesn't match/belongs to nobody/
+     * has expired (never reveals which, to the caller or in logs).
+     */
+    public static function verifyAndRotateTrustedDevice(int $userId, string $cookieValue): ?array
+    {
+        global $pdo;
+        self::ensureSchema($pdo);
+
+        if (!str_contains($cookieValue, '.')) {
+            return null;
+        }
+        [$selector, $validator] = explode('.', $cookieValue, 2);
+        if ($selector === '' || $validator === '' || !preg_match('/^[a-f0-9]{32}$/', $selector)) {
+            return null;
+        }
+
+        $stmt = $pdo->prepare('SELECT id, validator_hash, expires_at FROM pro_trusted_devices WHERE user_id = ? AND selector = ? AND expires_at > NOW() LIMIT 1');
+        $stmt->execute([$userId, $selector]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row || !hash_equals($row['validator_hash'], hash('sha256', $validator))) {
+            return null;
+        }
+
+        $newValidator = bin2hex(random_bytes(32));
+        $upd = $pdo->prepare('UPDATE pro_trusted_devices SET validator_hash = ?, last_used_at = NOW() WHERE id = ?');
+        $upd->execute([hash('sha256', $newValidator), $row['id']]);
+
+        return ['cookie_value' => $selector . '.' . $newValidator, 'expires_at' => $row['expires_at']];
+    }
+
+    public static function listTrustedDevices(int $userId): array
+    {
+        global $pdo;
+        self::ensureSchema($pdo);
+
+        $stmt = $pdo->prepare('SELECT id, label, created_at, last_used_at, expires_at FROM pro_trusted_devices WHERE user_id = ? ORDER BY last_used_at DESC');
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public static function revokeTrustedDevice(int $userId, int $deviceId): bool
+    {
+        global $pdo;
+        self::ensureSchema($pdo);
+
+        $stmt = $pdo->prepare('DELETE FROM pro_trusted_devices WHERE id = ? AND user_id = ?');
+        $stmt->execute([$deviceId, $userId]);
+        $revoked = $stmt->rowCount() > 0;
+        if ($revoked) {
+            logMessage('INFO', '2fa_trusted_devices_revoked', ['user_id' => $userId, 'count' => 1]);
+        }
+        return $revoked;
+    }
+
+    public static function revokeAllTrustedDevices(int $userId): void
+    {
+        global $pdo;
+        self::ensureSchema($pdo);
+
+        $stmt = $pdo->prepare('DELETE FROM pro_trusted_devices WHERE user_id = ?');
+        $stmt->execute([$userId]);
+        if ($stmt->rowCount() > 0) {
+            logMessage('INFO', '2fa_trusted_devices_revoked', ['user_id' => $userId, 'count' => $stmt->rowCount()]);
+        }
+    }
+
+    /** Deletes expired trusted-device rows. Called from cron/cleanup.php. */
+    public static function cleanupExpiredTrustedDevices(): int
+    {
+        global $pdo;
+        self::ensureSchema($pdo);
+
+        $stmt = $pdo->prepare('DELETE FROM pro_trusted_devices WHERE expires_at <= NOW()');
+        $stmt->execute();
+        return $stmt->rowCount();
     }
 
     // ---------------------------------------------------------------------

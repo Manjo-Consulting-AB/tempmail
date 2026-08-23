@@ -245,6 +245,15 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                             </div>
                             <p class="form-text">If you lose your device: sign in with your email login link and disable two-factor authentication here.</p>
                             <button type="button" id="tfaDisableBtn" class="btn btn-outline-danger">Disable 2FA</button>
+
+                            <div id="tfaTrustedDevicesSection" class="mt-4">
+                                <h6>Trusted devices</h6>
+                                <p class="form-text">Browsers where you checked "Remember this browser" at sign-in skip the code for 30 days. Revoke a device to require the code there again.</p>
+                                <div id="tfaTrustedDevicesAlert"></div>
+                                <p id="tfaTrustedDevicesEmpty" class="text-muted d-none">No trusted devices.</p>
+                                <ul id="tfaTrustedDevicesList" class="list-group mb-2"></ul>
+                                <button type="button" id="tfaRevokeAllDevicesBtn" class="btn btn-sm btn-outline-danger d-none">Revoke all</button>
+                            </div>
                         </div>
 
                         <div id="tfaRegenForm" class="d-none mt-2">
@@ -359,6 +368,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                     $('#tfaCodesLeftCount').text(left);
                     $('#tfaLowCodesWarning').toggleClass('d-none', left > 3);
                     $('#tfaEnabledState').removeClass('d-none');
+                    tfaLoadTrustedDevices();
                 } else if (st.pending) {
                     $('#tfaStatusLine').text('Setup started, not yet confirmed');
                     $('#tfaDisabledState').removeClass('d-none');
@@ -535,6 +545,72 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                         tfaAlert('danger', (res && res.error) ? res.error : 'Could not disable two-factor authentication');
                     }
                 }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+            });
+
+            function tfaFormatDate(s) {
+                if (!s) return '';
+                var d = new Date(s + ' UTC');
+                var dd = String(d.getUTCDate()).padStart(2, '0');
+                var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+                var yyyy = d.getUTCFullYear();
+                return dd + '/' + mm + '/' + yyyy;
+            }
+
+            function tfaRenderTrustedDevices(devices) {
+                var $list = $('#tfaTrustedDevicesList').empty();
+                $('#tfaTrustedDevicesEmpty').toggleClass('d-none', devices.length > 0);
+                $('#tfaRevokeAllDevicesBtn').toggleClass('d-none', devices.length === 0);
+
+                devices.forEach(function(dev){
+                    var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
+                    var $info = $('<div>');
+                    $info.append($('<div>').text(dev.label || 'Unknown device'));
+                    $info.append(
+                        $('<div>').addClass('text-muted small').text(
+                            'Added ' + tfaFormatDate(dev.created_at) +
+                            ' — last used ' + tfaFormatDate(dev.last_used_at) +
+                            ' — expires ' + tfaFormatDate(dev.expires_at)
+                        )
+                    );
+                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text('Revoke').data('id', dev.id);
+                    $li.append($info).append($btn);
+                    $list.append($li);
+                });
+            }
+
+            function tfaLoadTrustedDevices() {
+                $.post('pro_profile.php', { action: 'trusted_devices_list' }, function(res){
+                    if (res && res.success) {
+                        tfaRenderTrustedDevices(res.devices || []);
+                    }
+                }, 'json');
+            }
+
+            $('#tfaTrustedDevicesList').on('click', 'button', function(){
+                var id = $(this).data('id');
+                if (!window.confirm('Revoke this trusted device? The next sign-in from it will require a code again.')) return;
+                $.post('pro_profile.php', { action: 'trusted_devices_revoke', id: id }, function(res){
+                    if (res && res.success) {
+                        tfaLoadTrustedDevices();
+                    } else {
+                        $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text((res && res.error) ? res.error : 'Could not revoke device'));
+                    }
+                }, 'json').fail(function(){
+                    $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text('Network error'));
+                });
+            });
+
+            $('#tfaRevokeAllDevicesBtn').on('click', function(){
+                if (!window.confirm('Revoke all trusted devices? Every browser will require a code again at next sign-in.')) return;
+                $.post('pro_profile.php', { action: 'trusted_devices_revoke', all: 1 }, function(res){
+                    if (res && res.success) {
+                        tfaLoadTrustedDevices();
+                    } else {
+                        $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text((res && res.error) ? res.error : 'Could not revoke devices'));
+                    }
+                }, 'json').fail(function(){
+                    $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text('Network error'));
+                });
             });
 
             tfaLoadStatus();
