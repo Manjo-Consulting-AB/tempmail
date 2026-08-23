@@ -195,6 +195,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                     <div class="mb-3" id="twoFactorSection">
                         <p id="tfaStatusLine" class="mb-2">Loading status...</p>
                         <p class="form-text">Protects password sign-in with a code from your authenticator app. Email sign-in links already require access to your inbox and keep working as before.</p>
+                        <p class="form-text">Lost your authenticator? You can always sign in with your email login link instead, then turn off two-factor authentication here.</p>
                         <div id="tfaNoPasswordNote" class="alert alert-info d-none">
                             Two-factor authentication only takes effect once you have a password set — <a href="#proPassword">set one above</a> to activate protection after enrolling.
                         </div>
@@ -243,7 +244,6 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                                 You have <span id="tfaCodesLeftCount"></span> recovery codes left.
                                 <button type="button" id="tfaRegenBtn" class="btn btn-sm btn-warning ms-2">Generate new codes</button>
                             </div>
-                            <p class="form-text">If you lose your device: sign in with your email login link and disable two-factor authentication here.</p>
                             <button type="button" id="tfaDisableBtn" class="btn btn-outline-danger">Disable 2FA</button>
 
                             <div id="tfaTrustedDevicesSection" class="mt-4">

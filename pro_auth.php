@@ -484,6 +484,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             session_regenerate_id(true);
             $_SESSION['pro_user_id'] = $user['id'];
             $_SESSION['pro_user_email'] = $user['email'];
+            $_SESSION['pro_login_method'] = 'password';
             try {
                 $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
                 $ins->execute([$ip, $email, $user['id']]);
@@ -509,6 +510,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Sätt session och logga in
     $_SESSION['pro_user_id'] = $user['id'];
     $_SESSION['pro_user_email'] = $user['email'];
+    $_SESSION['pro_login_method'] = 'password';
     // Record successful attempt
     try {
         $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
@@ -581,6 +583,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     session_regenerate_id(true);
     $_SESSION['pro_user_id'] = $userId;
     $_SESSION['pro_user_email'] = $pendingEmail;
+    $_SESSION['pro_login_method'] = 'password';
     unset($_SESSION['pending_2fa']);
 
     // "Remember this browser" checkbox: only ever creates a trusted-device
@@ -645,6 +648,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['token'])) {
     session_regenerate_id(true);
     $_SESSION['pro_user_id'] = $result['user_id'];
     $_SESSION['pro_user_email'] = $result['email'];
+    $_SESSION['pro_login_method'] = 'magic_link';
     // Redirect to dashboard so server-side will load the user's latest active temp address
     header('Location: pro.php');
     exit;

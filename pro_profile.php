@@ -517,6 +517,13 @@ try {
 
                 TwoFactorAuth::disable($userId);
                 send_2fa_notification_email($userId, 'disabled');
+                // See issue #15: track how this session was authenticated (password
+                // vs. magic link) so the lost-authenticator recovery path is visible
+                // in log_viewer.php, not just that a disable happened.
+                logMessage('INFO', '2fa_disabled', [
+                    'user_id' => $userId,
+                    'login_method' => $_SESSION['pro_login_method'] ?? 'unknown',
+                ]);
 
                 send_json(['success' => true]);
             } catch (Exception $e) {
