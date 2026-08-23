@@ -30,7 +30,7 @@ jobs:
       - name: Kontrollera sårbarheter i Composer-paket
         working-directory: ./
         run: composer audit --locked
-  # JOBB 3: Backend via SFTP till manjo.me PROD (Körs BARA om BÅDE jobb 1 och 2 lyckas)
+  # JOBB 3: Backend via FTPS till manjo.me PROD (Körs BARA om BÅDE jobb 1 och 2 lyckas)
   deploy-backend:
     runs-on: ubuntu-latest
     needs: [semgrep-scan, composer-audit] # <--- DUBBELSPÄRREN!
@@ -38,25 +38,44 @@ jobs:
       - name: Hämta källkod
         uses: actions/checkout@v5
       - name: Installera Composer-beroenden (produktion)
-        # vendor/ är gitignorad och byggs här i CI, sedan laddas den upp via SFTP
+        # vendor/ är gitignorad och byggs här i CI, sedan laddas den upp via FTPS
         # nedan. Utan detta steg finns t.ex. HTMLPurifier aldrig i produktion.
         run: composer install --no-dev --optimize-autoloader --no-interaction
       - name: Flytta undan filer som inte ska till prod (.git, .github, interna docs m.m.)
         # Flyttas bara ut tillfälligt (inte till en katalog UNDER arbetskatalogen -
-        # annars nästlar sftp-uppladdningen in dem igen), inte till prod. De flyttas
+        # annars nästlar ftp-uppladdningen in dem igen), inte till prod. De flyttas
         # tillbaka efter uppladdningen så att checkout-actionens egen efterstädning
         # (som behöver .git) fortfarande fungerar.
         run: mv .git .github .gitignore .semgrepignore CLAUDE.md documentaion composer.lock composer.json ../
-      - name: Ladda upp via SFTP
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          username: ${{ secrets.SFTP_USERNAME }}
-          password: ${{ secrets.SFTP_PASSWORD }}
-          server: ${{ secrets.SFTP_SERVER }}
-          port: 22
-          local_path: './'
-          remote_path: './manjo.me/public_html/' # Kontot landar i hemkatalogen, webbroten en nivå ner
-          sftp_only: true # Kontot saknar skal-/exec-åtkomst (endast SFTP-protokollet) - annars stänger servern anslutningen vid mkdir-kommandot
+      - name: Ladda upp via FTPS
+        # Nya hosting saknar SFTP-stöd, så vi kör FTPS (FTP med explicit TLS på
+        # port 21) via lftp i stället för wlixcc/SFTP-Deploy-Action. ftp:ssl-force
+        # kräver TLS för både kontroll- och dataanslutningen - lösenordet och
+        # filerna går aldrig i klartext. Om servern saknar TLS-stöd misslyckas
+        # steget hårt i stället för att tyst falla tillbaka till oskyddad FTP.
+        # ssl:verify-certificate är avstängd eftersom delad webbhosting ofta har
+        # självsignerade/generiska certifikat - vi behåller kryptering men
+        # verifierar inte certifikatkedjan.
+        # mirror -R (reverse mirror = ladda upp) körs utan --delete, samma
+        # icke-destruktiva beteende som delete_remote_files: false hade i
+        # SFTP-actionen: filer som bara finns på servern (t.ex. attachments/)
+        # rörs aldrig.
+        env:
+          FTP_SERVER: ${{ secrets.SFTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.SFTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y lftp
+          lftp -e "set cmd:fail-exit yes; \
+            set ftp:ssl-force true; \
+            set ftp:ssl-protect-data true; \
+            set ssl:verify-certificate no; \
+            set ftp:passive-mode true; \
+            open \"$FTP_SERVER\"; \
+            user \"$FTP_USERNAME\" \"$FTP_PASSWORD\"; \
+            mirror -R --verbose --no-perms --parallel=4 ./ ./manjo.me/public_html/; \
+            bye"
       - name: Återställ undanflyttade filer (för checkout-actionens efterstädning)
         if: always()
         run: mv ../.git ../.github ../.gitignore ../.semgrepignore ../CLAUDE.md ../documentaion ../composer.lock ../composer.json .
