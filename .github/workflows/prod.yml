@@ -49,7 +49,10 @@ jobs:
       SSH_USER: ${{ secrets.SFTP_USERNAME }}
       # Inleed kör SSH på 2020, inte 22. Kan överstyras med en SSH_PORT-secret.
       SSH_PORT: ${{ secrets.SSH_PORT || '2020' }}
-      REMOTE_DIR: ${{ secrets.REMOTE_DIR || 'manjo.me/public_html' }}
+      # DirectAdmin-layout hos Inleed: varje domän har sin egen public_html under
+      # domains/. OBS att ~/public_html är en symlink till manjo.se - alltså fel
+      # domän - så den vägen får inte användas. Kan överstyras med REMOTE_DIR.
+      REMOTE_DIR: ${{ secrets.REMOTE_DIR || 'domains/manjo.me/public_html' }}
     steps:
       - name: Hämta källkod
         uses: actions/checkout@v5
