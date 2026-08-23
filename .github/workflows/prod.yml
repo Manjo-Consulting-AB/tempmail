@@ -55,7 +55,15 @@ jobs:
           chmod 700 "$HOME/.ssh"
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
           chmod 600 "$HOME/.ssh/deploy_key"
-          ssh-keyscan -H "$SSH_SERVER" >> "$HOME/.ssh/known_hosts" 2>/dev/null
+          ssh-keyscan -T 15 -H "$SSH_SERVER" >> "$HOME/.ssh/known_hosts"
+          # ssh-keyscan writes progress/diagnostics to stderr and returns non-zero
+          # on a scan timeout even if it found nothing - surface that instead of
+          # silently failing the step, and fail loudly (not just via `set -e`) if
+          # known_hosts ended up empty.
+          if [ ! -s "$HOME/.ssh/known_hosts" ]; then
+            echo "::error::ssh-keyscan got no host key from $SSH_SERVER - see stderr above" >&2
+            exit 1
+          fi
       - name: Ladda upp via rsync över SSH
         # Nya hosting saknar SFTP-stöd men har SSH-skal, så vi kör rsync i stället
         # för lftp/FTPS. Två fördelar över den tidigare FTP-baserade lösningen:
