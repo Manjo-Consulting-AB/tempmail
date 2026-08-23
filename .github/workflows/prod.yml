@@ -30,7 +30,7 @@ jobs:
       - name: Kontrollera sårbarheter i Composer-paket
         working-directory: ./
         run: composer audit --locked
-  # JOBB 3: Backend via FTPS till manjo.me PROD (Körs BARA om BÅDE jobb 1 och 2 lyckas)
+  # JOBB 3: Backend via rsync över SSH till manjo.me PROD (Körs BARA om BÅDE jobb 1 och 2 lyckas)
   deploy-backend:
     runs-on: ubuntu-latest
     needs: [semgrep-scan, composer-audit] # <--- DUBBELSPÄRREN!
@@ -38,44 +38,51 @@ jobs:
       - name: Hämta källkod
         uses: actions/checkout@v5
       - name: Installera Composer-beroenden (produktion)
-        # vendor/ är gitignorad och byggs här i CI, sedan laddas den upp via FTPS
+        # vendor/ är gitignorad och byggs här i CI, sedan laddas den upp via rsync
         # nedan. Utan detta steg finns t.ex. HTMLPurifier aldrig i produktion.
         run: composer install --no-dev --optimize-autoloader --no-interaction
-      - name: Flytta undan filer som inte ska till prod (.git, .github, interna docs m.m.)
-        # Flyttas bara ut tillfälligt (inte till en katalog UNDER arbetskatalogen -
-        # annars nästlar ftp-uppladdningen in dem igen), inte till prod. De flyttas
-        # tillbaka efter uppladdningen så att checkout-actionens egen efterstädning
-        # (som behöver .git) fortfarande fungerar.
-        run: mv .git .github .gitignore .semgrepignore CLAUDE.md documentaion composer.lock composer.json ../
-      - name: Ladda upp via FTPS
-        # Nya hosting saknar SFTP-stöd, så vi kör FTPS (FTP med explicit TLS på
-        # port 21) via lftp i stället för wlixcc/SFTP-Deploy-Action. ftp:ssl-force
-        # kräver TLS för både kontroll- och dataanslutningen - lösenordet och
-        # filerna går aldrig i klartext. Om servern saknar TLS-stöd misslyckas
-        # steget hårt i stället för att tyst falla tillbaka till oskyddad FTP.
-        # ssl:verify-certificate är avstängd eftersom delad webbhosting ofta har
-        # självsignerade/generiska certifikat - vi behåller kryptering men
-        # verifierar inte certifikatkedjan.
-        # mirror -R (reverse mirror = ladda upp) körs utan --delete, samma
-        # icke-destruktiva beteende som delete_remote_files: false hade i
-        # SFTP-actionen: filer som bara finns på servern (t.ex. attachments/)
-        # rörs aldrig.
+      - name: Sätt upp SSH-nyckel för deploy
+        # Dedikerat nyckelpar för det här jobbet - bara den publika nyckeln ligger
+        # på servern (i authorized_keys), den privata finns enbart som secreten
+        # SSH_PRIVATE_KEY. ssh-keyscan hämtar serverns värdnyckel färskt i varje
+        # körning så known_hosts inte behöver checkas in, och StrictHostKeyChecking
+        # står kvar på (yes) mot den nyss hämtade nyckeln.
         env:
-          FTP_SERVER: ${{ secrets.SFTP_SERVER }}
-          FTP_USERNAME: ${{ secrets.SFTP_USERNAME }}
-          FTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_SERVER: ${{ secrets.SFTP_SERVER }}
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y lftp
-          lftp -e "set cmd:fail-exit yes; \
-            set ftp:ssl-force true; \
-            set ftp:ssl-protect-data true; \
-            set ssl:verify-certificate no; \
-            set ftp:passive-mode true; \
-            open \"$FTP_SERVER\"; \
-            user \"$FTP_USERNAME\" \"$FTP_PASSWORD\"; \
-            mirror -R --verbose --no-perms --parallel=4 ./ ./manjo.me/public_html/; \
-            bye"
-      - name: Återställ undanflyttade filer (för checkout-actionens efterstädning)
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          ssh-keyscan -H "$SSH_SERVER" >> "$HOME/.ssh/known_hosts" 2>/dev/null
+      - name: Ladda upp via rsync över SSH
+        # Nya hosting saknar SFTP-stöd men har SSH-skal, så vi kör rsync i stället
+        # för lftp/FTPS. Två fördelar över den tidigare FTP-baserade lösningen:
+        #
+        # 1. --checksum jämför filinnehåll, inte tidsstämpel. En färsk git
+        #    checkout ger alla filer "nu" som mtime i varje körning, så en
+        #    tid/storlek-jämförelse (det lftp mirror gjorde) skulle ladda upp
+        #    allt varje gång ändå - checksum gör att bara faktiskt ändrade filer
+        #    överförs.
+        # 2. rsync skriver till en temporär fil och byter namn atomiskt vid
+        #    uppdatering. Filen försvinner aldrig på den levande servern under
+        #    tiden den skrivs, till skillnad från lftp mirror som (odokumenterat
+        #    och utan möjlig avstängning, se lavv17/lftp#148) tar bort filen
+        #    innan den laddar upp en ny kopia.
+        #
+        # Inget --delete: filer som bara finns på servern (t.ex. attachments/)
+        # rörs aldrig, samma icke-destruktiva beteende som tidigare.
+        env:
+          SSH_SERVER: ${{ secrets.SFTP_SERVER }}
+          SSH_USERNAME: ${{ secrets.SFTP_USERNAME }}
+        run: |
+          rsync -az --checksum \
+            -e "ssh -i $HOME/.ssh/deploy_key -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -o ConnectTimeout=15" \
+            --exclude='.git' --exclude='.github' --exclude='.gitignore' \
+            --exclude='.semgrepignore' --exclude='CLAUDE.md' --exclude='documentaion' \
+            --exclude='composer.lock' --exclude='composer.json' \
+            ./ "$SSH_USERNAME@$SSH_SERVER:manjo.me/public_html/"
+      - name: Städa bort SSH-nyckel
         if: always()
-        run: mv ../.git ../.github ../.gitignore ../.semgrepignore ../CLAUDE.md ../documentaion ../composer.lock ../composer.json .
+        run: rm -f "$HOME/.ssh/deploy_key"
