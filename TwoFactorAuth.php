@@ -200,6 +200,58 @@ final class TwoFactorAuth
     }
 
     // ---------------------------------------------------------------------
+    // QR code rendering (bacon/bacon-qr-code, SVG only — no ext-gd/imagick)
+    // ---------------------------------------------------------------------
+
+    private const QR_SVG_SIZE = 220;
+    private const QR_SVG_ARIA_LABEL = 'QR-kod för att aktivera tvåfaktorsautentisering i en autentiseringsapp';
+
+    /**
+     * Renders an otpauth:// URI as an inline SVG QR code, entirely server-side
+     * — the secret it encodes is password-equivalent and must never be sent
+     * to a third-party CDN or QR API. Returns null (never a fatal error) if
+     * bacon/bacon-qr-code isn't installed, so callers can fall back to
+     * showing the manual secret instead.
+     */
+    public static function renderQrSvg(string $otpauthUri): ?string
+    {
+        $vendorAutoload = __DIR__ . '/vendor/autoload.php';
+        if (!class_exists('BaconQrCode\\Writer') && file_exists($vendorAutoload)) {
+            require_once $vendorAutoload;
+        }
+
+        if (!class_exists('BaconQrCode\\Writer')) {
+            return null;
+        }
+
+        try {
+            $renderer = new \BaconQrCode\Renderer\ImageRenderer(
+                new \BaconQrCode\Renderer\RendererStyle\RendererStyle(self::QR_SVG_SIZE),
+                new \BaconQrCode\Renderer\Image\SvgImageBackEnd()
+            );
+            $svg = (new \BaconQrCode\Writer($renderer))->writeString($otpauthUri);
+        } catch (\Throwable $e) {
+            logMessage('ERROR', 'Failed to render 2FA QR SVG: ' . $e->getMessage());
+            return null;
+        }
+
+        // Drop the XML prologue so this is safe to inline directly into an
+        // HTML5 document, and add accessibility/sizing attributes. The
+        // renderer's default fill already draws a white background rect
+        // behind the modules, so the code stays legible on a dark page too.
+        $svg = preg_replace('/^<\?xml[^>]*\?>\s*/', '', $svg) ?? $svg;
+        $svg = preg_replace(
+            '/<svg /',
+            '<svg role="img" aria-label="' . htmlspecialchars(self::QR_SVG_ARIA_LABEL, ENT_QUOTES, 'UTF-8') . '" '
+                . 'style="max-width:' . self::QR_SVG_SIZE . 'px;width:100%;height:auto" ',
+            $svg,
+            1
+        );
+
+        return $svg;
+    }
+
+    // ---------------------------------------------------------------------
     // Encryption at rest (AES-256-GCM, no plaintext fallback)
     // ---------------------------------------------------------------------
 

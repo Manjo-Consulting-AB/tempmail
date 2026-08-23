@@ -99,6 +99,23 @@ check('otpauth URI carries the secret', str_contains($uri, 'secret=' . rawurlenc
 check('otpauth URI declares SHA1/6/30', str_contains($uri, 'algorithm=SHA1&digits=6&period=30'));
 
 // ---------------------------------------------------------------------
+// QR code SVG rendering (bacon/bacon-qr-code)
+// ---------------------------------------------------------------------
+
+$qrSvg = TwoFactorAuth::renderQrSvg($uri);
+if ($qrSvg === null) {
+    // Degrades to null (never a fatal error) when the library/vendor dir
+    // isn't installed — acceptable, but skip the content assertions below.
+    echo "SKIP: bacon/bacon-qr-code not installed, renderQrSvg() checks skipped\n";
+} else {
+    check('QR SVG starts with <svg (no XML prologue, safe to inline)', str_starts_with($qrSvg, '<svg'));
+    check('QR SVG has role="img" for accessibility', str_contains($qrSvg, 'role="img"'));
+    check('QR SVG has an aria-label', str_contains($qrSvg, 'aria-label="'));
+    check('QR SVG declares a fixed max-width', str_contains($qrSvg, 'max-width:220px'));
+    check('QR SVG draws a background rect (readable on light/dark pages)', str_contains($qrSvg, '<rect'));
+}
+
+// ---------------------------------------------------------------------
 // Encryption / decryption (AES-256-GCM), including fail-closed behavior
 // ---------------------------------------------------------------------
 
