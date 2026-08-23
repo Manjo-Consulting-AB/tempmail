@@ -95,6 +95,21 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
                     <p class="mb-0">Client Agent is designed with security in mind. It uses industry-standard encryption and follows best practices to protect your data. All communications are encrypted, and sensitive information is never stored in plain text. Agent runs on your own server with your data under your control.</p>
                 </div>
 
+                <div class="mb-3">
+                    <strong>What does two-factor authentication (2FA) protect?</strong>
+                    <p class="mb-0">2FA protects password sign-in to your Pro account: after 2FA is enabled, signing in with your password also requires a 6-digit code from an authenticator app. It does not add a step to email sign-in links — a magic link already proves you have access to the inbox, which is itself a second factor.</p>
+                </div>
+
+                <div class="mb-3">
+                    <strong>Which authenticator apps are supported?</strong>
+                    <p class="mb-0">Any standard TOTP authenticator app works, including 1Password, Authy, and Google Authenticator. Set it up from the two-factor authentication section of your profile by scanning the QR code or entering the key manually.</p>
+                </div>
+
+                <div class="mb-3">
+                    <strong>What if I lose my phone or authenticator app?</strong>
+                    <p class="mb-0">You're not locked out. Sign in using your email login link (magic link) as usual — it works even with 2FA enabled — and then turn off two-factor authentication from your profile. From there you can set up 2FA again on a new device, or leave it off. You can also use one of the one-time recovery codes shown when you enrolled, if you saved them.</p>
+                </div>
+
                 <h3 class="mt-4">Troubleshooting</h3>
                 <div class="mb-3">
                     <strong>I didn't receive an expected message — what now?</strong>

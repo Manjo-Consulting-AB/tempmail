@@ -30,6 +30,7 @@ if ($token) {
         session_regenerate_id(true);
         $_SESSION['pro_user_id'] = $result['user_id'];
         $_SESSION['pro_user_email'] = $result['email'];
+        $_SESSION['pro_login_method'] = 'magic_link';
         header('Location: pro.php');
         exit;
     }
@@ -158,7 +159,7 @@ if ($token) {
                         <a href="#" id="useRecoveryCodeLink">Use a recovery code instead</a>
                     </div>
                     <div class="mt-2">
-                        <a href="#" id="lostAuthenticatorLink">Lost your authenticator? Sign in with an email link instead</a>
+                        <a href="#" id="lostAuthenticatorLink">Lost your authenticator? Sign in with an email link instead</a> &mdash; you can then turn off two-factor authentication in your profile.
                     </div>
                     <div class="mt-2">
                         <a href="#" id="cancel2faLink">Cancel</a>
