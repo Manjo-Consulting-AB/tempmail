@@ -4,6 +4,7 @@
  */
 require_once 'config.php';
 require_once __DIR__ . '/client/backend/bootstrap.php';
+require_once __DIR__ . '/TwoFactorAuth.php';
 session_start();
 
 header('Content-Type: application/json');
@@ -67,6 +68,61 @@ function decrypt_webhook_secret($encoded) {
     $ciphertext = substr($raw, $ivlen);
     $plain = openssl_decrypt($ciphertext, $method, hash('sha256', $key, true), OPENSSL_RAW_DATA, $iv);
     return $plain === false ? null : $plain;
+}
+
+// Helper: current password_hash for a pro user, or null if unset/column missing.
+// Several profile-security actions (password change, 2FA enroll/disable) need
+// this same "does a password exist" check.
+function pro_user_password_hash(int $userId): ?string {
+    global $pdo;
+    try {
+        $colStmt = $pdo->query("SHOW COLUMNS FROM pro_users LIKE 'password_hash'");
+        if ($colStmt->rowCount() === 0) {
+            return null;
+        }
+        $stmt = $pdo->prepare("SELECT password_hash FROM pro_users WHERE id = ? LIMIT 1");
+        $stmt->execute([$userId]);
+        $hash = $stmt->fetchColumn();
+        return !empty($hash) ? $hash : null;
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+function pro_user_has_password(int $userId): bool {
+    return pro_user_password_hash($userId) !== null;
+}
+
+// Helper: notification email for 2FA activation/deactivation. Never includes
+// the secret or any code — see documentaion/2FA_DESIGN.md §3 and §5.5.
+function send_2fa_notification_email(int $userId, string $event): void {
+    global $pdo, $config;
+    try {
+        $stmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
+        $stmt->execute([$userId]);
+        $email = $stmt->fetchColumn();
+        if (!$email) {
+            return;
+        }
+
+        if ($event === 'enabled') {
+            $subject = 'Two-factor authentication enabled for TempMail Pro';
+            $message = "Hello,\n\nTwo-factor authentication was just enabled on your TempMail Pro account. Signing in with your password will now also require a code from your authenticator app.\n\nIf you did not make this change, sign in using your magic link and disable two-factor authentication immediately.\n\nRegards,\nThe TempMail Team";
+        } else {
+            $subject = 'Two-factor authentication disabled for TempMail Pro';
+            $message = "Hello,\n\nTwo-factor authentication was just disabled on your TempMail Pro account. Signing in with your password no longer requires a code.\n\nIf you did not make this change, sign in using your magic link, re-enable two-factor authentication and change your password.\n\nRegards,\nThe TempMail Team";
+        }
+
+        $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
+        $headers = [];
+        $headers[] = 'From: TempMail <' . $from . '>';
+        $headers[] = 'MIME-Version: 1.0';
+        $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+        $headersStr = implode("\r\n", $headers);
+        @mail($email, $subject, $message, $headersStr);
+    } catch (Exception $e) {
+        logMessage('WARNING', 'Failed sending 2FA notification email', ['error' => $e->getMessage(), 'user_id' => $userId, 'event' => $event]);
+    }
 }
 
 try {
@@ -320,6 +376,187 @@ try {
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed rotating client signing keys', ['error' => $e->getMessage(), 'user_id' => $userId]);
                 send_json(['success' => false, 'error' => 'Could not rotate keys']);
+            }
+            break;
+
+        case 'totp_status':
+            try {
+                $state = TwoFactorAuth::getState($userId);
+                $enabled = TwoFactorAuth::isEnabledFor($userId);
+                $pending = $state !== null && $state['status'] === 'pending';
+
+                send_json([
+                    'success' => true,
+                    'enabled' => $enabled,
+                    'pending' => $pending,
+                    'recovery_codes_left' => $enabled ? TwoFactorAuth::countUnusedRecoveryCodes($userId) : 0,
+                    'confirmed_at' => $state['confirmed_at'] ?? null,
+                    'has_password' => pro_user_has_password($userId),
+                ]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed fetching 2FA status', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not fetch two-factor status']);
+            }
+            break;
+
+        case 'totp_begin_enroll':
+            // Starts/replaces a pending enrollment. Behind requireSameOriginRequest()
+            // like every other state-changing action here, plus a per-user hourly cap
+            // so a stolen session can't be used to spam pending secrets/QR renders.
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                send_json(['success' => false, 'error' => 'Method not allowed']);
+            }
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin totp_begin_enroll request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            try {
+                if (TwoFactorAuth::isEnabledFor($userId)) {
+                    send_json(['success' => false, 'error' => 'Two-factor authentication is already enabled. Disable it first to re-enroll.']);
+                }
+
+                $pdo->exec("CREATE TABLE IF NOT EXISTS two_factor_enroll_requests (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user_time (user_id, requested_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+                $windowMinutes = 60;
+                $maxRequests = 10;
+                $rl = $pdo->prepare("SELECT COUNT(*) FROM two_factor_enroll_requests WHERE user_id = ? AND requested_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)");
+                $rl->execute([$userId, $windowMinutes]);
+                if ((int) $rl->fetchColumn() >= $maxRequests) {
+                    logMessage('WARNING', '2fa_enroll_rate_limited', ['user_id' => $userId]);
+                    send_json(['success' => false, 'error' => 'Too many enrollment attempts. Please try again later.']);
+                }
+                $pdo->prepare("INSERT INTO two_factor_enroll_requests (user_id) VALUES (?)")->execute([$userId]);
+
+                $enrollment = TwoFactorAuth::startEnrollment($userId);
+                $otpauthUri = $enrollment['otpauth_uri'];
+
+                // Group the secret into 4-character blocks for manual entry, e.g. "ABCD EFGH ...".
+                $manualKey = trim(chunk_split($enrollment['secret'], 4, ' '));
+
+                send_json([
+                    'success' => true,
+                    'otpauth_uri' => $otpauthUri,
+                    'qr_svg' => TwoFactorAuth::renderQrSvg($otpauthUri),
+                    'manual_key' => $manualKey,
+                    // 2FA can still be enrolled without a password (it protects password
+                    // login specifically); the UI uses this to explain the code has no
+                    // effect until a password is set.
+                    'has_password' => pro_user_has_password($userId),
+                ]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed starting 2FA enrollment', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not start two-factor enrollment']);
+            }
+            break;
+
+        case 'totp_confirm_enroll':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                send_json(['success' => false, 'error' => 'Method not allowed']);
+            }
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin totp_confirm_enroll request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            try {
+                $code = trim((string) ($_POST['code'] ?? ''));
+                $ip = getVisitorIp();
+
+                if (TwoFactorAuth::isChallengeBlocked($userId, $ip)) {
+                    send_json(['success' => false, 'error' => 'Too many attempts. Please try again later.']);
+                }
+
+                $activated = TwoFactorAuth::activate($userId, $code);
+                TwoFactorAuth::recordAttempt($userId, $ip, $activated);
+
+                if (!$activated) {
+                    // Generic error: never reveal whether it was the code, a missing
+                    // pending enrollment, or an expired step that failed.
+                    send_json(['success' => false, 'error' => 'Invalid or expired code']);
+                }
+
+                $recoveryCodes = TwoFactorAuth::generateRecoveryCodes($userId);
+                send_2fa_notification_email($userId, 'enabled');
+
+                send_json(['success' => true, 'recovery_codes' => $recoveryCodes]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed confirming 2FA enrollment', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not confirm two-factor enrollment']);
+            }
+            break;
+
+        case 'totp_disable':
+            // Works the same whether the session came from a password login or a
+            // magic link — magic link is the recovery path for a lost authenticator.
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                send_json(['success' => false, 'error' => 'Method not allowed']);
+            }
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin totp_disable request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            try {
+                $storedHash = pro_user_password_hash($userId);
+                if ($storedHash !== null) {
+                    $password = (string) ($_POST['password'] ?? '');
+                    if ($password === '' || !password_verify($password, $storedHash)) {
+                        logMessage('WARNING', 'Rejected totp_disable with invalid password', ['user_id' => $userId]);
+                        send_json(['success' => false, 'error' => 'Invalid password']);
+                    }
+                }
+                // No password set: there is no password login to protect, so an
+                // authenticated session alone is enough to disable.
+
+                if (!TwoFactorAuth::isEnabledFor($userId) && TwoFactorAuth::getState($userId) === null) {
+                    send_json(['success' => false, 'error' => 'Two-factor authentication is not enabled']);
+                }
+
+                TwoFactorAuth::disable($userId);
+                send_2fa_notification_email($userId, 'disabled');
+
+                send_json(['success' => true]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed disabling 2FA', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not disable two-factor authentication']);
+            }
+            break;
+
+        case 'totp_recovery_regenerate':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                send_json(['success' => false, 'error' => 'Method not allowed']);
+            }
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin totp_recovery_regenerate request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            try {
+                if (!TwoFactorAuth::isEnabledFor($userId)) {
+                    send_json(['success' => false, 'error' => 'Two-factor authentication is not enabled']);
+                }
+
+                $code = trim((string) ($_POST['code'] ?? ''));
+                $ip = getVisitorIp();
+
+                if (TwoFactorAuth::isChallengeBlocked($userId, $ip)) {
+                    send_json(['success' => false, 'error' => 'Too many attempts. Please try again later.']);
+                }
+
+                $valid = TwoFactorAuth::verifyForUser($userId, $code);
+                TwoFactorAuth::recordAttempt($userId, $ip, $valid);
+
+                if (!$valid) {
+                    send_json(['success' => false, 'error' => 'Invalid or expired code']);
+                }
+
+                $recoveryCodes = TwoFactorAuth::generateRecoveryCodes($userId);
+                send_json(['success' => true, 'recovery_codes' => $recoveryCodes]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed regenerating 2FA recovery codes', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not regenerate recovery codes']);
             }
             break;
 
