@@ -90,15 +90,39 @@ jobs:
           # Nyckeltyp/fingeravtryck loggas för felsökning - aldrig själva nyckeln.
           ssh-keygen -l -f ~/.ssh/deploy_key
       - name: Verifiera SSH-anslutningen
+        # Loggar in, kontrollerar att rsync finns på servern och att målkatalogen
+        # existerar och är skrivbar. Kandidatlistan skrivs ut för felsökning om
+        # webroot skulle ligga någon annanstans (olika kontrollpaneler lägger den
+        # på olika ställen: DirectAdmin domains/<domän>/public_html, cPanel
+        # public_html osv).
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
             -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 \
-            "$SSH_USER@$SSH_HOST" \
-            "echo '--- inloggad som:'; id -un; echo '--- hemkatalog:'; pwd; \
-             echo '--- rsync på servern:'; command -v rsync || echo 'RSYNC SAKNAS'; \
-             echo '--- måldir:'; ls -ld \"\$HOME/$REMOTE_DIR\" && \
-             { [ -w \"\$HOME/$REMOTE_DIR\" ] && echo 'skrivbar: ja' || echo 'skrivbar: NEJ'; }"
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$REMOTE_DIR'" <<'REMOTE'
+          set -u
+          target="$1"
+          echo "--- inloggad som: $(id -un)"
+          echo "--- hemkatalog:   $HOME"
+          echo "--- rsync:        $(command -v rsync || echo 'SAKNAS')"
+          echo "--- kandidatvägar för webroot (relativt hemkatalogen):"
+          for d in "$target" domains/manjo.me/public_html public_html www/manjo.me html; do
+            if [ -d "$HOME/$d" ]; then echo "    FINNS:  $d"; else echo "    saknas: $d"; fi
+          done
+          if [ ! -d "$HOME/$target" ]; then
+            echo "::error::Målkatalogen \$HOME/$target finns inte. Sätt REMOTE_DIR-secret till rätt sökväg (se listan ovan)."
+            echo "--- innehåll i hemkatalogen:"
+            ls -la "$HOME"
+            exit 1
+          fi
+          if [ ! -w "$HOME/$target" ]; then
+            echo "::error::Målkatalogen \$HOME/$target är inte skrivbar för deploy-användaren."
+            exit 1
+          fi
+          echo "--- målkatalog OK och skrivbar: $HOME/$target"
+          echo "--- nuvarande innehåll (10 första):"
+          ls -1 "$HOME/$target" | head -10
+          REMOTE
       - name: Ladda upp med rsync över SSH
         # Icke-destruktivt: inget --delete, så filer som bara finns på servern
         # (attachments/, .env.production m.m.) rörs aldrig. I verify-läge körs
