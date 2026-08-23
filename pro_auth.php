@@ -561,6 +561,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
+// Endpoint: avbryt en pågående pending_2fa-utmaning (t.ex. "Cancel" eller
+// "Lost your authenticator?" i UI:t) och ta tillbaka användaren till
+// inloggningsformuläret. Rör inte en redan inloggad session.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cancel_2fa') {
+    if (!requireSameOriginRequest()) {
+        logMessage('WARNING', 'Rejected cross-origin cancel_2fa request');
+        echo json_encode(['success' => false, 'error' => 'Invalid request origin']);
+        exit;
+    }
+
+    session_start();
+    unset($_SESSION['pending_2fa']);
+    echo json_encode(['success' => true]);
+    exit;
+}
+
 // Endpoint: verifiera token och logga in
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['token'])) {
     $token = trim((string) $_GET['token']);
