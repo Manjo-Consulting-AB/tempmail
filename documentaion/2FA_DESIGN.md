@@ -97,6 +97,23 @@ Brute force-skydd för utmaningen, spegling av `login_attempts`.
 | `created_at` / `last_used_at` | DATETIME | |
 | `expires_at` | DATETIME | 30 dagar |
 
+Cookien heter `tm_td` (`TwoFactorAuth::TRUSTED_DEVICE_COOKIE`), värdet är
+`{selector}.{validator}` (hex), och sätts `HttpOnly` + `Secure` +
+`SameSite=Lax`, path `/`. Validatorn roteras vid varje användning, så
+cookievärdet är aldrig giltigt två gånger.
+
+### `two_factor_enroll_requests`
+Räknare för hastighetsbegränsningen på `totp_begin_enroll` (§6). Byggd
+(implementerad, ej i den ursprungliga specen här) som en egen tabell i
+stället för att återanvända `two_factor_attempts`, eftersom den räknar
+*enrollment-förfrågningar* och inte inloggningsförsök.
+
+| Fält | Typ | Beskrivning |
+|---|---|---|
+| `id` | INT, PK | |
+| `user_id` | INT, index (med `requested_at`) | |
+| `requested_at` | DATETIME | |
+
 ## 3. Kryptering av TOTP-hemligheten
 
 Hemligheten är ett lösenordsekvivalent och krypteras i vila med AES-256-GCM och
@@ -158,6 +175,11 @@ inloggningslänk via e-post fortsätter fungera som förut.
 3. Klienten visar kodfältet. `verify_2fa` tar emot koden.
 4. Vid träff: full session enligt §4. Vid miss: räkna upp
    `two_factor_attempts`, generiskt felmeddelande.
+5. `cancel_2fa`-endpointen (byggd, ej i originalspecen) låter klienten
+   proaktivt tömma `pending_2fa` när användaren klickar "Cancel" eller
+   "Lost your authenticator? Sign in with an email link instead" i stället
+   för att vänta ut 10-minutersfönstret i §4. Rör aldrig en redan inloggad
+   session.
 
 ### 5.3 Inloggning med magic link
 Oförändrad. Länken är i sig två faktorer (kunskap om adressen + åtkomst till
@@ -174,15 +196,23 @@ till hands. Koderna finns för det fall då även e-posten är otillgänglig.
   oanvända koder för användaren.
 - Förbrukas vid användning (`used_at`). Kvarvarande antal visas i profilen och
   användaren varnas när det är ≤ 3 kvar.
-- Nya koder kan genereras men kräver en giltig TOTP-kod och ersätter alla gamla.
+- Nya koder kan genereras men kräver en giltig TOTP-kod och ersätter alla
+  gamla. Regenerering återkallar dessutom alla trusted devices (avsteg från
+  originaldesignen, se §10) — samma resonemang som ett lösenordsbyte: en
+  komprometterad enhet ska inte kunna fortsätta hoppa över kodfrågan.
 
 ### 5.5 Avaktivering
-Kräver lösenord (den som har 2FA har per definition ett lösenord — det är
-lösenordsinloggningen 2FA skyddar). Vid avaktivering: radera TOTP-raden, alla
-engångskoder och alla trusted devices, och skicka notismail.
+**Avsteg från originaldesignen**: 2FA kan påbörjas och bekräftas *utan* att
+användaren har ett lösenord satt — se §10. Avaktivering kräver därför
+lösenord bara om kontot faktiskt har ett (`pro_user_password_hash()` är inte
+null); saknas lösenord räcker en inloggad session eftersom det då inte finns
+någon lösenordsinloggning att skydda. Vid avaktivering: radera TOTP-raden,
+alla engångskoder och alla trusted devices, och skicka notismail.
 
 Har användaren tappat sin authenticator loggar hen in med magic link och
-stänger av 2FA här. Ingen separat återställningsprocess behövs.
+stänger av 2FA här. Ingen separat återställningsprocess behövs. Inloggnings-UI:t
+har en explicit "Lost your authenticator? Sign in with an email link instead"-länk
+som pekar hit (§5.2, tillagd i uppgift #15).
 
 ## 6. Brute force och missbruk
 
@@ -226,3 +256,33 @@ Läggs till i variabellistan i `CLAUDE.md` och kontrolleras av
 `2fa_recovery_code_used`, `2fa_recovery_codes_regenerated`,
 `2fa_trusted_device_added`, `2fa_trusted_devices_revoked`. Kontext får
 innehålla `user_id`, IP och utfall — aldrig hemlighet, kod eller nyckel.
+Visas i `log_viewer.php`, som redan är en generisk sök-/filtrerbar vy över
+`system_logs` (nivå, fritext över meddelande+kontext) — `2fa_*`-nycklarna
+läses direkt utan särskild rendering.
+
+## 10. Avsteg från originaldesignen
+
+Byggt under uppgift #7–#15, sammanfattat här efter en fullständig
+säkerhetsgenomgång (uppgift #16). Inget av detta är en glapp mot §1 — allt
+är medvetna tillägg som gjordes under implementationen och som inte stod i
+den ursprungliga versionen av det här dokumentet:
+
+1. **2FA kan aktiveras utan lösenord.** §1 antog implicit att "den som har
+   2FA per definition har ett lösenord". I praktiken kan en användare som
+   bara loggar in via magic link ändå starta och bekräfta TOTP-enrollment —
+   skyddet är bara *inaktivt* (kodfrågan triggas aldrig, eftersom den bara
+   sitter på lösenordsinloggningen) tills ett lösenord sätts. UI:t förklarar
+   detta (`has_password`-flaggan från `totp_status`/`totp_begin_enroll`), och
+   avaktivering (§5.5) kräver lösenord bara om ett faktiskt finns.
+2. **`two_factor_enroll_requests`** är en egen tabell för
+   enrollment-hastighetsbegränsningen (§2, §6), inte en återanvändning av
+   `two_factor_attempts`.
+3. **`cancel_2fa`-endpointen** (§5.2) fanns inte i originalspecen — tillagd
+   för att låta klienten tömma `pending_2fa` proaktivt i stället för att bara
+   förlita sig på 10-minuters-timeouten i §4.
+4. **Regenerering av engångskoder återkallar alla trusted devices** (§5.4),
+   av samma skäl som ett lösenordsbyte gör det (nedan).
+5. **Ett lösenordsbyte återkallar alla trusted devices.** Bekräftas i
+   `confirm_profile_change`-flödet (`action=set_password`) i `pro_auth.php`
+   via `TwoFactorAuth::revokeAllTrustedDevices()`. Inte uttryckligen
+   nedskrivet tidigare trots att koden refererade hit.
