@@ -148,6 +148,10 @@ if ($token) {
                                    inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*"
                                    autofocus required>
                         </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" name="remember_device" id="rememberDeviceCheck">
+                            <label class="form-check-label" for="rememberDeviceCheck">Remember this browser for 30 days</label>
+                        </div>
                         <button type="submit" class="btn btn-primary w-100">Verify</button>
                     </form>
                     <div class="mt-3">
@@ -252,6 +256,7 @@ if ($token) {
             resetTwoFactorField();
             $('#twoFactorMsg').html('');
             $('#twoFactorCode').val('');
+            $('#rememberDeviceCheck').prop('checked', false);
             $('#twoFactorBlock').show();
             $('#twoFactorCode').trigger('focus');
         }
@@ -289,8 +294,9 @@ if ($token) {
             e.preventDefault();
             var code = $('#twoFactorCode').val();
             if (!code) return;
+            var rememberDevice = $('#rememberDeviceCheck').is(':checked') ? 1 : 0;
             $('#twoFactorMsg').html('<div class="alert alert-info">Verifying...</div>');
-            $.post('pro_auth.php', { action: 'verify_2fa', code: code }, function(res){
+            $.post('pro_auth.php', { action: 'verify_2fa', code: code, remember_device: rememberDevice }, function(res){
                 if (res && res.success) {
                     window.location = res.redirect || 'pro.php';
                 } else {
