@@ -126,6 +126,45 @@ if (file_exists($vendorAutoload)) {
     echo "vendor autoload: MISSING (run composer install or upload vendor/)\n";
 }
 
+echo "\n-- 2FA (TOTP) check --\n";
+// Never print the key itself or any TOTP secret/code — only set/not-set and length.
+try {
+    $totpKey = $_ENV['TOTP_ENCRYPTION_KEY'] ?? null;
+    if (empty($totpKey) || !is_string($totpKey)) {
+        echo "TOTP_ENCRYPTION_KEY: NOT SET (2FA enrollment/verification will fail until this is set)\n";
+    } else {
+        $decoded = base64_decode($totpKey, true);
+        $validLength = $decoded !== false && strlen($decoded) === 32;
+        echo "TOTP_ENCRYPTION_KEY: set (base64, decodes to " . ($decoded === false ? 'invalid base64' : strlen($decoded) . ' bytes') . ")\n";
+        echo "TOTP_ENCRYPTION_KEY length check: " . ($validLength ? '[OK] 32 bytes' : '[ERROR] expected 32 bytes after base64_decode') . "\n";
+    }
+
+    if (!isset($pdo) || !$pdo) {
+        echo "2FA table checks: skipped (no PDO connection)\n";
+    } else {
+        $totpTables = ['pro_user_totp', 'pro_user_recovery_codes', 'two_factor_attempts', 'pro_trusted_devices'];
+        $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?");
+        foreach ($totpTables as $t) {
+            try {
+                $checkStmt->execute([$t]);
+                $found = ((int) $checkStmt->fetchColumn()) > 0;
+                echo sprintf("Table %-30s %s\n", $t, $found ? '[FOUND]' : '[MISSING]');
+            } catch (Throwable $e) {
+                echo sprintf("Table %-30s ERROR: %s\n", $t, $e->getMessage());
+            }
+        }
+
+        try {
+            $activeCount = (int) $pdo->query("SELECT COUNT(*) FROM pro_user_totp WHERE status = 'active'")->fetchColumn();
+            echo "Accounts with 2FA active: {$activeCount}\n";
+        } catch (Throwable $e) {
+            echo "Accounts with 2FA active: ERROR ({$e->getMessage()})\n";
+        }
+    }
+} catch (Throwable $e) {
+    echo "2FA check exception: " . $e->getMessage() . "\n";
+}
+
 // 3) Dry-run processing test
 echo "\n-- Dry-run IMAP processor test --\n";
 try {

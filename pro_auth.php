@@ -834,6 +834,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                     // Delete any remaining pending profile changes for this user
                     $delPending = $pdo->prepare("DELETE FROM pending_profile_changes WHERE user_id = ?");
                     $delPending->execute([$userId]);
+                    // Delete 2FA state: TOTP enrollment, recovery codes, trusted
+                    // devices. No FK cascade exists on these tables (see
+                    // TwoFactorAuth::ensureSchema), so this must happen here.
+                    TwoFactorAuth::ensureSchema($pdo);
+                    $delTotp = $pdo->prepare("DELETE FROM pro_user_totp WHERE user_id = ?");
+                    $delTotp->execute([$userId]);
+                    $delRecoveryCodes = $pdo->prepare("DELETE FROM pro_user_recovery_codes WHERE user_id = ?");
+                    $delRecoveryCodes->execute([$userId]);
+                    $delTrustedDevices = $pdo->prepare("DELETE FROM pro_trusted_devices WHERE user_id = ?");
+                    $delTrustedDevices->execute([$userId]);
                     // Finally delete the pro_users row
                     $delUser = $pdo->prepare("DELETE FROM pro_users WHERE id = ?");
                     $delUser->execute([$userId]);
