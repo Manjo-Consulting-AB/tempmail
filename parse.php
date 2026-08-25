@@ -145,9 +145,16 @@ if ($localPart === null) {
 
 $localPart = strtolower((string)$localPart);
 
-// Same strict validation as the rest of the app (index.php, CLAUDE.md) before
-// this value is used in a DB lookup.
-if (!preg_match('/^[a-f0-9]{8,16}$/', $localPart)) {
+// The strict ^[a-f0-9]{8,16}$ regex used elsewhere (index.php, CLAUDE.md) only
+// matches auto-generated addresses (generateUniqueString()) — it rejects real
+// personal aliases like "tony" or "crew-1", which are validated on creation
+// with the broader sanitizeLocalPart() charset instead (index.php's
+// create_personal). Found live in #35: a real inbound email to a personal
+// alias was rejected here even though the address exists. The temp_emails
+// lookup right after this is the actual authority on whether the alias is
+// valid, so widen this to the same charset the rest of the app already
+// accepts rather than the narrower auto-generated-only pattern.
+if (sanitizeLocalPart($localPart, 1, 64) === null) {
     parseReject('Recipient local part failed validation', ['local_part' => $localPart, 'source' => $source]);
 }
 
