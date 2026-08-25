@@ -137,7 +137,12 @@ jobs:
             DRY_RUN="--dry-run"
             echo "MODE=$DEPLOY_MODE -> torrkörning, inga filer skrivs."
           fi
-          rsync -rltzv --no-perms --omit-dir-times $DRY_RUN \
+          # --checksum: jämför filinnehållets hash i stället för storlek+mtime.
+          # actions/checkout gör en färsk git-checkout varje körning, vilket
+          # sätter ALLA filers mtime till "nu" - utan --checksum tror rsync då
+          # att varenda fil ändrats (även de som är identiska) och laddar upp
+          # allt igen varje gång, i stället för bara det som faktiskt ändrats.
+          rsync -rltzv --checksum --no-perms --omit-dir-times $DRY_RUN \
             --exclude='.git/' \
             --exclude='.github/' \
             --exclude='.gitignore' \
