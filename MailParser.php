@@ -72,6 +72,20 @@ final class MailParser
                 $result['subject'] = $header !== null ? (string)$header : null;
             }
 
+            // Extract from-address as a bare email (e.g. "user@example.com"),
+            // matching the format ImapProcessor builds from IMAP headers.
+            if (method_exists($message, 'getHeader')) {
+                $fromHeader = $message->getHeader('from');
+                if ($fromHeader !== null && method_exists($fromHeader, 'getEmail')) {
+                    $result['from'] = $fromHeader->getEmail();
+                } elseif ($fromHeader !== null) {
+                    $result['from'] = (string)$fromHeader;
+                }
+            }
+            if ($result['from'] === null && method_exists($message, 'getHeaderValue')) {
+                $result['from'] = $message->getHeaderValue('from');
+            }
+
             // Collect attachments
             $parts = [];
             if (method_exists($message, 'getAllAttachmentParts')) {
