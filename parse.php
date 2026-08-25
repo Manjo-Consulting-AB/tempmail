@@ -52,6 +52,17 @@ declare(strict_types=1);
  * not automated here, per that issue's non-goals).
  */
 
+// DirectAdmin/Exim's pipe transport is configured with return_output: ANY
+// output on stdout/stderr — even with exit(0) — makes Exim treat the
+// delivery as a permanent failure and bounce the message back to the
+// sender, regardless of what this script actually did. Confirmed live in
+// #35: the email was saved correctly, but config.php's error_log() calls
+// (environment-detection banner, debug lines) go to stderr by default under
+// the CLI SAPI when no error_log ini destination is set, and that alone
+// triggered a bounce. Redirect PHP's error_log destination to a file before
+// config.php runs so this pipe-delivery path stays completely silent.
+ini_set('error_log', __DIR__ . '/debug_logs/parse_php_errors.log');
+
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/MailParser.php';
