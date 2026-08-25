@@ -1025,6 +1025,37 @@ function createDirectAdminForwarder(string $alias): void {
 }
 
 /**
+ * Best-effort deletion of the DirectAdmin mail forwarder for an address
+ * whose row in `temp_emails` is being removed (expired or deleted by the
+ * user). Fail-open, same as createDirectAdminForwarder(): a failure here
+ * never blocks the DB deletion (the address must disappear from the app
+ * regardless), but is logged as ERROR rather than WARNING since a failed
+ * delete leaves a live forwarder pointing at an address the app no longer
+ * knows about — an "orphaned forwarder" that needs manual cleanup in
+ * DirectAdmin until #35 defines a way to detect/reconcile these
+ * automatically (see PR description for #33).
+ */
+function deleteDirectAdminForwarder(string $alias): void {
+    global $config;
+
+    if (empty($config['directadmin']['forwarder_enabled'])) {
+        return;
+    }
+
+    require_once __DIR__ . '/DirectAdminClient.php';
+
+    try {
+        $client = new DirectAdminClient($config['directadmin']);
+        $ok = $client->deleteForwarder($alias);
+        if (!$ok) {
+            logMessage('ERROR', 'DirectAdmin forwarder deletion failed; forwarder may now be orphaned and require manual cleanup', ['alias' => $alias]);
+        }
+    } catch (Throwable $e) {
+        logMessage('ERROR', 'DirectAdmin forwarder deletion threw an exception; forwarder may now be orphaned and require manual cleanup', ['alias' => $alias, 'error' => $e->getMessage()]);
+    }
+}
+
+/**
  * Spara en ny temporär e-postadress
  */
 function saveNewAddress($address, $proUserId = null, $isPersonal = 0) {
