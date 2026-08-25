@@ -77,9 +77,10 @@ function cleanupExpiredAddresses() {
             // Radera temporära adressen
             $stmt = $pdo->prepare("DELETE FROM temp_emails WHERE id = ?");
             $stmt->execute([$addr['id']]);
-            
+
             if ($stmt->rowCount() > 0) {
                 $deletedCount++;
+                deleteDirectAdminForwarder($addr['address']);
                 logMessage('INFO', 'Expired address cleaned up', [
                     'address' => $addr['address'],
                     'emails_deleted' => $emailsDeleted,
@@ -291,17 +292,19 @@ function cleanupExpiredProUsers() {
             logMessage('DEBUG', 'Processing expired pro user', ['user_id' => $userId, 'email' => $email, 'pro_expires_at' => $u['pro_expires_at']]);
 
             // Hämta personliga adresser för denna pro user
-            $tstmt = $pdo->prepare("SELECT id FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
+            $tstmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
             $tstmt->execute([$userId]);
-            $personalIds = $tstmt->fetchAll(PDO::FETCH_COLUMN);
+            $personalAddresses = $tstmt->fetchAll(PDO::FETCH_ASSOC);
+            $personalIds = array_column($personalAddresses, 'id');
 
-            logMessage('DEBUG', 'Found personal addresses for user', ['user_id' => $userId, 'count' => count($personalIds), 'ids' => $personalIds]);
+            logMessage('DEBUG', 'Found personal addresses for user', ['user_id' => $userId, 'count' => count($personalAddresses), 'ids' => $personalIds]);
 
             $totalEmailsDeleted = 0;
             $totalAttachments = 0;
             $totalFiles = 0;
 
-            foreach ($personalIds as $tempEmailId) {
+            foreach ($personalAddresses as $personalAddress) {
+                $tempEmailId = $personalAddress['id'];
                 // Hämta e-postmeddelanden via temp_email_id (FK) för säkrare koppling
                 $sstmt = $pdo->prepare("SELECT id FROM stored_emails WHERE temp_email_id = ?");
                 $sstmt->execute([$tempEmailId]);
@@ -322,7 +325,11 @@ function cleanupExpiredProUsers() {
                 $totalEmailsDeleted += $deletedCount;
 
                 // Radera temp_emails-raden
-                $pdo->prepare("DELETE FROM temp_emails WHERE id = ?")->execute([$tempEmailId]);
+                $tempDelStmt = $pdo->prepare("DELETE FROM temp_emails WHERE id = ?");
+                $tempDelStmt->execute([$tempEmailId]);
+                if ($tempDelStmt->rowCount() > 0) {
+                    deleteDirectAdminForwarder($personalAddress['unique_address']);
+                }
             }
 
             // Nollställ lösenord och stäng av digest

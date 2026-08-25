@@ -245,6 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $d2->execute([$id, $_SESSION['pro_user_id']]);
 
                     $pdo->commit();
+                    deleteDirectAdminForwarder($unique);
                     logMessage('INFO', 'Personal address deleted', ['user_id' => $_SESSION['pro_user_id'], 'address' => $unique]);
                     echo json_encode(['success' => true, 'deleted_address' => $unique]);
                 } catch (Exception $e) {
@@ -280,8 +281,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $proUserId = (isset($_SESSION['pro_user_id']) && $_SESSION['pro_user_id']) ? $_SESSION['pro_user_id'] : null;
                 // If this is a pro user, ensure they only have one non-personal temp address at a time.
                 if ($proUserId) {
+                    $replacedAddresses = [];
                     try {
                         $pdo->beginTransaction();
+                        // Look up the address(es) about to be replaced so their DirectAdmin
+                        // forwarder can be removed after the transaction commits.
+                        $oldStmt = $pdo->prepare("SELECT unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
+                        $oldStmt->execute([$proUserId]);
+                        $replacedAddresses = $oldStmt->fetchAll(PDO::FETCH_COLUMN);
                         // Delete any existing non-personal temp addresses for this pro user (will cascade stored_emails)
                         $del = $pdo->prepare("DELETE FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
                         $del->execute([$proUserId]);
@@ -291,6 +298,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } catch (Exception $e) {
                         if ($pdo->inTransaction()) $pdo->rollBack();
                         throw $e;
+                    }
+                    foreach ($replacedAddresses as $replacedAddress) {
+                        deleteDirectAdminForwarder($replacedAddress);
                     }
                 } else {
                     $saved = saveNewAddress($address, $proUserId);
