@@ -47,7 +47,7 @@ final class LegacyImapFallback
         // Check content_id column existence once per call stack
         static $hasContentIdColumn = null;
         if ($hasContentIdColumn === null) {
-            $hasContentIdColumn = self::tableHasColumn($pdo, 'email_attachments', 'content_id');
+            $hasContentIdColumn = self::ensureContentIdColumn($pdo);
         }
 
         foreach ($parts as $index => $part) {
@@ -304,5 +304,29 @@ final class LegacyImapFallback
         } catch (\Throwable $_) {
             return false;
         }
+    }
+
+    /**
+     * Ensure the email_attachments.content_id column exists, creating it if
+     * necessary. Without this column, embedded/inline images referenced via
+     * "cid:" in HTML email bodies can never be resolved to a downloadable
+     * URL, so this self-heals older schemas instead of silently degrading.
+     */
+    private static function ensureContentIdColumn(PDO $pdo): bool
+    {
+        if (self::tableHasColumn($pdo, 'email_attachments', 'content_id')) {
+            return true;
+        }
+        try {
+            $pdo->exec("ALTER TABLE email_attachments ADD COLUMN IF NOT EXISTS content_id VARCHAR(255) NULL AFTER mime_type");
+        } catch (\Throwable $e) {
+            if (function_exists('logMessage')) {
+                logMessage('WARNING', 'LegacyImapFallback could not ensure content_id column exists', ['error' => $e->getMessage()]);
+            } else {
+                error_log('[LegacyImapFallback] Could not ensure content_id column exists: ' . $e->getMessage());
+            }
+            return false;
+        }
+        return self::tableHasColumn($pdo, 'email_attachments', 'content_id');
     }
 }
