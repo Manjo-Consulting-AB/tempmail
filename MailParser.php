@@ -184,7 +184,7 @@ final class MailParser
             return ['count' => 0, 'mapping' => $cidMap];
         }
 
-        $hasContentIdColumn = $this->tableHasColumn('email_attachments', 'content_id');
+        $hasContentIdColumn = $this->ensureContentIdColumn();
 
         foreach ($attachments as $a) {
             $filename = $a['filename'] ?? 'attachment.bin';
@@ -378,6 +378,30 @@ final class MailParser
         } catch (\Throwable $_) {
             return false;
         }
+    }
+
+    /**
+     * Ensure the email_attachments.content_id column exists, creating it if
+     * necessary. Without this column, embedded/inline images referenced via
+     * "cid:" in HTML email bodies can never be resolved to a downloadable
+     * URL, so this self-heals older schemas instead of silently degrading.
+     */
+    private function ensureContentIdColumn(): bool
+    {
+        if ($this->tableHasColumn('email_attachments', 'content_id')) {
+            return true;
+        }
+        try {
+            $this->pdo->exec("ALTER TABLE email_attachments ADD COLUMN IF NOT EXISTS content_id VARCHAR(255) NULL AFTER mime_type");
+        } catch (\Throwable $e) {
+            if (function_exists('logMessage')) {
+                logMessage('WARNING', 'MailParser could not ensure content_id column exists', ['error' => $e->getMessage()]);
+            } else {
+                error_log('[MailParser] Could not ensure content_id column exists: ' . $e->getMessage());
+            }
+            return false;
+        }
+        return $this->tableHasColumn('email_attachments', 'content_id');
     }
 
     private function extractFilename(object $part): ?string
