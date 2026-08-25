@@ -17,8 +17,9 @@ declare(strict_types=1);
  *
  * Deriving the recipient: DirectAdmin's forwarder destination is configured
  * (config.php, $config['directadmin']['forwarder_destination']) as the static
- * string `|/usr/bin/php /home/s174280/domains/manjo.me/parse.php` — no
- * arguments appended. Because the command line is static, the most likely way
+ * string `|/usr/bin/php /home/s174280/domains/manjo.me/public_html/parse.php`
+ * (path confirmed via SSH against the live server in #35) — no arguments
+ * appended. Because the command line is static, the most likely way
  * the underlying MTA (Exim, on DirectAdmin/Inleed) exposes the envelope
  * recipient to a piped delivery is via environment variables it sets for pipe
  * transports (LOCAL_PART, DOMAIN, RECIPIENT, ...), not argv — but if a future

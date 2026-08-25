@@ -45,7 +45,7 @@ class DirectAdminClient
             'action' => 'create',
             'domain' => $this->domain,
             'user' => $alias,
-            'email' => $destination,
+            'email' => $this->formatDestination($destination),
         ]);
 
         if ($result === null) {
@@ -95,6 +95,22 @@ class DirectAdminClient
 
         $this->log('INFO', 'DirectAdmin forwarder deleted', ['alias' => $alias]);
         return true;
+    }
+
+    /**
+     * DirectAdmin's CMD_API_EMAIL_FORWARDERS rejects a bare "|command" value
+     * in the 'email' field as "String contains an invalid email address" —
+     * confirmed against the live server in #35. The control panel's own UI
+     * wraps pipe destinations in literal double quotes ("|command"), which
+     * the API accepts, so replicate that here rather than sending the pipe
+     * syntax raw.
+     */
+    private function formatDestination(string $destination): string
+    {
+        if (str_starts_with($destination, '|')) {
+            return '"' . $destination . '"';
+        }
+        return $destination;
     }
 
     /**

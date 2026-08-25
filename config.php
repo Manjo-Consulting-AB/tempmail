@@ -258,11 +258,12 @@ $baseConfig = [
         // Kill switch: keep disabled until the forwarder integration (#32/#33)
         // has been verified end-to-end (#35). Off by default in all environments.
         'forwarder_enabled' => filter_var($_ENV['DA_FORWARDER_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN),
-        // Pipe destination new forwarders are created with. Path is unconfirmed
-        // pending server verification in #35 — override with DA_FORWARDER_DESTINATION
-        // once the real path/username is known.
+        // Pipe destination new forwarders are created with. Path confirmed via SSH
+        // against the real Inleed server in #35 — username s174280, webroot under
+        // domains/<domain>/public_html. Override with DA_FORWARDER_DESTINATION if
+        // the server layout ever changes.
         'forwarder_destination' => $_ENV['DA_FORWARDER_DESTINATION']
-            ?? ('|/usr/bin/php /home/s174280/domains/' . ($_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me')) . '/parse.php')
+            ?? ('|/usr/bin/php /home/s174280/domains/' . ($_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me')) . '/public_html/parse.php')
     ]
 ];
 
