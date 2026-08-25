@@ -187,6 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $ins = $pdo->prepare("INSERT INTO temp_emails (unique_address, expires_at, pro_user_id, is_personal) VALUES (?, ?, ?, 1)");
                     $ins->execute([$local, $expiresAt, $_SESSION['pro_user_id']]);
+                    createDirectAdminForwarder($local);
                     logMessage('INFO', 'Personal address created', ['user_id' => $_SESSION['pro_user_id'], 'address' => $local]);
                     echo json_encode(['success' => true, 'address' => $local, 'full_address' => $local . '@' . $config['email']['domain'], 'expires_at' => $expiresAt]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                 } catch (Exception $e) {

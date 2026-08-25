@@ -257,7 +257,12 @@ $baseConfig = [
         'domain' => $_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me'),
         // Kill switch: keep disabled until the forwarder integration (#32/#33)
         // has been verified end-to-end (#35). Off by default in all environments.
-        'forwarder_enabled' => filter_var($_ENV['DA_FORWARDER_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)
+        'forwarder_enabled' => filter_var($_ENV['DA_FORWARDER_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        // Pipe destination new forwarders are created with. Path is unconfirmed
+        // pending server verification in #35 — override with DA_FORWARDER_DESTINATION
+        // once the real path/username is known.
+        'forwarder_destination' => $_ENV['DA_FORWARDER_DESTINATION']
+            ?? ('|/usr/bin/php /home/s174280/domains/' . ($_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me')) . '/parse.php')
     ]
 ];
 
@@ -992,11 +997,39 @@ function generateUniqueString($length = null) {
 }
 
 /**
+ * Best-effort creation of the DirectAdmin mail forwarder for a newly
+ * created temp address (alias@domain -> parse.php pipe). Fail-open: any
+ * failure (misconfiguration, API error, network timeout) is logged but
+ * never prevents the address from being usable, so an outage on the
+ * DirectAdmin side can't block address generation (#32). No-op while
+ * $config['directadmin']['forwarder_enabled'] is off (the default).
+ */
+function createDirectAdminForwarder(string $alias): void {
+    global $config;
+
+    if (empty($config['directadmin']['forwarder_enabled'])) {
+        return;
+    }
+
+    require_once __DIR__ . '/DirectAdminClient.php';
+
+    try {
+        $client = new DirectAdminClient($config['directadmin']);
+        $ok = $client->createForwarder($alias, $config['directadmin']['forwarder_destination']);
+        if (!$ok) {
+            logMessage('WARNING', 'DirectAdmin forwarder creation failed; address remains usable without it', ['alias' => $alias]);
+        }
+    } catch (Throwable $e) {
+        logMessage('ERROR', 'DirectAdmin forwarder creation threw an exception', ['alias' => $alias, 'error' => $e->getMessage()]);
+    }
+}
+
+/**
  * Spara en ny temporär e-postadress
  */
 function saveNewAddress($address, $proUserId = null, $isPersonal = 0) {
     global $pdo;
-    
+
     try {
         // Default expiresAt is 24 hours from now
         $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
@@ -1028,6 +1061,7 @@ function saveNewAddress($address, $proUserId = null, $isPersonal = 0) {
         if ($result) {
             updateStat('emails_created', 1);
             updateStat('total_users', 1);
+            createDirectAdminForwarder($address);
         }
         return $result;
     } catch (PDOException $e) {
