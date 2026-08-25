@@ -65,6 +65,21 @@ ini_set('error_log', __DIR__ . '/debug_logs/parse_php_errors.log');
 
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/config.php';
+
+// MailParser::parseRawMessage() needs ZBateson\MailMimeParser, which only
+// exists via Composer's autoloader. Nothing else in this script's require
+// chain loads it — the IMAP path (php_imap_processor.php) never needs it for
+// headers/body because it parses those itself via ext/imap, only relying on
+// MailParser for attachments. Confirmed live in #35: without this require,
+// class_exists() inside parseRawMessage() silently returns the empty-stub
+// result (from/subject/body_text/body_html all null), so the pipe delivered
+// successfully but every field except to_address/received_at was blank.
+// Same pattern already used by pro_feed.php / TwoFactorAuth.php.
+$vendorAutoload = __DIR__ . '/vendor/autoload.php';
+if (file_exists($vendorAutoload)) {
+    require_once $vendorAutoload;
+}
+
 require_once __DIR__ . '/MailParser.php';
 
 // This script only makes sense invoked as a subprocess of the mail pipe
