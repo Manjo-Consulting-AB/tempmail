@@ -5,6 +5,14 @@
 require_once 'config.php';
 require_once __DIR__ . '/client/backend/bootstrap.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
+// Pulls in redeemVoucherForEmail() for the upgrade_with_voucher action below.
+// pro_auth.php guards its actual HTTP endpoints behind
+// `if (realpath($_SERVER['SCRIPT_FILENAME']) === realpath(__FILE__)):` — since
+// the entry script for this request is pro_profile.php, not pro_auth.php,
+// that condition is false here and none of pro_auth.php's endpoint code
+// (including its session_start()/header() calls) runs. Only its top-level
+// function definitions are loaded, which is exactly what we need.
+require_once __DIR__ . '/pro_auth.php';
 session_start();
 
 header('Content-Type: application/json');
@@ -393,6 +401,45 @@ try {
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed rotating client signing keys', ['error' => $e->getMessage(), 'user_id' => $userId]);
                 send_json(['success' => false, 'error' => 'Could not rotate keys']);
+            }
+            break;
+
+        case 'upgrade_with_voucher':
+            // Deliberately NOT gated by require_pro() — this action exists so a
+            // logged-in Regular account can become Pro. It also works on an
+            // already-Pro account, where redeemVoucherForEmail() just extends
+            // pro_expires_at (existing, wanted behavior — see #58).
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin upgrade_with_voucher request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            try {
+                // Email must come from the session's own account, never from
+                // POST — otherwise a logged-in attacker could redeem a code
+                // against an arbitrary email address instead of their own.
+                $stmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
+                $stmt->execute([$userId]);
+                $email = $stmt->fetchColumn();
+                if (!$email) {
+                    send_json(['success' => false, 'error' => 'User not found']);
+                }
+
+                $code = trim((string) ($_POST['code'] ?? ''));
+                $result = redeemVoucherForEmail($email, $code);
+
+                if (!$result['success']) {
+                    send_json(['success' => false, 'error' => $result['error']]);
+                }
+
+                $s = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
+                $s->execute([$userId]);
+                $expiresAt = $s->fetchColumn();
+
+                logMessage('INFO', 'Regular account upgraded to Pro via voucher', ['user_id' => $userId]);
+                send_json(['success' => true, 'account_type' => 'pro', 'pro_expires_at' => $expiresAt !== false ? $expiresAt : null]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed upgrading account via voucher', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not redeem voucher']);
             }
             break;
 
