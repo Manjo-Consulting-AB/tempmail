@@ -414,11 +414,26 @@ body {
 #webhookList .list-group-item .btn-group {
     /* Keep buttons on the right, don't force them to wrap the text */
     flex: 0 0 auto;
+    max-width: 100%;
     margin-left: 0.5rem;
+    flex-wrap: wrap;
 }
 @media (max-width: 575.98px) {
     #webhookList .list-group-item .text-muted.small {
         font-size: 0.85rem;
+    }
+    #webhookList .list-group-item .btn-group {
+        /* Too narrow for the button row to fit beside/after the text; drop
+           it to its own full-width line so it wraps instead of overflowing
+           the card. */
+        flex: 1 1 100%;
+        max-width: 100%;
+        margin-left: 0;
+        margin-top: 0.5rem;
+        justify-content: flex-start;
+    }
+    #webhookList .list-group-item .btn-group > .btn {
+        flex: 1 1 auto;
     }
 }
 
