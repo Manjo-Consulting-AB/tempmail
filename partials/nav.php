@@ -66,6 +66,9 @@ if (!empty($_SESSION['pro_user_id'] ?? null) && isset($pdo)) {
                     <i class="fas fa-sign-out-alt"></i> <span class="nav-text">Log out</span>
                 </a>
             <?php else: ?>
+                <a href="register.php" class="<?php echo tm_nav_active('register.php', $current); ?>" title="Sign up">
+                    <i class="fas fa-user-plus"></i> <span class="nav-text">Sign up</span>
+                </a>
                 <a href="pro_login.php" class="<?php echo tm_nav_active('pro_login.php', $current); ?>" title="Pro login">
                     <i class="fas fa-user-lock"></i> <span class="nav-text">Pro</span>
                 </a>

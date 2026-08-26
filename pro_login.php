@@ -193,38 +193,38 @@ if ($token) {
                         <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">1</span>
                     </div>
                     <div>
-                        <strong>Redeem Your Code</strong>
-                        <p class="text-muted mb-0 small">Click "Redeem a code" above and enter your email address along with the voucher code you received. This will create your Pro account.</p>
+                        <strong>Create an Account</strong>
+                        <p class="text-muted mb-0 small">Don't have an account yet? <a href="register.php">Sign up here</a> — free accounts don't need a voucher code, Pro accounts do.</p>
                     </div>
                 </div>
-                
+
                 <div class="d-flex mb-3">
                     <div class="me-3">
                         <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">2</span>
+                    </div>
+                    <div>
+                        <strong>Verify Your Email</strong>
+                        <p class="text-muted mb-0 small">Check your inbox for a verification link. Clicking it confirms your email address and signs you in — all in the same click.</p>
+                    </div>
+                </div>
+
+                <div class="d-flex mb-3">
+                    <div class="me-3">
+                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">3</span>
                     </div>
                     <div>
                         <strong>Sign In with Magic Link</strong>
                         <p class="text-muted mb-0 small">Enter your email address and click "Send login link". You'll receive a secure, one-time link in your inbox — simply click it to sign in instantly.</p>
                     </div>
                 </div>
-                
-                <div class="d-flex mb-3">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">3</span>
-                    </div>
-                    <div>
-                        <strong>Configure Your Preferences</strong>
-                        <p class="text-muted mb-0 small">Once signed in, navigate to your profile settings using the <i class="fas fa-cog"></i> icon. Here you can customize your account preferences.</p>
-                    </div>
-                </div>
-                
+
                 <div class="d-flex">
                     <div class="me-3">
                         <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">4</span>
                     </div>
                     <div>
-                        <strong>Set a Password (Optional)</strong>
-                        <p class="text-muted mb-0 small">Prefer traditional login? In your profile settings, you can set a password to sign in using email and password instead of magic links.</p>
+                        <strong>Configure Your Preferences</strong>
+                        <p class="text-muted mb-0 small">Once signed in, navigate to your profile settings using the <i class="fas fa-cog"></i> icon. Here you can set a password for traditional login and customize your account preferences.</p>
                     </div>
                 </div>
             </div>
