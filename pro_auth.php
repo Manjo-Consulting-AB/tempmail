@@ -33,6 +33,23 @@ function getOrCreateProUser($email) {
     return $pdo->lastInsertId();
 }
 
+// Hjälpfunktion: uppdatera last_login_at direkt efter att en session beviljats.
+// Anropas från alla inloggningsvägar (magic link, lösenord, lösenord +
+// trusted device, lösenord + 2FA) - se documentaion/ACCOUNT_TIERS.md §5.
+// Fail-open: ett fel här ska aldrig blockera en redan beviljad inloggning.
+function recordProUserLogin(int $userId): void {
+    global $pdo;
+    if (!tableHasColumn('pro_users', 'last_login_at')) {
+        return;
+    }
+    try {
+        $stmt = $pdo->prepare("UPDATE pro_users SET last_login_at = NOW() WHERE id = ?");
+        $stmt->execute([$userId]);
+    } catch (Exception $e) {
+        logMessage('WARNING', 'recordProUserLogin failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+    }
+}
+
 // Hjälpfunktion: skapa och spara login-token
 function createLoginToken($userId, $validMinutes = 30) {
     global $pdo;
@@ -240,8 +257,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         exit;
     }
 
-    // Check PRO status before sending magic link. Do NOT create a new pro user here.
-    $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email = ? LIMIT 1");
+    // Login is tier-neutral (see documentaion/ACCOUNT_TIERS.md §5): check that
+    // the account is email-verified before sending a magic link, not its Pro
+    // status. Do NOT create a new pro user here.
+    $stmt = $pdo->prepare("SELECT id, email_verified_at FROM pro_users WHERE email = ? LIMIT 1");
     $stmt->execute([$email]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -249,16 +268,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $sent = false;
 
     if ($row) {
-        // Consider NULL as "forever". User is PRO if pro_expires_at is NULL (lifetime)
-        // or if the pro_expires_at timestamp is in the future.
-        $isPro = (is_null($row['pro_expires_at']) || (strtotime($row['pro_expires_at']) >= time()));
-        if ($isPro) {
+        // Om migrationen (#53) inte är körd finns kolumnen inte - behandla då
+        // alla befintliga konton som verifierade så ingen låses ute.
+        $isVerified = !tableHasColumn('pro_users', 'email_verified_at') || !is_null($row['email_verified_at']);
+        if ($isVerified) {
             $userId = $row['id'];
             $token = createLoginToken($userId);
             $sent = sendLoginEmail($email, $token);
         } else {
-            // Not PRO or expired: do not send email. We intentionally do not reveal this to the caller.
-            logMessage('INFO', 'Magic link requested for non-PRO or expired user', ['email' => $email]);
+            // Not verified: do not send email. We intentionally do not reveal this to the caller.
+            logMessage('INFO', 'Magic link requested for unverified user', ['email' => $email]);
         }
     } else {
         // User does not exist: do not create here and do not send email. Log for audit.
@@ -433,7 +452,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
     // Hämta användare och verifiera hash
-    $stmt = $pdo->prepare("SELECT id, email, password_hash FROM pro_users WHERE email = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id, email, password_hash, email_verified_at FROM pro_users WHERE email = ? LIMIT 1");
     $stmt->execute([$email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$user) {
@@ -470,6 +489,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'error' => 'Incorrect email or password']);
         exit;
     }
+    // Login is tier-neutral (see documentaion/ACCOUNT_TIERS.md §5), but the
+    // account must be email-verified. Fallback: if the migration (#53) hasn't
+    // run, the column doesn't exist yet - treat every account as verified.
+    $isVerified = !tableHasColumn('pro_users', 'email_verified_at') || !is_null($user['email_verified_at']);
+    if (!$isVerified) {
+        // Record failed attempt (unverified account). Same generic error as a
+        // wrong password so this endpoint can't be used to enumerate accounts.
+        try {
+            $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 0)");
+            $ins->execute([$ip, $email, $user['id']]);
+        } catch (Exception $e) {
+            // ignore
+        }
+        echo json_encode(['success' => false, 'error' => 'Incorrect email or password']);
+        exit;
+    }
     session_start();
 
     // Correct password does not grant a session by itself when 2FA is
@@ -493,6 +528,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $_SESSION['pro_user_id'] = $user['id'];
             $_SESSION['pro_user_email'] = $user['email'];
             $_SESSION['pro_login_method'] = 'password';
+            recordProUserLogin($user['id']);
             try {
                 $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
                 $ins->execute([$ip, $email, $user['id']]);
@@ -519,6 +555,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $_SESSION['pro_user_id'] = $user['id'];
     $_SESSION['pro_user_email'] = $user['email'];
     $_SESSION['pro_login_method'] = 'password';
+    recordProUserLogin($user['id']);
     // Record successful attempt
     try {
         $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
@@ -593,6 +630,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $_SESSION['pro_user_email'] = $pendingEmail;
     $_SESSION['pro_login_method'] = 'password';
     unset($_SESSION['pending_2fa']);
+    recordProUserLogin($userId);
 
     // "Remember this browser" checkbox: only ever creates a trusted-device
     // row AFTER a successful verification above, never before — see

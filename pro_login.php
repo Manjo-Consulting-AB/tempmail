@@ -31,6 +31,7 @@ if ($token) {
         $_SESSION['pro_user_id'] = $result['user_id'];
         $_SESSION['pro_user_email'] = $result['email'];
         $_SESSION['pro_login_method'] = 'magic_link';
+        recordProUserLogin($result['user_id']);
         header('Location: pro.php');
         exit;
     }
