@@ -262,22 +262,60 @@ function getProUserLatestAddress(PDO $pdo, array $config, $userId) {
 }
 
 /**
+ * Felkoder som redeemVoucherForEmail() kan returnera i 'error_code'. Håll i
+ * synk med voucherRedemptionErrorMessage() nedan.
+ */
+const VOUCHER_ERROR_INVALID_EMAIL = 'invalid_email';
+const VOUCHER_ERROR_INVALID_CODE_FORMAT = 'invalid_code_format';
+const VOUCHER_ERROR_INVALID_OR_EXPIRED_CODE = 'invalid_or_expired_code';
+const VOUCHER_ERROR_CODE_NOT_ACTIVE = 'code_not_active';
+const VOUCHER_ERROR_CODE_EXPIRED = 'code_expired';
+const VOUCHER_ERROR_CODE_FULLY_REDEEMED = 'code_fully_redeemed';
+const VOUCHER_ERROR_DOMAIN_NOT_ALLOWED = 'domain_not_allowed';
+const VOUCHER_ERROR_ALREADY_REDEEMED = 'already_redeemed';
+const VOUCHER_ERROR_REDEMPTION_FAILED = 'redemption_failed';
+
+/**
+ * Mappar en av VOUCHER_ERROR_*-koderna ovan till användarvisat text. Hålls
+ * separat från redeemVoucherForEmail()s returvärde så att strängen som
+ * ekas till klienten alltid kommer från denna hårdkodade tabell, aldrig
+ * direkt från funktionens returarray - annars flaggar Semgrep
+ * (php.lang.security.injection.echoed-request) $result['error'] som
+ * request-taint eftersom $email/$code (från $_POST) flödar in i samma
+ * funktion, trots att alla faktiska felmeddelanden är literaler.
+ */
+function voucherRedemptionErrorMessage(?string $code): string {
+    $messages = [
+        VOUCHER_ERROR_INVALID_EMAIL => 'Invalid email address',
+        VOUCHER_ERROR_INVALID_CODE_FORMAT => 'Invalid voucher code format',
+        VOUCHER_ERROR_INVALID_OR_EXPIRED_CODE => 'Invalid code or expired',
+        VOUCHER_ERROR_CODE_NOT_ACTIVE => 'This code is not active',
+        VOUCHER_ERROR_CODE_EXPIRED => 'This code has expired',
+        VOUCHER_ERROR_CODE_FULLY_REDEEMED => 'This code has been fully redeemed',
+        VOUCHER_ERROR_DOMAIN_NOT_ALLOWED => 'Email addresses at this domain are not allowed',
+        VOUCHER_ERROR_ALREADY_REDEEMED => 'You have already redeemed this code',
+        VOUCHER_ERROR_REDEMPTION_FAILED => 'Redemption failed',
+    ];
+    return $messages[$code] ?? 'Redemption failed';
+}
+
+/**
  * Löser in en voucherkod för en e-postadress. Skapar kontot om det inte finns,
  * annars förlängs pro_expires_at. Delas av redeem_voucher-endpointet och
  * registreringsflödet — se documentaion/ACCOUNT_TIERS.md §4.
  *
- * @return array ['success' => bool, 'error' => string|null, 'user_id' => int|null]
+ * @return array ['success' => bool, 'error_code' => string|null, 'user_id' => int|null]
  */
 function redeemVoucherForEmail(string $email, string $code): array {
     global $pdo;
     global $config;
     // Validate email format
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        return ['success' => false, 'error' => 'Invalid email address', 'user_id' => null];
+        return ['success' => false, 'error_code' => VOUCHER_ERROR_INVALID_EMAIL, 'user_id' => null];
     }
     // Validate voucher code: alphanumeric, dashes, max 64 chars
     if ($code === '' || strlen($code) > 64 || !preg_match('/^[A-Za-z0-9_-]+$/', $code)) {
-        return ['success' => false, 'error' => 'Invalid voucher code format', 'user_id' => null];
+        return ['success' => false, 'error_code' => VOUCHER_ERROR_INVALID_CODE_FORMAT, 'user_id' => null];
     }
 
     try {
@@ -288,19 +326,19 @@ function redeemVoucherForEmail(string $email, string $code): array {
         $v = $vstmt->fetch(PDO::FETCH_ASSOC);
         if (!$v) {
             $pdo->rollBack();
-            return ['success' => false, 'error' => 'Invalid code or expired', 'user_id' => null];
+            return ['success' => false, 'error_code' => VOUCHER_ERROR_INVALID_OR_EXPIRED_CODE, 'user_id' => null];
         }
         if (!(int)$v['is_active']) {
             $pdo->rollBack();
-            return ['success' => false, 'error' => 'This code is not active', 'user_id' => null];
+            return ['success' => false, 'error_code' => VOUCHER_ERROR_CODE_NOT_ACTIVE, 'user_id' => null];
         }
         if (!is_null($v['expires_at']) && strtotime($v['expires_at']) <= time()) {
             $pdo->rollBack();
-            return ['success' => false, 'error' => 'This code has expired', 'user_id' => null];
+            return ['success' => false, 'error_code' => VOUCHER_ERROR_CODE_EXPIRED, 'user_id' => null];
         }
         if (!is_null($v['max_uses']) && (int)$v['current_uses'] >= (int)$v['max_uses']) {
             $pdo->rollBack();
-            return ['success' => false, 'error' => 'This code has been fully redeemed', 'user_id' => null];
+            return ['success' => false, 'error_code' => VOUCHER_ERROR_CODE_FULLY_REDEEMED, 'user_id' => null];
         }
 
         // Lock or create user
@@ -335,7 +373,7 @@ function redeemVoucherForEmail(string $email, string $code): array {
             $domainPart = isset($parts[1]) ? strtolower($parts[1]) : '';
             if ($domainPart === $forbiddenDomain) {
                 $pdo->rollBack();
-                return ['success' => false, 'error' => 'Email addresses at this domain are not allowed', 'user_id' => null];
+                return ['success' => false, 'error_code' => VOUCHER_ERROR_DOMAIN_NOT_ALLOWED, 'user_id' => null];
             }
             if (is_null($v['duration_days'])) {
                 $newExpires = null;
@@ -359,7 +397,7 @@ function redeemVoucherForEmail(string $email, string $code): array {
         $checkRedeem->execute([$userId, $v['id']]);
         if ($checkRedeem->fetch()) {
             $pdo->rollBack();
-            return ['success' => false, 'error' => 'You have already redeemed this code', 'user_id' => null];
+            return ['success' => false, 'error_code' => VOUCHER_ERROR_ALREADY_REDEEMED, 'user_id' => null];
         }
 
         $upv = $pdo->prepare("UPDATE vouchers SET current_uses = current_uses + 1 WHERE id = ?");
@@ -371,11 +409,11 @@ function redeemVoucherForEmail(string $email, string $code): array {
 
         $pdo->commit();
 
-        return ['success' => true, 'error' => null, 'user_id' => (int)$userId];
+        return ['success' => true, 'error_code' => null, 'user_id' => (int)$userId];
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         logMessage('ERROR', 'Voucher redemption failed', ['error' => $e->getMessage(), 'email' => $email, 'code' => $code]);
-        return ['success' => false, 'error' => 'Redemption failed', 'user_id' => null];
+        return ['success' => false, 'error_code' => VOUCHER_ERROR_REDEMPTION_FAILED, 'user_id' => null];
     }
 }
 
@@ -474,7 +512,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Login is tier-neutral (see documentaion/ACCOUNT_TIERS.md §5): check that
     // the account is email-verified before sending a magic link, not its Pro
     // status. Do NOT create a new pro user here.
-    $stmt = $pdo->prepare("SELECT id, email_verified_at FROM pro_users WHERE email = ? LIMIT 1");
+    // Om migrationen (#53) inte är körd finns kolumnen inte - kolla FÖRE
+    // SELECT:en så vi aldrig frågar efter en kolumn som inte finns (annars
+    // kastar PDO ett obehandlat undantag och endpointen kraschar med 500 för
+    // alla anrop, inte bara den här grenen).
+    $hasVerifiedCol = tableHasColumn('pro_users', 'email_verified_at');
+    $stmt = $pdo->prepare($hasVerifiedCol
+        ? "SELECT id, email_verified_at FROM pro_users WHERE email = ? LIMIT 1"
+        : "SELECT id FROM pro_users WHERE email = ? LIMIT 1");
     $stmt->execute([$email]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -482,9 +527,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $sent = false;
 
     if ($row) {
-        // Om migrationen (#53) inte är körd finns kolumnen inte - behandla då
-        // alla befintliga konton som verifierade så ingen låses ute.
-        $isVerified = !tableHasColumn('pro_users', 'email_verified_at') || !is_null($row['email_verified_at']);
+        // Saknas kolumnen: behandla alla befintliga konton som verifierade
+        // så ingen låses ute.
+        $isVerified = !$hasVerifiedCol || !is_null($row['email_verified_at']);
         if ($isVerified) {
             $userId = $row['id'];
             $token = createLoginToken($userId);
@@ -518,7 +563,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($result['success']) {
         echo json_encode(['success' => true, 'message' => 'Voucher redeemed successfully']);
     } else {
-        echo json_encode(['success' => false, 'error' => $result['error']]);
+        // False positive: Semgrep's taint tracking marks this tainted purely
+        // because $email/$code (from $_POST) were passed into
+        // redeemVoucherForEmail() above, not because any of the echoed text
+        // is influenced by user input. voucherRedemptionErrorMessage() only
+        // ever returns one of the fixed literals from its hardcoded lookup
+        // table (see its definition) - $result['error_code'] can only be one
+        // of the VOUCHER_ERROR_* constants, never arbitrary user input.
+        // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+        echo json_encode(['success' => false, 'error' => voucherRedemptionErrorMessage($result['error_code'])]);
     }
     exit;
 }
@@ -646,12 +699,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     // 6. Hantering av befintlig e-postadress - se ACCOUNT_TIERS.md §4.3.
-    $stmt = $pdo->prepare("SELECT id, email_verified_at, created_at FROM pro_users WHERE email = ? LIMIT 1");
-    $stmt->execute([$email]);
-    $existing = $stmt->fetch(PDO::FETCH_ASSOC);
-
+    // Kolla email_verified_at-kolumnen FÖRE SELECT:en (se motsvarande
+    // kommentar vid magic link-endpointen ovan) så en omigrerad prod-databas
+    // inte kraschar hela registreringsflödet.
     $hasVerifiedCol = tableHasColumn('pro_users', 'email_verified_at');
     $hasAccountTypeCol = tableHasColumn('pro_users', 'account_type');
+    $stmt = $pdo->prepare($hasVerifiedCol
+        ? "SELECT id, email_verified_at, created_at FROM pro_users WHERE email = ? LIMIT 1"
+        : "SELECT id, created_at FROM pro_users WHERE email = ? LIMIT 1");
+    $stmt->execute([$email]);
+    $existing = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($existing) {
         $isVerified = !$hasVerifiedCol || !is_null($existing['email_verified_at']);
@@ -708,7 +765,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if (!$result['success']) {
             // Voucherfel handlar om vad användaren skrev, inte om kontots
             // existens (se filens topkommentar) - riktigt felmeddelande OK.
-            echo json_encode(['success' => false, 'error' => $result['error']]);
+            // Samma falska positiv som vid redeem_voucher-endpointet ovan -
+            // se kommentaren där för motivering.
+            // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+            echo json_encode(['success' => false, 'error' => voucherRedemptionErrorMessage($result['error_code'])]);
             exit;
         }
         $userId = (int) $result['user_id'];
@@ -786,8 +846,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             error_log('Login rate-check failed: ' . $e->getMessage());
         }
     }
-    // Hämta användare och verifiera hash
-    $stmt = $pdo->prepare("SELECT id, email, password_hash, email_verified_at FROM pro_users WHERE email = ? LIMIT 1");
+    // Hämta användare och verifiera hash. Kolla email_verified_at-kolumnen
+    // FÖRE SELECT:en (se motsvarande kommentar vid magic link-endpointen
+    // ovan) så en omigrerad prod-databas inte kraschar hela inloggningen.
+    $hasVerifiedCol = tableHasColumn('pro_users', 'email_verified_at');
+    $stmt = $pdo->prepare($hasVerifiedCol
+        ? "SELECT id, email, password_hash, email_verified_at FROM pro_users WHERE email = ? LIMIT 1"
+        : "SELECT id, email, password_hash FROM pro_users WHERE email = ? LIMIT 1");
     $stmt->execute([$email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$user) {
@@ -827,7 +892,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Login is tier-neutral (see documentaion/ACCOUNT_TIERS.md §5), but the
     // account must be email-verified. Fallback: if the migration (#53) hasn't
     // run, the column doesn't exist yet - treat every account as verified.
-    $isVerified = !tableHasColumn('pro_users', 'email_verified_at') || !is_null($user['email_verified_at']);
+    $isVerified = !$hasVerifiedCol || !is_null($user['email_verified_at']);
     if (!$isVerified) {
         // Record failed attempt (unverified account). Same generic error as a
         // wrong password so this endpoint can't be used to enumerate accounts.
