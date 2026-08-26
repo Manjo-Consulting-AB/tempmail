@@ -157,7 +157,11 @@ try {
         }
 
         // Update expiration
-        $updateStmt = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ? WHERE id = ?");
+        if (tableHasColumn('pro_users', 'account_type')) {
+            $updateStmt = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ?, account_type = 'pro' WHERE id = ?");
+        } else {
+            $updateStmt = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ? WHERE id = ?");
+        }
         $updateStmt->execute([$newExpires, $userId]);
 
     } else {
@@ -176,7 +180,11 @@ try {
         $newExpires = date('Y-m-d H:i:s', strtotime("+{$durationDays} days"));
         $defaultTtl = 1; // Default TTL for new addresses (1 day)
 
-        $insertStmt = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days) VALUES (?, ?, ?)");
+        if (tableHasColumn('pro_users', 'account_type')) {
+            $insertStmt = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days, account_type, email_verified_at) VALUES (?, ?, ?, 'pro', NOW())");
+        } else {
+            $insertStmt = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days) VALUES (?, ?, ?)");
+        }
         $insertStmt->execute([$email, $newExpires, $defaultTtl]);
         $userId = $pdo->lastInsertId();
 

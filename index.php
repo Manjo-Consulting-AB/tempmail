@@ -12,20 +12,6 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
-// Helper: check if a table has a given column (useful when migrations aren't applied)
-function tableHasColumn($table, $column) {
-    global $pdo, $config;
-    try {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?");
-        $stmt->execute([$config['db']['name'], $table, $column]);
-        return (int)$stmt->fetchColumn() > 0;
-    } catch (Exception $e) {
-        // If we cannot query information_schema, assume the column does not exist to be safe
-        error_log('tableHasColumn check failed: ' . $e->getMessage());
-        return false;
-    }
-}
-
 // Hantera URL-parameter för direkt adress-access
 $urlAddress = null;
 $urlExpiresAt = null;
