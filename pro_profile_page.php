@@ -65,6 +65,20 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                             <div id="ttlMsg" style="margin-left:10px; color:#9ecbff;"></div>
                         </div>
                         <div class="form-text">Set default address lifetime for newly generated addresses and emails (1-7 days).</div>
+                        <div id="ttlProNote" class="form-text text-muted d-none">Regular accounts use a fixed 24-hour address lifetime. Upgrade to Pro to choose 1-7 days.</div>
+                    </div>
+
+                    <div id="upgradeToProSection" class="d-none">
+                        <hr>
+                        <h6>Upgrade to Pro</h6>
+                        <div class="mb-3">
+                            <p class="form-text">Pro unlocks personal addresses, 1-7 day address lifetime, webhooks, digest emails, the RSS feed, and the client agent.</p>
+                            <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
+                                <input type="text" id="voucherCodeInput" class="form-control" placeholder="Voucher code" style="max-width:220px;" />
+                                <button type="button" id="redeemVoucherBtn" class="btn btn-primary">Upgrade</button>
+                            </div>
+                            <div id="voucherMsg" class="mt-2"></div>
+                        </div>
                     </div>
 
                     <hr>
@@ -112,6 +126,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                         </div>
                         <div id="personalList" class="mt-3"></div>
                         <div class="form-text">Create up to 10 personal addresses. These persist for pro accounts.</div>
+                        <div id="personalCreateProNote" class="form-text text-muted d-none">Creating personal addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
                     </div>
 
                     <hr>
@@ -146,6 +161,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                         <div class="mb-2">
                             <button id="whCreateBtn" class="btn btn-primary">Create webhook</button>
                         </div>
+                        <div id="whProNote" class="form-text text-muted d-none">Webhooks require a Pro account.</div>
                         <div id="whMsg" class="mt-2"></div>
 
                         <div class="mt-3">
@@ -157,6 +173,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                         <div class="mb-2">
                             <p class="form-text mb-2">Rotate the keys used to sign client list-sync payloads.</p>
                             <button type="button" id="rotateSigningKeysBtn" class="btn btn-primary">Rotate signing keys</button>
+                            <div id="signingKeysProNote" class="form-text text-muted d-none">Client signing keys require a Pro account.</div>
                         </div>
                         <div class="mt-4">
                             <h6>Pro RSS Feed</h6>
@@ -171,6 +188,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                                     </div>
                                 </div>
                                 <div class="form-text">Keep the token part of the URL secret. Subscribe using the full URL shown above.</div>
+                                <div id="feedProNote" class="form-text text-muted d-none">The RSS feed requires a Pro account.</div>
                             </div>
                         </div>
                     </div>
@@ -294,6 +312,72 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
         // On page load, fetch profile and populate (reuse same endpoints)
         $(function(){
             $('#proProfileAlert').html('<div class="alert alert-info">Loading profile...</div>');
+
+            // Assume Pro until get_profile says otherwise, so nothing gets disabled/shown
+            // before we actually know the account tier (avoids a flash of the wrong state,
+            // and matches today's reality where existing accounts are Pro).
+            var isProAccount = true;
+
+            // Gray out the Pro-only sections for Regular accounts. Called once, from the
+            // get_profile callback below, before anything else on the page runs its own
+            // (independent) load calls.
+            function applyProGating(isPro) {
+                isProAccount = isPro;
+                if (isPro) {
+                    $('#upgradeToProSection').addClass('d-none');
+                    return;
+                }
+                $('#upgradeToProSection').removeClass('d-none');
+
+                // Default lifetime: fixed to 1 day for Regular
+                $('#ttlSelect').prop('disabled', true);
+                $('#ttlProNote').removeClass('d-none');
+
+                // Digest emails: Pro-only regardless of TTL
+                $('#digestEnabled').prop('checked', false).prop('disabled', true);
+                $('#digestFrequency, #digestHour, #digestTz').prop('disabled', true);
+                $('#digestNote').text('Digest emails require a Pro account.');
+
+                // Personal addresses: creation is Pro-only (list/delete stay available)
+                $('#personalLocal').prop('disabled', true);
+                $('#createPersonalBtn').prop('disabled', true);
+                $('#personalCreateProNote').removeClass('d-none');
+
+                // Webhooks
+                $('#whName, #whKind, #whUrl, #whConfig, #whSecret, #whCreateBtn').prop('disabled', true);
+                $('#whProNote').removeClass('d-none');
+
+                // Client signing keys
+                $('#rotateSigningKeysBtn').prop('disabled', true);
+                $('#signingKeysProNote').removeClass('d-none');
+
+                // Pro RSS Feed
+                $('#copyFeedToken, #openFeedBtn, #regenFeedToken').prop('disabled', true);
+                $('#feedProNote').removeClass('d-none');
+            }
+
+            $('#redeemVoucherBtn').on('click', function(){
+                var code = $.trim($('#voucherCodeInput').val() || '');
+                var $msg = $('#voucherMsg');
+                if (!code) {
+                    $msg.html('<div class="alert alert-danger">Enter a voucher code</div>');
+                    return;
+                }
+                var $btn = $(this).prop('disabled', true);
+                $msg.html('<div class="alert alert-info">Checking code...</div>');
+                $.post('pro_profile.php', { action: 'upgrade_with_voucher', code: code }, function(res){
+                    if (res && res.success) {
+                        $msg.html('<div class="alert alert-success">Upgraded to Pro! Reloading...</div>');
+                        setTimeout(function(){ window.location.reload(); }, 1200);
+                    } else {
+                        $btn.prop('disabled', false);
+                        $msg.html('<div class="alert alert-danger">' + $('<div>').text((res && res.error) ? res.error : 'Could not redeem code').html() + '</div>');
+                    }
+                }, 'json').fail(function(){
+                    $btn.prop('disabled', false);
+                    $msg.html('<div class="alert alert-danger">Network error</div>');
+                });
+            });
 
             $('#saveProfileEmailBtn').on('click', function(e){
                 e.preventDefault();
@@ -656,6 +740,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                         $('#proExpiryLine').text('Pro: Lifetime').css('color', '');
                     }
                     // We no longer require the current password to set a new one, so the current-password field is not shown.
+                    applyProGating(!!res.profile.is_pro);
                     $('#proProfileAlert').html('');
                 } else {
                     $('#proProfileAlert').html('<div class="alert alert-warning">Could not load profile</div>');
@@ -781,7 +866,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                     $('#personalCounterBadge').addClass('quota-reached bg-danger').removeClass('bg-secondary');
                     $('#personalCounterLabel').addClass('text-danger');
                 } else {
-                    $('#createPersonalBtn').prop('disabled', false);
+                    $('#createPersonalBtn').prop('disabled', !isProAccount);
                     $('#personalMsg').text('').css('color', '#9ecbff');
                     $('#personalCounterBadge').removeClass('quota-reached bg-danger').addClass('bg-secondary');
                     $('#personalCounterLabel').removeClass('text-danger');
