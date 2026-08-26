@@ -563,6 +563,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($result['success']) {
         echo json_encode(['success' => true, 'message' => 'Voucher redeemed successfully']);
     } else {
+        // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+        // False positive: Semgrep's taint tracking marks this tainted purely
+        // because $email/$code (from $_POST) were passed into
+        // redeemVoucherForEmail() above, not because any of the echoed text
+        // is influenced by user input. voucherRedemptionErrorMessage() only
+        // ever returns one of the fixed literals from its hardcoded lookup
+        // table (see its definition) - $result['error_code'] can only be one
+        // of the VOUCHER_ERROR_* constants, never arbitrary user input.
         echo json_encode(['success' => false, 'error' => voucherRedemptionErrorMessage($result['error_code'])]);
     }
     exit;
@@ -757,6 +765,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if (!$result['success']) {
             // Voucherfel handlar om vad användaren skrev, inte om kontots
             // existens (se filens topkommentar) - riktigt felmeddelande OK.
+            // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+            // Samma falska positiv som vid redeem_voucher-endpointet ovan -
+            // se kommentaren där för motivering.
             echo json_encode(['success' => false, 'error' => voucherRedemptionErrorMessage($result['error_code'])]);
             exit;
         }
