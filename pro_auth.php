@@ -37,13 +37,22 @@ function getOrCreateProUser($email) {
 // Anropas från alla inloggningsvägar (magic link, lösenord, lösenord +
 // trusted device, lösenord + 2FA) - se documentaion/ACCOUNT_TIERS.md §5.
 // Fail-open: ett fel här ska aldrig blockera en redan beviljad inloggning.
+// Nollställer även inactivity_warned_at (#63) i samma UPDATE: annars skulle
+// en användare som loggar in efter att ha fått en inaktivitetsvarning inte
+// kunna bli varnad igen efter en ny inaktiv period (kolumnen skulle förbli
+// satt för alltid). Kolumnen kontrolleras separat eftersom den kan saknas
+// även när last_login_at finns (infördes i en senare migrering, #63).
 function recordProUserLogin(int $userId): void {
     global $pdo;
     if (!tableHasColumn('pro_users', 'last_login_at')) {
         return;
     }
     try {
-        $stmt = $pdo->prepare("UPDATE pro_users SET last_login_at = NOW() WHERE id = ?");
+        if (tableHasColumn('pro_users', 'inactivity_warned_at')) {
+            $stmt = $pdo->prepare("UPDATE pro_users SET last_login_at = NOW(), inactivity_warned_at = NULL WHERE id = ?");
+        } else {
+            $stmt = $pdo->prepare("UPDATE pro_users SET last_login_at = NOW() WHERE id = ?");
+        }
         $stmt->execute([$userId]);
     } catch (Exception $e) {
         logMessage('WARNING', 'recordProUserLogin failed', ['user_id' => $userId, 'error' => $e->getMessage()]);

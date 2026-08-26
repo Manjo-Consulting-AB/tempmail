@@ -234,7 +234,11 @@ $baseConfig = [
     ],
     'cleanup' => [
         // Default retention; can be overridden with environment variable LOG_RETENTION_DAYS
-        'log_retention_days' => (int) (getenv('LOG_RETENTION_DAYS') ?: ($_ENV['LOG_RETENTION_DAYS'] ?? 30))
+        'log_retention_days' => (int) (getenv('LOG_RETENTION_DAYS') ?: ($_ENV['LOG_RETENTION_DAYS'] ?? 30)),
+        // Inaktivitetsstädning av Regular-konton (#63) - se documentaion/ACCOUNT_TIERS.md §6.2.
+        // Varning skickas vid REGULAR_INACTIVITY_WARN_DAYS, radering sker vid REGULAR_INACTIVITY_DAYS.
+        'regular_inactivity_warn_days' => (int) (getenv('REGULAR_INACTIVITY_WARN_DAYS') ?: ($_ENV['REGULAR_INACTIVITY_WARN_DAYS'] ?? 335)),
+        'regular_inactivity_days' => (int) (getenv('REGULAR_INACTIVITY_DAYS') ?: ($_ENV['REGULAR_INACTIVITY_DAYS'] ?? 365))
     ]
     ,
     'cron' => [
@@ -644,6 +648,20 @@ try {
         die('Databasfel uppstod. Försök igen senare.');
     }
     }
+}
+
+// Validera inaktivitetströsklarna (#63): varningen måste komma före raderingen,
+// annars hinner kontot aldrig varnas. Felkonfiguration loggas och faller
+// tillbaka till standardvärdena (335/365 dagar) i stället för att stoppa
+// hela cleanup-körningen. Placerad efter PDO-anslutningen ovan eftersom
+// logMessage() kräver ett fungerande $pdo.
+if ((int)$config['cleanup']['regular_inactivity_warn_days'] >= (int)$config['cleanup']['regular_inactivity_days']) {
+    logMessage('WARNING', 'Misconfigured REGULAR_INACTIVITY_WARN_DAYS/REGULAR_INACTIVITY_DAYS (warn must be less than delete) - falling back to defaults', [
+        'regular_inactivity_warn_days' => $config['cleanup']['regular_inactivity_warn_days'],
+        'regular_inactivity_days' => $config['cleanup']['regular_inactivity_days']
+    ]);
+    $config['cleanup']['regular_inactivity_warn_days'] = 335;
+    $config['cleanup']['regular_inactivity_days'] = 365;
 }
 
 // ============================================================================
