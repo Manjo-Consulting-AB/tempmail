@@ -318,7 +318,12 @@ final class LegacyImapFallback
             return true;
         }
         try {
-            $pdo->exec("ALTER TABLE email_attachments ADD COLUMN IF NOT EXISTS content_id VARCHAR(255) NULL AFTER mime_type");
+            // No "IF NOT EXISTS" here: that clause requires MySQL 8.0.29+/
+            // recent MariaDB and throws a syntax error on older shared-hosting
+            // MySQL, which would silently defeat this self-heal. The
+            // tableHasColumn() check above is what actually guards against
+            // re-adding an existing column.
+            $pdo->exec("ALTER TABLE email_attachments ADD COLUMN content_id VARCHAR(255) NULL AFTER mime_type");
         } catch (\Throwable $e) {
             if (function_exists('logMessage')) {
                 logMessage('WARNING', 'LegacyImapFallback could not ensure content_id column exists', ['error' => $e->getMessage()]);
