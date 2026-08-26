@@ -688,22 +688,32 @@ function clientBackendUpdateSettings(string $scriptId, array $changes): ?array {
 
 function clientBackendReadKek(): ?string {
     $path = getenv('CLIENT_BACKEND_KEK_PATH') ?: ($_ENV['CLIENT_BACKEND_KEK_PATH'] ?? '') ?: getenv('CLIENT_KEK_FILE') ?: ($_ENV['CLIENT_KEK_FILE'] ?? '');
-    if (!is_string($path) || trim($path) === '' || !is_readable($path)) {
+    if (!is_string($path) || trim($path) === '') {
+        logMessage('ERROR', 'Client backend KEK not configured: set CLIENT_BACKEND_KEK_PATH (or CLIENT_KEK_FILE) to a file holding the key-encryption-key');
+        return null;
+    }
+    if (!is_readable($path)) {
+        logMessage('ERROR', 'Client backend KEK file is not readable', ['path' => $path]);
         return null;
     }
 
     $raw = file_get_contents(trim($path));
     if (!is_string($raw)) {
+        logMessage('ERROR', 'Client backend KEK file could not be read', ['path' => $path]);
         return null;
     }
 
     $value = trim($raw);
     if ($value === '') {
+        logMessage('ERROR', 'Client backend KEK file is empty', ['path' => $path]);
         return null;
     }
 
     if (preg_match('/^[a-f0-9]{64}$/i', $value) === 1) {
         $bin = hex2bin($value);
+        if (!is_string($bin)) {
+            logMessage('ERROR', 'Client backend KEK file has invalid hex content', ['path' => $path]);
+        }
         return is_string($bin) ? $bin : null;
     }
 
@@ -712,7 +722,12 @@ function clientBackendReadKek(): ?string {
         return $decoded;
     }
 
-    return strlen($value) === 32 ? $value : null;
+    if (strlen($value) === 32) {
+        return $value;
+    }
+
+    logMessage('ERROR', 'Client backend KEK file does not contain a valid 32-byte key (expected 64 hex chars, base64, or 32 raw bytes)', ['path' => $path, 'length' => strlen($value)]);
+    return null;
 }
 
 function clientBackendEncryptWithKek(string $plain, string $kek): ?string {
@@ -745,6 +760,7 @@ function clientBackendDecryptWithKek(string $encoded, string $kek): ?string {
 
 function clientBackendGenerateSigningKeyPair(): ?array {
     if (!function_exists('openssl_pkey_new')) {
+        logMessage('ERROR', 'Cannot generate signing key pair: openssl extension is not available');
         return null;
     }
 
@@ -753,17 +769,24 @@ function clientBackendGenerateSigningKeyPair(): ?array {
         'private_key_type' => OPENSSL_KEYTYPE_RSA,
     ]);
     if ($resource === false) {
+        $opensslErrors = [];
+        while (($err = openssl_error_string()) !== false) {
+            $opensslErrors[] = $err;
+        }
+        logMessage('ERROR', 'openssl_pkey_new() failed while generating signing key pair (often a missing/misconfigured openssl.cnf on shared hosting)', ['openssl_errors' => $opensslErrors]);
         return null;
     }
 
     $privatePem = '';
     if (!openssl_pkey_export($resource, $privatePem)) {
+        logMessage('ERROR', 'openssl_pkey_export() failed while generating signing key pair');
         return null;
     }
 
     $details = openssl_pkey_get_details($resource);
     $publicPem = is_array($details) && isset($details['key']) ? (string) $details['key'] : '';
     if ($privatePem === '' || $publicPem === '') {
+        logMessage('ERROR', 'openssl_pkey_get_details() returned no usable public key');
         return null;
     }
 
@@ -776,6 +799,7 @@ function clientBackendGenerateSigningKeyPair(): ?array {
 function clientBackendEnsureUserSigningKeys(int $userId): ?array {
     $db = clientBackendGetDb();
     if (!$db || !clientBackendHasDbTable('pro_users')) {
+        logMessage('ERROR', 'Cannot ensure signing keys: DB unavailable or pro_users table missing', ['user_id' => $userId]);
         return null;
     }
 
@@ -788,6 +812,7 @@ function clientBackendEnsureUserSigningKeys(int $userId): ?array {
     $select->execute([$userId]);
     $row = $select->fetch(PDO::FETCH_ASSOC);
     if (!is_array($row)) {
+        logMessage('ERROR', 'Cannot ensure signing keys: pro_users row not found', ['user_id' => $userId]);
         return null;
     }
 
@@ -813,6 +838,7 @@ function clientBackendEnsureUserSigningKeys(int $userId): ?array {
 
     $privateEncrypted = clientBackendEncryptWithKek($pair['private_pem'], $kek);
     if (!is_string($privateEncrypted) || $privateEncrypted === '') {
+        logMessage('ERROR', 'Cannot ensure signing keys: failed to encrypt private key with KEK', ['user_id' => $userId]);
         return null;
     }
 
@@ -830,6 +856,7 @@ function clientBackendEnsureUserSigningKeys(int $userId): ?array {
 function clientBackendRotateUserSigningKeys(int $userId): ?array {
     $db = clientBackendGetDb();
     if (!$db || !clientBackendHasDbTable('pro_users')) {
+        logMessage('ERROR', 'Cannot rotate signing keys: DB unavailable or pro_users table missing', ['user_id' => $userId]);
         return null;
     }
 
@@ -842,6 +869,7 @@ function clientBackendRotateUserSigningKeys(int $userId): ?array {
     $select->execute([$userId]);
     $row = $select->fetch(PDO::FETCH_ASSOC);
     if (!is_array($row)) {
+        logMessage('ERROR', 'Cannot rotate signing keys: pro_users row not found', ['user_id' => $userId]);
         return null;
     }
 
@@ -855,6 +883,7 @@ function clientBackendRotateUserSigningKeys(int $userId): ?array {
 
     $privateEncrypted = clientBackendEncryptWithKek($pair['private_pem'], $kek);
     if (!is_string($privateEncrypted) || $privateEncrypted === '') {
+        logMessage('ERROR', 'Cannot rotate signing keys: failed to encrypt new private key with KEK', ['user_id' => $userId]);
         return null;
     }
 
