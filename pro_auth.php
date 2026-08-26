@@ -165,6 +165,124 @@ function getProUserLatestAddress(PDO $pdo, array $config, $userId) {
     return ['current_address' => null, 'expires_at' => null];
 }
 
+/**
+ * Löser in en voucherkod för en e-postadress. Skapar kontot om det inte finns,
+ * annars förlängs pro_expires_at. Delas av redeem_voucher-endpointet och
+ * registreringsflödet — se documentaion/ACCOUNT_TIERS.md §4.
+ *
+ * @return array ['success' => bool, 'error' => string|null, 'user_id' => int|null]
+ */
+function redeemVoucherForEmail(string $email, string $code): array {
+    global $pdo;
+    global $config;
+    // Validate email format
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return ['success' => false, 'error' => 'Invalid email address', 'user_id' => null];
+    }
+    // Validate voucher code: alphanumeric, dashes, max 64 chars
+    if ($code === '' || strlen($code) > 64 || !preg_match('/^[A-Za-z0-9_-]+$/', $code)) {
+        return ['success' => false, 'error' => 'Invalid voucher code format', 'user_id' => null];
+    }
+
+    try {
+        // Start transaction and lock voucher row
+        $pdo->beginTransaction();
+        $vstmt = $pdo->prepare("SELECT * FROM vouchers WHERE code = ? FOR UPDATE");
+        $vstmt->execute([$code]);
+        $v = $vstmt->fetch(PDO::FETCH_ASSOC);
+        if (!$v) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'Invalid code or expired', 'user_id' => null];
+        }
+        if (!(int)$v['is_active']) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'This code is not active', 'user_id' => null];
+        }
+        if (!is_null($v['expires_at']) && strtotime($v['expires_at']) <= time()) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'This code has expired', 'user_id' => null];
+        }
+        if (!is_null($v['max_uses']) && (int)$v['current_uses'] >= (int)$v['max_uses']) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'This code has been fully redeemed', 'user_id' => null];
+        }
+
+        // Lock or create user
+        $ustmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email = ? FOR UPDATE");
+        $ustmt->execute([$email]);
+        $u = $ustmt->fetch(PDO::FETCH_ASSOC);
+        $now = time();
+        if ($u) {
+            $userId = $u['id'];
+            $currentExpires = $u['pro_expires_at'];
+            if (is_null($v['duration_days'])) {
+                $newExpires = null; // forever
+            } else {
+                $dur = (int)$v['duration_days'];
+                if (!is_null($currentExpires) && strtotime($currentExpires) > $now) {
+                    $newExpires = date('Y-m-d H:i:s', strtotime($currentExpires) + $dur * 86400);
+                } else {
+                    $newExpires = date('Y-m-d H:i:s', strtotime("+{$dur} days"));
+                }
+            }
+            if (tableHasColumn('pro_users', 'account_type')) {
+                $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ?, account_type = 'pro' WHERE id = ?");
+            } else {
+                $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ? WHERE id = ?");
+            }
+            $up->execute([$newExpires, $userId]);
+        } else {
+            // Create new pro user with default TTL
+            // Disallow creating accounts using the service domain
+            $forbiddenDomain = strtolower($config['email']['domain'] ?? 'manjo.me');
+            $parts = explode('@', $email);
+            $domainPart = isset($parts[1]) ? strtolower($parts[1]) : '';
+            if ($domainPart === $forbiddenDomain) {
+                $pdo->rollBack();
+                return ['success' => false, 'error' => 'Email addresses at this domain are not allowed', 'user_id' => null];
+            }
+            if (is_null($v['duration_days'])) {
+                $newExpires = null;
+            } else {
+                $dur = (int)$v['duration_days'];
+                $newExpires = date('Y-m-d H:i:s', strtotime("+{$dur} days"));
+            }
+            $defaultTtl = 1;
+            if (tableHasColumn('pro_users', 'account_type')) {
+                $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days, account_type, email_verified_at) VALUES (?, ?, ?, 'pro', NOW())");
+            } else {
+                $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days) VALUES (?, ?, ?)");
+            }
+            $ins->execute([$email, $newExpires, $defaultTtl]);
+            $userId = $pdo->lastInsertId();
+        }
+
+        // Increment voucher usage
+        // Prevent the same user from redeeming the same voucher more than once
+        $checkRedeem = $pdo->prepare("SELECT id FROM redemption_log WHERE user_id = ? AND voucher_id = ? LIMIT 1");
+        $checkRedeem->execute([$userId, $v['id']]);
+        if ($checkRedeem->fetch()) {
+            $pdo->rollBack();
+            return ['success' => false, 'error' => 'You have already redeemed this code', 'user_id' => null];
+        }
+
+        $upv = $pdo->prepare("UPDATE vouchers SET current_uses = current_uses + 1 WHERE id = ?");
+        $upv->execute([$v['id']]);
+
+        // Log redemption
+        $rstmt = $pdo->prepare("INSERT INTO redemption_log (user_id, voucher_id) VALUES (?, ?)");
+        $rstmt->execute([$userId, $v['id']]);
+
+        $pdo->commit();
+
+        return ['success' => true, 'error' => null, 'user_id' => (int)$userId];
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        logMessage('ERROR', 'Voucher redemption failed', ['error' => $e->getMessage(), 'email' => $email, 'code' => $code]);
+        return ['success' => false, 'error' => 'Redemption failed', 'user_id' => null];
+    }
+}
+
 // Hjälpfunktion: sätt/uppdatera trusted-device-cookien (§2 i designdokumentet).
 // HttpOnly + Secure + SameSite=Lax, path '/', så den bara går till servern
 // över HTTPS och aldrig till JS. $expiresAt är en 'Y-m-d H:i:s'-sträng.
@@ -298,123 +416,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'redeem_voucher') {
     $email = trim($_POST['email'] ?? '');
     $code = trim($_POST['code'] ?? '');
-    // Validate email format
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        echo json_encode(['success' => false, 'error' => 'Invalid email address']);
-        exit;
-    }
-    // Validate voucher code: alphanumeric, dashes, max 64 chars
-    if ($code === '' || strlen($code) > 64 || !preg_match('/^[A-Za-z0-9_-]+$/', $code)) {
-        echo json_encode(['success' => false, 'error' => 'Invalid voucher code format']);
-        exit;
-    }
 
-    try {
-        // Start transaction and lock voucher row
-        $pdo->beginTransaction();
-        $vstmt = $pdo->prepare("SELECT * FROM vouchers WHERE code = ? FOR UPDATE");
-        $vstmt->execute([$code]);
-        $v = $vstmt->fetch(PDO::FETCH_ASSOC);
-        if (!$v) {
-            $pdo->rollBack();
-            echo json_encode(['success' => false, 'error' => 'Invalid code or expired']);
-            exit;
-        }
-        if (!(int)$v['is_active']) {
-            $pdo->rollBack();
-            echo json_encode(['success' => false, 'error' => 'This code is not active']);
-            exit;
-        }
-        if (!is_null($v['expires_at']) && strtotime($v['expires_at']) <= time()) {
-            $pdo->rollBack();
-            echo json_encode(['success' => false, 'error' => 'This code has expired']);
-            exit;
-        }
-        if (!is_null($v['max_uses']) && (int)$v['current_uses'] >= (int)$v['max_uses']) {
-            $pdo->rollBack();
-            echo json_encode(['success' => false, 'error' => 'This code has been fully redeemed']);
-            exit;
-        }
+    $result = redeemVoucherForEmail($email, $code);
 
-        // Lock or create user
-        $ustmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email = ? FOR UPDATE");
-        $ustmt->execute([$email]);
-        $u = $ustmt->fetch(PDO::FETCH_ASSOC);
-        $now = time();
-        if ($u) {
-            $userId = $u['id'];
-            $currentExpires = $u['pro_expires_at'];
-            if (is_null($v['duration_days'])) {
-                $newExpires = null; // forever
-            } else {
-                $dur = (int)$v['duration_days'];
-                if (!is_null($currentExpires) && strtotime($currentExpires) > $now) {
-                    $newExpires = date('Y-m-d H:i:s', strtotime($currentExpires) + $dur * 86400);
-                } else {
-                    $newExpires = date('Y-m-d H:i:s', strtotime("+{$dur} days"));
-                }
-            }
-            if (tableHasColumn('pro_users', 'account_type')) {
-                $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ?, account_type = 'pro' WHERE id = ?");
-            } else {
-                $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ? WHERE id = ?");
-            }
-            $up->execute([$newExpires, $userId]);
-        } else {
-            // Create new pro user with default TTL
-            // Disallow creating accounts using the service domain
-            global $config;
-            $forbiddenDomain = strtolower($config['email']['domain'] ?? 'manjo.me');
-            $parts = explode('@', $email);
-            $domainPart = isset($parts[1]) ? strtolower($parts[1]) : '';
-            if ($domainPart === $forbiddenDomain) {
-                $pdo->rollBack();
-                echo json_encode(['success' => false, 'error' => 'Email addresses at this domain are not allowed']);
-                exit;
-            }
-            if (is_null($v['duration_days'])) {
-                $newExpires = null;
-            } else {
-                $dur = (int)$v['duration_days'];
-                $newExpires = date('Y-m-d H:i:s', strtotime("+{$dur} days"));
-            }
-            $defaultTtl = 1;
-            if (tableHasColumn('pro_users', 'account_type')) {
-                $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days, account_type, email_verified_at) VALUES (?, ?, ?, 'pro', NOW())");
-            } else {
-                $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days) VALUES (?, ?, ?)");
-            }
-            $ins->execute([$email, $newExpires, $defaultTtl]);
-            $userId = $pdo->lastInsertId();
-        }
-
-        // Increment voucher usage
-        // Prevent the same user from redeeming the same voucher more than once
-        $checkRedeem = $pdo->prepare("SELECT id FROM redemption_log WHERE user_id = ? AND voucher_id = ? LIMIT 1");
-        $checkRedeem->execute([$userId, $v['id']]);
-        if ($checkRedeem->fetch()) {
-            $pdo->rollBack();
-            echo json_encode(['success' => false, 'error' => 'You have already redeemed this code']);
-            exit;
-        }
-
-        $upv = $pdo->prepare("UPDATE vouchers SET current_uses = current_uses + 1 WHERE id = ?");
-        $upv->execute([$v['id']]);
-
-        // Log redemption
-        $rstmt = $pdo->prepare("INSERT INTO redemption_log (user_id, voucher_id) VALUES (?, ?)");
-        $rstmt->execute([$userId, $v['id']]);
-
-        $pdo->commit();
-
+    if ($result['success']) {
         echo json_encode(['success' => true, 'message' => 'Voucher redeemed successfully']);
-        exit;
-    } catch (Exception $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        logMessage('ERROR', 'Voucher redemption failed', ['error' => $e->getMessage(), 'email' => $email, 'code' => $code]);
-        echo json_encode(['success' => false, 'error' => 'Redemption failed']);
-        exit;
+    } else {
+        echo json_encode(['success' => false, 'error' => $result['error']]);
     }
+    exit;
 }
 
 // Endpoint: lösenordsinloggning (email + password)
