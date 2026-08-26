@@ -4,50 +4,10 @@
  * Standalone admin UI for inspecting system_logs and managing hidden log types.
  */
 
-// Load environment
-function loadEnvFile($path) {
-    if (!file_exists($path)) return;
-    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        $line = trim($line);
-        if ($line === '' || strpos($line, '#') === 0) continue;
-        if (strpos($line, '=') === false) continue;
-        list($key, $value) = explode('=', $line, 2);
-        $key = trim($key);
-        $value = trim(trim($value), "'\"");
-        $_ENV[$key] = $value;
-        putenv("$key=$value");
-    }
-}
-
-$envFile = __DIR__ . '/.env.production';
-if (file_exists($envFile)) loadEnvFile($envFile);
-
-// Database connection
-$dbHost = getenv('DB_HOST') ?: ($_ENV['DB_HOST'] ?? 'db');
-$dbName = getenv('DB_NAME') ?: ($_ENV['DB_NAME'] ?? 'tempmail');
-$dbUser = getenv('DB_USER') ?: ($_ENV['DB_USER'] ?? 'tempmail_user');
-$dbPass = getenv('DB_PASSWORD') ?: ($_ENV['DB_PASSWORD'] ?? '');
-$dbCharset = getenv('DB_CHARSET') ?: ($_ENV['DB_CHARSET'] ?? 'utf8mb4');
-
-$dsn = sprintf('mysql:host=%s;dbname=%s;charset=%s', $dbHost, $dbName, $dbCharset);
-try {
-    $pdo = new PDO($dsn, $dbUser, $dbPass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ]);
-} catch (PDOException $e) {
-    if (isset($_GET['format']) && $_GET['format'] === 'json') {
-        header('Content-Type: application/json');
-        http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-        exit;
-    }
-    http_response_code(500);
-    echo "DB connection failed: " . htmlspecialchars($e->getMessage());
-    exit;
-}
+define('TEMPMAIL_APP', true);
+require_once __DIR__ . '/config.php';
+// config.php loads the environment (including the secure, outside-webroot
+// .env.production location) and sets up the global $pdo connection.
 
 // Session-based access control
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
