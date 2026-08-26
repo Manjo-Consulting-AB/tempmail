@@ -268,6 +268,16 @@ $baseConfig = [
         // the server layout ever changes.
         'forwarder_destination' => $_ENV['DA_FORWARDER_DESTINATION']
             ?? ('|/usr/bin/php /home/s174280/domains/' . ($_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me')) . '/public_html/parse.php')
+    ],
+    'pro' => [
+        // Kill switch of the same kind as 'directadmin.forwarder_enabled' above:
+        // preparation for the upcoming payment integration (public Pro self-
+        // signup without a voucher code, see documentaion/ACCOUNT_TIERS.md §8).
+        // Must stay off until that payment flow actually exists — while off,
+        // register.php?plan=pro keeps requiring a valid voucher code exactly
+        // as it does today. This issue only introduces/reads the flag; no
+        // caller changes behavior based on it yet.
+        'self_signup_enabled' => filter_var($_ENV['PRO_SELF_SIGNUP_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)
     ]
 ];
 
