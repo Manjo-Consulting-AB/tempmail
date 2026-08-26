@@ -52,12 +52,27 @@ $sentCount = 0;
 try {
     // Select users eligible: digest_enabled=1, address_ttl_days > 1
     // We'll filter by per-user scheduled hour/timezone in PHP to allow timezone math and staggering
-    $stmt = $pdo->prepare(
-        "SELECT id, email, digest_frequency_days, digest_last_sent, address_ttl_days, digest_hour, digest_tz
-         FROM pro_users
-         WHERE digest_enabled = 1 AND COALESCE(address_ttl_days,1) > 1
-         LIMIT ?"
-    );
+    // Digests are a Pro entitlement: once the account_type migration has run, restrict the
+    // selection to Pro accounts in SQL so Regular accounts are never picked up. Fall back to the
+    // pre-migration query so this cron keeps working before the migration lands (deploy order
+    // doesn't matter).
+    if (tableHasColumn('pro_users', 'account_type')) {
+        $stmt = $pdo->prepare(
+            "SELECT id, email, digest_frequency_days, digest_last_sent, address_ttl_days, digest_hour, digest_tz
+             FROM pro_users
+             WHERE digest_enabled = 1 AND COALESCE(address_ttl_days,1) > 1
+             AND account_type = 'pro'
+             AND (pro_expires_at IS NULL OR pro_expires_at > NOW())
+             LIMIT ?"
+        );
+    } else {
+        $stmt = $pdo->prepare(
+            "SELECT id, email, digest_frequency_days, digest_last_sent, address_ttl_days, digest_hour, digest_tz
+             FROM pro_users
+             WHERE digest_enabled = 1 AND COALESCE(address_ttl_days,1) > 1
+             LIMIT ?"
+        );
+    }
     $stmt->execute([$batchSize]);
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

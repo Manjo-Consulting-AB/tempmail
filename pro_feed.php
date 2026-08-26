@@ -98,6 +98,16 @@ try {
     }
     $userId = (int)$user['id'];
 
+    // Regular accounts don't get the RSS feed. Respond with the exact same
+    // "Invalid token" text as an unknown token so this endpoint can't be used
+    // as an oracle that reveals a token is valid but the account is degraded.
+    if (!proUserIsPro($userId)) {
+        http_response_code(403);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo "Invalid token";
+        exit;
+    }
+
     // Fetch recent stored_emails for this user's temp addresses
     $q = $pdo->prepare(
         "SELECT se.id, se.from_address, se.subject, se.body_html, se.body_text, se.received_at

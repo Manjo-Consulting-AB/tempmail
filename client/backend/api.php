@@ -24,6 +24,12 @@ if ($userId === null) {
     exit;
 }
 
+if (!proUserIsPro($userId)) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Pro required']);
+    exit;
+}
+
 if ($method === 'POST' && ($segments[0] ?? '') === 'api' && ($segments[1] ?? '') === 'mailfilter' && ($segments[2] ?? '') === 'create') {
     $input = $_POST;
     if (empty($input)) {
