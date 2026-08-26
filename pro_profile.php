@@ -428,7 +428,7 @@ try {
                 $result = redeemVoucherForEmail($email, $code);
 
                 if (!$result['success']) {
-                    send_json(['success' => false, 'error' => $result['error']]);
+                    send_json(['success' => false, 'error' => voucherRedemptionErrorMessage($result['error_code'])]);
                 }
 
                 $s = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
