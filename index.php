@@ -1025,15 +1025,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <!-- Initial address generator (visas tills adress är skapad) -->
         <div id="initial-generator" class="card fade-in card-main-width">
             <div class="card-body text-center">
-                <h4 class="mb-3">Click to get your temporary email address</h4>
                 <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
+                    <h4 class="mb-3">Click to get your temporary email address</h4>
                     <button id="generateBtn" class="btn btn-primary btn-lg">
                         <i class="fas fa-magic"></i> Get Email Address
                     </button>
                 <?php else: ?>
-                    <a id="generateBtn" href="/pro_login.php" class="btn btn-primary btn-lg">
-                        <i class="fas fa-magic"></i> Get Email Address
+                    <h4 class="mb-3">An account is required to create a temporary email address</h4>
+                    <a href="/register.php" class="btn btn-primary btn-lg">
+                        <i class="fas fa-user-plus"></i> Create a free account
                     </a>
+                    <div class="mt-2">
+                        <a href="/pro_login.php" class="small" rel="nofollow noreferrer">Already have an account? Log in</a>
+                    </div>
                 <?php endif; ?>
             </div>
         </div>
@@ -1108,6 +1112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="card mt-4 card-main-width">
             <div class="card-header"><h3>Pro vs Regular</h3></div>
             <div class="card-body">
+                <p class="text-muted mb-3"><strong>Regular</strong> is a free, registered account — creating a temporary address now requires <a href="/register.php">signing up</a>. A logged-out visitor can only view an inbox they were given a direct link to.</p>
                 <div class="table-responsive">
                     <table class="table table-bordered table-striped">
                         <thead>
@@ -1118,11 +1123,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td>Spam protection</td>
-                                <td>General protection</td>
-                                <td>General protection</td>
-                            </tr>
                             <tr>
                                 <td>Address lifetime</td>
                                 <td>Default 24 hours</td>
@@ -1155,12 +1155,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </tr>
                             <tr>
                                 <td>Address privacy</td>
-                                <td>Public — anyone with the address can read emails</td>
+                                <td>Unauthenticated — anyone with the address/link can read the inbox</td>
                                 <td>Temp addresses shareable; Personal addresses private (login required)</td>
                             </tr>
                             <tr>
                                 <td>Attachments</td>
-                                <td>Download attachments (limited)</td>
+                                <td>Signed, time-limited download links</td>
                                 <td>Signed, time-limited download links</td>
                             </tr>
                             <tr>
@@ -1171,6 +1171,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </tbody>
                     </table>
                 </div>
+                <?php if (empty($_SESSION['pro_user_id'] ?? null)) : ?>
+                    <div class="mt-3 text-center">
+                        <a href="/register.php?plan=regular" class="btn btn-primary me-2">
+                            <i class="fas fa-user-plus"></i> Create a free account
+                        </a>
+                        <a href="/register.php?plan=pro" class="btn btn-outline-primary" rel="nofollow noreferrer">
+                            <i class="fas fa-key"></i> Get Pro with a code
+                        </a>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
