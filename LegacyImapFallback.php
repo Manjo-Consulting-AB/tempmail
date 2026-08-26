@@ -298,9 +298,16 @@ final class LegacyImapFallback
     private static function tableHasColumn(PDO $pdo, string $table, string $column): bool
     {
         try {
-            $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$table}` LIKE ?");
-            $stmt->execute([$column]);
-            return $stmt->fetchColumn() !== false;
+            // Not "SHOW COLUMNS FROM table LIKE ?": MariaDB rejects a bound
+            // placeholder there with a hard SQL syntax error (confirmed live
+            // against production), which the catch below silently turned into
+            // a permanent false negative - this looked like it worked because
+            // no exception surfaced anywhere the caller could see it.
+            $stmt = $pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute([$table, $column]);
+            return (int)$stmt->fetchColumn() > 0;
         } catch (\Throwable $_) {
             return false;
         }
