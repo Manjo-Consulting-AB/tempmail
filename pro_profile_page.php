@@ -913,8 +913,8 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                         ? '<span class="badge bg-warning text-dark ms-2">Paused</span>' 
                         : '<span class="badge bg-success ms-2">Active</span>';
                     var pauseBtn = isPaused
-                        ? '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+w.id+'" data-mode="all" title="Resume webhook"><i class="bi bi-play-fill text-success"></i> Resume</button>'
-                        : '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+w.id+'" data-mode="paused" title="Pause webhook"><i class="bi bi-pause-fill text-warning"></i> Pause</button>';
+                        ? '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+w.id+'" data-mode="all" title="Resume webhook" aria-label="Resume webhook"><i class="fas fa-play text-success"></i></button>'
+                        : '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+w.id+'" data-mode="paused" title="Pause webhook" aria-label="Pause webhook"><i class="fas fa-pause text-warning"></i></button>';
                     html += '<div class="list-group-item d-flex justify-content-between align-items-start">'
                         + '<div class="me-3"><strong>' + (w.name || ('#'+w.id)) + '</strong>' + statusBadge + '<div class="text-muted small">' + w.kind + ' — ' + w.url + '</div>'
                         + (cfg ? '<div class="text-muted small">Config: ' + cfg + '</div>' : '')
@@ -922,7 +922,7 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                         + '<div class="btn-group">'
                         + pauseBtn
                         + '<button class="btn btn-sm btn-outline-secondary wh-deliveries" data-id="'+w.id+'">Deliveries</button>'
-                        + '<button class="btn btn-sm btn-danger wh-delete" data-id="'+w.id+'">Delete</button>'
+                        + '<button class="btn btn-sm btn-danger wh-delete" data-id="'+w.id+'" title="Delete webhook" aria-label="Delete webhook"><i class="fas fa-trash"></i></button>'
                         + '</div></div>';
                 });
                 html += '</div>';
