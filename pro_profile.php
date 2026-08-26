@@ -93,6 +93,15 @@ function pro_user_has_password(int $userId): bool {
     return pro_user_password_hash($userId) !== null;
 }
 
+// Pro-gating: används av de actions som kräver aktivt Pro-konto.
+// Se documentaion/ACCOUNT_TIERS.md §3.
+function require_pro(int $userId): void {
+    if (!proUserIsPro($userId)) {
+        logMessage('INFO', 'Pro-only action refused for non-pro account', ['user_id' => $userId]);
+        send_json(['success' => false, 'error' => 'Pro required', 'pro_required' => true]);
+    }
+}
+
 // Helper: notification email for 2FA activation/deactivation. Never includes
 // the secret or any code — see documentaion/2FA_DESIGN.md §3 and §5.5.
 function send_2fa_notification_email(int $userId, string $event): void {
@@ -143,7 +152,12 @@ try {
             if (!$row) {
                     send_json(['success' => false, 'error' => 'User not found']);
             }
-            $profile = ['email' => $row['email'] ?? '', 'pro_expires_at' => $row['pro_expires_at'] ?? null];
+            $profile = [
+                'email' => $row['email'] ?? '',
+                'pro_expires_at' => $row['pro_expires_at'] ?? null,
+                'account_type' => proUserAccountType($userId),
+                'is_pro' => proUserIsPro($userId)
+            ];
             // Check if password_hash column exists and is set
             try {
                 $colStmt = $pdo->query("SHOW COLUMNS FROM pro_users LIKE 'password_hash'");
@@ -179,12 +193,14 @@ try {
                 'max_allowed_frequency_days' => $maxFreq,
                 'digest_last_sent' => $row['digest_last_sent'] ?? null,
                 'digest_hour' => isset($row['digest_hour']) ? (is_null($row['digest_hour']) ? null : (int)$row['digest_hour']) : null,
-                'digest_tz' => $row['digest_tz'] ?? null
+                'digest_tz' => $row['digest_tz'] ?? null,
+                'pro_required' => !proUserIsPro($userId)
             ];
             send_json($res);
             break;
 
         case 'update_digest_settings':
+            require_pro($userId);
             // Expects: digest_enabled (0/1), digest_frequency_days (int), optional digest_hour (0-23), digest_tz (IANA)
             $enabled = isset($_POST['digest_enabled']) ? (int)$_POST['digest_enabled'] : 0;
             $freq = isset($_POST['digest_frequency_days']) ? (int)$_POST['digest_frequency_days'] : 1;
@@ -365,6 +381,7 @@ try {
                 logMessage('WARNING', 'Rejected cross-origin rotate_signing_keys request', ['user_id' => $userId]);
                 send_json(['success' => false, 'error' => 'Invalid request origin']);
             }
+            require_pro($userId);
             try {
                 $keys = clientBackendRotateUserSigningKeys($userId);
                 if (!$keys) {
@@ -725,6 +742,7 @@ try {
                 break;
 
         case 'update_ttl':
+            require_pro($userId);
             $ttl = (int)($_POST['ttl'] ?? 0);
             if ($ttl < 1 || $ttl > 7) {
                 echo json_encode(['success' => false, 'error' => 'TTL must be between 1 and 7']);
@@ -800,6 +818,7 @@ try {
             break;
 
         case 'feed_get_token':
+            require_pro($userId);
             try {
                 $s = $pdo->prepare("SELECT feed_token FROM pro_users WHERE id = ? LIMIT 1");
                 $s->execute([$userId]);
@@ -820,6 +839,7 @@ try {
             break;
 
         case 'feed_regenerate':
+            require_pro($userId);
             try {
                 $new = bin2hex(random_bytes(32));
                 $u = $pdo->prepare("UPDATE pro_users SET feed_token = ? WHERE id = ?");
@@ -833,6 +853,7 @@ try {
             break;
 
         case 'webhook_create':
+            require_pro($userId);
             // Expects: name, url, kind (generic|pushover), config (JSON), secret (optional)
             $rawName = $_POST['name'] ?? '';
             $rawUrl = $_POST['url'] ?? '';
@@ -1018,6 +1039,7 @@ try {
             break;
 
         case 'webhook_delete':
+            require_pro($userId);
             $wid = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             if ($wid <= 0) {
                 echo json_encode(['success' => false, 'error' => 'Invalid id']);
@@ -1043,6 +1065,7 @@ try {
             break;
 
         case 'webhook_set_filter_mode':
+            require_pro($userId);
             // Toggle webhook between 'all' (active) and 'paused' modes
             $wid = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             $mode = $_POST['filter_mode'] ?? '';
@@ -1071,6 +1094,7 @@ try {
             break;
 
         case 'webhook_deliveries':
+            require_pro($userId);
             // Optional: webhook_id, limit
             $wid = isset($_GET['webhook_id']) ? (int)$_GET['webhook_id'] : null;
             $limit = isset($_GET['limit']) ? min(200, (int)$_GET['limit']) : 50;
