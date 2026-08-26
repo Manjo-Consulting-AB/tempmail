@@ -125,6 +125,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'error' => 'Not authenticated']);
                     break;
                 }
+                if (!proUserIsPro((int)$_SESSION['pro_user_id'])) {
+                    logMessage('INFO', 'create_personal denied: not a Pro account', ['user_id' => $_SESSION['pro_user_id']]);
+                    echo json_encode(['success' => false, 'error' => 'Pro required', 'pro_required' => true]);
+                    break;
+                }
                 $rawLocal = $_POST['local'] ?? '';
                 // Detect suspicious patterns
                 $suspicious = function_exists('detectSuspiciousPatterns') ? detectSuspiciousPatterns((string)$rawLocal) : [];
@@ -182,6 +187,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
             case 'list_personal':
+                // Avsiktligt inte Pro-gated: ett degraderat konto måste kunna se
+                // sina personliga adresser under grace-perioden.
                 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
                     echo json_encode(['success' => false, 'error' => 'Not authenticated']);
                     break;
@@ -205,6 +212,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
             case 'delete_personal':
+                // Avsiktligt inte Pro-gated: att kunna ta bort sina egna adresser
+                // ska aldrig kräva Pro.
                 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
                     echo json_encode(['success' => false, 'error' => 'Not authenticated']);
                     break;
@@ -245,7 +254,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $address = generateUniqueString();
                 // Determine expires_at: if a pro user is logged in, use their preference
                 $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
-                if (isset($_SESSION['pro_user_id']) && $_SESSION['pro_user_id']) {
+                if (isset($_SESSION['pro_user_id']) && $_SESSION['pro_user_id'] && proUserIsPro((int)$_SESSION['pro_user_id'])) {
                     try {
                         $stmt = $pdo->prepare("SELECT COALESCE(address_ttl_days, 1) AS ttl_days FROM pro_users WHERE id = ? LIMIT 1");
                         $stmt->execute([$_SESSION['pro_user_id']]);
