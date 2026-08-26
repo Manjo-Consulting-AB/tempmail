@@ -6,6 +6,14 @@ if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
     exit;
 }
 
+require_once __DIR__ . '/config.php';
+
+if (!proUserIsPro((int)$_SESSION['pro_user_id'])) {
+    http_response_code(403);
+    echo 'Pro required';
+    exit;
+}
+
 $agentPath = __DIR__ . '/client/agent/agent.php';
 if (!is_file($agentPath) || !is_readable($agentPath)) {
     http_response_code(404);

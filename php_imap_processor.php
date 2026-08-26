@@ -301,7 +301,7 @@ class ImapProcessor
                     }
                 }
 
-                // Webhooks remain PRO-only
+                // Webhooks remain PRO-only (entitlement is checked inside dispatchWebhooks())
                 if (!empty($proUserId)) {
                     $payload = ['to' => $toAddress, 'from' => $fromAddress, 'subject' => $subject, 'body' => ($bodyHtml ?? $bodyText), 'received_at' => $receivedDate, 'temp_email_id' => $tempEmailId];
                     $this->dispatchWebhooks((int)$proUserId, $payload);
@@ -341,6 +341,15 @@ class ImapProcessor
     private function dispatchWebhooks(int $proUserId, array $payload): void
     {
         try {
+            // Entitlement check lives here (not in the caller) so every current and future
+            // caller of dispatchWebhooks() is covered. function_exists() guards against running
+            // from entrypoints (run_imap_processor.php, cron/run_imap_once.php) that construct
+            // this class without loading config.php.
+            if (function_exists('proUserIsPro') && !proUserIsPro($proUserId)) {
+                $this->log('DEBUG', 'Skipping webhook dispatch for non-pro account', ['user_id' => $proUserId]);
+                return;
+            }
+
             // Only select webhooks that are not paused
             $stmt = $this->pdo->prepare('SELECT id, name, url, kind, config, secret, filter_mode FROM pro_webhooks WHERE user_id = ? AND filter_mode = \'all\'');
             $stmt->execute([$proUserId]);
