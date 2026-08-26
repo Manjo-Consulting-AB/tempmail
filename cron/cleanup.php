@@ -266,32 +266,95 @@ function cleanupExpiredTrustedDevices() {
 }
 
 /**
- * Rensa personliga adresser för utgångna PRO-konton och nollställ vissa fält
+ * Degradera utgångna PRO-konton till Regular (raderar dem aldrig) och
+ * städa personliga adresser efter en sjudagars grace-period.
+ *
+ * Se documentaion/ACCOUNT_TIERS.md §6.1 för bakgrund/beslut.
+ *
+ * Steg 1 (degradering, körs direkt vid pro_expires_at < NOW()):
+ *   account_type='regular', digest_enabled=0, address_ttl_days=1,
+ *   feed_token=NULL, och pro_webhooks pausas (filter_mode='paused')
+ *   i stället för att raderas - de fungerar igen vid en ny uppgradering.
+ *   password_hash rörs inte längre: kontot lever vidare som Regular och
+ *   måste kunna logga in med lösenord.
+ *
+ * Steg 2 (adressradering, grace-period 7 dagar efter pro_expires_at):
+ *   personliga adresser (och deras mail/bilagor/DirectAdmin-forwarders)
+ *   raderas med den befintliga rutinen, oförändrad.
+ *
+ * Kontot i pro_users raderas ALDRIG av den här funktionen - inaktiva
+ * gratiskonton städas av en separat rutin (se #63) på helt andra grunder.
+ *
+ * Idempotens: Steg 1:s urval scopas till account_type='pro', så en redan
+ * degraderad användare plockas inte upp igen (ingen dubbelloggning, inga
+ * ompausade webhooks efter att användaren själv återaktiverat dem). Steg
+ * 2:s urval kräver dessutom att det faktiskt finns kvarvarande personliga
+ * adresser (INNER JOIN mot temp_emails), så när adresserna väl är borta
+ * försvinner kontot ur nästa körnings urval av sig självt - även det
+ * idempotent, utan extra tillståndsflagga.
  */
 function cleanupExpiredProUsers() {
     global $pdo;
 
+    if (!tableHasColumn('pro_users', 'account_type')) {
+        logMessage('WARNING', 'cleanupExpiredProUsers: pro_users.account_type saknas, hoppar över degradering och adressradering (migrationen är inte körd)');
+        return 0;
+    }
+
     try {
-        // Hitta PRO-användare där pro_expires_at är satt och har passerat
-        $stmt = $pdo->prepare("SELECT id, email, pro_expires_at FROM pro_users WHERE pro_expires_at IS NOT NULL AND pro_expires_at < NOW()");
+        $processed = 0;
+
+        // --- Steg 1: degradera Pro-konton vars pro_expires_at har passerat ---
+        // Scopas till account_type = 'pro' för idempotens: så fort ett konto
+        // degraderats till 'regular' plockas det inte upp av den här frågan igen.
+        $stmt = $pdo->prepare("SELECT id, email, pro_expires_at FROM pro_users WHERE account_type = 'pro' AND pro_expires_at IS NOT NULL AND pro_expires_at < NOW()");
         $stmt->execute();
         $expired = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        logMessage('DEBUG', 'cleanupExpiredProUsers: found ' . count($expired) . ' expired pro users');
-
-        if (empty($expired)) {
-            return 0;
-        }
-
-        $processed = 0;
+        logMessage('DEBUG', 'cleanupExpiredProUsers: found ' . count($expired) . ' pro users to degrade');
 
         foreach ($expired as $u) {
             $userId = (int)$u['id'];
             $email = $u['email'] ?? null;
 
-            logMessage('DEBUG', 'Processing expired pro user', ['user_id' => $userId, 'email' => $email, 'pro_expires_at' => $u['pro_expires_at']]);
+            $uup = $pdo->prepare("UPDATE pro_users SET account_type = 'regular', digest_enabled = 0, address_ttl_days = 1, feed_token = NULL WHERE id = ?");
+            $uup->execute([$userId]);
 
-            // Hämta personliga adresser för denna pro user
+            $wstmt = $pdo->prepare("UPDATE pro_webhooks SET filter_mode = 'paused' WHERE user_id = ? AND filter_mode != 'paused'");
+            $wstmt->execute([$userId]);
+            $pausedWebhooks = $wstmt->rowCount();
+
+            logMessage('INFO', 'Expired pro user degraded to regular', [
+                'user_id' => $userId,
+                'email' => $email,
+                'pro_expires_at' => $u['pro_expires_at'],
+                'webhooks_paused' => $pausedWebhooks
+            ]);
+
+            $processed++;
+        }
+
+        // --- Steg 2: radera personliga adresser efter sjudagars grace-period ---
+        // INNER JOIN mot temp_emails gör frågan idempotent: ett konto vars
+        // adresser redan raderats en tidigare natt plockas inte upp igen.
+        // Fångar både konton som just degraderades ovan (samma körning) och
+        // redan degraderade konton från tidigare körningar.
+        $gstmt = $pdo->prepare(
+            "SELECT DISTINCT pu.id, pu.email, pu.pro_expires_at
+             FROM pro_users pu
+             INNER JOIN temp_emails te ON te.pro_user_id = pu.id AND te.is_personal = 1
+             WHERE pu.pro_expires_at IS NOT NULL AND pu.pro_expires_at <= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+        );
+        $gstmt->execute();
+        $graceExpired = $gstmt->fetchAll(PDO::FETCH_ASSOC);
+
+        logMessage('DEBUG', 'cleanupExpiredProUsers: found ' . count($graceExpired) . ' users past the 7-day address grace period');
+
+        foreach ($graceExpired as $u) {
+            $userId = (int)$u['id'];
+            $email = $u['email'] ?? null;
+
+            // Hämta personliga adresser för denna användare
             $tstmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
             $tstmt->execute([$userId]);
             $personalAddresses = $tstmt->fetchAll(PDO::FETCH_ASSOC);
@@ -332,42 +395,15 @@ function cleanupExpiredProUsers() {
                 }
             }
 
-            // Nollställ lösenord och stäng av digest
-            $uup = $pdo->prepare("UPDATE pro_users SET password_hash = NULL, digest_enabled = 0 WHERE id = ?");
-            $uup->execute([$userId]);
-
-            // Ta bort kontot helt om det har varit utgånget i mer än 7 dagar
-            $deletedUser = false;
-            if (!empty($u['pro_expires_at'])) {
-                $expiresTs = strtotime($u['pro_expires_at']);
-                if ($expiresTs !== false && $expiresTs <= strtotime('-7 days')) {
-                    $dstmt = $pdo->prepare("DELETE FROM pro_users WHERE id = ?");
-                    $dstmt->execute([$userId]);
-                    if ($dstmt->rowCount() > 0) {
-                        $deletedUser = true;
-                        logMessage('INFO', 'Expired pro user deleted', [
-                            'user_id' => $userId,
-                            'email' => $email,
-                            'pro_expires_at' => $u['pro_expires_at']
-                        ]);
-                    } else {
-                        logMessage('WARNING', 'Failed to delete expired pro user', ['user_id' => $userId]);
-                    }
-                } else {
-                    logMessage('DEBUG', 'Expired pro user within 7-day grace period', ['user_id' => $userId, 'pro_expires_at' => $u['pro_expires_at']]);
-                }
-            }
-
-            if (!$deletedUser) {
-                logMessage('INFO', 'Expired pro user processed', [
-                    'user_id' => $userId,
-                    'email' => $email,
-                    'personal_addresses_removed' => count($personalIds),
-                    'emails_deleted' => $totalEmailsDeleted,
-                    'attachments_deleted' => $totalAttachments,
-                    'files_deleted' => $totalFiles
-                ]);
-            }
+            logMessage('INFO', 'Personal addresses removed for expired pro user past grace period', [
+                'user_id' => $userId,
+                'email' => $email,
+                'pro_expires_at' => $u['pro_expires_at'],
+                'personal_addresses_removed' => count($personalIds),
+                'emails_deleted' => $totalEmailsDeleted,
+                'attachments_deleted' => $totalAttachments,
+                'files_deleted' => $totalFiles
+            ]);
 
             $processed++;
         }
@@ -453,7 +489,8 @@ function runCleanup($options = []) {
         $results['logs_cleaned'] = $logsResult;
     }
 
-    // Rensa personliga adresser för utgångna PRO-konton och nollställ fält
+    // Degradera utgångna PRO-konton till Regular och rensa deras personliga
+    // adresser efter grace-perioden (raderar aldrig kontot, se §6.1)
     $proUsersResult = cleanupExpiredProUsers();
     if ($proUsersResult !== false) {
         $results['expired_pro_users_cleaned'] = $proUsersResult;
