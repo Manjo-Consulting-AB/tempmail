@@ -417,6 +417,274 @@ function cleanupExpiredProUsers() {
 }
 
 /**
+ * Skicka varningsmail till ett Regular-konto som varit inaktivt länge.
+ * Byggd som sendLoginEmail() i pro_auth.php:86-142 - samma From-header,
+ * samma mail()-anrop med envelope-parameter, samma logg-hantering vid
+ * misslyckande. Mailtexten är på engelska, som övriga utskick.
+ */
+function sendInactivityWarningEmail($email) {
+    global $config;
+
+    $loginUrl = $config['email']['base_url'] . "pro_login.php";
+    $subject = "Your TempMail account will be deleted soon";
+    $message = "Hello,\n\n"
+        . "Your TempMail account (" . $email . ") has been inactive for a while. "
+        . "To keep it, simply sign in within the next month:\n\n"
+        . $loginUrl . "\n\n"
+        . "If you do not sign in, your account and all of its email addresses "
+        . "will be automatically and permanently deleted in about 30 days.\n\n"
+        . "If you no longer need this account, no action is required - it will "
+        . "be removed automatically.\n\n"
+        . "Regards,\nThe TempMail Team";
+
+    // Bestäm avsändaradress (kan sättas via ENV t.ex. EMAIL_FROM)
+    $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
+
+    $headers = [];
+    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'Reply-To: ' . $fromAddress;
+    $headers[] = 'MIME-Version: 1.0';
+    $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+    $headers[] = 'X-Mailer: PHP/' . phpversion();
+
+    $headersStr = implode("\r\n", $headers);
+
+    $sent = false;
+    try {
+        // Använd envelope param för att ange Return-Path om servern stödjer det
+        $envelope = '-f' . $fromAddress;
+        $sent = mail($email, $subject, $message, $headersStr, $envelope);
+        if ($sent === false) {
+            logMessage('ERROR', 'mail() returned false when attempting to send inactivity warning', ['to' => $email]);
+        }
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Inactivity warning mail sending unexpected error', ['error' => $e->getMessage(), 'to' => $email]);
+        $sent = false;
+    }
+
+    if ($sent) {
+        logMessage('INFO', 'Inactivity warning email sent', ['to' => $email]);
+    } else {
+        logMessage('ERROR', 'Failed to send inactivity warning email', ['to' => $email]);
+    }
+
+    return $sent;
+}
+
+/**
+ * Städa inaktiva Regular-konton: varning i god tid, radering därefter.
+ *
+ * Se documentaion/ACCOUNT_TIERS.md §6.2 för bakgrund/beslut.
+ *
+ * Underlag för inaktivitet: COALESCE(last_login_at, created_at) - ett konto
+ * som aldrig loggat in räknas från när det skapades.
+ *
+ * Steg 1 (varning, inaktiv >= REGULAR_INACTIVITY_WARN_DAYS men fortfarande
+ * under REGULAR_INACTIVITY_DAYS, och inactivity_warned_at IS NULL): skicka
+ * varningsmail och sätt inactivity_warned_at = NOW(). Den övre gränsen
+ * (< REGULAR_INACTIVITY_DAYS) finns för att undvika att ett konto både
+ * varnas och raderas i samma körning (t.ex. om cronen legat nere länge) -
+ * ett varningsmail strax innan kontot ändå raderas fyller ingen funktion.
+ * Misslyckat mailutskick sätter INTE inactivity_warned_at - annars skulle
+ * kontot kunna raderas senare utan att någon varning någonsin gått fram.
+ *
+ * Steg 2 (radering, inaktiv >= REGULAR_INACTIVITY_DAYS): radera kontots
+ * samtliga adresser (personliga OCH icke-personliga - till skillnad från
+ * cleanupExpiredProUsers() som bara rör personliga adresser), deras mail,
+ * bilagor och DirectAdmin-forwarders (samma mönster som
+ * cleanupExpiredProUsers(), rad 353-396), samt kringliggande rader utan
+ * FK-cascade (se kommentar vid raderingskoden nedan) och slutligen
+ * pro_users-raden.
+ *
+ * Konton med account_type = 'pro' rörs ALDRIG, oavsett hur inaktiva de är -
+ * frågorna nedan scopas alltid till account_type = 'regular'.
+ *
+ * Bakåtkompatibilitet: saknas account_type, last_login_at eller
+ * inactivity_warned_at i schemat görs ingenting alls (varken varning eller
+ * radering) - en raderingsrutin får aldrig köra på ofullständiga antaganden.
+ * Migreringen (migrate_account_types.php) lägger till alla tre kolumnerna
+ * tillsammans, så i praktiken skiljer de sig aldrig åt, men vi kontrollerar
+ * inactivity_warned_at explicit ändå: utan den kolumnen kan rutinen aldrig
+ * markera ett konto som varnat, vilket skulle göra "varna alltid före
+ * radering" omöjligt att garantera - inte bara för denna körning utan för
+ * alltid.
+ */
+function cleanupInactiveRegularAccounts() {
+    global $pdo, $config;
+
+    if (
+        !tableHasColumn('pro_users', 'account_type')
+        || !tableHasColumn('pro_users', 'last_login_at')
+        || !tableHasColumn('pro_users', 'inactivity_warned_at')
+    ) {
+        logMessage('WARNING', 'cleanupInactiveRegularAccounts: pro_users saknar account_type/last_login_at/inactivity_warned_at, hoppar över (migrationen är inte körd)');
+        return 0;
+    }
+
+    // Trösklarna valideras redan i config.php (varning måste komma före
+    // radering, annars faller de tillbaka till 335/365) - dubbelkollas här
+    // ändå som ett andra skyddsnät innan en raderingsfråga byggs.
+    $warnDays = (int)($config['cleanup']['regular_inactivity_warn_days'] ?? 335);
+    $deleteDays = (int)($config['cleanup']['regular_inactivity_days'] ?? 365);
+    if ($warnDays >= $deleteDays) {
+        logMessage('WARNING', 'cleanupInactiveRegularAccounts: ogiltiga trösklar vid anropstillfället, faller tillbaka till standardvärden', ['warn_days' => $warnDays, 'delete_days' => $deleteDays]);
+        $warnDays = 335;
+        $deleteDays = 365;
+    }
+
+    try {
+        $processed = 0;
+
+        // --- Steg 1: varna inaktiva Regular-konton ---
+        $wstmt = $pdo->prepare(
+            "SELECT id, email FROM pro_users " .
+            "WHERE account_type = 'regular' AND inactivity_warned_at IS NULL " .
+            "AND COALESCE(last_login_at, created_at) <= DATE_SUB(NOW(), INTERVAL ? DAY) " .
+            "AND COALESCE(last_login_at, created_at) > DATE_SUB(NOW(), INTERVAL ? DAY)"
+        );
+        $wstmt->execute([$warnDays, $deleteDays]);
+        $toWarn = $wstmt->fetchAll(PDO::FETCH_ASSOC);
+
+        logMessage('DEBUG', 'cleanupInactiveRegularAccounts: found ' . count($toWarn) . ' regular users to warn');
+
+        foreach ($toWarn as $u) {
+            $userId = (int)$u['id'];
+            $email = $u['email'] ?? '';
+
+            if (empty($email)) {
+                logMessage('WARNING', 'cleanupInactiveRegularAccounts: skipping warning, no email on file', ['user_id' => $userId]);
+                continue;
+            }
+
+            $sent = sendInactivityWarningEmail($email);
+            if ($sent) {
+                $uup = $pdo->prepare("UPDATE pro_users SET inactivity_warned_at = NOW() WHERE id = ?");
+                $uup->execute([$userId]);
+                logMessage('INFO', 'Inactive regular account warned', ['user_id' => $userId, 'email' => $email]);
+                $processed++;
+            } else {
+                // Misslyckat mailutskick - sätt INTE inactivity_warned_at (se
+                // funktionskommentaren ovan).
+                logMessage('WARNING', 'Inactivity warning email failed, inactivity_warned_at not set', ['user_id' => $userId, 'email' => $email]);
+            }
+        }
+
+        // --- Steg 2: radera Regular-konton som varit inaktiva tillräckligt länge ---
+        $dstmt = $pdo->prepare(
+            "SELECT id, email FROM pro_users " .
+            "WHERE account_type = 'regular' " .
+            "AND COALESCE(last_login_at, created_at) <= DATE_SUB(NOW(), INTERVAL ? DAY)"
+        );
+        $dstmt->execute([$deleteDays]);
+        $toDelete = $dstmt->fetchAll(PDO::FETCH_ASSOC);
+
+        logMessage('DEBUG', 'cleanupInactiveRegularAccounts: found ' . count($toDelete) . ' regular users to delete');
+
+        foreach ($toDelete as $u) {
+            $userId = (int)$u['id'];
+            $email = $u['email'] ?? null;
+
+            // Hämta ALLA adresser för kontot - personliga OCH icke-personliga.
+            $tstmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ?");
+            $tstmt->execute([$userId]);
+            $addresses = $tstmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $totalEmailsDeleted = 0;
+            $totalAttachments = 0;
+            $totalFiles = 0;
+
+            foreach ($addresses as $address) {
+                $tempEmailId = $address['id'];
+
+                $sstmt = $pdo->prepare("SELECT id FROM stored_emails WHERE temp_email_id = ?");
+                $sstmt->execute([$tempEmailId]);
+                $emailIds = $sstmt->fetchAll(PDO::FETCH_COLUMN);
+
+                foreach ($emailIds as $emailId) {
+                    $r = cleanupEmailAttachments($emailId);
+                    $totalAttachments += $r['attachments'];
+                    $totalFiles += $r['files'];
+                }
+
+                $delStmt = $pdo->prepare("DELETE FROM stored_emails WHERE temp_email_id = ?");
+                $delStmt->execute([$tempEmailId]);
+                $totalEmailsDeleted += $delStmt->rowCount();
+
+                $tempDelStmt = $pdo->prepare("DELETE FROM temp_emails WHERE id = ?");
+                $tempDelStmt->execute([$tempEmailId]);
+                if ($tempDelStmt->rowCount() > 0) {
+                    deleteDirectAdminForwarder($address['unique_address']);
+                }
+            }
+
+            // Radera kringliggande rader utan FK-cascade innan pro_users-raden
+            // tas bort. Ingen av tabellerna i den här kodbasen har någon
+            // FOREIGN KEY (verifierat - se pro_auth.php:s delete_account-flöde,
+            // som redan gör exakt samma sak av samma anledning, och
+            // TwoFactorAuth::ensureSchema() som visar att pro_user_totp/
+            // pro_trusted_devices saknar FK helt). redemption_log rörs
+            // medvetet INTE - precis som i delete_account-flödet - eftersom
+            // den är en historik-/missbruksspärrlogg (en redan raderad
+            // användares id återanvänds aldrig av AUTO_INCREMENT, så
+            // kvarvarande rader varken pekar fel eller möjliggör nya
+            // voucher-inlösen).
+            $pdo->beginTransaction();
+            try {
+                $delDeliveries = $pdo->prepare("DELETE d FROM pro_webhook_deliveries d JOIN pro_webhooks w ON w.id = d.webhook_id WHERE w.user_id = ?");
+                $delDeliveries->execute([$userId]);
+
+                $delWebhooks = $pdo->prepare("DELETE FROM pro_webhooks WHERE user_id = ?");
+                $delWebhooks->execute([$userId]);
+
+                $delTokens = $pdo->prepare("DELETE FROM login_tokens WHERE user_id = ?");
+                $delTokens->execute([$userId]);
+
+                $delPending = $pdo->prepare("DELETE FROM pending_profile_changes WHERE user_id = ?");
+                $delPending->execute([$userId]);
+
+                TwoFactorAuth::ensureSchema($pdo);
+                $delTotp = $pdo->prepare("DELETE FROM pro_user_totp WHERE user_id = ?");
+                $delTotp->execute([$userId]);
+
+                $delRecoveryCodes = $pdo->prepare("DELETE FROM pro_user_recovery_codes WHERE user_id = ?");
+                $delRecoveryCodes->execute([$userId]);
+
+                $delTrustedDevices = $pdo->prepare("DELETE FROM pro_trusted_devices WHERE user_id = ?");
+                $delTrustedDevices->execute([$userId]);
+
+                $delUser = $pdo->prepare("DELETE FROM pro_users WHERE id = ?");
+                $delUser->execute([$userId]);
+
+                $pdo->commit();
+            } catch (Exception $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                logMessage('ERROR', 'Failed deleting inactive regular account (related rows/pro_users row)', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                continue;
+            }
+
+            logMessage('INFO', 'Inactive regular account deleted', [
+                'user_id' => $userId,
+                'email' => $email,
+                'addresses_removed' => count($addresses),
+                'emails_deleted' => $totalEmailsDeleted,
+                'attachments_deleted' => $totalAttachments,
+                'files_deleted' => $totalFiles
+            ]);
+
+            $processed++;
+        }
+
+        return $processed;
+
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Failed to cleanup inactive regular accounts: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Hämta databasstatistik
  */
 function getDatabaseStats() {
@@ -494,6 +762,12 @@ function runCleanup($options = []) {
     $proUsersResult = cleanupExpiredProUsers();
     if ($proUsersResult !== false) {
         $results['expired_pro_users_cleaned'] = $proUsersResult;
+    }
+
+    // Varna och radera inaktiva Regular-konton (raderar ALDRIG Pro-konton, se §6.2)
+    $regularUsersResult = cleanupInactiveRegularAccounts();
+    if ($regularUsersResult !== false) {
+        $results['regular_users_cleaned'] = $regularUsersResult;
     }
 
     // Rensa utgångna 2FA trusted-device-cookies
