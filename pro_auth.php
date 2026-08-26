@@ -141,6 +141,93 @@ function sendLoginEmail($email, $token) {
     return $sent;
 }
 
+// Hjälpfunktion: skicka verifieringsmail vid självbetjäningsregistrering
+// (register_account, se documentaion/ACCOUNT_TIERS.md §4). Byggd som
+// sendLoginEmail() ovan - samma From-header, samma mail()-anrop med envelope,
+// samma logg-hantering, samma försiktighet med att inte logga token i
+// produktion. Länken pekar på pro_login.php?token=..., som konsumerar token
+// via consumeLoginToken() och - om kontot är overifierat - sätter
+// email_verified_at samtidigt som den loggar in. Verifiering och första
+// inloggning blir alltså samma klick.
+function sendVerificationEmail(string $email, string $token): bool {
+    global $config;
+    $verifyUrl = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
+    $subject = "Confirm your TempMail account";
+    $message = "Hello,\n\nThanks for signing up. Click the link below to verify your email address and sign in:\n\n" . $verifyUrl . "\n\nThis link is valid for 30 minutes.\n\nIf you did not create this account, please ignore this email.\n\nRegards,\nThe TempMail Team";
+    $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
+
+    $headers = [];
+    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'Reply-To: ' . $fromAddress;
+    $headers[] = 'MIME-Version: 1.0';
+    $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+    $headers[] = 'X-Mailer: PHP/' . phpversion();
+    $headersStr = implode("\r\n", $headers);
+
+    $sent = false;
+    try {
+        $envelope = '-f' . $fromAddress;
+        $sent = mail($email, $subject, $message, $headersStr, $envelope);
+        if ($sent === false) {
+            logMessage('ERROR', 'mail() returned false when attempting to send verification email', ['to' => $email]);
+        }
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Verification mail sending unexpected error', ['error' => $e->getMessage(), 'to' => $email]);
+        $sent = false;
+    }
+
+    if ($sent) {
+        $logContext = ['to' => $email];
+        if (!empty($config['app']['debug_mode'])) {
+            // Only include token in debug/development mode
+            $logContext['token'] = $token;
+        }
+        logMessage('INFO', 'Verification email sent', $logContext);
+    } else {
+        logMessage('ERROR', 'Failed to send verification email', ['to' => $email]);
+    }
+
+    return $sent;
+}
+
+// Hjälpfunktion: notismail när register_account träffar en redan verifierad
+// e-postadress (se ACCOUNT_TIERS.md §4.3). Skapar och ändrar inget konto -
+// pekar bara mottagaren till befintlig inloggning. Skickas alltid från samma
+// kodväg som den generiska registreringsresponsen, aldrig från en gren som
+// avslöjar kontots existens till klienten.
+function sendAlreadyRegisteredEmail(string $email): bool {
+    global $config;
+    $loginUrl = $config['email']['base_url'] . "pro_login.php";
+    $subject = "You already have a TempMail account";
+    $message = "Hello,\n\nSomeone (hopefully you) just tried to create a TempMail account with this email address, but an account already exists.\n\nIf that was you, sign in here:\n\n" . $loginUrl . "\n\nIf you don't remember signing up, you can request a magic sign-in link from that page - no password needed.\n\nIf you did not try to create an account, you can safely ignore this email.\n\nRegards,\nThe TempMail Team";
+    $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
+
+    $headers = [];
+    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'Reply-To: ' . $fromAddress;
+    $headers[] = 'MIME-Version: 1.0';
+    $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+    $headers[] = 'X-Mailer: PHP/' . phpversion();
+    $headersStr = implode("\r\n", $headers);
+
+    $sent = false;
+    try {
+        $envelope = '-f' . $fromAddress;
+        $sent = mail($email, $subject, $message, $headersStr, $envelope);
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Already-registered mail sending unexpected error', ['error' => $e->getMessage(), 'to' => $email]);
+        $sent = false;
+    }
+
+    if (!$sent) {
+        logMessage('ERROR', 'Failed to send already-registered email', ['to' => $email]);
+    } else {
+        logMessage('INFO', 'Already-registered notice sent', ['to' => $email]);
+    }
+
+    return $sent;
+}
+
 // Hjälpfunktion: hämta senaste aktiva temp-adress för en pro-användare.
 // Bruten ut ur password_login så samma svarsform kan återanvändas av verify_2fa.
 function getProUserLatestAddress(PDO $pdo, array $config, $userId) {
@@ -424,6 +511,235 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         echo json_encode(['success' => false, 'error' => $result['error']]);
     }
+    exit;
+}
+
+// Endpoint: självbetjäningsregistrering (Regular eller Pro-med-voucherkod).
+// Se documentaion/ACCOUNT_TIERS.md §4 - detta är designunderlaget för allt
+// nedan. Svaret måste vara byte-identiskt oavsett om ett nytt konto skapades,
+// ett verifierat konto redan fanns, eller ett färskt overifierat konto redan
+// fanns (samt vid rate limiting och domänblockering) - annars blir endpointet
+// en kontoenumerator. Enda undantagen är rena formatfel på indata (ogiltig
+// e-post, för kort/olika lösenord) och voucherfel, som handlar om vad
+// användaren skrev, inte om vilka konton som finns.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'register_account') {
+    // 1. Vitlista plan. Okänt värde -> 'regular'.
+    $plan = $_POST['plan'] ?? 'regular';
+    if (!in_array($plan, ['regular', 'pro'], true)) {
+        $plan = 'regular';
+    }
+
+    $email = trim((string) ($_POST['email'] ?? ''));
+    $password = (string) ($_POST['password'] ?? '');
+    $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
+    $code = trim((string) ($_POST['code'] ?? ''));
+    $ip = function_exists('getVisitorIp') ? getVisitorIp() : ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+
+    // 2. Detektera misstänkta mönster i e-posten, precis som index.php gör på
+    // sina POST-actions, innan input används till något.
+    $suspicious = function_exists('detectSuspiciousPatterns') ? detectSuspiciousPatterns($email) : [];
+    if (!empty($suspicious)) {
+        logMessage('WARNING', 'Suspicious register_account input', [
+            'patterns' => $suspicious,
+            'ip' => $ip,
+        ]);
+        if (function_exists('flagMaliciousActivity')) {
+            flagMaliciousActivity($ip, 'Suspicious register_account input: ' . implode(',', $suspicious));
+        }
+        echo json_encode(['success' => false, 'error' => 'Invalid request']);
+        exit;
+    }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'error' => 'Invalid email address']);
+        exit;
+    }
+
+    // 3. Lösenordspolicy - matchar EXAKT pro_profile.php:s set_password (samma
+    // ordning, samma trösklar, samma felmeddelanden). Två olika krav i samma
+    // produkt vore en bugg i sig.
+    if ($password === '' || $password !== $passwordConfirm) {
+        echo json_encode(['success' => false, 'error' => 'Passwords do not match']);
+        exit;
+    }
+    if (strlen($password) < 8) {
+        echo json_encode(['success' => false, 'error' => 'Password must be at least 8 characters']);
+        exit;
+    }
+    if (strlen($password) > 256) {
+        echo json_encode(['success' => false, 'error' => 'Password too long (max 256 characters)']);
+        exit;
+    }
+
+    // Kodens NÄRVARO för plan=pro är ett rent formatfel (samma kategori som
+    // lösenordskraven ovan) och kontrolleras därför här, INNAN kontostatus
+    // slås upp - annars skulle "kod saknas" avslöja om e-posten redan har ett
+    // konto (den grenen hoppar över voucher-inlösen helt, se nedan). Själva
+    // kodens GILTIGHET kan bara kontrolleras när inlösen faktiskt försöks
+    // (endast i grenen "inget/färskt-utgånget konto" nedan) - det är den
+    // smala, avsiktliga voucher-felkanalen som issuen tillåter.
+    if ($plan === 'pro' && $code === '') {
+        echo json_encode(['success' => false, 'error' => 'A voucher code is required for a Pro account']);
+        exit;
+    }
+
+    // Det generiska svaret - identiskt i alla grenar utom formatfel/voucherfel ovan.
+    $genericResponse = ['success' => true, 'message' => 'Check your email to finish creating your account'];
+
+    // 4. Rate limiting, byggd exakt som magic_link_requests i
+    // request_login_link ovan: samma fönster, samma gräns, samma
+    // flagMaliciousActivity(), samma fail-open i catch-grenen (ett DB-fel här
+    // får aldrig blockera en legitim registrering, men ska loggas).
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS registration_requests (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ip VARCHAR(45) NOT NULL,
+            requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_ip_time (ip, requested_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $windowMinutes = 15;
+        $maxRequests = 5;
+        $s1 = $pdo->prepare("SELECT COUNT(*) FROM registration_requests WHERE ip = ? AND requested_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)");
+        $s1->execute([$ip, $windowMinutes]);
+        if ((int) $s1->fetchColumn() >= $maxRequests) {
+            if (function_exists('flagMaliciousActivity')) {
+                flagMaliciousActivity($ip, 'Registration rate limit exceeded');
+            }
+            logMessage('WARNING', 'Registration rate limit exceeded', ['ip' => $ip]);
+            // Samma generiska svar som en lyckad registrering - en rate
+            // limit-träff får inte ha ett eget felmeddelande.
+            echo json_encode($genericResponse);
+            exit;
+        }
+        $ins = $pdo->prepare("INSERT INTO registration_requests (ip) VALUES (?)");
+        $ins->execute([$ip]);
+    } catch (Exception $e) {
+        // Fail open (blockera aldrig legitima registreringar p.g.a. ett
+        // trasigt rate limit-test), men logga.
+        logMessage('ERROR', 'Registration rate-check failed', ['error' => $e->getMessage()]);
+    }
+
+    // 5a. Egen domän blockeras - samma kontroll som getOrCreateProUser().
+    $parts = explode('@', $email);
+    $domainPart = isset($parts[1]) ? strtolower($parts[1]) : '';
+    $forbiddenDomain = strtolower($config['email']['domain'] ?? 'manjo.me');
+    if ($domainPart === $forbiddenDomain) {
+        logMessage('INFO', 'Registration attempt using service domain rejected', ['domain' => $domainPart]);
+        echo json_encode($genericResponse);
+        exit;
+    }
+    // 5b. Blocklista för kända engångsdomäner (config.php).
+    if (isDisposableEmailDomain($email)) {
+        logMessage('INFO', 'Registration attempt using disposable email domain rejected', ['domain' => $domainPart]);
+        echo json_encode($genericResponse);
+        exit;
+    }
+
+    // 6. Hantering av befintlig e-postadress - se ACCOUNT_TIERS.md §4.3.
+    $stmt = $pdo->prepare("SELECT id, email_verified_at, created_at FROM pro_users WHERE email = ? LIMIT 1");
+    $stmt->execute([$email]);
+    $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    $hasVerifiedCol = tableHasColumn('pro_users', 'email_verified_at');
+    $hasAccountTypeCol = tableHasColumn('pro_users', 'account_type');
+
+    if ($existing) {
+        $isVerified = !$hasVerifiedCol || !is_null($existing['email_verified_at']);
+
+        if ($isVerified) {
+            // Verifierat konto finns: skapa/ändra inget. Skicka ett "du har
+            // redan ett konto"-mail. Voucher-inlösen anropas medvetet ALDRIG
+            // i den här grenen - annars skulle plan=pro kunna användas för
+            // att tyst uppgradera någon annans befintliga konto till Pro.
+            sendAlreadyRegisteredEmail($email);
+            logMessage('INFO', 'Registration attempted for existing verified account', ['user_id' => $existing['id']]);
+            echo json_encode($genericResponse);
+            exit;
+        }
+
+        $ageSeconds = time() - strtotime($existing['created_at']);
+        if ($ageSeconds < 24 * 3600) {
+            // Overifierat konto, yngre än 24 h: skicka om verifieringsmailet.
+            // Skapa/ändra inget - varken lösenord eller voucher-inlösen körs
+            // här, av samma anledning som ovan.
+            $token = createLoginToken($existing['id']);
+            sendVerificationEmail($email, $token);
+            logMessage('INFO', 'Verification email resent for unverified account', ['user_id' => $existing['id']]);
+            echo json_encode($genericResponse);
+            exit;
+        }
+        // Overifierat konto, äldre än 24 h: faller igenom till
+        // skapa/skriv-över-logiken nedan - detta är skyddet mot
+        // e-postsquatting (ACCOUNT_TIERS.md §4.3, sista raden).
+    }
+
+    // 7. Skapa nytt konto, eller skriv över en färdig-att-återta overifierad
+    // rad (>= 24 h gammal). $existing är här antingen null, eller en rad som
+    // garanterat är overifierad och >= 24 h gammal.
+    $userId = null;
+    $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+
+    if ($plan === 'pro') {
+        // Lös in vouchern FÖRE eget skrivande till pro_users - misslyckas
+        // inlösen skapas/ändras inget konto alls (varken här eller i
+        // redeemVoucherForEmail, som själv rullar tillbaka sin transaktion).
+        //
+        // redeemVoucherForEmail() skapar SJÄLV raden i pro_users om ingen
+        // fanns (INSERT-grenen: account_type='pro', email_verified_at=NOW()
+        // - precis som det befintliga redeem_voucher-endpointet redan gör,
+        // dvs. en giltig kod litar vi på direkt, samma tillit som idag).
+        // Fanns raden redan (den överåriga overifierade raden ovan) tar den
+        // i stället UPDATE-grenen, som INTE rör email_verified_at - kontot
+        // förblir overifierat tills den nya ägaren klickar verifieringslänken,
+        // vilket är exakt squatting-skyddet vi vill ha kvar även för Pro.
+        // password_hash sätts aldrig av redeemVoucherForEmail() - det gör vi
+        // separat direkt efter, oavsett vilken av dess två grenar som körde.
+        $result = redeemVoucherForEmail($email, $code);
+        if (!$result['success']) {
+            // Voucherfel handlar om vad användaren skrev, inte om kontots
+            // existens (se filens topkommentar) - riktigt felmeddelande OK.
+            echo json_encode(['success' => false, 'error' => $result['error']]);
+            exit;
+        }
+        $userId = (int) $result['user_id'];
+        $upw = $pdo->prepare("UPDATE pro_users SET password_hash = ? WHERE id = ?");
+        $upw->execute([$passwordHash, $userId]);
+    } elseif ($existing) {
+        // Skriv över den överåriga overifierade raden med de nya uppgifterna.
+        if ($hasAccountTypeCol && $hasVerifiedCol) {
+            $upd = $pdo->prepare("UPDATE pro_users SET password_hash = ?, account_type = 'regular', email_verified_at = NULL, address_ttl_days = 1 WHERE id = ?");
+        } elseif ($hasVerifiedCol) {
+            $upd = $pdo->prepare("UPDATE pro_users SET password_hash = ?, email_verified_at = NULL, address_ttl_days = 1 WHERE id = ?");
+        } else {
+            $upd = $pdo->prepare("UPDATE pro_users SET password_hash = ?, address_ttl_days = 1 WHERE id = ?");
+        }
+        $upd->execute([$passwordHash, $existing['id']]);
+        $userId = (int) $existing['id'];
+    } else {
+        // Nytt Regular-konto: email_verified_at = NULL, address_ttl_days = 1,
+        // password_hash satt via password_hash(..., PASSWORD_DEFAULT).
+        if ($hasAccountTypeCol && $hasVerifiedCol) {
+            $ins = $pdo->prepare("INSERT INTO pro_users (email, password_hash, account_type, email_verified_at, address_ttl_days) VALUES (?, ?, 'regular', NULL, 1)");
+        } elseif ($hasVerifiedCol) {
+            $ins = $pdo->prepare("INSERT INTO pro_users (email, password_hash, email_verified_at, address_ttl_days) VALUES (?, ?, NULL, 1)");
+        } else {
+            $ins = $pdo->prepare("INSERT INTO pro_users (email, password_hash, address_ttl_days) VALUES (?, ?, 1)");
+        }
+        $ins->execute([$email, $passwordHash]);
+        $userId = (int) $pdo->lastInsertId();
+    }
+
+    // 8. Skicka verifieringsmail. Samma token/tabell som magic link
+    // (createLoginToken()) - länken pekar på pro_login.php?token=..., som
+    // konsumerar token och sätter email_verified_at om kontot var
+    // overifierat (utökat i den här issuen, se pro_login.php).
+    $token = createLoginToken($userId);
+    sendVerificationEmail($email, $token);
+    logMessage('INFO', 'Account registered, verification email sent', ['user_id' => $userId, 'plan' => $plan]);
+
+    // 9. Svara - alltid samma generiska svar.
+    echo json_encode($genericResponse);
     exit;
 }
 

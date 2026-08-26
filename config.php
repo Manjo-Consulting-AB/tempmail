@@ -351,6 +351,45 @@ function generateSignedAttachmentUrl(int $attachmentId, ?int $ttlSeconds = null,
 $config['env_source'] = $env_source;
 
 /**
+ * Kända engångs-/tempmail-domäner som blockeras vid självbetjäningsregistrering
+ * (pro_auth.php: register_account, se documentaion/ACCOUNT_TIERS.md §4.2).
+ *
+ * Ironiskt nog måste en tempmail-tjänst blockera andra tempmail-tjänster: utan
+ * detta kringgås kontofarmningens IP-rate limit och e-postverifiering enkelt
+ * genom att bara låta en konkurrerande engångsadress ta emot verifieringsmailet.
+ * Listan ska vara kort och uppenbar, inte uttömmande - underhållbarhet först.
+ */
+const DISPOSABLE_EMAIL_DOMAINS = [
+    'mailinator.com',
+    'guerrillamail.com',
+    'guerrillamail.info',
+    '10minutemail.com',
+    '10minutemail.net',
+    'yopmail.com',
+    'temp-mail.org',
+    'tempmail.com',
+    'throwaway.email',
+    'getnada.com',
+    'trashmail.com',
+    'dispostable.com',
+    'sharklasers.com',
+];
+
+/**
+ * True om e-postadressens domän finns i den kända engångsdomän-blocklistan
+ * ovan. Domänjämförelsen är case-insensitive; ogiltiga adresser (utan '@')
+ * räknas inte som blockerade här - anropande kod validerar formatet separat.
+ */
+function isDisposableEmailDomain(string $email): bool {
+    $parts = explode('@', $email);
+    $domain = isset($parts[1]) ? strtolower(trim($parts[1])) : '';
+    if ($domain === '') {
+        return false;
+    }
+    return in_array($domain, DISPOSABLE_EMAIL_DOMAINS, true);
+}
+
+/**
  * ============================================================================
  * INPUT SANITIZATION & VALIDATION HELPERS
  * Centralized functions for secure input handling across the application.

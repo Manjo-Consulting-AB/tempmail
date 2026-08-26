@@ -32,6 +32,17 @@ if ($token) {
         $_SESSION['pro_user_email'] = $result['email'];
         $_SESSION['pro_login_method'] = 'magic_link';
         recordProUserLogin($result['user_id']);
+
+        // Registration (#59, ACCOUNT_TIERS.md §4.1/§4.3) reuses this same
+        // magic-link token as its verification link, so verification and the
+        // first login happen in the same click - no separate "you're now
+        // verified" page. Only ever sets it, never clears it, and only when
+        // still NULL (an already-verified account is left untouched).
+        if (tableHasColumn('pro_users', 'email_verified_at')) {
+            $verifyStmt = $pdo->prepare("UPDATE pro_users SET email_verified_at = NOW() WHERE id = ? AND email_verified_at IS NULL");
+            $verifyStmt->execute([$result['user_id']]);
+        }
+
         header('Location: pro.php');
         exit;
     }
