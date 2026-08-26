@@ -253,7 +253,13 @@ final class MailParser
             try {
                 // Direct file log for debugging email_id issue -> use safeDebugLog instead
                 if (function_exists('safeDebugLog')) {
-                    safeDebugLog('DEBUG', '[MailParser] INSERT', ['email_id' => (int)$emailId, 'filename' => $san]);
+                    safeDebugLog('DEBUG', '[MailParser] INSERT', [
+                        'email_id' => (int)$emailId,
+                        'filename' => $san,
+                        'has_content_id_column' => $hasContentIdColumn,
+                        'content_id_raw' => $a['content_id'] ?? null,
+                        'content_id_extracted' => $contentId,
+                    ]);
                 }
 
                 if ($hasContentIdColumn) {
