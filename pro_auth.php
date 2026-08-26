@@ -335,7 +335,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $newExpires = date('Y-m-d H:i:s', strtotime("+{$dur} days"));
                 }
             }
-            $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ? WHERE id = ?");
+            if (tableHasColumn('pro_users', 'account_type')) {
+                $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ?, account_type = 'pro' WHERE id = ?");
+            } else {
+                $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ? WHERE id = ?");
+            }
             $up->execute([$newExpires, $userId]);
         } else {
             // Create new pro user with default TTL
@@ -356,7 +360,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $newExpires = date('Y-m-d H:i:s', strtotime("+{$dur} days"));
             }
             $defaultTtl = 1;
-            $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days) VALUES (?, ?, ?)");
+            if (tableHasColumn('pro_users', 'account_type')) {
+                $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days, account_type, email_verified_at) VALUES (?, ?, ?, 'pro', NOW())");
+            } else {
+                $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days) VALUES (?, ?, ?)");
+            }
             $ins->execute([$email, $newExpires, $defaultTtl]);
             $userId = $pdo->lastInsertId();
         }

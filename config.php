@@ -988,6 +988,104 @@ if ($config['app']['debug_mode']) {
     error_log("IMAP Enabled: " . ($config['imap']['enabled'] ? 'Yes' : 'No'));
 }
 
+// Helper: check if a table has a given column (useful when migrations aren't applied)
+function tableHasColumn($table, $column) {
+    global $pdo, $config;
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+        $stmt->execute([$config['db']['name'], $table, $column]);
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Exception $e) {
+        // If we cannot query information_schema, assume the column does not exist to be safe
+        error_log('tableHasColumn check failed: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Kontotyp för ett konto: 'pro' eller 'regular'.
+ * Se documentaion/ACCOUNT_TIERS.md §2.
+ */
+function proUserAccountType(int $userId): string {
+    global $pdo;
+    static $hasColumnCache = null;
+    static $typeCache = [];
+
+    if (array_key_exists($userId, $typeCache)) {
+        return $typeCache[$userId];
+    }
+
+    if ($hasColumnCache === null) {
+        $hasColumnCache = tableHasColumn('pro_users', 'account_type');
+    }
+
+    if (!$hasColumnCache) {
+        // Migrationen är inte körd än - fall tillbaka på legacy-regeln.
+        return $typeCache[$userId] = proUserIsPro($userId) ? 'pro' : 'regular';
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT account_type FROM pro_users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $accountType = $stmt->fetchColumn();
+        if ($accountType === 'pro' || $accountType === 'regular') {
+            return $typeCache[$userId] = $accountType;
+        }
+        return $typeCache[$userId] = 'regular';
+    } catch (Exception $e) {
+        logMessage('WARNING', 'proUserAccountType lookup failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        // Fail-closed på entitlement: ge aldrig bort Pro på ett fel.
+        return $typeCache[$userId] = 'regular';
+    }
+}
+
+/**
+ * True när kontot är berättigat till Pro-funktioner.
+ * Regel: account_type = 'pro' OCH (pro_expires_at IS NULL ELLER pro_expires_at > NOW()).
+ * Se documentaion/ACCOUNT_TIERS.md §2.1.
+ */
+function proUserIsPro(int $userId): bool {
+    global $pdo;
+    static $hasColumnCache = null;
+    static $isProCache = [];
+
+    if (array_key_exists($userId, $isProCache)) {
+        return $isProCache[$userId];
+    }
+
+    if ($hasColumnCache === null) {
+        $hasColumnCache = tableHasColumn('pro_users', 'account_type');
+    }
+
+    try {
+        if ($hasColumnCache) {
+            $stmt = $pdo->prepare("SELECT account_type, pro_expires_at FROM pro_users WHERE id = ?");
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return $isProCache[$userId] = false;
+            }
+            $isPro = $row['account_type'] === 'pro'
+                && (is_null($row['pro_expires_at']) || strtotime($row['pro_expires_at']) >= time());
+            return $isProCache[$userId] = $isPro;
+        }
+
+        // Legacy-fallback: kolumnen finns inte än, använd dagens logik.
+        $stmt = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return $isProCache[$userId] = false;
+        }
+        $isPro = is_null($row['pro_expires_at']) || (strtotime($row['pro_expires_at']) >= time());
+        return $isProCache[$userId] = $isPro;
+    } catch (Exception $e) {
+        logMessage('WARNING', 'proUserIsPro lookup failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        // Fail-closed på entitlement: ge aldrig bort Pro på ett fel.
+        return $isProCache[$userId] = false;
+    }
+}
+
 /**
  * Generera en unik adressträng
  */
