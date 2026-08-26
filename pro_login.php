@@ -92,6 +92,7 @@ if ($token) {
                     <div>
                         <button id="showRedeemLink" class="btn btn-outline-primary">Redeem a code</button>
                     </div>
+                    </div>
                 </div>
 
                 <hr id="loginModeDivider">

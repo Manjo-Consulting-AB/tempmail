@@ -14,6 +14,28 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 $allowedEmail = 'tony@manjo.se';
 $userEmail = isset($_SESSION['pro_user_email']) ? strtolower(trim((string)$_SESSION['pro_user_email'])) : null;
 if ($userEmail !== strtolower($allowedEmail)) {
+    // Temporary diagnostics for #log-viewer-migration: this check looks
+    // correct and mirrors pro.php's, but access is being denied even when
+    // the user is genuinely logged in as tony@manjo.se on pro.php. Log
+    // enough (server-side only, never echoed) to tell "no session at all"
+    // apart from "session present but pro_user_email missing/mismatched"
+    // without leaking the raw cookie or full email into logs.
+    $diagCookiePresent = isset($_COOKIE[session_name()]);
+    $diagSessionKeys = array_keys($_SESSION ?? []);
+    $diagHasProUserId = isset($_SESSION['pro_user_id']);
+    $diagEmailPreview = $userEmail === null ? 'null' : (substr($userEmail, 0, 3) . '***@' . substr(strrchr($userEmail, '@') ?: '', 1));
+    // Never log the raw session ID or cookie value (session hijacking risk
+    // if the log file is ever exposed) — just enough to correlate calls.
+    $sid = session_id() ?: '';
+    $diagSidSuffix = $sid !== '' ? substr($sid, -6) : '(none)';
+    error_log(sprintf(
+        'log_viewer.php access denied: cookie_present=%s session_id_suffix=%s session_keys=[%s] pro_user_id_set=%s user_email_preview=%s',
+        $diagCookiePresent ? 'yes' : 'no',
+        $diagSidSuffix,
+        implode(',', $diagSessionKeys),
+        $diagHasProUserId ? 'yes' : 'no',
+        $diagEmailPreview
+    ));
     http_response_code(403);
     echo "Access denied\n";
     exit;
