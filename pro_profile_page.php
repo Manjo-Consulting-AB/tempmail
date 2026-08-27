@@ -721,7 +721,9 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                     $('#proEmail').val(res.profile.email || '');
                     // Show pro expiry if provided (date-only under Signed in as)
                     var expires = res.profile.pro_expires_at || null;
-                    if (expires) {
+                    if (!res.profile.is_pro) {
+                        $('#proExpiryLine').text('Free').css('color', '');
+                    } else if (expires) {
                         var d = new Date(expires + ' UTC');
                         // Format date as DD/MM/YYYY (no time)
                         var dd = String(d.getUTCDate()).padStart(2, '0');

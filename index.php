@@ -945,21 +945,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     var proExpiry = <?php 
                         // Fetch pro_expires_at from session or database
                         $proExpires = null;
+                        $isProAccount = false;
                         if (!empty($_SESSION['pro_user_id'])) {
                             try {
                                 $pstmt = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
                                 $pstmt->execute([$_SESSION['pro_user_id']]);
                                 $prow = $pstmt->fetch(PDO::FETCH_ASSOC);
                                 $proExpires = $prow['pro_expires_at'] ?? null;
+                                $isProAccount = proUserIsPro((int)$_SESSION['pro_user_id']);
                             } catch (Exception $e) {}
                         }
-                        echo json_encode($proExpires);
+                        echo json_encode(['expires' => $proExpires, 'isPro' => $isProAccount]);
                     ?>;
-                    if (!proExpiry) {
+                    if (!proExpiry.isPro) {
+                        document.getElementById('proExpiryLine').textContent = 'Free';
+                        return;
+                    }
+                    if (!proExpiry.expires) {
                         document.getElementById('proExpiryLine').textContent = 'Pro: Lifetime';
                         return;
                     }
-                    var d = new Date(proExpiry + ' UTC');
+                    var d = new Date(proExpiry.expires + ' UTC');
                     var dd = String(d.getUTCDate()).padStart(2, '0');
                     var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
                     var yyyy = d.getUTCFullYear();

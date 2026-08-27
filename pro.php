@@ -33,6 +33,7 @@ try {
 } catch (Exception $e) {
     // ignore
 }
+$isProAccount = proUserIsPro((int)$_SESSION['pro_user_id']);
 
 // Fetch the most recent active temporary email for this pro user (if any)
 $initialAddress = null;
@@ -115,7 +116,8 @@ try {
         maxEmailPreview: 150,
         urlAddress: <?php echo json_encode($initialAddress); ?>,
         urlExpiresAt: <?php echo json_encode($initialExpires); ?>,
-        proExpiresAt: <?php echo json_encode($proExpires); ?>
+        proExpiresAt: <?php echo json_encode($proExpires); ?>,
+        isProAccount: <?php echo json_encode($isProAccount); ?>
     };
     // Mark this page as served for a logged-in pro user
     window.tempMailConfig.isPro = true;
@@ -135,6 +137,10 @@ try {
             (function(){
                 try {
                     var ex = window.tempMailConfig && window.tempMailConfig.proExpiresAt ? window.tempMailConfig.proExpiresAt : null;
+                    if (!(window.tempMailConfig && window.tempMailConfig.isProAccount)) {
+                        document.getElementById('proExpiryLine').textContent = 'Free';
+                        return;
+                    }
                     if (!ex) {
                         document.getElementById('proExpiryLine').textContent = 'Pro: Lifetime';
                         return;
