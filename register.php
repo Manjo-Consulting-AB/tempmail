@@ -56,6 +56,34 @@ if (!in_array($plan, ['regular', 'pro'], true)) {
             <?php require 'partials/nav.php'; ?>
         </div>
 
+        <!-- Getting Started Guide -->
+        <div class="card mt-4 card-main-width">
+            <div class="card-header"><h3><i class="fas fa-rocket"></i> Getting Started</h3></div>
+            <div class="card-body">
+                <p class="text-muted mb-3">Not sure which account to pick? Here's the difference:</p>
+
+                <div class="d-flex mb-3">
+                    <div class="me-3">
+                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;"><i class="fas fa-check"></i></span>
+                    </div>
+                    <div>
+                        <strong>Free account</strong>
+                        <p class="text-muted mb-0 small">One temporary address at a time, with a 24-hour lifetime. No voucher code needed &mdash; just verify your email.</p>
+                    </div>
+                </div>
+
+                <div class="d-flex">
+                    <div class="me-3">
+                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;"><i class="fas fa-star"></i></span>
+                    </div>
+                    <div>
+                        <strong>Pro account</strong>
+                        <p class="text-muted mb-0 small">Longer address lifetimes and extra features. Requires a voucher code until online payments launch.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="card mt-4 card-main-width">
             <div class="card-header"><h3>Create account</h3></div>
             <div class="card-body">
@@ -99,34 +127,6 @@ if (!in_array($plan, ['regular', 'pro'], true)) {
                 </div>
 
                 <p class="text-muted mt-3 mb-0 small">Already have an account? <a href="pro_login.php">Sign in here</a>.</p>
-            </div>
-        </div>
-
-        <!-- Getting Started Guide -->
-        <div class="card mt-4 card-main-width">
-            <div class="card-header"><h3><i class="fas fa-rocket"></i> Getting Started</h3></div>
-            <div class="card-body">
-                <p class="text-muted mb-3">Not sure which account to pick? Here's the difference:</p>
-
-                <div class="d-flex mb-3">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;"><i class="fas fa-check"></i></span>
-                    </div>
-                    <div>
-                        <strong>Free account</strong>
-                        <p class="text-muted mb-0 small">One temporary address at a time, with a 24-hour lifetime. No voucher code needed &mdash; just verify your email.</p>
-                    </div>
-                </div>
-
-                <div class="d-flex">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;"><i class="fas fa-star"></i></span>
-                    </div>
-                    <div>
-                        <strong>Pro account</strong>
-                        <p class="text-muted mb-0 small">Longer address lifetimes and extra features. Requires a voucher code until online payments launch.</p>
-                    </div>
-                </div>
             </div>
         </div>
 
