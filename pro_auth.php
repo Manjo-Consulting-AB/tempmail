@@ -1266,6 +1266,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                     $m = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ?");
                     $m->execute([$row['id']]);
 
+                    // Delete the user's temp addresses (and their stored emails/
+                    // attachments) BEFORE deleting the pro_users row itself, the
+                    // same way cron/cleanup.php's cleanupInactiveRegularAccounts()
+                    // does. temp_emails.pro_user_id is a real FK to pro_users.id,
+                    // so leaving these rows behind makes the final DELETE FROM
+                    // pro_users fail with a foreign key constraint violation.
+                    $tstmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ?");
+                    $tstmt->execute([$userId]);
+                    $addresses = $tstmt->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($addresses as $address) {
+                        $tempEmailId = $address['id'];
+
+                        $sstmt = $pdo->prepare("SELECT id FROM stored_emails WHERE temp_email_id = ?");
+                        $sstmt->execute([$tempEmailId]);
+                        $emailIds = $sstmt->fetchAll(PDO::FETCH_COLUMN);
+
+                        foreach ($emailIds as $emailId) {
+                            $astmt = $pdo->prepare("SELECT filename, file_path FROM email_attachments WHERE email_id = ?");
+                            $astmt->execute([$emailId]);
+                            foreach ($astmt->fetchAll(PDO::FETCH_ASSOC) as $attachment) {
+                                $fullPath = __DIR__ . '/' . ltrim($attachment['file_path'], '/');
+                                if (file_exists($fullPath)) {
+                                    @unlink($fullPath);
+                                }
+                            }
+                            $delAttachments = $pdo->prepare("DELETE FROM email_attachments WHERE email_id = ?");
+                            $delAttachments->execute([$emailId]);
+                        }
+
+                        $delStoredEmails = $pdo->prepare("DELETE FROM stored_emails WHERE temp_email_id = ?");
+                        $delStoredEmails->execute([$tempEmailId]);
+
+                        $delTempEmail = $pdo->prepare("DELETE FROM temp_emails WHERE id = ?");
+                        $delTempEmail->execute([$tempEmailId]);
+                        if ($delTempEmail->rowCount() > 0) {
+                            deleteDirectAdminForwarder($address['unique_address']);
+                        }
+                    }
+
                     // Perform deletions in a transaction
                     $pdo->beginTransaction();
                     // Delete webhook deliveries for user's webhooks
