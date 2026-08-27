@@ -80,6 +80,7 @@ try {
 } catch (Exception $e) {
     $proExpires = null;
 }
+$isProAccount = proUserIsPro((int)$userId);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -104,6 +105,11 @@ try {
             (function(){
                 try {
                     var proExpiry = <?php echo json_encode($proExpires); ?>;
+                    var isProAccount = <?php echo json_encode($isProAccount); ?>;
+                    if (!isProAccount) {
+                        document.getElementById('proExpiryLine').textContent = 'Free';
+                        return;
+                    }
                     if (!proExpiry) {
                         document.getElementById('proExpiryLine').textContent = 'Pro: Lifetime';
                         return;
