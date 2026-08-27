@@ -101,28 +101,10 @@ if ($token) {
                         <input type="radio" class="btn-check" name="loginMode" id="modePassword" autocomplete="off">
                         <label class="btn btn-outline-secondary" for="modePassword">Password</label>
                     </div>
-                    <div>
-                        <button id="showRedeemLink" class="btn btn-outline-primary">Redeem a code</button>
-                    </div>
                     </div>
                 </div>
 
                 <hr id="loginModeDivider">
-                <h5 id="redeemHeading" style="display:none;">Redeem voucher</h5>
-                <div id="redeemBlock" style="display:none;">
-                    <form id="redeemForm">
-                        <div class="mb-3">
-                            <label for="redeemEmail" class="form-label">Email address</label>
-                            <input type="email" class="form-control" name="email" id="redeemEmail" required />
-                        </div>
-                        <div class="mb-3">
-                            <label for="redeemCode" class="form-label">Voucher code</label>
-                            <input type="text" class="form-control" name="code" id="redeemCode" required />
-                        </div>
-                        <button type="submit" class="btn btn-success w-100">Redeem</button>
-                    </form>
-                    <div id="redeemMsg" class="mt-3"></div>
-                </div>
 
                 <div id="magicBlock">
                     <form method="post" action="pro_auth.php" id="loginRequestForm">
@@ -266,7 +248,7 @@ if ($token) {
         }
 
         function showTwoFactorBlock() {
-            $('#loginModeToggle, #loginModeDivider, #magicBlock, #passwordBlock, #redeemBlock, #redeemHeading').hide();
+            $('#loginModeToggle, #loginModeDivider, #magicBlock, #passwordBlock').hide();
             resetTwoFactorField();
             $('#twoFactorMsg').html('');
             $('#twoFactorCode').val('');
@@ -368,71 +350,6 @@ if ($token) {
                     $('#loginRequestMsg').html('<div class="alert alert-danger">' + (res.error || 'Could not send link.') + '</div>');
                 }
             }, 'json');
-        });
-
-        // Redeem voucher handler
-        $('#redeemForm').on('submit', function(e){
-            e.preventDefault();
-            var email = $('#redeemEmail').val();
-            var code = $('#redeemCode').val();
-            $('#redeemMsg').html('<div class="alert alert-info">Redeeming...</div>');
-            $.post('pro_auth.php', { action: 'redeem_voucher', email: email, code: code }, function(res){
-                if (res && res.success) {
-                    $('#redeemMsg').html('<div class="alert alert-success">' + (res.message || 'Voucher redeemed. You can now sign in.') + '</div>');
-                    
-                    // After successful redeem: close redeem block, show magic link, pre-fill email
-                    setTimeout(function(){
-                        // Hide redeem block
-                        $('#redeemBlock').hide();
-                        $('#redeemHeading').hide();
-                        $('#redeemMsg').html('');
-                        $('#showRedeemLink').text('Redeem a code');
-                        
-                        // Show magic link block and ensure password block is hidden
-                        $('#magicBlock').show();
-                        $('#passwordBlock').hide();
-                        $('#modeMagic').prop('checked', true);
-                        
-                        // Pre-fill the magic link email field with the redeem email
-                        $('#email').val(email);
-                        
-                        // Focus on the email field and show success message
-                        $('#loginRequestMsg').html('<div class="alert alert-success"><i class="fas fa-check-circle"></i> Account created! Enter your email to receive a login link.</div>');
-                        $('#email').focus();
-                    }, 1500);
-                } else {
-                    $('#redeemMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Redemption failed') + '</div>');
-                }
-            }, 'json').fail(function(){
-                $('#redeemMsg').html('<div class="alert alert-danger">Request failed</div>');
-            });
-        });
-
-        // Toggle redeem block and heading visibility
-        $('#showRedeemLink').on('click', function(e){
-            e.preventDefault();
-            var visible = $('#redeemBlock').is(':visible');
-            if (!visible) {
-                // Show redeem, hide login blocks
-                $('#redeemBlock').show();
-                $('#redeemHeading').show();
-                $('#magicBlock').hide();
-                $('#passwordBlock').hide();
-                $(this).text('Hide redeem');
-                setTimeout(function(){ $('#redeemEmail').focus(); }, 50);
-            } else {
-                // Hide redeem, restore selected login mode
-                $('#redeemBlock').hide();
-                $('#redeemHeading').hide();
-                if ($('#modePassword').is(':checked')) {
-                    $('#passwordBlock').show();
-                    $('#magicBlock').hide();
-                } else {
-                    $('#magicBlock').show();
-                    $('#passwordBlock').hide();
-                }
-                $(this).text('Redeem a code');
-            }
         });
 
         // Password login handler
