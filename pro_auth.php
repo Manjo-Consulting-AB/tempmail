@@ -1121,6 +1121,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             exit;
         }
 
+        // Atomically claim this token before doing any work. Email link
+        // scanners/prefetchers (Safe Links, antivirus gateways, etc.) can
+        // fetch this URL on their own, close in time to the user's real
+        // click. Without this, both requests would pass the `used` check
+        // above and race to run the same deletes concurrently, which can
+        // deadlock in MySQL - one request's transaction fails with "An
+        // error occurred..." even though the other one already completed
+        // the action (e.g. the account really was deleted).
+        $claim = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ? AND used = 0");
+        $claim->execute([$row['id']]);
+        if ($claim->rowCount() === 0) {
+            echo "This link has already been used.";
+            exit;
+        }
+
         $userId = (int)$row['user_id'];
         $action = $row['action'];
         $data = json_decode($row['data'], true);
@@ -1144,12 +1159,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             $oldRow = $oldStmt->fetch(PDO::FETCH_ASSOC);
             $oldEmail = $oldRow['email'] ?? '';
 
-            // Apply the email change and mark pending used. Do NOT create an undo token.
+            // Apply the email change. Do NOT create an undo token.
+            // (Token already marked used by the atomic claim above.)
             $u = $pdo->prepare("UPDATE pro_users SET email = ? WHERE id = ?");
             $u->execute([$newEmail, $userId]);
-            // Mark original pending as used
-            $m = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ?");
-            $m->execute([$row['id']]);
 
             // Notify old email that account email has changed (no undo link)
             try {
@@ -1208,10 +1221,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                 $u->execute([$hash, $userId]);
             }
 
-            // Mark original pending as used
-            $m = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ?");
-            $m->execute([$row['id']]);
-
             // A password change invalidates any "remember this browser"
             // cookies — see documentaion/2FA_DESIGN.md §2.
             TwoFactorAuth::revokeAllTrustedDevices($userId);
@@ -1262,9 +1271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                     $oldRow = $oldStmt->fetch(PDO::FETCH_ASSOC);
                     $oldEmail = $oldRow['email'] ?? '';
 
-                    // Mark this pending request as used to prevent reuse
-                    $m = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ?");
-                    $m->execute([$row['id']]);
+                    // (Token already marked used by the atomic claim above.)
 
                     // Delete the user's temp addresses (and their stored emails/
                     // attachments) BEFORE deleting the pro_users row itself, the
