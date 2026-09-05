@@ -41,6 +41,12 @@ if ($token) {
         if (tableHasColumn('pro_users', 'email_verified_at')) {
             $verifyStmt = $pdo->prepare("UPDATE pro_users SET email_verified_at = NOW() WHERE id = ? AND email_verified_at IS NULL");
             $verifyStmt->execute([$result['user_id']]);
+            if ($verifyStmt->rowCount() > 0) {
+                // Only fires on the row's first verification (the WHERE clause
+                // above only matches when email_verified_at was still NULL) -
+                // never on a plain magic-link login by an already-verified user.
+                sendAdminRegistrationNotification($result['email']);
+            }
         }
 
         header('Location: pro.php');

@@ -237,6 +237,44 @@ function sendAlreadyRegisteredEmail(string $email): bool {
     return $sent;
 }
 
+// Hjälpfunktion: adminnotis vid ny registrering. Skickas till en fast
+// admin-adress när ett kontos email_verified_at sätts för första gången
+// (dvs. anroparen bekräftar att UPDATE-satsen faktiskt träffade en rad) -
+// alltså precis när en användare registrerar sig OCH verifierar sin adress
+// i samma klick (pro_login.php:s magic-link-konsumtion). Byggd som
+// sendLoginEmail() ovan. Fail-open: ett fel här får aldrig blockera
+// användarens egen inloggning.
+function sendAdminRegistrationNotification(string $userEmail): bool {
+    $adminEmail = $_ENV['ADMIN_NOTIFICATION_EMAIL'] ?? 'tony@manjo.me';
+    $subject = "New TempMail registration verified";
+    $message = "A new user just registered and verified their email address:\n\n" . $userEmail . "\n\nRegards,\nThe TempMail System";
+    $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($GLOBALS['config']['email']['domain'] ?? 'manjo.me'));
+
+    $headers = [];
+    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'MIME-Version: 1.0';
+    $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+    $headers[] = 'X-Mailer: PHP/' . phpversion();
+    $headersStr = implode("\r\n", $headers);
+
+    $sent = false;
+    try {
+        $envelope = '-f' . $fromAddress;
+        $sent = mail($adminEmail, $subject, $message, $headersStr, $envelope);
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Admin registration notification mail sending unexpected error', ['error' => $e->getMessage(), 'user_email' => $userEmail]);
+        $sent = false;
+    }
+
+    if (!$sent) {
+        logMessage('ERROR', 'Failed to send admin registration notification', ['user_email' => $userEmail]);
+    } else {
+        logMessage('INFO', 'Admin registration notification sent', ['user_email' => $userEmail]);
+    }
+
+    return $sent;
+}
+
 // Hjälpfunktion: hämta senaste aktiva temp-adress för en pro-användare.
 // Bruten ut ur password_login så samma svarsform kan återanvändas av verify_2fa.
 function getProUserLatestAddress(PDO $pdo, array $config, $userId) {
