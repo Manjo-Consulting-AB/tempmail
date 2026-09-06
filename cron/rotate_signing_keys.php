@@ -44,9 +44,19 @@ if (!clientBackendHasDbTable('pro_users')) {
     exit(0);
 }
 
-$sql = 'SELECT id FROM pro_users WHERE id IS NOT NULL';
+if (!clientBackendHasDbTable('client_scripts')) {
+    fwrite(STDOUT, "client_scripts table not available - no client-agent adopters to rotate keys for\n");
+    exit(0);
+}
+
+// Only rotate for pro_users who actually own a client-agent script - most
+// pro_users have never installed the client agent, so scanning all of them
+// generated a "KEK not configured" ERROR per user, every run.
+$sql = 'SELECT DISTINCT pu.id FROM pro_users pu
+        INNER JOIN client_scripts cs ON cs.owner_pro_user_id = pu.id
+        WHERE pu.id IS NOT NULL';
 if ($limit > 0) {
-    $sql .= ' ORDER BY id ASC LIMIT ' . (int) $limit;
+    $sql .= ' ORDER BY pu.id ASC LIMIT ' . (int) $limit;
 }
 $stmt = $pdo->query($sql);
 $userIds = $stmt ? $stmt->fetchAll(PDO::FETCH_COLUMN) : [];
