@@ -144,15 +144,15 @@ if ($token) {
                     <p class="text-muted">Open your authenticator app (1Password, Authy, Google Authenticator &hellip;) and enter the 6-digit code for TempMail.</p>
                     <form id="twoFactorForm">
                         <input type="hidden" name="action" value="verify_2fa">
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" name="remember_device" id="rememberDeviceCheck">
+                            <label class="form-check-label" for="rememberDeviceCheck">Remember this browser for 30 days</label>
+                        </div>
                         <div class="mb-3">
                             <label for="twoFactorCode" class="form-label" id="twoFactorCodeLabel">Authentication code</label>
                             <input type="text" class="form-control" name="code" id="twoFactorCode"
                                    inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*"
                                    autofocus required>
-                        </div>
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" name="remember_device" id="rememberDeviceCheck">
-                            <label class="form-check-label" for="rememberDeviceCheck">Remember this browser for 30 days</label>
                         </div>
                         <button type="submit" class="btn btn-primary w-100">Verify</button>
                     </form>
