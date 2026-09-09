@@ -2,6 +2,23 @@
 
 This file gives Claude Code (and other AI assistants) the context needed to work effectively in this repository.
 
+> ## ⚠️ Active redesign — read before opening a pull request
+>
+> A full visual/communicative redesign is in progress, tracked in issues **Redesign 00–27**
+> and specified in **`documentaion/REDESIGN_BRIEF.md`** (read it before touching any frontend file).
+>
+> **Redesign pull requests target the `redesign/mail-shield` branch, never `main`.**
+> `.github/workflows/prod.yml` deploys to production on every push to `main`, so a redesign PR
+> merged into `main` goes live immediately and half-finished. Branch off `redesign/mail-shield`,
+> open the PR against it, and if you opened it against `main` by mistake, retarget it rather than
+> merging. Full rationale, go-live and rollback procedure: brief §15.
+>
+> The product is called **Mail Shield** in all user-facing copy. The internal identifiers
+> `TEMPMAIL_APP`, `window.tempMailConfig`, `class TempMailApp`, the `TEMPMAIL_*` env vars, database
+> names and file names deliberately keep the old name — do not "finish" the rename in code.
+>
+> This block is removed when the redesign ships (issue Redesign 27).
+
 ## What this is
 
 TempMail (manjo.me) is a disposable/temporary email address web service written in plain PHP (no framework, no build step). Users get throwaway inboxes; incoming mail is fetched over IMAP and shown in a web UI. There's also a paid "Pro" tier (magic-link login, saved profile, RSS feed of messages, Buy Me a Coffee billing) and a newer, mostly separate "Client Agent" subsystem that end users install on their own mail server to filter mail locally, driven by RSA-signed webhooks from this backend.

@@ -523,3 +523,92 @@ Do **not** lose the ability to rank for "tempmail", "temporary email",
   `log_viewer.php`.
 - `$config['email']['base_url']` (env `BASE_URL`, defaults to `https://manjo.me/`) is the origin for canonical/OG URLs. Never hardcode
   `https://manjo.me`.
+
+---
+
+## 15. How this ships
+
+### 15.1 Integration branch — never merge a redesign PR into `main`
+
+`.github/workflows/prod.yml` deploys to production on **every push to `main`** (rsync over SSH to
+`domains/manjo.me/public_html`, gated on Semgrep + `composer audit`). A redesign PR merged into
+`main` is therefore live within minutes.
+
+So the redesign uses a long-lived integration branch:
+
+```
+main                    ← production. Untouched until go-live.
+└── redesign/mail-shield ← every redesign PR targets THIS branch
+    ├── PR: Redesign 01
+    ├── PR: Redesign 02
+    └── …
+```
+
+**Rules:**
+
+1. Branch off `redesign/mail-shield`, not `main`.
+2. Open the PR against `redesign/mail-shield`. If you opened it against `main` by mistake, retarget
+   it — do not merge it.
+3. Squash-merge each PR into the integration branch, so one issue is one commit.
+4. Keep `redesign/mail-shield` current with `main` by **merging** `main` into it whenever `main`
+   moves (hotfixes, unrelated work). Never rebase it — several people and agents branch off it.
+5. Nothing is deployed until the go-live merge in §15.3.
+
+### 15.2 CI on the integration branch
+
+`main.yml` runs Semgrep only weekly and on demand, and `prod.yml` runs it on push to `main`. That
+means a PR gets **no security scan** by default — and Semgrep gates the production deploy. Without
+extra CI, 27 unscanned PRs would pile up and the first scan would happen at go-live, at the exact
+moment a failure is most expensive.
+
+`.github/workflows/redesign-pr.yml` closes that gap: it runs Semgrep and `composer audit` on every
+PR targeting `redesign/mail-shield` and on every push to it. Treat a finding as blocking, the same
+as on `main` (§12.6).
+
+### 15.3 Go-live
+
+1. `redesign/mail-shield` is complete: all issues merged, #110 QA pass done, #121 docs updated.
+2. Merge the latest `main` into `redesign/mail-shield` and confirm CI is green.
+3. **Rehearse the deploy.** Run the `Deploy to Production (Security gated)` workflow manually
+   (`workflow_dispatch`) with the branch set to `redesign/mail-shield` and `mode` = **`verify`**.
+   That runs the full pipeline and an `rsync --dry-run`, writing nothing, and prints the exact file
+   list that would change in production. Read it before going further.
+4. Merge `redesign/mail-shield` into `main` with a **merge commit** (`--no-ff`) — not a squash and
+   not a rebase. That gives one revertable point while keeping the individual commits in history.
+5. The push to `main` triggers the real deploy.
+
+### 15.4 Rollback
+
+```bash
+git revert -m 1 <merge-commit-sha>
+git push origin main          # the revert push redeploys the old design
+```
+
+One commit, one deploy. What that does and does not undo:
+
+- **Code: fully restored.** Every file the redesign modified is overwritten back to its previous
+  content by the next rsync.
+- **Deleted files are not removed from the server.** The deploy runs `rsync` **without `--delete`**,
+  so files the redesign added (`inbox.php`, `temporary-email.php`, `sitemap.php`, `robots.txt`,
+  `site.webmanifest`, `assets/fonts/*`, `assets/css/mailshield*.css`, `partials/landing/*`) stay on
+  the server after a rollback. They are orphans that nothing links to, which is harmless — but two
+  are worth knowing about:
+  - `robots.txt` keeps being served, and keeps pointing at `/sitemap.xml`. The rewrite rule in
+    `.htaccess` will be gone, so that URL 404s. Delete `robots.txt` and `sitemap.php` from the
+    server by hand if a rollback is meant to last.
+  - Any inbox link shared as `inbox.php?address=…` during the new-design window keeps working,
+    because `inbox.php` is still on disk — but it will be the *new* version running against the
+    *old* `index.php` POST surface. Since the POST handler is unchanged by the split (§10), that
+    still works; verify it if a rollback lasts more than a few hours.
+- **No database change to unwind.** The redesign adds no migration, no schema change and no new
+  table. That is deliberate (§1) and it is what makes a code-only rollback sufficient.
+- **Service worker.** `assets/js/sw.js` caches a static shell. Rolling back restores the old
+  `CACHE_NAME`, and the worker's own `activate` handler deletes every cache whose key differs — so
+  returning visitors self-heal on their next visit, with a one-navigation lag.
+
+### 15.5 Note on the brief's own location
+
+The 27 child issues each open with an instruction to fetch this file from
+`claude/manjo-redesign-m70zw3` if it is not already on the base branch. Once `redesign/mail-shield`
+exists that fallback never fires, because this file is on the integration branch. The scratch branch
+is kept alive anyway so the instruction stays valid if anyone follows it literally.
