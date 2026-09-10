@@ -545,18 +545,17 @@ class TempMailApp {
         
         if (emails.length === 0) {
             container.html(`
-                <div class="text-center py-5">
-                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
-                    <h5 class="text-muted">No messages yet</h5>
-                    <p class="text-muted">Email messages will appear here automatically</p>
+                <div class="ms-mail-empty">
+                    <p class="ms-mail-empty__line">No messages yet</p>
+                    <p class="ms-mail-empty__hint">Messages appear here automatically.</p>
                 </div>
             `);
             // Uppdatera email counter badge till 0
             $('#emailCount').text(0);
             return;
         }
-        
-        const emailsHtml = emails.map(email => {
+
+        const emailsHtml = emails.map((email, index) => {
             const time = this.formatTime(new Date(email.received_at));
             const preview = this.getEmailPreview(email.body_text || email.body_html);
             // Extract local part (before @) for display
@@ -568,26 +567,30 @@ class TempMailApp {
                     toLocal = email.to_address;
                 }
             }
-            
+            // Monogram för avataren: första tecknet i avsändaren, annars '?'
+            const fromAddress = String(email.from_address || '').trim();
+            const initial = fromAddress ? fromAddress.charAt(0).toUpperCase() : '?';
+            // Staggered entrance: the ms-rise helper in mailshield.css carries
+            // the prefers-reduced-motion guard. Capped so a long list does not
+            // sit invisible behind a growing delay.
+            const riseDelay = Math.min(index, 5) * 60;
+
             return `
-                <div class="email-item fade-in" data-email-id="${email.id}">
-                    <div class="email-header">
-                        <div>
-                            <div class="d-flex align-items-center" style="gap:8px;">
-                                <h6 class="email-from mb-0 me-2">${this.escapeHtml(email.from_address)}</h6>
-                                ${toLocal ? `<span class="badge bg-light text-dark small">To: ${this.escapeHtml(toLocal)}</span>` : ''}
-                            </div>
-                            <div class="d-flex align-items-center mt-1" style="gap:8px;">
-                                <div class="email-subject">${this.escapeHtml(email.subject || '(No subject)')}</div>
-                            </div>
-                        </div>
-                        <span class="email-time">${time}</span>
-                    </div>
-                    <div class="email-preview">${preview}</div>
+                <div class="email-item ms-rise" data-email-id="${this.escapeHtml(email.id)}" style="--ms-rise-delay:${riseDelay}ms">
+                    <span class="ms-mail__avatar" aria-hidden="true">${this.escapeHtml(initial)}</span>
+                    <span class="ms-mail__head">
+                        <span class="ms-mail__from">${this.escapeHtml(email.from_address)}</span>
+                        <span class="ms-mail__time">${this.escapeHtml(time)}</span>
+                    </span>
+                    <span class="ms-mail__sub">
+                        <span class="ms-mail__subject">${this.escapeHtml(email.subject || '(No subject)')}</span>
+                        ${toLocal ? `<span class="ms-chip ms-mail__to">To: ${this.escapeHtml(toLocal)}</span>` : ''}
+                    </span>
+                    <span class="ms-mail__preview">${this.escapeHtml(preview)}</span>
                 </div>
             `;
         }).join('');
-        
+
         container.html(emailsHtml);
         
         // Uppdatera email counter badge
@@ -605,13 +608,6 @@ class TempMailApp {
         } catch (e) {
             console.warn('Failed updating lastKnownEmailId', e);
         }
-        
-        // Animera in nya e-postmeddelanden
-        container.find('.email-item').each((index, item) => {
-            setTimeout(() => {
-                $(item).addClass('fade-in');
-            }, index * 100);
-        });
     }
 
     /**

@@ -129,139 +129,96 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
             <!-- navbar script moved to partial -->
         </div>
 
-        <!-- Initial address generator (visas tills adress är skapad) -->
-        <div id="initial-generator" class="card fade-in card-main-width">
-            <div class="card-body text-center">
-                <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                    <h4 class="mb-3">Click to get your temporary email address</h4>
-                    <button id="generateBtn" class="btn btn-primary btn-lg">
-                        <i class="fas fa-magic"></i> Get Email Address
-                    </button>
-                <?php else: ?>
-                    <h4 class="mb-3">An account is required to create a temporary email address</h4>
-                    <a href="/register.php" class="btn btn-primary btn-lg">
-                        <i class="fas fa-user-plus"></i> Create a free account
-                    </a>
-                    <div class="mt-2">
-                        <a href="/pro_login.php" class="small" rel="nofollow noreferrer">Already have an account? Log in</a>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <!-- E-postadress display (visas när adress är skapad) -->
-        <div class="email-container d-none">
-            <div class="card fade-in card-main-width">
-                <div class="card-header">
-                    <h3><i class="fas fa-envelope-open"></i> Your Temporary Email Address</h3>
-                </div>
-                <div class="card-body">
-                    <div class="email-display">
-                        <h4 class="email-address" id="currentEmail" tabindex="0"></h4>
-                        <div class="email-info">
-                            <span id="privacyIndicator" class="d-none me-3"><i class="fas fa-lock"></i> <span id="privacyText">Private</span></span>
-                            <i class="fas fa-clock"></i> <span id="validityText">Valid for 24 hours</span>
-                        </div>
-                    </div>
-                    
-                    <div class="row mt-4">
-                        <div class="col-md-6 mb-3">
-                            <button id="copyBtn" class="btn btn-success w-100">
-                                <i class="fas fa-copy"></i> Copy Address
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="refreshBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-sync-alt"></i> Refresh
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="shareBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-share-alt"></i> Share Link
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="newAddressBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-plus"></i> New Address
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="text-end mt-3">
-                        <small class="text-muted">
-                            Last updated: <span id="lastUpdate">Never</span>
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <!-- E-postlista -->
-            <div class="card fade-in card-main-width">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h3><i class="fas fa-inbox"></i> Incoming Emails</h3>
-                    <div class="d-flex align-items-center">
-                        <span class="badge bg-primary me-2" id="emailCount">0</span>
-                        <button id="imageToggle" class="btn btn-sm btn-outline-secondary" title="Blockera externa bilder">
-                            <i class="fas fa-image"></i>
+        <!-- Inbox: one frame, the way the landing hero mockup draws it -->
+        <main class="ms-inbox">
+            <div class="ms-inbox__frame">
+                <!-- Empty state (visas tills adress är skapad) -->
+                <div id="initial-generator" class="ms-inbox__empty">
+                    <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
+                        <h2 class="ms-inbox__empty-title">Click to get your temporary email address</h2>
+                        <button id="generateBtn" class="btn btn-primary btn-lg">
+                            <i class="fas fa-magic" aria-hidden="true"></i> Get Email Address
                         </button>
-                    </div>
+                    <?php else: ?>
+                        <h2 class="ms-inbox__empty-title">An account is required to create a temporary email address</h2>
+                        <a href="/register.php" class="btn btn-primary btn-lg">
+                            <i class="fas fa-user-plus" aria-hidden="true"></i> Create a free account
+                        </a>
+                        <p class="ms-inbox__empty-hint">
+                            <a href="/pro_login.php" rel="nofollow noreferrer">Already have an account? Log in</a>
+                        </p>
+                    <?php endif; ?>
                 </div>
-                <div class="card-body p-0">
+
+                <!-- E-postadress display (visas när adress är skapad) -->
+                <div class="email-container d-none">
+                    <div class="ms-inbox__head">
+                        <div class="ms-inbox__id">
+                            <p class="ms-eyebrow ms-inbox__label">Your address</p>
+                            <h2 class="email-address ms-inbox__addr" id="currentEmail" tabindex="0"></h2>
+                            <p class="ms-inbox__meta">
+                                <span id="privacyIndicator" class="d-none ms-inbox__privacy"><i class="fas fa-lock" aria-hidden="true"></i> <span id="privacyText">Private</span></span>
+                                <span class="ms-inbox__validity"><i class="fas fa-clock" aria-hidden="true"></i> <span id="validityText">Valid for 24 hours</span></span>
+                            </p>
+                        </div>
+
+                        <div class="ms-inbox__actions">
+                            <button id="copyBtn" class="btn btn-primary">
+                                <i class="fas fa-copy" aria-hidden="true"></i> Copy address
+                            </button>
+                            <button id="refreshBtn" class="btn btn-outline-secondary">
+                                <i class="fas fa-sync-alt" aria-hidden="true"></i> Refresh
+                            </button>
+                            <button id="shareBtn" class="btn btn-outline-secondary">
+                                <i class="fas fa-share-alt" aria-hidden="true"></i> Share link
+                            </button>
+                            <button id="newAddressBtn" class="btn btn-outline-secondary">
+                                <i class="fas fa-plus" aria-hidden="true"></i> New address
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="ms-inbox__listbar">
+                        <div class="ms-inbox__count">
+                            <span id="emailCount">0</span>
+                            <span>messages</span>
+                            <button id="imageToggle" class="btn btn-sm btn-outline-secondary" title="Blockera externa bilder">
+                                <i class="fas fa-image" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                        <div class="ms-inbox__freshness">
+                            <span class="status-indicator"><i class="fas fa-circle" aria-hidden="true"></i> Ready</span>
+                            <span class="ms-inbox__updated">Last updated: <span id="lastUpdate">Never</span></span>
+                        </div>
+                    </div>
+
+                    <!-- E-postlista -->
                     <div class="email-list" id="emailList">
                         <!-- E-postmeddelanden läses in här via JavaScript -->
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Statistik -->
-        <div class="card fade-in card-main-width">
-            <div class="card-header">
-                <h3><i class="fas fa-chart-bar"></i> System Statistics</h3>
-            </div>
-            <div class="card-body">
-                <div class="row text-center">
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-inbox fa-2x text-info mb-2"></i>
-                            <h4 class="stat-number" id="statsTotal">0</h4>
-                            <p class="text-muted mb-0">Total Emails</p>
-                        </div>
+                <!-- Statistik: en fotnot, inte en funktion -->
+                <div class="ms-inbox__stats">
+                    <div class="ms-inbox__stat">
+                        <span class="ms-inbox__stat-n" id="statsTotal">0</span>
+                        <span class="ms-inbox__stat-l">Total emails</span>
                     </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-envelope-open-text fa-2x text-primary mb-2"></i>
-                            <h4 class="stat-number" id="statsProcessed">0</h4>
-                            <p class="text-muted mb-0">Emails Processed</p>
-                        </div>
+                    <div class="ms-inbox__stat">
+                        <span class="ms-inbox__stat-n" id="statsProcessed">0</span>
+                        <span class="ms-inbox__stat-l">Emails processed</span>
                     </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-plus-circle fa-2x text-success mb-2"></i>
-                            <h4 class="stat-number" id="statsCreated">0</h4>
-                            <p class="text-muted mb-0">Addresses Created</p>
-                        </div>
+                    <div class="ms-inbox__stat">
+                        <span class="ms-inbox__stat-n" id="statsCreated">0</span>
+                        <span class="ms-inbox__stat-l">Addresses created</span>
                     </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-paperclip fa-2x text-warning mb-2"></i>
-                            <h4 class="stat-number" id="statsAttachments">0</h4>
-                            <p class="text-muted mb-0">Attachments Processed</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="text-center mt-3">
-                    <small class="text-muted">
-                        <i class="fas fa-sync-alt"></i> 
-                        Statistics updated automatically every minute
-                    </small>
-                    <br>
-                    <div class="status-indicator mt-2">
-                        <i class="fas fa-circle"></i> Ready
+                    <div class="ms-inbox__stat">
+                        <span class="ms-inbox__stat-n" id="statsAttachments">0</span>
+                        <span class="ms-inbox__stat-l">Attachments processed</span>
                     </div>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <!-- E-post Modal -->

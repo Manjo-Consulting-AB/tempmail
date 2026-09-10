@@ -369,6 +369,28 @@ body {
     --bs-btn-disabled-border-color: var(--ms-border);
 }
 
+/* The image toggle's resting state is re-classed to .btn-outline-light by
+   updateImageToggleButton() in app.js, which this redesign may not change. That
+   variant resolves to Bootstrap's near-white #f8f9fa, which was legible on the
+   old gradient header but vanishes on the white inbox toolbar, so it takes the
+   same treatment as .btn-outline-secondary. */
+.btn-outline-light {
+    --bs-btn-color: var(--ms-text);
+    --bs-btn-border-color: var(--ms-border-strong);
+    --bs-btn-hover-color: var(--ms-text);
+    --bs-btn-hover-bg: var(--ms-bg-sunken);
+    --bs-btn-hover-border-color: var(--ms-border-strong);
+    --bs-btn-active-color: var(--ms-accent);
+    --bs-btn-active-bg: var(--ms-accent-soft);
+    --bs-btn-active-border-color: var(--ms-accent);
+    --bs-btn-disabled-color: var(--ms-text-faint);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--ms-border);
+
+    background-color: transparent;
+    backdrop-filter: none;
+}
+
 .btn-link {
     --bs-btn-color: var(--ms-accent);
     --bs-btn-hover-color: var(--ms-accent-hover);
@@ -442,46 +464,57 @@ body {
 
 /* --- Email list ----------------------------------------------------------- */
 
+/* The row is still the legacy `.email-item`: app.js delegates its click handler
+   on that class and pro.php renders the same rows into its own list, so the
+   container is restyled here. Everything inside a row is new markup and is
+   styled by the `ms-mail__*` rules in mailshield.css ("Inbox"). */
+
 .email-item {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: var(--ms-space-3);
+    row-gap: 2px;
+    align-items: center;
+    padding: var(--ms-space-3) var(--ms-space-4);
     background: var(--ms-bg-raised);
-    border: 1px solid var(--ms-border);
-    border-radius: var(--ms-radius-md);
-    transition: border-color var(--ms-dur) var(--ms-ease),
-        background-color var(--ms-dur) var(--ms-ease);
+    /* Rows meet the frame edges and are separated by hairlines instead of being
+       cards. The left edge is reserved on every row so an unread row never
+       shifts its own text. */
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    margin-bottom: 0;
+    cursor: pointer;
+    transition:
+        background-color var(--ms-dur) var(--ms-ease),
+        border-color var(--ms-dur) var(--ms-ease);
 }
 
+.email-item + .email-item {
+    border-top: 1px solid var(--ms-border);
+}
+
+/* style.css paints every border side cyan and lifts the row 2px on hover; both
+   are restated here. Hover changes background and border colour only. */
 .email-item:hover {
-    border-color: var(--ms-border-strong);
+    background: var(--ms-bg-sunken);
+    border-top-color: var(--ms-border);
+    border-left-color: transparent;
     box-shadow: none;
     transform: none;
 }
 
-/* Unread: accent left border plus weight, no gradient stripe. */
+/* Unread: the 2px accent edge and a heavier sender, no gradient wash. The full
+   shorthand is restated because style.css sets a 4px cyan border-left here, and
+   declared after :hover so the edge survives a hovered row. */
 .email-item.unread {
-    border-left: 4px solid var(--ms-accent);
-    background: var(--ms-bg-raised);
+    border-left: 2px solid var(--ms-accent);
+    background-image: none;
 }
 
-.email-item.unread .email-from,
-.email-item.unread .email-subject {
+.email-item.unread .ms-mail__from {
     font-weight: 600;
     color: var(--ms-text);
-}
-
-.email-from {
-    color: var(--ms-text);
-}
-
-.email-time {
-    color: var(--ms-text-muted);
-}
-
-.email-subject {
-    color: var(--ms-text);
-}
-
-.email-preview {
-    color: var(--ms-text-muted);
 }
 
 .email-content {
