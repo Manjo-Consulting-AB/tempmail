@@ -22,3 +22,5 @@ client/agent/storage/*.bak
 
 # Client backend runtime storage (legacy/local test state)
 client/backend/storage/*.json
+# DeepSeek-watcherns arbetsträd, loggar och lås (.github/scripts/deepseek_watcher.sh)
+.claude/
