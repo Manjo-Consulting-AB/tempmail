@@ -899,6 +899,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     exit;
 }
+
+// Shared inbox links used to be read on this page. The inbox now lives in
+// inbox.php; redirect so existing links keep working.
+if ($urlAddress !== null) {
+    header('Location: inbox.php?address=' . urlencode($urlAddress), true, 302);
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="sv">
@@ -1026,97 +1033,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
         <?php endif; ?>
-            </div>
-        </div>
 
-        
-
-        <!-- Initial address generator (visas tills adress är skapad) -->
-        <div id="initial-generator" class="card fade-in card-main-width">
-            <div class="card-body text-center">
-                <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                    <h4 class="mb-3">Click to get your temporary email address</h4>
-                    <button id="generateBtn" class="btn btn-primary btn-lg">
-                        <i class="fas fa-magic"></i> Get Email Address
-                    </button>
-                <?php else: ?>
-                    <h4 class="mb-3">An account is required to create a temporary email address</h4>
-                    <a href="/register.php" class="btn btn-primary btn-lg">
-                        <i class="fas fa-user-plus"></i> Create a free account
-                    </a>
-                    <div class="mt-2">
-                        <a href="/pro_login.php" class="small" rel="nofollow noreferrer">Already have an account? Log in</a>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <!-- E-postadress display (visas när adress är skapad) -->
-        <div class="email-container d-none">
-            <div class="card fade-in card-main-width">
-                <div class="card-header">
-                    <h3><i class="fas fa-envelope-open"></i> Your Temporary Email Address</h3>
-                </div>
-                <div class="card-body">
-                    <div class="email-display">
-                        <h4 class="email-address" id="currentEmail" tabindex="0"></h4>
-                        <div class="email-info">
-                            <span id="privacyIndicator" class="d-none me-3"><i class="fas fa-lock"></i> <span id="privacyText">Private</span></span>
-                            <i class="fas fa-clock"></i> <span id="validityText">Valid for 24 hours</span>
-                        </div>
-                    </div>
-                    
-                    <div class="row mt-4">
-                        <div class="col-md-6 mb-3">
-                            <button id="copyBtn" class="btn btn-success w-100">
-                                <i class="fas fa-copy"></i> Copy Address
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="refreshBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-sync-alt"></i> Refresh
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="shareBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-share-alt"></i> Share Link
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="newAddressBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-plus"></i> New Address
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="text-end mt-3">
-                        <small class="text-muted">
-                            Last updated: <span id="lastUpdate">Never</span>
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <!-- E-postlista -->
-            <div class="card fade-in card-main-width">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h3><i class="fas fa-inbox"></i> Incoming Emails</h3>
-                    <div class="d-flex align-items-center">
-                        <span class="badge bg-primary me-2" id="emailCount">0</span>
-                        <button id="imageToggle" class="btn btn-sm btn-outline-secondary" title="Blockera externa bilder">
-                            <i class="fas fa-image"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body p-0">
-                    <div class="email-list" id="emailList">
-                        <!-- E-postmeddelanden läses in här via JavaScript -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Statistik -->
         <!-- Pro vs Regular comparison -->
         <div class="card mt-4 card-main-width">
             <div class="card-header"><h3>Pro vs Regular</h3></div>
@@ -1193,136 +1110,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
 
-        <div class="card fade-in card-main-width">
-            <div class="card-header">
-                <h3><i class="fas fa-chart-bar"></i> System Statistics</h3>
-            </div>
-            <div class="card-body">
-                <div class="row text-center">
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-inbox fa-2x text-info mb-2"></i>
-                            <h4 class="stat-number" id="statsTotal">0</h4>
-                            <p class="text-muted mb-0">Total Emails</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-envelope-open-text fa-2x text-primary mb-2"></i>
-                            <h4 class="stat-number" id="statsProcessed">0</h4>
-                            <p class="text-muted mb-0">Emails Processed</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-plus-circle fa-2x text-success mb-2"></i>
-                            <h4 class="stat-number" id="statsCreated">0</h4>
-                            <p class="text-muted mb-0">Addresses Created</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-paperclip fa-2x text-warning mb-2"></i>
-                            <h4 class="stat-number" id="statsAttachments">0</h4>
-                            <p class="text-muted mb-0">Attachments Processed</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="text-center mt-3">
-                    <small class="text-muted">
-                        <i class="fas fa-sync-alt"></i> 
-                        Statistics updated automatically every minute
-                    </small>
-                    <br>
-                    <div class="status-indicator mt-2">
-                        <i class="fas fa-circle"></i> Ready
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 
-    <!-- E-post Modal -->
-    <div class="modal fade" id="emailModal" tabindex="-1" aria-labelledby="emailModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-main modal-fullscreen-sm-down">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="emailModalLabel">Email Message</h5>
-                    <div class="d-flex align-items-center">
-                        <button id="modalShowImagesBtn" type="button" class="btn btn-sm btn-outline-secondary me-2" title="Visa bilder i detta meddelande">Visa bilder</button>
-                        <button type="button" class="btn-close" aria-label="Close"></button>
-                    </div>
-                </div>
-                <div class="modal-body">
-                    <div class="row mb-3">
-                        <div class="col-sm-3"><strong>From:</strong></div>
-                        <div class="col-sm-9" id="emailFrom"></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-sm-3"><strong>To:</strong></div>
-                        <div class="col-sm-9" id="emailTo"></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-sm-3"><strong>Date:</strong></div>
-                        <div class="col-sm-9" id="emailDate"></div>
-                    </div>
-                    <hr>
-                    <div class="email-content" id="emailContent">
-                        <!-- Email content loaded here -->
-                    </div>
-                    <div id="emailAttachments" class="mt-3" style="display:none">
-                        <h6>Attachments</h6>
-                        <!-- Attachment links injected here -->
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Pro Profile Modal -->
-    <div class="modal fade" id="proProfileModal" tabindex="-1" aria-labelledby="proProfileLabel" aria-hidden="true">
-        <div class="modal-dialog modal-main modal-fullscreen-sm-down">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="proProfileLabel">Profile</h5>
-                    <button type="button" class="btn-close" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div id="proProfileAlert"></div>
-                    <form id="proProfileForm">
-                        <div class="mb-3">
-                            <label class="form-label">Email</label>
-                            <input type="email" class="form-control" id="proEmail" />
-                        </div>
-                        <div class="mb-3">
-                            <button type="button" id="saveProfileEmailBtn" class="btn btn-primary">Save email</button>
-                        </div>
-
-                        <hr>
-                        <h6>Set a password for direct access</h6>
-                        <div id="proPasswordCurrentGroup" class="mb-3 d-none">
-                            <label class="form-label">Current password</label>
-                            <input type="password" class="form-control" id="proPasswordCurrent" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">New password</label>
-                            <input type="password" class="form-control" id="proPassword" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Confirm password</label>
-                            <input type="password" class="form-control" id="proPasswordConfirm" />
-                        </div>
-                        <div class="mb-3">
-                            <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- Footer -->
     <footer class="text-center mt-5 py-4">
@@ -1340,18 +1129,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="assets/js/site-controls.js"></script>
-    <script>
-        // Konfigurations-objekt för JavaScript
-        window.tempMailConfig = {
-            domain: '<?php echo $config['email']['domain']; ?>',
-            refreshRate: 10000,
-            maxEmailPreview: 150,
-            urlAddress: <?php echo $urlAddress ? "'" . htmlspecialchars($urlAddress, ENT_QUOTES) . "'" : 'null'; ?>,
-            urlExpiresAt: <?php echo $urlExpiresAt ? "'" . htmlspecialchars($urlExpiresAt, ENT_QUOTES) . "'" : 'null'; ?>,
-            isPro: <?php echo !empty($_SESSION['pro_user_id']) ? 'true' : 'false'; ?>
-        };
-    </script>
-    <script src="assets/js/app.js?v=<?php echo file_exists(__DIR__ . '/assets/js/app.js') ? filemtime(__DIR__ . '/assets/js/app.js') : time(); ?>"></script>
     <script>
     (function(){
         // No personal-address handlers on index; profile page contains those controls now.

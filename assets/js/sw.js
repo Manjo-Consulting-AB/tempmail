@@ -3,6 +3,7 @@ const CACHE_NAME = 'mailshield-static-v1';
 const PRECACHE_URLS = [
     '/',
     '/index.php',
+    '/inbox.php',
     '/assets/js/app.js',
     '/assets/css/style.css',
     '/assets/images/favicon.ico',
