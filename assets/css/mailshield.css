@@ -3802,3 +3802,560 @@ a:hover {
     font-size: var(--ms-fs-xs);
     line-height: var(--ms-lh-xs);
 }
+
+/* ==========================================================================
+   cc. Client Agent — client_agent_manage.php (Redesign 26)
+   ==========================================================================
+
+   The public entry point into the agent subsystem: install, filter scripts,
+   sender lists, and whether any of it is running.
+
+   It was three full-width stacked cards — an install guide, then a scripts card
+   holding five more cards and two rules — and the one thing a reader opens the
+   page to find out, whether the agent is reporting, was the fourth block down
+   inside the third card. It is now four groups in the order the work happens,
+   listed in a contents strip at the top.
+
+   Anchored, not tabbed, for the same reason as the settings page (bb): the
+   page's own inline script reaches into every group by id, and a group that
+   stays in the document flow cannot hide a control it binds when the script
+   runs. Deep links and find-in-page keep working for the same reason. */
+
+.ms-agent {
+    /* The nav is the page's only bar and stands 4rem tall
+       (.ms-appnav__inner min-height); the groups and the sticky alert clear it
+       by one more step of the scale. Same offset as the settings page, because
+       it is the same bar. */
+    --ms-agent-nav: calc(var(--ms-space-10) + var(--ms-space-4));
+
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+    padding-bottom: var(--ms-space-8);
+}
+
+/* --- Page label -----------------------------------------------------------
+   The nav carries the identity (#116), so this is a page label rather than a
+   headline — the same step the dashboard and the settings page take. */
+
+.ms-agent__title {
+    margin: 0 0 var(--ms-space-3);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-agent__lede {
+    margin: 0 0 var(--ms-space-5);
+    max-width: 68ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Contents -------------------------------------------------------------
+   Four short labels, so they wrap rather than scroll: a strip wide enough to
+   need a scrollbar is a strip a reader has to operate to find out what the page
+   contains. `flex-wrap` is what keeps a phone from scrolling sideways (§12.8);
+   the `overflow-x` is a floor for a translated label, and never fires while the
+   labels wrap. */
+
+.ms-agent__contents-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2) var(--ms-space-5);
+    margin: 0 0 var(--ms-space-6);
+    padding: 0 0 var(--ms-space-3);
+    border-bottom: 1px solid var(--ms-border);
+    list-style: none;
+    overflow-x: auto;
+}
+
+.ms-agent__contents-link {
+    display: block;
+    padding: var(--ms-space-1) 0;
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-agent__contents-link:hover,
+.ms-agent__contents-link:focus-visible {
+    color: var(--ms-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* --- The page's own status line -------------------------------------------
+   Create, run-cycle, settings and list outcomes all land in
+   #clientAgentAlert, and the controls that raise them sit in the last two
+   groups. It sticks under the nav while it has something to say, and is absent
+   the rest of the time, which is what `:empty` tests. */
+
+.ms-agent__alert:not(:empty) {
+    position: sticky;
+    top: var(--ms-agent-nav);
+    z-index: 2;
+    margin-bottom: var(--ms-space-5);
+    background: var(--ms-bg);
+}
+
+/* --- A group -------------------------------------------------------------- */
+
+.ms-agent__section {
+    /* An anchor jump must not tuck the heading under the bar. */
+    scroll-margin-top: var(--ms-agent-nav);
+}
+
+.ms-agent__section + .ms-agent__section {
+    margin-top: var(--ms-space-8);
+}
+
+.ms-agent__section-title {
+    margin: 0 0 var(--ms-space-1);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-agent__section-lede {
+    margin: 0 0 var(--ms-space-4);
+    max-width: 68ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- A block inside a group ---------------------------------------------- */
+
+.ms-agent__block {
+    margin-top: var(--ms-space-5);
+    padding-top: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+}
+
+/* The detail head already closed itself with a rule. */
+.ms-agent__detail-head + .ms-agent__block {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.ms-agent__block-title {
+    margin: 0 0 var(--ms-space-1);
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-body);
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-agent__block-desc {
+    margin: 0 0 var(--ms-space-3);
+    max-width: 68ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Status ---------------------------------------------------------------
+   The most useful block on the page, so it is first, and it is a row of
+   label/value pairs rather than a card inside a card.
+
+   The script renders `.row.g-3` and two `.col-md-6` cells of its own into
+   #statusSummary. Zeroing the gutter variables removes the negative side
+   margins that would otherwise overhang the column by half a gutter on each
+   side, and the column padding that comes with them; `gap` spaces the cells
+   instead. The cells are then given a flex basis so they sit two-up on a wide
+   screen and full width on a phone — `col-md-6` is written without the `col-12`
+   that normally pairs with it, so below 768px they would otherwise be
+   auto-width flex items instead of full-width ones. */
+
+.ms-agent #statusSummary {
+    --bs-gutter-x: 0;
+    --bs-gutter-y: 0;
+    gap: var(--ms-space-3);
+}
+
+.ms-agent #statusSummary > * {
+    flex: 1 1 16rem;
+    min-width: 0;
+}
+
+/* The label and the badge stay together rather than being pushed to opposite
+   edges: at 1120px the two would sit most of a screen apart, and the badge is
+   the answer to the label, not a separate corner of the page. */
+.ms-agent__status-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-2);
+    margin-bottom: var(--ms-space-3);
+}
+
+.ms-agent__status-label {
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ms-text-muted);
+}
+
+/* Delivery state reads as the words "Delivered" / "Not delivered" first; the
+   hairline only repeats it in the same colour, which `currentColor` takes from
+   the `text-success` / `text-danger` the script sets on the element itself.
+   Nothing on this page is said by colour alone (§5.5). */
+.ms-agent #statusSummary .text-success,
+.ms-agent #statusSummary .text-danger {
+    padding-left: var(--ms-space-2);
+    border-left: 2px solid currentColor;
+}
+
+/* --- Install --------------------------------------------------------------
+   This part is a runbook, so it is set as reading copy in the `.ms-article`
+   treatment (x) instead of in cards. `pre` inside that treatment already
+   carries `overflow-x: auto` on its own surface, which is what keeps the long
+   `encrypt_local_config.php` command from taking the page with it (§12.8). */
+
+.ms-agent__downloads {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-3);
+}
+
+/* `.ms-article` opens with the space a blog post needs under its own heading;
+   here it follows two buttons. */
+.ms-agent__article {
+    margin-top: var(--ms-space-5);
+}
+
+/* The command blocks are labels for a runbook step, not post headings, so they
+   take body size and the article's own heading step is not spent on them. */
+.ms-agent__article h3 {
+    margin-top: var(--ms-space-6);
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-h3);
+    font-weight: 600;
+}
+
+.ms-agent__details {
+    margin-top: var(--ms-space-5);
+}
+
+.ms-agent__details > summary {
+    cursor: pointer;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-agent__details > summary:hover {
+    color: var(--ms-accent);
+}
+
+.ms-agent__details > summary:focus-visible {
+    outline: 2px solid var(--ms-accent);
+    outline-offset: 2px;
+}
+
+.ms-agent__details-body {
+    margin-top: var(--ms-space-4);
+}
+
+.ms-agent__details-body > *:first-child {
+    margin-top: 0;
+}
+
+/* --- Filter scripts -------------------------------------------------------
+   A list of scripts beside the selected script's settings, the way the page
+   always meant it (col-lg-4 / col-lg-8). Collapses at 900px: below it neither
+   column could show a script id or a settings field without wrapping. */
+
+.ms-agent__create {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2);
+    margin-bottom: var(--ms-space-5);
+}
+
+/* The field takes the room, the button keeps its width. `min-width: 0` is what
+   lets the field shrink past its intrinsic width on a phone. */
+.ms-agent__create .form-control {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
+.ms-agent__scripts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-5);
+}
+
+@media (min-width: 900px) {
+    .ms-agent__scripts {
+        grid-template-columns: 15rem minmax(0, 1fr);
+        gap: var(--ms-space-6);
+        align-items: start;
+    }
+}
+
+/* The script list is hairline-separated rows, not the list-group's rounded
+   panel, so it reads as a list of equal things rather than as another card.
+
+   `.list-group-item.active` is Bootstrap's own blue: the bridge remaps the
+   group's other variables but not that pair, so a selected script used to be
+   the one element on the page still wearing the old palette. The selected row
+   is also weighted and carries an accent edge, so the selection is not carried
+   by its tint alone. */
+
+.ms-agent__script-list {
+    border: 0;
+    border-radius: 0;
+}
+
+.ms-agent__script-list .list-group-item {
+    padding: var(--ms-space-3) var(--ms-space-4);
+    background: none;
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    border-radius: 0;
+    color: var(--ms-text);
+    overflow-wrap: anywhere;
+}
+
+.ms-agent__script-list .list-group-item:first-child {
+    border-top: 0;
+}
+
+.ms-agent__script-list .list-group-item-action:hover,
+.ms-agent__script-list .list-group-item-action:focus-visible {
+    background: var(--ms-bg-sunken);
+}
+
+.ms-agent__script-list .list-group-item.active {
+    background: var(--ms-accent-soft);
+    border-color: var(--ms-border);
+    box-shadow: inset 2px 0 0 var(--ms-accent);
+    color: var(--ms-text);
+    font-weight: 600;
+}
+
+/* Script ids, sender addresses and match patterns all read in monospace
+   (§5.2). The script renders them as `.small.text-muted` in some places and as
+   a bare span in others, so both shapes are covered rather than the script
+   being changed. */
+.ms-agent__script-list .list-group-item .small,
+.ms-agent__list .list-group-item .small,
+.ms-agent__list .list-group-item > span {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+}
+
+/* --- The selected script's panel ------------------------------------------ */
+
+.ms-agent__detail-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+    padding-bottom: var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-agent__detail-head .ms-agent__block-desc {
+    margin-bottom: 0;
+}
+
+.ms-agent__detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2);
+}
+
+.ms-agent__settings,
+.ms-agent__filter-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-3) var(--ms-space-4);
+}
+
+/* A field whose control is a select or a checkbox has no text baseline to
+   align to, so the row aligns its controls to the bottom instead. */
+.ms-agent__filter-form {
+    align-items: end;
+    margin-top: var(--ms-space-3);
+}
+
+@media (min-width: 900px) {
+    .ms-agent__settings {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ms-agent__filter-form {
+        grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+    }
+}
+
+.ms-agent__field {
+    min-width: 0;
+}
+
+.ms-agent__field--full {
+    grid-column: 1 / -1;
+}
+
+/* --- Sender lists ---------------------------------------------------------
+   The group a user is in most often, so both lists are compact: an inline add
+   field over hairline rows, not a card per list. */
+
+.ms-agent__lists {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-6);
+}
+
+@media (min-width: 900px) {
+    .ms-agent__lists {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--ms-space-7);
+    }
+}
+
+.ms-agent__list-block {
+    min-width: 0;
+}
+
+.ms-agent__list-form {
+    display: flex;
+    gap: var(--ms-space-2);
+}
+
+.ms-agent__list-form .form-control {
+    min-width: 0;
+}
+
+.ms-agent__list {
+    margin-bottom: 0;
+    border: 0;
+    border-radius: 0;
+}
+
+.ms-agent__list .list-group-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-2) var(--ms-space-3);
+    padding: var(--ms-space-2) 0;
+    background: none;
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    border-radius: 0;
+    color: var(--ms-text);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    overflow-wrap: anywhere;
+}
+
+.ms-agent__list .list-group-item:first-child {
+    border-top: 0;
+}
+
+/* --- The sender lists before a script is chosen ---------------------------
+   With no scripts at all, the page's script puts `.d-none` back on the details
+   panel and the list controls reach for a script id that does not exist yet —
+   they return early and do nothing. So the section says so instead of offering
+   two add forms that silently discard what is typed into them.
+
+   The state comes from the class the script already toggles, so no script state
+   is added for it. Without `:has()` support the note stays hidden and the lists
+   stay visible, which is exactly how the page behaved before. */
+
+.ms-agent__lists-note {
+    display: none;
+    margin: 0 0 var(--ms-space-4);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-agent:has(#scriptDetails.d-none) .ms-agent__lists {
+    display: none;
+}
+
+.ms-agent:has(#scriptDetails.d-none) .ms-agent__lists-note {
+    display: block;
+}
+
+/* ==========================================================================
+   dd. Contact — pro_contact.php (Redesign 26)
+   ==========================================================================
+
+   One centred column and one card. The page does a single thing — write to the
+   team — and the composition it had (a 2.5rem heading with an icon, a lead, and
+   then a card whose header repeated the heading) read as a section of a larger
+   page rather than as a finished task. */
+
+.ms-contact {
+    max-width: var(--ms-container-narrow);
+    margin-inline: auto;
+    padding: var(--ms-space-7) var(--ms-gutter) var(--ms-space-8);
+}
+
+.ms-contact__title {
+    margin: 0 0 var(--ms-space-2);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+/* Says where the message goes and promises no response time, because none is
+   published. */
+.ms-contact__lede {
+    margin: 0 0 var(--ms-space-5);
+    max-width: 62ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-contact__card {
+    padding: var(--ms-space-6);
+}
+
+/* Where the reply lands, as read-only context rather than as a field: it is the
+   address on the account, and the server sends there whatever this says. */
+.ms-contact__to {
+    margin: 0 0 var(--ms-space-4);
+    padding: var(--ms-space-2) var(--ms-space-3);
+    background: var(--ms-bg-sunken);
+    border-radius: var(--ms-radius-sm);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-contact__to-addr {
+    font-family: var(--ms-font-mono);
+    color: var(--ms-text);
+}
+
+.ms-contact__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+}

@@ -38,45 +38,76 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
 <body>
     <div class="main-container">
         <div class="header">
-            <h1><i class="fas fa-robot"></i> Client Agent Manager</h1>
-            <p class="lead">Create, configure and run your mail filter client scripts from one place.</p>
             <?php require 'partials/nav.php'; ?>
         </div>
 
-        <div class="card mt-4">
-            <div class="card-header">
-                <h3 class="mb-0"><i class="fas fa-life-ring"></i> Installation guide (easy mode)</h3>
-            </div>
-            <div class="card-body">
-                <p class="mb-3">Follow these steps on your own server before using <strong>Run cycle</strong>. This keeps IMAP details private.</p>
-                <ol class="mb-3">
-                    <li>Upload <code>agent.php</code> and <code>install.php</code> to your server</li>
-                    <li>Run installer in SSH: <code>php install.php --install</code></li>
-                    <li>Installer saves private files outside web-root (no env var required on most hosts)</li>
-                    <li>Return here and click <strong>Run cycle</strong></li>
-                    <li>Connect agent.php to a CRON-task that runs periodically</li>
-                </ol>
+        <!-- The Agent page, grouped by what the reader is doing rather than by
+             what the code calls things: is it reporting, install it, configure
+             its scripts, maintain its lists. Anchored, not tabbed, so no control
+             that the script below binds by id can land inside a hidden panel. -->
+        <main class="ms-agent">
+            <h1 class="ms-agent__title">Client Agent</h1>
+            <p class="ms-agent__lede">The Agent runs on your own mail server. It verifies RSA-signed webhooks from Mail Shield, then applies your filter scripts and sender lists locally — so your IMAP credentials never leave your host.</p>
 
-                <div class="mb-3">
-                    <a href="client_agent_download.php" class="btn btn-outline-primary btn-sm me-2">
-                        <i class="fas fa-download"></i> Download agent.php
+            <nav class="ms-agent__contents" aria-label="Page sections">
+                <ul class="ms-agent__contents-list">
+                    <li><a class="ms-agent__contents-link" href="#agent-status">Status</a></li>
+                    <li><a class="ms-agent__contents-link" href="#agent-install">Install</a></li>
+                    <li><a class="ms-agent__contents-link" href="#agent-scripts">Filter scripts</a></li>
+                    <li><a class="ms-agent__contents-link" href="#agent-sender-lists">Sender lists</a></li>
+                </ul>
+            </nav>
+
+            <!-- Create, run and settings outcomes all report here, and the
+                 blocks that raise them sit far down the page. It sticks under
+                 the nav for as long as it has something to say. -->
+            <div id="clientAgentAlert" class="ms-agent__alert"></div>
+
+            <section class="ms-agent__section" id="agent-status">
+                <h2 class="ms-agent__section-title">Status</h2>
+                <p class="ms-agent__section-lede">Whether the agent behind the selected script is reporting in, and how its last settings update and webhook delivery went.</p>
+
+                <div class="ms-agent__status">
+                    <div class="ms-agent__status-head">
+                        <span class="ms-agent__status-label">Sync state</span>
+                        <span id="statusBadge" class="badge bg-secondary">Loading…</span>
+                    </div>
+                    <div id="statusSummary" class="row g-3"></div>
+                </div>
+            </section>
+
+            <section class="ms-agent__section" id="agent-install">
+                <h2 class="ms-agent__section-title">Install</h2>
+                <p class="ms-agent__section-lede">The agent runs on your own server, which is the point: your IMAP details are read by the copy you install and nothing else.</p>
+
+                <div class="ms-agent__downloads">
+                    <a href="client_agent_download.php" class="btn btn-outline-primary">
+                        <i class="fas fa-download" aria-hidden="true"></i> Download agent.php
                     </a>
-                    <a href="client_agent_install_download.php" class="btn btn-outline-primary btn-sm">
-                        <i class="fas fa-download"></i> Download install.php
+                    <a href="client_agent_install_download.php" class="btn btn-outline-primary">
+                        <i class="fas fa-download" aria-hidden="true"></i> Download install.php
                     </a>
                 </div>
 
-                <details>
-                    <summary><strong>Show exact commands to copy</strong></summary>
-                    <div class="mt-3">
-                        <p class="mb-1"><strong>Recommended (one command):</strong></p>
-                        <pre class="p-2 bg-light border rounded small mb-3">cd /path/to/agent-folder
+                <div class="ms-article ms-agent__article">
+                    <ol>
+                        <li>Upload <code>agent.php</code> and <code>install.php</code> to your server.</li>
+                        <li>Run the installer over SSH: <code>php install.php --install</code></li>
+                        <li>The installer saves its private files outside your web root, so no environment variable is needed on most hosts.</li>
+                        <li>Come back here and press <strong>Run cycle</strong>.</li>
+                        <li>Point a cron task at <code>agent.php</code> so it keeps running.</li>
+                    </ol>
+
+                    <details class="ms-agent__details">
+                        <summary>Show exact commands to copy</summary>
+                        <div class="ms-agent__details-body">
+                            <h3>Recommended (one command)</h3>
+                            <pre>cd /path/to/agent-folder
 php install.php --install</pre>
+                            <p>The installer asks which script ID to configure and suggests a private directory outside your web root.</p>
 
-                        <div class="form-text mb-3">The installer will ask which script ID to configure and will suggest a private directory outside your web root.</div>
-
-                        <p class="mb-1"><strong>Manual fallback (advanced):</strong></p>
-                        <pre class="p-2 bg-light border rounded small mb-3"># Run this from your website root (for example public_html)
+                            <h3>Manual fallback (advanced)</h3>
+                            <pre># Run this from your website root (for example public_html)
 mkdir -p ../tempmail
 openssl rand -hex 32 &gt; ../tempmail/client-agent.key
 chmod 600 ../tempmail/client-agent.key
@@ -87,8 +118,8 @@ php /path/to/project/src/client/agent/tools/encrypt_local_config.php \
   --imap-user='&lt;IMAP_USER&gt;' \
   --imap-password='&lt;IMAP_PASSWORD&gt;'</pre>
 
-                        <p class="mb-1"><strong>Create local config file (outside web-root):</strong></p>
-                        <pre class="p-2 bg-light border rounded small mb-3">&lt;?php
+                            <h3>Create the local config file (outside the web root)</h3>
+                            <pre>&lt;?php
 return [
     'key_file' =&gt; __DIR__ . '/client-agent.key',
     'imap_server_encrypted' =&gt; '...',
@@ -96,148 +127,153 @@ return [
     'imap_password_encrypted' =&gt; '...',
 ];</pre>
 
-                        <p class="mb-1"><strong>Optional environment variable (advanced):</strong></p>
-                        <pre class="p-2 bg-light border rounded small">CLIENT_AGENT_LOCAL_CONFIG_PATH=/home/&lt;YOUR_USER&gt;/tempmail-private/client-agent-&lt;SCRIPT_ID&gt;.local.php</pre>
+                            <h3>Optional environment variable (advanced)</h3>
+                            <pre>CLIENT_AGENT_LOCAL_CONFIG_PATH=/home/&lt;YOUR_USER&gt;/tempmail-private/client-agent-&lt;SCRIPT_ID&gt;.local.php</pre>
+                        </div>
+                    </details>
+
+                    <div class="alert alert-warning mb-0">
+                        Never put the key file or the local config inside a public web folder.
                     </div>
-                </details>
-
-                <div class="alert alert-warning mt-3 mb-0">
-                    Never put key file or local config inside public web folders.
                 </div>
-            </div>
-        </div>
+            </section>
 
-        <div class="card mt-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h3 class="mb-0"><i class="fas fa-sitemap"></i> Scripts</h3>
-                <div class="d-flex gap-2">
-                    <input id="newScriptLabel" class="form-control form-control-sm" placeholder="New script name" style="min-width:220px;">
-                    <button id="createScriptBtn" class="btn btn-primary btn-sm">Create script</button>
+            <section class="ms-agent__section" id="agent-scripts">
+                <h2 class="ms-agent__section-title">Filter scripts</h2>
+                <p class="ms-agent__section-lede">One script per mail server. Pick one to change what it filters and where it reports.</p>
+
+                <div class="ms-agent__create">
+                    <label class="ms-visually-hidden" for="newScriptLabel">New script name</label>
+                    <input id="newScriptLabel" class="form-control" placeholder="New script name">
+                    <button id="createScriptBtn" class="btn btn-primary" type="button">Create script</button>
                 </div>
-            </div>
-            <div class="card-body">
-                <div id="clientAgentAlert" class="mb-3"></div>
-                <div class="row g-4">
-                    <div class="col-lg-4">
-                        <div id="scriptList" class="list-group"></div>
-                    </div>
-                    <div class="col-lg-8">
-                        <div id="scriptDetails" class="d-none">
-                            <div class="border rounded p-3">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <div>
-                                        <h4 id="detailTitle" class="mb-1"></h4>
-                                        <div id="detailMeta" class="text-muted small"></div>
-                                    </div>
-                                    <div class="d-flex gap-2">
-                                        <button id="runCycleBtn" class="btn btn-outline-success btn-sm">
-                                            <i class="fas fa-play"></i> Run cycle
-                                        </button>
-                                        <button id="deleteScriptBtn" class="btn btn-outline-danger btn-sm">
-                                            <i class="fas fa-trash"></i> Delete script
-                                        </button>
-                                    </div>
-                                </div>
 
-                                <form id="settingsForm" class="row g-3">
-                                    <div class="col-md-6">
-                                        <label class="form-label">Label</label>
-                                        <input id="scriptLabel" class="form-control" />
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label">Target host</label>
-                                        <input id="targetHost" class="form-control" placeholder="example.com" />
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label">Target path</label>
-                                        <input id="targetPath" class="form-control" placeholder="/client/agent/agent.php" />
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label">Greylist days</label>
-                                        <input id="greylistDays" type="number" min="0" max="365" class="form-control" />
-                                    </div>
-                                    <div class="col-12">
-                                        <button type="submit" class="btn btn-primary">Save settings</button>
-                                    </div>
-                                </form>
+                <div class="ms-agent__scripts">
+                    <div id="scriptList" class="list-group ms-agent__script-list"></div>
 
-                                <div class="card mt-4">
-                                    <div class="card-header d-flex justify-content-between align-items-center">
-                                        <h5 class="mb-0"><i class="fas fa-chart-line"></i> Live status</h5>
-                                        <span id="statusBadge" class="badge bg-secondary">Loading…</span>
-                                    </div>
-                                    <div class="card-body">
-                                        <div id="statusSummary" class="row g-3"></div>
-                                    </div>
-                                </div>
-
-                                <hr>
-
-                                <div class="row g-4">
-                                    <div class="col-md-6">
-                                        <h5><i class="fas fa-check-circle"></i> Whitelist</h5>
-                                        <div class="input-group mb-2">
-                                            <input id="whitelistInput" class="form-control" placeholder="tony@example.com or @example.com" />
-                                            <button id="addWhitelistBtn" class="btn btn-outline-primary" type="button">Add</button>
-                                        </div>
-                                        <ul id="whitelistList" class="list-group"></ul>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <h5><i class="fas fa-ban"></i> Blacklist</h5>
-                                        <div class="input-group mb-2">
-                                            <input id="blacklistInput" class="form-control" placeholder="spam@example.com or @example.com" />
-                                            <button id="addBlacklistBtn" class="btn btn-outline-danger" type="button">Add</button>
-                                        </div>
-                                        <ul id="blacklistList" class="list-group"></ul>
-                                    </div>
-                                </div>
-
-                                <hr>
-
-                                <div>
-                                    <h5><i class="fas fa-filter"></i> Spam filters</h5>
-                                    <div class="row g-2 align-items-end mb-2">
-                                        <div class="col-md-4">
-                                            <label class="form-label">Pattern</label>
-                                            <input id="spamFilterPattern" class="form-control" placeholder="limited time offer" />
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Type</label>
-                                            <select id="spamFilterType" class="form-select">
-                                                <option value="text">Text</option>
-                                                <option value="regex">Regex</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Scope</label>
-                                            <select id="spamFilterScope" class="form-select">
-                                                <option value="any">Any</option>
-                                                <option value="subject">Subject</option>
-                                                <option value="body">Body</option>
-                                                <option value="from">From</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <div class="form-check mt-4">
-                                                <input id="spamFilterCaseInsensitive" class="form-check-input" type="checkbox" checked>
-                                                <label class="form-check-label" for="spamFilterCaseInsensitive">Case-insensitive</label>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <button id="addSpamFilterBtn" class="btn btn-primary w-100" type="button">Add rule</button>
-                                        </div>
-                                    </div>
-                                    <ul id="spamFilterList" class="list-group"></ul>
-                                </div>
+                    <div id="scriptDetails" class="d-none">
+                        <div class="ms-agent__detail-head">
+                            <div>
+                                <h3 id="detailTitle" class="ms-agent__block-title"></h3>
+                                <div id="detailMeta" class="ms-agent__block-desc"></div>
+                            </div>
+                            <div class="ms-agent__detail-actions">
+                                <button id="runCycleBtn" class="btn btn-outline-success btn-sm" type="button">
+                                    <i class="fas fa-play" aria-hidden="true"></i> Run cycle
+                                </button>
+                                <button id="deleteScriptBtn" class="btn btn-outline-danger btn-sm" type="button">
+                                    <i class="fas fa-trash" aria-hidden="true"></i> Delete script
+                                </button>
                             </div>
                         </div>
-                        <div id="emptyState" class="text-muted">
-                            Select or create a script to begin managing it.
+
+                        <div class="ms-agent__block">
+                            <h4 class="ms-agent__block-title">Settings</h4>
+
+                            <form id="settingsForm" class="ms-agent__settings">
+                                <div class="ms-agent__field">
+                                    <label class="form-label" for="scriptLabel">Label</label>
+                                    <input id="scriptLabel" class="form-control" />
+                                </div>
+                                <div class="ms-agent__field">
+                                    <label class="form-label" for="targetHost">Target host</label>
+                                    <input id="targetHost" class="form-control" placeholder="example.com" />
+                                </div>
+                                <div class="ms-agent__field">
+                                    <label class="form-label" for="targetPath">Target path</label>
+                                    <input id="targetPath" class="form-control" placeholder="/client/agent/agent.php" />
+                                </div>
+                                <div class="ms-agent__field">
+                                    <label class="form-label" for="greylistDays">Greylist days</label>
+                                    <input id="greylistDays" type="number" min="0" max="365" class="form-control" />
+                                </div>
+                                <div class="ms-agent__field ms-agent__field--full">
+                                    <button type="submit" class="btn btn-primary">Save settings</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="ms-agent__block">
+                            <h4 class="ms-agent__block-title">Spam filters</h4>
+                            <p class="ms-agent__block-desc">Patterns the agent matches against incoming mail. Text matches literally; regex is a regular expression.</p>
+
+                            <div class="ms-agent__filter-form">
+                                <div class="ms-agent__field">
+                                    <label class="form-label" for="spamFilterPattern">Pattern</label>
+                                    <input id="spamFilterPattern" class="form-control" placeholder="limited time offer" />
+                                </div>
+                                <div class="ms-agent__field">
+                                    <label class="form-label" for="spamFilterType">Type</label>
+                                    <select id="spamFilterType" class="form-select">
+                                        <option value="text">Text</option>
+                                        <option value="regex">Regex</option>
+                                    </select>
+                                </div>
+                                <div class="ms-agent__field">
+                                    <label class="form-label" for="spamFilterScope">Scope</label>
+                                    <select id="spamFilterScope" class="form-select">
+                                        <option value="any">Any</option>
+                                        <option value="subject">Subject</option>
+                                        <option value="body">Body</option>
+                                        <option value="from">From</option>
+                                    </select>
+                                </div>
+                                <div class="ms-agent__field">
+                                    <div class="form-check">
+                                        <input id="spamFilterCaseInsensitive" class="form-check-input" type="checkbox" checked>
+                                        <label class="form-check-label" for="spamFilterCaseInsensitive">Case-insensitive</label>
+                                    </div>
+                                </div>
+                                <div class="ms-agent__field ms-agent__field--full">
+                                    <button id="addSpamFilterBtn" class="btn btn-primary" type="button">Add rule</button>
+                                </div>
+                            </div>
+
+                            <ul id="spamFilterList" class="list-group ms-agent__list"></ul>
                         </div>
                     </div>
+
+                    <div id="emptyState" class="ms-agent__empty">
+                        Select or create a script to begin managing it.
+                    </div>
                 </div>
-            </div>
-        </div>
+            </section>
+
+            <section class="ms-agent__section" id="agent-sender-lists">
+                <h2 class="ms-agent__section-title">Sender lists</h2>
+                <p class="ms-agent__section-lede">Allow and block senders for the selected script. An entry is a full address, or a whole domain written as <code>@example.com</code>.</p>
+
+                <p class="ms-agent__lists-note">Select a script above to manage its sender lists.</p>
+
+                <div class="ms-agent__lists">
+                    <div class="ms-agent__list-block">
+                        <h3 class="ms-agent__block-title">Allow list</h3>
+                        <p class="ms-agent__block-desc">Mail from these senders is kept, even when the block list also matches.</p>
+
+                        <div class="ms-agent__list-form">
+                            <label class="ms-visually-hidden" for="whitelistInput">Add an address or domain to the allow list</label>
+                            <input id="whitelistInput" class="form-control" placeholder="tony@example.com or @example.com" />
+                            <button id="addWhitelistBtn" class="btn btn-outline-primary" type="button">Add</button>
+                        </div>
+
+                        <ul id="whitelistList" class="list-group ms-agent__list"></ul>
+                    </div>
+
+                    <div class="ms-agent__list-block">
+                        <h3 class="ms-agent__block-title">Block list</h3>
+                        <p class="ms-agent__block-desc">Mail from these senders is deleted on your server before it reaches your inbox.</p>
+
+                        <div class="ms-agent__list-form">
+                            <label class="ms-visually-hidden" for="blacklistInput">Add an address or domain to the block list</label>
+                            <input id="blacklistInput" class="form-control" placeholder="spam@example.com or @example.com" />
+                            <button id="addBlacklistBtn" class="btn btn-outline-danger" type="button">Add</button>
+                        </div>
+
+                        <ul id="blacklistList" class="list-group ms-agent__list"></ul>
+                    </div>
+                </div>
+            </section>
+        </main>
     </div>
 
     <script>
@@ -296,7 +332,7 @@ return [
         list.innerHTML = state.scripts.map((script) => {
             const active = script.script_id === state.activeScriptId ? 'active' : '';
             return `
-                <button type="button" class="list-group-item list-group-item-action ${active}" data-script-id="${script.script_id}">
+                <button type="button" class="list-group-item list-group-item-action ${active}" data-script-id="${escapeHtml(script.script_id)}">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
                             <strong>${escapeHtml(script.label || 'Untitled script')}</strong>
@@ -423,6 +459,10 @@ return [
         } else {
             document.getElementById('scriptDetails').classList.add('d-none');
             document.getElementById('emptyState').classList.remove('d-none');
+            // The status group is at the top of the page and always on screen,
+            // so an account with no script at all has to say so there rather
+            // than leave the badge reading "Loading…" for the life of the page.
+            renderStatusSummary(null);
         }
     }
 
