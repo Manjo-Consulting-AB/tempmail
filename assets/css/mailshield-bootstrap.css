@@ -533,68 +533,16 @@ body {
     box-shadow: var(--ms-shadow-md);
 }
 
-/* --- App navbar: glass on purple -> opaque surface ------------------------ */
+/* The `.header-navbar` / `.navbar-*` overrides #99 added here are gone:
+   partials/nav.php no longer emits those classes, and the app bar is styled
+   from scratch by the `ms-appnav` rules in mailshield.css. The `.hamburger-*`
+   geometry below is left alone on purpose — it belongs to style.css.
 
-.header-navbar {
-    background: var(--ms-bg-raised);
-    border: 1px solid var(--ms-border);
-    border-radius: var(--ms-radius-md);
-    backdrop-filter: none;
-}
-
-.navbar-user-info {
-    color: var(--ms-text-muted);
-}
-
-.navbar-pro-status {
-    color: var(--ms-text-muted);
-}
-
-.navbar-link {
-    color: var(--ms-text-muted);
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--ms-radius-sm);
-    transition: background-color var(--ms-dur) var(--ms-ease),
-        border-color var(--ms-dur) var(--ms-ease),
-        color var(--ms-dur) var(--ms-ease);
-}
-
-.navbar-link:hover {
-    background: var(--ms-bg-sunken);
-    border-color: var(--ms-border);
-    color: var(--ms-text);
-    transform: none;
-}
-
-.navbar-logout {
-    background: transparent;
-    border-color: transparent;
-    color: var(--ms-danger);
-}
-
-.navbar-logout:hover {
-    background: #F7ECEB;
-    border-color: #F7ECEB;
-    color: var(--ms-danger);
-}
-
-/* The hamburger geometry and its JS-driven .active/.show behaviour stay in
-   style.css; only the colour changes, otherwise white bars vanish on the
-   now-opaque navbar. */
+   The hamburger geometry and its JS-driven .active/.show behaviour stay in
+   style.css; only the colour changes, otherwise white bars vanish on an
+   opaque navbar. */
 .hamburger-line {
     background: var(--ms-text);
-}
-
-/* Mobile drop-down panel. Scoped to the same breakpoint as style.css so the
-   desktop row keeps its bare flex layout. */
-@media (max-width: 768px) {
-    .navbar-right {
-        background: var(--ms-bg-raised);
-        border-top: 1px solid var(--ms-border);
-        box-shadow: var(--ms-shadow-lg);
-        backdrop-filter: none;
-    }
 }
 
 /* --- Modals --------------------------------------------------------------- */
