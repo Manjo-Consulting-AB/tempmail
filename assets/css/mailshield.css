@@ -1079,3 +1079,89 @@ a:hover {
         animation: none !important;
     }
 }
+
+/* ==========================================================================
+   k. Landing — anchor targets
+   ========================================================================== */
+
+/* A jump to a landing section must not tuck its heading under the sticky nav,
+   which is 4rem tall (.ms-nav__inner). --ms-space-12 is 5rem, so the target
+   lands a hair below the bar rather than flush against it. The nav's own
+   `:target` rule uses the same value; this restates it on the sections
+   themselves so it also holds for scrolls that do not go through the URL
+   fragment. */
+.ms-section[id] {
+    scroll-margin-top: var(--ms-space-12);
+}
+
+/* ==========================================================================
+   l. Landing — problem (partials/landing/problem.php)
+   ========================================================================== */
+
+.ms-problem {
+    text-align: center;
+}
+
+.ms-problem__body {
+    margin: var(--ms-space-6) auto 0;
+    max-width: 52ch;
+    font-size: var(--ms-fs-lede);
+    line-height: var(--ms-lh-lede);
+    color: var(--ms-text-muted);
+}
+
+/* The turn. Full-strength text, closer to the paragraph it answers than the
+   heading is to the one that opens the section. */
+.ms-problem__body--turn {
+    margin-top: var(--ms-space-5);
+    color: var(--ms-text);
+}
+
+/* The categories the product absorbs. .ms-chip already supplies the hairline
+   border and the muted text; nothing here adds accent, an icon or a shadow —
+   it is a row of words, not a tag cloud. */
+.ms-problem__chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--ms-space-2);
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* ==========================================================================
+   m. Landing — how it works (partials/landing/how_it_works.php)
+   ========================================================================== */
+
+/* The columns come from .ms-grid--3; this only resets the list semantics the
+   <ol> carries, so the auto-fit collapse stays the grid's own behaviour. */
+.ms-steps {
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-step__num {
+    display: block;
+    margin-bottom: var(--ms-space-2);
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-step__body {
+    margin: var(--ms-space-3) 0 0;
+    color: var(--ms-text-muted);
+}
+
+.ms-how__more {
+    margin: var(--ms-space-8) 0 0;
+}
+
+/* Closes the section flush with the grid's left edge — the button's own inline
+   padding would otherwise indent it by 18px. */
+.ms-how__more .ms-btn {
+    padding-inline: 0;
+}
