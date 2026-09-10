@@ -19,7 +19,13 @@
     --ms-bg-sunken: #F4F4F2;        /* wells, code, alternating bands */
     --ms-text: #16161A;             /* near-black */
     --ms-text-muted: #6B6B73;
-    --ms-text-faint: #9A9AA2;
+    /* Darkened by the Redesign 16 QA pass. The approved value was 2.8:1 on
+       --ms-bg-raised — under the 4.5:1 the brief's §5.5 floor asks of small
+       text, and it carries real text: the mockup timestamps, the step numbers
+       and the cleanup qualifier. Now 5.05:1 on raised, 4.83:1 on --ms-bg and
+       4.59:1 on --ms-bg-sunken. It sits close to --ms-text-muted as a result;
+       those two are told apart by size and context rather than by weight. */
+    --ms-text-faint: #6F6F78;
     --ms-border: #E5E5E1;           /* thin hairlines */
     --ms-border-strong: #D4D4CF;
     --ms-accent: #12695A;           /* deep teal-green — use sparingly */
@@ -360,6 +366,15 @@ a:hover {
     cursor: not-allowed;
 }
 
+/* The default button is 39px tall — fine under a mouse, under the 44px a thumb
+   wants. Only the height changes: the inline padding stays, so a quiet button
+   still closes flush with the text it sits under. */
+@media (max-width: 767px) {
+    .ms-btn {
+        min-height: 2.75rem;
+    }
+}
+
 /* --- Cards ---------------------------------------------------------------- */
 
 .ms-card {
@@ -492,10 +507,17 @@ a:hover {
    e. Reduced motion
    ========================================================================== */
 
+/* Every animation on the site lands on a visible final state, so shortening it
+   to nothing is enough — the element simply appears in place. animation-delay
+   has to be reset as well: .ms-rise fills backwards, so a delayed element would
+   otherwise still sit at its opacity:0 start state for the length of the delay
+   even though the animation itself is over. Resetting it here rather than in a
+   per-component rule is what keeps .ms-rise safe to reuse. */
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     *, *::before, *::after {
         animation-duration: .01ms !important;
+        animation-delay: 0ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: .01ms !important;
     }
@@ -541,8 +563,8 @@ a:hover {
     align-items: center;
     justify-content: center;
     flex: none;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2.75rem;
+    height: 2.75rem;
     padding: 0;
     border: 1px solid var(--ms-border-strong);
     border-radius: var(--ms-radius-md);
@@ -671,6 +693,20 @@ a:hover {
     }
 }
 
+/* In the collapsed panel every row is a thumb target: the links are stacked
+   rather than sitting in a line, so each needs the same 44px the buttons get.
+   The logo is a link too, and the bar is 4rem tall, so the height costs the
+   header nothing. */
+@media (max-width: 767px) {
+    .ms-nav__logo,
+    .ms-nav__links a,
+    .ms-nav__login {
+        display: flex;
+        align-items: center;
+        min-height: 2.75rem;
+    }
+}
+
 /* ==========================================================================
    g. Public footer (partials/public_footer.php)
    ========================================================================== */
@@ -728,6 +764,21 @@ a:hover {
     color: var(--ms-text);
 }
 
+/* The columns are vertical lists, so on a phone each link is a target in its
+   own right rather than a word inside a sentence. Stacking them at full height
+   supplies the separation the row gap used to, which is why the gap goes. */
+@media (max-width: 767px) {
+    .ms-footer__links a {
+        display: flex;
+        align-items: center;
+        min-height: 2.75rem;
+    }
+
+    .ms-footer__links li + li {
+        margin-top: 0;
+    }
+}
+
 .ms-footer__legal {
     margin: 0;
     font-size: var(--ms-fs-sm);
@@ -773,9 +824,12 @@ a:hover {
 
 .ms-hero {
     /* Deliberately short of a full viewport: the mockup is the hero image, not
-       a poster, and the section below it has to stay within reach. Only the top
-       of the rhythm is set here — the next section brings its own padding. */
-    padding-block: clamp(3.5rem, 7vw, 6rem) calc(var(--ms-section-y) * .6);
+       a poster, and the section below it has to stay within reach. Both ends
+       are still the section token, just not the whole of it — the hero sits
+       directly under the sticky nav rather than after another section, and the
+       problem below it is the closest-coupled pair on the page. Only the top
+       of the rhythm is set here; the next section brings its own padding. */
+    padding-block: calc(var(--ms-section-y) * .8) calc(var(--ms-section-y) * .6);
 }
 
 .ms-hero__inner {
@@ -1087,15 +1141,6 @@ a:hover {
     }
 }
 
-/* The global reduced-motion guard shortens animations but leaves
-   animation-delay alone, and .ms-rise fills backwards — so a delayed row would
-   still sit invisible for up to 240ms. Drop the animation outright instead. */
-@media (prefers-reduced-motion: reduce) {
-    .ms-mock__row {
-        animation: none !important;
-    }
-}
-
 /* ==========================================================================
    k. Landing — anchor targets
    ========================================================================== */
@@ -1150,12 +1195,23 @@ a:hover {
    m. Landing — how it works (partials/landing/how_it_works.php)
    ========================================================================== */
 
-/* The columns come from .ms-grid--3; this only resets the list semantics the
-   <ol> carries, so the auto-fit collapse stays the grid's own behaviour. */
+/* The list semantics the <ol> carries are reset here; the columns are named
+   rather than left to .ms-grid--3's auto-fit. Three steps in an auto-fit grid
+   drop to two columns somewhere between 568px and 832px, which strands the
+   third card alone on a second row — it reads as a card that fell out of the
+   grid rather than as step three of three. Naming the breakpoints keeps it one
+   column on a phone and three across from 768px, with no window in between. */
 .ms-steps {
+    grid-template-columns: minmax(0, 1fr);
     margin: var(--ms-space-8) 0 0;
     padding: 0;
     list-style: none;
+}
+
+@media (min-width: 768px) {
+    .ms-steps {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 .ms-step__num {
@@ -1355,15 +1411,6 @@ a:hover {
 @keyframes ms-addresses-draw {
     from { stroke-dashoffset: 1; }
     to   { stroke-dashoffset: 0; }
-}
-
-/* The global guard shortens the animation but leaves stroke-dashoffset at
-   whichever end `both` fill parked it, so drop it outright — with no animation
-   the offset is 0 and the line is simply drawn. */
-@media (prefers-reduced-motion: reduce) {
-    .ms-addresses__link--active {
-        animation: none;
-    }
 }
 
 /* ==========================================================================
@@ -1714,7 +1761,10 @@ a:hover {
 
 .ms-plans__body {
     max-width: 52ch;
-    margin: var(--ms-space-4) 0 0;
+    /* --ms-space-5, like every other left-aligned section's heading-to-body
+       gap. It was --ms-space-4, which made this one section's body sit a step
+       closer to its heading than the five around it. */
+    margin: var(--ms-space-5) 0 0;
     color: var(--ms-text-muted);
 }
 
@@ -1814,7 +1864,6 @@ a:hover {
 
 .ms-cta {
     text-align: center;
-    padding-block: clamp(4.5rem, 10vw, 8rem);
 }
 
 .ms-cta__body {
