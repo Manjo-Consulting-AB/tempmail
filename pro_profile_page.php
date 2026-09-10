@@ -9,6 +9,11 @@ if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
 
 $userEmail = $_SESSION['pro_user_email'] ?? '';
 
+// Tier for the Plan card's one-line status. proUserIsPro() is the single
+// entitlement source (see documentaion/ACCOUNT_TIERS.md) and fails closed, so a
+// lookup error states the free plan rather than claiming Pro.
+$accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -45,147 +50,199 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
 <body>
     <div class="main-container">
         <div class="header">
-            <h1><i class="fas fa-cog"></i> Account Settings</h1>
-            <p class="lead">Manage your Pro account</p>
-
             <?php require 'partials/nav.php'; ?>
         </div>
 
-        <div class="card mt-4">
-            <div class="card-header"><h3>Account Settings</h3></div>
-            <div class="card-body">
-                <div id="proProfileAlert"></div>
-                <form id="proProfileForm">
-                    <div class="mb-3 profile-delete-section">
-                        <label class="form-label">Email</label>
-                        <input type="email" class="form-control" id="proEmail" />
-                    </div>
-                    <div class="mb-3">
-                        <button type="button" id="saveProfileEmailBtn" class="btn btn-primary">Save email</button>
-                    </div>
+        <!-- Settings: five groups behind a rail of anchors — not a stack of
+             full-width cards, and deliberately not tabs. Anchored navigation
+             keeps every section in the document flow, so no control that this
+             page's own scripts bind by id can end up inside a panel that is
+             hidden when they run; deep links and find-in-page keep working too. -->
+        <main class="ms-settings">
+            <h1 class="ms-settings__title">Settings</h1>
 
-                    <div class="mb-3">
-                        <label class="form-label">Default lifetime</label>
-                        <div class="d-flex align-items-center">
-                            <select id="ttlSelect" class="form-select" style="width:120px;"></select>
-                            <div id="ttlMsg" style="margin-left:10px; color:#9ecbff;"></div>
-                        </div>
-                        <div class="form-text">Set default address lifetime for newly generated addresses and emails (1-7 days).</div>
-                        <div id="ttlProNote" class="form-text text-muted d-none">Regular accounts use a fixed 24-hour address lifetime. Upgrade to Pro to choose 1-7 days.</div>
-                    </div>
+            <div class="ms-settings__grid">
+                <nav class="ms-settings__rail" aria-label="Settings sections">
+                    <ul class="ms-settings__rail-list">
+                        <li><a class="ms-settings__rail-link" href="#settings-account" aria-current="location">Account</a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-addresses">Addresses</a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-automation">Automation</a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-security">Security</a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-agent">Client Agent</a></li>
+                    </ul>
+                </nav>
 
-                    <div id="upgradeToProSection" class="d-none">
-                        <hr>
-                        <h6>Upgrade to Pro</h6>
-                        <div class="mb-3">
-                            <p class="form-text">Pro unlocks personal addresses, 1-7 day address lifetime, webhooks, digest emails, the RSS feed, and the client agent.</p>
-                            <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
-                                <input type="text" id="voucherCodeInput" class="form-control" placeholder="Voucher code" style="max-width:220px;" />
-                                <button type="button" id="redeemVoucherBtn" class="btn btn-primary">Upgrade</button>
-                            </div>
-                            <div id="voucherMsg" class="mt-2"></div>
-                        </div>
-                    </div>
+                <div class="ms-settings__content">
+                    <!-- Email, password and signing-key outcomes all report here.
+                         It sticks under the nav while it has content, so an error
+                         raised from a group far down the page is still read. -->
+                    <div id="proProfileAlert" class="ms-settings__alert"></div>
 
-                    <hr>
-                    <h6>Digest emails</h6>
-                    <div class="mb-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="digestEnabled" />
-                            <label class="form-check-label" for="digestEnabled">Enable digest emails</label>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Frequency (days)</label>
-                        <select id="digestFrequency" class="form-select" style="width:150px;">
-                        </select>
-                        <div class="mt-3 d-flex" style="gap:12px; align-items:center;">
-                            <div>
-                                <label class="form-label mb-1">Send time (hour)</label>
-                                <select id="digestHour" class="form-select" style="width:120px;"></select>
-                            </div>
-                            <div>
-                                <label class="form-label mb-1">Timezone</label>
-                                <select id="digestTz" class="form-select" style="min-width:220px;"></select>
-                            </div>
-                        </div>
-                        <div id="digestNote" class="form-text text-muted">Digests will be sent at most once per 24 hours and no more frequently than 1 day. Frequency cannot exceed address TTL - 1 day.</div>
-                        <div class="mt-2 alert alert-info p-2" style="font-size:0.95rem;">
-                            Tip: To help ensure digest emails reach your inbox, add <strong>noreply@<?php echo htmlspecialchars($config['email']['domain']); ?></strong> to your address book or trusted senders list (this reduces the chance of digests being marked as spam).
-                        </div>
-                    </div>
+                    <form id="proProfileForm">
+                        <section class="ms-settings__section" id="settings-account">
+                            <h2 class="ms-settings__section-title">Account</h2>
+                            <p class="ms-settings__section-lede">Who you are here, and what your plan covers.</p>
 
-                    <hr>
-                    <h6>Personal addresses</h6>
-                    <div class="mb-3">
-                        <div class="d-flex align-items-center mb-2 flex-wrap">
-                            <div class="input-group" style="max-width:420px;">
-                                <input id="personalLocal" class="form-control" placeholder="yourname" aria-label="local part" />
-                                <span class="input-group-text">@<?php echo htmlspecialchars($config['email']['domain']); ?></span>
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Plan</h3>
+                                <p class="ms-card__desc">Temporary email is free. Pro adds permanent addresses, webhooks, digest emails, the RSS feed and the client agent.</p>
+                                <?php if ($accountIsPro) : ?>
+                                <p class="ms-card__note">You're on Pro.</p>
+                                <?php else : ?>
+                                <p class="ms-card__note">You're on the free plan.</p>
+                                <?php endif; ?>
+                                <div id="upgradeToProSection" class="d-none">
+                                    <p class="form-text">Redeem a voucher code to switch to Pro. Online payment is on the way.</p>
+                                    <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
+                                        <input type="text" id="voucherCodeInput" class="form-control" placeholder="Voucher code" style="max-width:220px;" />
+                                        <button type="button" id="redeemVoucherBtn" class="btn btn-primary">Upgrade</button>
+                                    </div>
+                                    <div id="voucherMsg" class="mt-2"></div>
+                                </div>
                             </div>
-                            <button type="button" id="createPersonalBtn" class="btn btn-primary btn-sm ms-3">Create</button>
-                            <div id="personalMsg" style="margin-left:10px; color:#9ecbff; margin-top:6px;"></div>
-                        </div>
-                        <div>
-                            <span id="personalCounterLabel" class="text-muted">You have</span>
-                            <span id="personalCounterBadge" class="badge bg-secondary ms-2">0/10</span>
-                        </div>
-                        <div id="personalList" class="mt-3"></div>
-                        <div class="form-text">Create up to 10 personal addresses. These persist for pro accounts.</div>
-                        <div id="personalCreateProNote" class="form-text text-muted d-none">Creating personal addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
-                    </div>
 
-                    <hr>
-                    <h6>Webhooks</h6>
-                    <div class="mb-3">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <label class="form-label">Name (optional)</label>
-                                <input id="whName" class="form-control" placeholder="My Pushover" />
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Email address</h3>
+                                <p class="ms-card__desc">Where sign-in links, digests and account notices are sent.</p>
+                                <div class="mb-3">
+                                    <label class="form-label">Email</label>
+                                    <input type="email" class="form-control" id="proEmail" />
+                                </div>
+                                <button type="button" id="saveProfileEmailBtn" class="btn btn-primary">Save email</button>
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Kind</label>
-                                <select id="whKind" class="form-select">
-                                    <option value="generic">Generic (POST JSON)</option>
-                                    <option value="pushover">Pushover</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mb-2 mt-2">
-                            <label class="form-label">URL / Endpoint</label>
-                            <input id="whUrl" class="form-control" placeholder="https://example.com/webhook" />
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label">Config (JSON)</label>
-                            <input id="whConfig" class="form-control" placeholder='{"token":"...","user":"..."}' />
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label">Secret (optional)</label>
-                            <input id="whSecret" class="form-control" placeholder="Optional signing secret" />
-                            <div class="form-text">If set, requests will include header <code>X-TempMail-Signature</code> with sha256 HMAC.</div>
-                        </div>
-                        <div class="mb-2">
-                            <button id="whCreateBtn" class="btn btn-primary">Create webhook</button>
-                        </div>
-                        <div id="whProNote" class="form-text text-muted d-none">Webhooks require a Pro account.</div>
-                        <div id="whMsg" class="mt-2"></div>
 
-                        <div class="mt-3">
-                            <h6>Your webhooks</h6>
-                            <div id="webhookList"></div>
-                        </div>
-                        <hr>
-                        <h6>Client signing keys</h6>
-                        <div class="mb-2">
-                            <p class="form-text mb-2">Rotate the keys used to sign client list-sync payloads.</p>
-                            <button type="button" id="rotateSigningKeysBtn" class="btn btn-primary">Rotate signing keys</button>
-                            <div id="signingKeysProNote" class="form-text text-muted d-none">Client signing keys require a Pro account.</div>
-                        </div>
-                        <div class="mt-4">
-                            <h6>Pro RSS Feed</h6>
-                            <div class="mb-2">
-                                <p class="form-text">You can subscribe to a private RSS feed of all emails for your pro account. Keep the token secret.</p>
-                                <div class="input-group mb-2">
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Password</h3>
+                                <p class="ms-card__desc">Set one to sign in without waiting for an email link.</p>
+                                <!-- Current-password field removed: users can change password without supplying previous password -->
+                                <div class="mb-3">
+                                    <label class="form-label">New password</label>
+                                    <input type="password" class="form-control" id="proPassword" />
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Confirm password</label>
+                                    <input type="password" class="form-control" id="proPasswordConfirm" />
+                                </div>
+                                <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Default lifetime</h3>
+                                <p class="ms-card__desc">How long a newly generated temporary address and its mail stay alive (1-7 days).</p>
+                                <div class="d-flex align-items-center">
+                                    <select id="ttlSelect" class="form-select" style="width:120px;"></select>
+                                    <div id="ttlMsg" style="margin-left:10px; color:#9ecbff;"></div>
+                                </div>
+                                <div id="ttlProNote" class="form-text text-muted d-none">Regular accounts use a fixed 24-hour address lifetime. Upgrade to Pro to choose 1-7 days.</div>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Delete account</h3>
+                                <p class="ms-card__desc">Permanently delete your account and all associated Pro settings. This cannot be undone.</p>
+                                <p class="ms-card__desc">A confirmation email with a deletion link is sent to your address first, so nothing happens until you click it.</p>
+                                <button type="button" id="deleteAccountBtn" class="btn btn-danger">Delete account</button>
+                            </div>
+                        </section>
+
+                        <section class="ms-settings__section" id="settings-addresses">
+                            <h2 class="ms-settings__section-title">Addresses</h2>
+                            <p class="ms-settings__section-lede">The addresses that keep working, alongside the temporary ones you throw away.</p>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Personal addresses</h3>
+                                <p class="ms-card__desc">Create up to 10 personal addresses and manage them from one inbox.</p>
+                                <div class="d-flex align-items-center mb-2 flex-wrap">
+                                    <div class="input-group" style="max-width:420px;">
+                                        <input id="personalLocal" class="form-control" placeholder="yourname" aria-label="local part" />
+                                        <span class="input-group-text">@<?php echo htmlspecialchars($config['email']['domain']); ?></span>
+                                    </div>
+                                    <button type="button" id="createPersonalBtn" class="btn btn-primary btn-sm btn-create-personal ms-3">Create</button>
+                                    <div id="personalMsg" style="margin-left:10px; color:#9ecbff; margin-top:6px;"></div>
+                                </div>
+                                <div>
+                                    <span id="personalCounterLabel" class="text-muted">You have</span>
+                                    <span id="personalCounterBadge" class="badge bg-secondary ms-2">0/10</span>
+                                </div>
+                                <div id="personalList" class="mt-3"></div>
+                                <div id="personalCreateProNote" class="form-text text-muted d-none">Creating personal addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
+                            </div>
+                        </section>
+
+                        <section class="ms-settings__section" id="settings-automation">
+                            <h2 class="ms-settings__section-title">Automation</h2>
+                            <p class="ms-settings__section-lede">Send your mail onward as it arrives, or read it somewhere else entirely.</p>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Webhooks</h3>
+                                <p class="ms-card__desc">POST every incoming message as JSON to your own endpoint, or push it to your phone with Pushover.</p>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Name (optional)</label>
+                                        <input id="whName" class="form-control" placeholder="My Pushover" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Kind</label>
+                                        <select id="whKind" class="form-select">
+                                            <option value="generic">Generic (POST JSON)</option>
+                                            <option value="pushover">Pushover</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="mb-2 mt-2">
+                                    <label class="form-label">URL / Endpoint</label>
+                                    <input id="whUrl" class="form-control" placeholder="https://example.com/webhook" />
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label">Config (JSON)</label>
+                                    <input id="whConfig" class="form-control" placeholder='{"token":"...","user":"..."}' />
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label">Secret (optional)</label>
+                                    <input id="whSecret" class="form-control" placeholder="Optional signing secret" />
+                                    <div class="form-text">If set, requests will include header <code>X-TempMail-Signature</code> with sha256 HMAC.</div>
+                                </div>
+                                <div class="mb-2">
+                                    <button id="whCreateBtn" class="btn btn-primary">Create webhook</button>
+                                </div>
+                                <div id="whProNote" class="form-text text-muted d-none">Webhooks require a Pro account.</div>
+                                <div id="whMsg" class="mt-2"></div>
+
+                                <h4 class="ms-card__subtitle">Your webhooks</h4>
+                                <div id="webhookList"></div>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Digest emails</h3>
+                                <p class="ms-card__desc">A periodic summary of what arrived, sent to your real inbox.</p>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="digestEnabled" />
+                                    <label class="form-check-label" for="digestEnabled">Enable digest emails</label>
+                                </div>
+                                <div class="mt-3">
+                                    <label class="form-label">Frequency (days)</label>
+                                    <select id="digestFrequency" class="form-select" style="width:150px;">
+                                    </select>
+                                </div>
+                                <div class="mt-3 d-flex flex-wrap" style="gap:12px; align-items:center;">
+                                    <div>
+                                        <label class="form-label mb-1">Send time (hour)</label>
+                                        <select id="digestHour" class="form-select" style="width:120px;"></select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label mb-1">Timezone</label>
+                                        <select id="digestTz" class="form-select" style="min-width:220px;"></select>
+                                    </div>
+                                </div>
+                                <div id="digestNote" class="form-text text-muted">Digests will be sent at most once per 24 hours and no more frequently than 1 day. Frequency cannot exceed address TTL - 1 day.</div>
+                                <div class="mt-2 alert alert-info p-2" style="font-size:0.95rem;">
+                                    Tip: To help ensure digest emails reach your inbox, add <strong>noreply@<?php echo htmlspecialchars($config['email']['domain']); ?></strong> to your address book or trusted senders list (this reduces the chance of digests being marked as spam).
+                                </div>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">RSS feed</h3>
+                                <p class="ms-card__desc">You can subscribe to a private RSS feed of all emails for your pro account. Keep the token secret.</p>
+                                <div class="input-group">
                                     <input type="text" id="feedUrlInput" class="form-control" placeholder="(loading...)" readonly />
                                     <div class="btn-group btn-group-sm" role="group" aria-label="Feed actions">
                                         <button id="copyFeedToken" class="btn btn-sm btn-outline-secondary">Copy</button>
@@ -196,119 +253,113 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
                                 <div class="form-text">Keep the token part of the URL secret. Subscribe using the full URL shown above.</div>
                                 <div id="feedProNote" class="form-text text-muted d-none">The RSS feed requires a Pro account.</div>
                             </div>
-                        </div>
-                    </div>
+                        </section>
 
-                    <hr>
-                    <h6>Set / Change password</h6>
-                    <!-- Current-password field removed: users can change password without supplying previous password -->
-                    <div class="mb-3">
-                        <label class="form-label">New password</label>
-                        <input type="password" class="form-control" id="proPassword" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Confirm password</label>
-                        <input type="password" class="form-control" id="proPasswordConfirm" />
-                    </div>
-                    <div class="mb-3">
-                        <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password!</button>
-                    </div>
+                        <section class="ms-settings__section" id="settings-security">
+                            <h2 class="ms-settings__section-title">Security</h2>
+                            <p class="ms-settings__section-lede">Codes, devices, and how a password sign-in is verified.</p>
 
-                    <hr>
-                    <h6>Two-factor authentication</h6>
-                    <div class="mb-3" id="twoFactorSection">
-                        <p id="tfaStatusLine" class="mb-2">Loading status...</p>
-                        <p class="form-text">Protects password sign-in with a code from your authenticator app. Email sign-in links already require access to your inbox and keep working as before.</p>
-                        <p class="form-text">Lost your authenticator? You can always sign in with your email login link instead, then turn off two-factor authentication here.</p>
-                        <div id="tfaNoPasswordNote" class="alert alert-info d-none">
-                            Two-factor authentication only takes effect once you have a password set — <a href="#proPassword">set one above</a> to activate protection after enrolling.
-                        </div>
-                        <div id="tfaAlert"></div>
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Two-factor authentication</h3>
+                                <p class="ms-card__desc">A code from your authenticator app, on top of your password.</p>
+                                <div id="twoFactorSection">
+                                    <p id="tfaStatusLine" class="mb-2">Loading status...</p>
+                                    <p class="form-text">Protects password sign-in with a code from your authenticator app. Email sign-in links already require access to your inbox and keep working as before.</p>
+                                    <p class="form-text">Lost your authenticator? You can always sign in with your email login link instead, then turn off two-factor authentication here.</p>
+                                    <div id="tfaNoPasswordNote" class="alert alert-info d-none">
+                                        Two-factor authentication only takes effect once you have a password set — <a href="#proPassword">set one above</a> to activate protection after enrolling.
+                                    </div>
+                                    <div id="tfaAlert"></div>
 
-                        <div id="tfaDisabledState" class="d-none">
-                            <button type="button" id="tfaEnableBtn" class="btn btn-primary">Enable 2FA</button>
-                        </div>
+                                    <div id="tfaDisabledState" class="d-none">
+                                        <button type="button" id="tfaEnableBtn" class="btn btn-primary">Enable 2FA</button>
+                                    </div>
 
-                        <div id="tfaEnrollStep" class="d-none">
-                            <p>Scan with 1Password, Authy, Google Authenticator, or a similar app.</p>
-                            <div id="tfaQrContainer" class="mb-2"></div>
-                            <details class="mb-3">
-                                <summary style="cursor:pointer;">Can't scan?</summary>
-                                <div class="mt-2 d-flex align-items-center flex-wrap" style="gap:8px;">
-                                    <code id="tfaManualKey"></code>
-                                    <button type="button" id="tfaCopyKeyBtn" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                    <div id="tfaEnrollStep" class="d-none">
+                                        <p>Scan with 1Password, Authy, Google Authenticator, or a similar app.</p>
+                                        <div id="tfaQrContainer" class="mb-2"></div>
+                                        <details class="mb-3">
+                                            <summary style="cursor:pointer;">Can't scan?</summary>
+                                            <div class="mt-2 d-flex align-items-center flex-wrap" style="gap:8px;">
+                                                <code id="tfaManualKey"></code>
+                                                <button type="button" id="tfaCopyKeyBtn" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                            </div>
+                                        </details>
+                                        <div class="mb-2">
+                                            <label class="form-label" for="tfaCodeInput">Enter the 6-digit code from your app</label>
+                                            <input type="text" class="form-control" id="tfaCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
+                                        </div>
+                                        <button type="button" id="tfaConfirmBtn" class="btn btn-primary">Confirm and enable</button>
+                                        <button type="button" id="tfaCancelEnrollBtn" class="btn btn-link">Cancel</button>
+                                    </div>
+
+                                    <div id="tfaRecoveryCodesBox" class="d-none">
+                                        <div class="alert alert-warning">
+                                            <strong>Save these recovery codes now.</strong> They are shown this one time only. Store them somewhere safe — each one can be used once if you lose access to your authenticator app.
+                                        </div>
+                                        <pre id="tfaRecoveryCodesList" class="p-3 border rounded" style="white-space:pre-wrap; word-break:break-word;"></pre>
+                                        <div class="mb-2">
+                                            <button type="button" id="tfaCopyRecoveryBtn" class="btn btn-sm btn-outline-secondary">Copy all</button>
+                                            <button type="button" id="tfaDownloadRecoveryBtn" class="btn btn-sm btn-outline-secondary">Download as .txt</button>
+                                        </div>
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tfaSavedCodesCheck">
+                                            <label class="form-check-label" for="tfaSavedCodesCheck">I have saved my codes</label>
+                                        </div>
+                                        <button type="button" id="tfaCloseRecoveryBtn" class="btn btn-primary" disabled>Done</button>
+                                    </div>
+
+                                    <div id="tfaEnabledState" class="d-none">
+                                        <div id="tfaLowCodesWarning" class="alert alert-warning d-none">
+                                            You have <span id="tfaCodesLeftCount"></span> recovery codes left.
+                                            <button type="button" id="tfaRegenBtn" class="btn btn-sm btn-warning ms-2">Generate new codes</button>
+                                        </div>
+                                        <button type="button" id="tfaDisableBtn" class="btn btn-outline-danger">Disable 2FA</button>
+
+                                        <div id="tfaTrustedDevicesSection" class="mt-4">
+                                            <h4 class="ms-card__subtitle">Trusted devices</h4>
+                                            <p class="form-text">Browsers where you checked "Remember this browser" at sign-in skip the code for 30 days. Revoke a device to require the code there again.</p>
+                                            <div id="tfaTrustedDevicesAlert"></div>
+                                            <p id="tfaTrustedDevicesEmpty" class="text-muted d-none">No trusted devices.</p>
+                                            <ul id="tfaTrustedDevicesList" class="list-group mb-2"></ul>
+                                            <button type="button" id="tfaRevokeAllDevicesBtn" class="btn btn-sm btn-outline-danger d-none">Revoke all</button>
+                                        </div>
+                                    </div>
+
+                                    <div id="tfaRegenForm" class="d-none mt-2">
+                                        <label class="form-label" for="tfaRegenCodeInput">Enter a current code to generate new recovery codes</label>
+                                        <input type="text" class="form-control mb-2" id="tfaRegenCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
+                                        <button type="button" id="tfaRegenConfirmBtn" class="btn btn-primary btn-sm">Generate</button>
+                                        <button type="button" id="tfaRegenCancelBtn" class="btn btn-link btn-sm">Cancel</button>
+                                    </div>
+
+                                    <div id="tfaDisableForm" class="d-none mt-2">
+                                        <div id="tfaDisablePasswordField" class="mb-2">
+                                            <label class="form-label" for="tfaDisablePasswordInput">Enter your password to confirm</label>
+                                            <input type="password" class="form-control" id="tfaDisablePasswordInput" style="max-width:260px;">
+                                        </div>
+                                        <button type="button" id="tfaDisableConfirmBtn" class="btn btn-danger btn-sm">Disable 2FA</button>
+                                        <button type="button" id="tfaDisableCancelBtn" class="btn btn-link btn-sm">Cancel</button>
+                                    </div>
                                 </div>
-                            </details>
-                            <div class="mb-2">
-                                <label class="form-label" for="tfaCodeInput">Enter the 6-digit code from your app</label>
-                                <input type="text" class="form-control" id="tfaCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
                             </div>
-                            <button type="button" id="tfaConfirmBtn" class="btn btn-primary">Confirm and enable</button>
-                            <button type="button" id="tfaCancelEnrollBtn" class="btn btn-link">Cancel</button>
-                        </div>
+                        </section>
 
-                        <div id="tfaRecoveryCodesBox" class="d-none">
-                            <div class="alert alert-warning">
-                                <strong>Save these recovery codes now.</strong> They are shown this one time only. Store them somewhere safe — each one can be used once if you lose access to your authenticator app.
-                            </div>
-                            <pre id="tfaRecoveryCodesList" class="p-3 border rounded" style="white-space:pre-wrap; word-break:break-word;"></pre>
-                            <div class="mb-2">
-                                <button type="button" id="tfaCopyRecoveryBtn" class="btn btn-sm btn-outline-secondary">Copy all</button>
-                                <button type="button" id="tfaDownloadRecoveryBtn" class="btn btn-sm btn-outline-secondary">Download as .txt</button>
-                            </div>
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="tfaSavedCodesCheck">
-                                <label class="form-check-label" for="tfaSavedCodesCheck">I have saved my codes</label>
-                            </div>
-                            <button type="button" id="tfaCloseRecoveryBtn" class="btn btn-primary" disabled>Done</button>
-                        </div>
+                        <section class="ms-settings__section" id="settings-agent">
+                            <h2 class="ms-settings__section-title">Client Agent</h2>
+                            <p class="ms-settings__section-lede">Keys for the agent you run on your own mail server.</p>
 
-                        <div id="tfaEnabledState" class="d-none">
-                            <div id="tfaLowCodesWarning" class="alert alert-warning d-none">
-                                You have <span id="tfaCodesLeftCount"></span> recovery codes left.
-                                <button type="button" id="tfaRegenBtn" class="btn btn-sm btn-warning ms-2">Generate new codes</button>
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Client signing keys</h3>
+                                <p class="ms-card__desc">The agent verifies signed list-sync payloads against these keys. Rotate them if one may have leaked.</p>
+                                <button type="button" id="rotateSigningKeysBtn" class="btn btn-primary">Rotate signing keys</button>
+                                <div id="signingKeysProNote" class="form-text text-muted d-none">Client signing keys require a Pro account.</div>
                             </div>
-                            <button type="button" id="tfaDisableBtn" class="btn btn-outline-danger">Disable 2FA</button>
-
-                            <div id="tfaTrustedDevicesSection" class="mt-4">
-                                <h6>Trusted devices</h6>
-                                <p class="form-text">Browsers where you checked "Remember this browser" at sign-in skip the code for 30 days. Revoke a device to require the code there again.</p>
-                                <div id="tfaTrustedDevicesAlert"></div>
-                                <p id="tfaTrustedDevicesEmpty" class="text-muted d-none">No trusted devices.</p>
-                                <ul id="tfaTrustedDevicesList" class="list-group mb-2"></ul>
-                                <button type="button" id="tfaRevokeAllDevicesBtn" class="btn btn-sm btn-outline-danger d-none">Revoke all</button>
-                            </div>
-                        </div>
-
-                        <div id="tfaRegenForm" class="d-none mt-2">
-                            <label class="form-label" for="tfaRegenCodeInput">Enter a current code to generate new recovery codes</label>
-                            <input type="text" class="form-control mb-2" id="tfaRegenCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
-                            <button type="button" id="tfaRegenConfirmBtn" class="btn btn-primary btn-sm">Generate</button>
-                            <button type="button" id="tfaRegenCancelBtn" class="btn btn-link btn-sm">Cancel</button>
-                        </div>
-
-                        <div id="tfaDisableForm" class="d-none mt-2">
-                            <div id="tfaDisablePasswordField" class="mb-2">
-                                <label class="form-label" for="tfaDisablePasswordInput">Enter your password to confirm</label>
-                                <input type="password" class="form-control" id="tfaDisablePasswordInput" style="max-width:260px;">
-                            </div>
-                            <button type="button" id="tfaDisableConfirmBtn" class="btn btn-danger btn-sm">Disable 2FA</button>
-                            <button type="button" id="tfaDisableCancelBtn" class="btn btn-link btn-sm">Cancel</button>
-                        </div>
-                    </div>
-
-                    <hr>
-                    <h6>Danger zone</h6>
-                    <div class="mb-3">
-                        <p class="text-muted">Permanently delete your Pro account and all associated Pro settings. This cannot be undone.</p>
-                        <p class="text-muted">A confirmation email with a deletion link will be sent to your email address after you click the button.</p>
-                        <div style="margin-top:8px;">
-                            <button type="button" id="deleteAccountBtn" class="btn btn-danger">Delete account</button>
-                        </div>
-                    </div>
-                </form>
+                        </section>
+                    </form>
+                </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
@@ -1238,6 +1289,76 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
             // Load token initially
             loadFeedToken();
         });
+    </script>
+
+    <script>
+    /**
+     * Marks the settings group the reader is actually looking at.
+     *
+     * Kept out of the block above on purpose: it is read-only and independent of
+     * the profile handlers, so it shares no state with them and cannot affect
+     * what any of them post. Navigation itself stays anchored and script-free —
+     * this only reflects scroll position, and the markup already carries the
+     * marker for the first group, so a browser without IntersectionObserver or
+     * without JS shows a correct, if static, rail.
+     */
+    (function () {
+        var root = document.querySelector('.ms-settings');
+        if (!root) return;
+
+        var links = {};
+        Array.prototype.forEach.call(root.querySelectorAll('.ms-settings__rail-link'), function (a) {
+            var id = (a.getAttribute('href') || '').replace('#', '');
+            if (id) links[id] = a;
+        });
+
+        var sections = Array.prototype.slice.call(root.querySelectorAll('.ms-settings__section'));
+        if (!sections.length) return;
+
+        // The heading of a section an anchor jumped to sits this far down the
+        // viewport, so that is the line the "current" section is measured
+        // against — not the very top, which the heading never reaches.
+        var offset = parseFloat(getComputedStyle(sections[0]).scrollMarginTop) || 0;
+        var current = '';
+        var ticking = false;
+
+        function mark(id) {
+            if (id === current || !links[id]) return;
+            current = id;
+            Object.keys(links).forEach(function (key) {
+                if (key === id) {
+                    links[key].setAttribute('aria-current', 'location');
+                } else {
+                    links[key].removeAttribute('aria-current');
+                }
+            });
+        }
+
+        function update() {
+            ticking = false;
+            // The last section to have crossed the line is the one in view.
+            var best = sections[0].id;
+            for (var i = 0; i < sections.length; i++) {
+                if (sections[i].getBoundingClientRect().top <= offset + 1) best = sections[i].id;
+            }
+            // The final group cannot be scrolled to the line, so the bottom of
+            // the page counts as being in it.
+            if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+                best = sections[sections.length - 1].id;
+            }
+            mark(best);
+        }
+
+        function onScroll() {
+            if (ticking) return;
+            ticking = true;
+            window.requestAnimationFrame(update);
+        }
+
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll);
+        update();
+    })();
     </script>
 </body>
 </html>

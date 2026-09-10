@@ -3539,3 +3539,266 @@ a:hover {
     animation: none;
     box-shadow: inset 0 0 0 1px var(--ms-danger);
 }
+
+/* ==========================================================================
+   bb. Settings — pro_profile_page.php (Redesign 25)
+   ========================================================================== */
+
+/* The page was one card holding every setting, each block separated by a rule
+   and two rem of padding, so a page of eleven settings scrolled for thousands
+   of pixels. It is now five groups behind a rail of anchors.
+
+   Anchored, not tabbed, on purpose: every section stays in the document flow,
+   so no control that the page's own inline scripts bind by id — they reach
+   into all five groups — can end up inside a panel that is hidden when the
+   script runs. Deep links and find-in-page keep working for the same reason.
+
+   There is no scroll spy. The rail marker is moved by `:has(:target)`, which
+   fits the way a reader actually navigates a contents list — follow a link,
+   land on a section — and costs no script state. The marker is presentational:
+   the rail links carry no aria-current, because an attribute that cannot track
+   the scroll position would announce the wrong section. */
+
+.ms-settings {
+    /* The nav is the page's only bar and stands 4rem tall (.ms-appnav__inner
+       min-height). Sections, the rail and the alert all clear it by one more
+       step of the scale. It is the same offset at every width — there is no
+       second sticky layer to stack underneath. */
+    --ms-settings-nav: calc(var(--ms-space-10) + var(--ms-space-4));
+
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+    padding-bottom: var(--ms-space-6);
+}
+
+/* --- Page label -----------------------------------------------------------
+   The nav carries the identity (#116) and the page carried a 2.5rem heading
+   with a cog icon and a "Manage your Pro account" lead. What is left is a page
+   label, taking the h3 step for the same reason the dashboard's does, and the
+   rail and the group headings below carry the orientation the lead used to. */
+
+.ms-settings__title {
+    margin: 0 0 var(--ms-space-5);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+/* --- Rail and content ----------------------------------------------------- */
+
+.ms-settings__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-5);
+}
+
+/* Collapses at 1000px, the width the issue names: below it the rail would
+   squeeze the webhook rows and the two-factor column before it stopped being
+   worth its own column. */
+@media (min-width: 1000px) {
+    .ms-settings__grid {
+        grid-template-columns: 13rem minmax(0, 1fr);
+        gap: var(--ms-space-6);
+        /* Required for the rail's `position: sticky` — a stretched grid item
+           is exactly as tall as the row and has nowhere to stick within. */
+        align-items: start;
+    }
+}
+
+.ms-settings__content {
+    /* Lets the webhook rows wrap instead of widening the grid column. */
+    min-width: 0;
+}
+
+/* --- The rail -------------------------------------------------------------
+   A horizontal, scrollable strip on a phone; a sticky column from 1000px up.
+   Two renditions of one list, not a drawer and not a select. */
+
+.ms-settings__rail {
+    min-width: 0;
+}
+
+.ms-settings__rail-list {
+    display: flex;
+    gap: var(--ms-space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.ms-settings__rail-link {
+    display: block;
+    padding: var(--ms-space-2) 0;
+    /* Mobile resting state: a rule under the link, matching the strip. */
+    border-bottom: 2px solid transparent;
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--ms-dur) var(--ms-ease),
+        border-color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-settings__rail-link:hover,
+.ms-settings__rail-link:focus-visible {
+    color: var(--ms-text);
+}
+
+/* Which group is current. One rule, keyed off `aria-current`, which the small
+   spy in the page maintains. The first group carries the attribute in the
+   markup, so the marker is correct before the script runs and stays correct if
+   it never does. `border-color` covers both renditions of the rail on its own:
+   only the bottom border has width on a phone, only the left one has width in
+   the column. */
+.ms-settings__rail-link[aria-current] {
+    border-color: var(--ms-accent);
+    color: var(--ms-text);
+    font-weight: 600;
+}
+
+@media (min-width: 1000px) {
+    .ms-settings__rail {
+        position: sticky;
+        top: var(--ms-settings-nav);
+    }
+
+    .ms-settings__rail-list {
+        flex-direction: column;
+        gap: 0;
+        overflow: visible;
+    }
+
+    .ms-settings__rail-link {
+        padding: var(--ms-space-2) var(--ms-space-3);
+        /* Desktop resting state: a rule beside the link, matching the column. */
+        border-bottom: 0;
+        border-left: 2px solid transparent;
+    }
+}
+
+/* --- The page's own status line -------------------------------------------
+   Email, password and signing-key outcomes all land in #proProfileAlert, and
+   it used to sit at the top of a page that scrolled for thousands of pixels —
+   a key rotation failing in the last group reported itself out of sight. It
+   sticks under the nav for as long as it has something to say, and is absent
+   the rest of the time, which is what `:empty` tests. */
+
+.ms-settings__alert:not(:empty) {
+    position: sticky;
+    top: var(--ms-settings-nav);
+    z-index: 2;
+    margin-bottom: var(--ms-space-4);
+    background: var(--ms-bg);
+}
+
+/* --- A group -------------------------------------------------------------- */
+
+.ms-settings__section {
+    /* An anchor jump must not tuck the heading under the bar. The stylesheet
+       already offsets `:target` for the marketing pages; settings sections are
+       linked to from the rail as well, so they carry the offset themselves. */
+    scroll-margin-top: var(--ms-settings-nav);
+}
+
+.ms-settings__section + .ms-settings__section {
+    margin-top: var(--ms-space-7);
+}
+
+.ms-settings__section-title {
+    margin: 0 0 var(--ms-space-1);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-settings__section-lede {
+    margin: 0 0 var(--ms-space-3);
+    max-width: 62ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- A setting ------------------------------------------------------------
+   One card per setting, holding a heading, a one-line description, the
+   control and that control's own status element. The padding is deliberately
+   the smallest that still separates a setting from its neighbours: the old
+   stack leaned on rules and margins instead, and this page has eleven settings
+   to get through. */
+
+.ms-card {
+    padding: var(--ms-space-3) var(--ms-space-5);
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+}
+
+.ms-card + .ms-card {
+    margin-top: var(--ms-space-2);
+}
+
+.ms-card__title {
+    margin: 0 0 var(--ms-space-1);
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-body);
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-card__desc {
+    margin: 0 0 var(--ms-space-2);
+    max-width: 68ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* The control is the last thing in most cards, so the description above it
+   should not leave a gap under the card. */
+.ms-card__desc:last-child,
+.ms-card__note:last-child {
+    margin-bottom: 0;
+}
+
+.ms-card__note {
+    margin: 0 0 var(--ms-space-3);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text);
+}
+
+/* A second heading level inside one card — "Your webhooks", "Trusted
+   devices" — for a control that owns a list of its own. */
+.ms-card__subtitle {
+    margin: var(--ms-space-5) 0 var(--ms-space-2);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+/* --- The personal-address status message ----------------------------------
+   The create handler writes inline colours picked for the old dark address
+   panel — #9ecbff while creating, #fff on success, #ff6b6b on error. The
+   handler is deliberately untouched, so the message is given a dark chip of
+   its own while it has text, exactly as the lifetime message already is: all
+   three colours clear 4.5:1 on --ms-text. */
+
+.ms-settings #personalMsg:not(:empty) {
+    display: inline-block;
+    padding: .125rem .5rem;
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-text);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+}
