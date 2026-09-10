@@ -907,232 +907,47 @@ if ($urlAddress !== null) {
     exit;
 }
 ?>
-<!DOCTYPE html>
-<html lang="sv">
-<head>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-BFX6EC3575"></script>
-        <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);} 
-        gtag('js', new Date());
-        gtag('config', 'G-BFX6EC3575');
-    </script>
+<?php
+/**
+ * Mail Shield landing page. Spec: documentaion/REDESIGN_BRIEF.md §8 (section
+ * order and copy) and §11 (marketing pages load only the mailshield
+ * stylesheets).
+ *
+ * Everything above this point is the POST/AJAX action surface that app.js in
+ * inbox.php still posts to — it is deliberately untouched. The page body itself
+ * is ten stub sections, one file each, so Redesigns 09–15 can fill them in
+ * independently without touching this file.
+ */
 
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mail Shield — Your inbox for everything else</title>
-    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
-    <link rel="alternate icon" href="/assets/images/favicon.ico">
-    
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    
-    <!-- Custom CSS -->
-    <link href="assets/css/style.css" rel="stylesheet">
-    
-    <meta name="description" content="Create temporary email addresses that are automatically deleted after 24 hours. Safe and easy to use.">
-    
-    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
-</head>
-<body>
-    <div class="main-container">
-        <!-- Header -->
-        <div class="header">
-            <h1><i class="fas fa-envelope"></i> Mail Shield</h1>
-            <p class="lead"><?php echo !empty($_SESSION['pro_user_id'] ?? null) 
-                ? 'Temporary email addresses for pro users. Default lifetime applied to new addresses.' 
-                : 'Temporary email addresses that are deleted after 24 hours'; ?></p>
-            
-            <?php require 'partials/nav.php'; ?>
-            <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-            <script>
-            (function(){
-                try {
-                    var proExpiry = <?php 
-                        // Fetch pro_expires_at from session or database
-                        $proExpires = null;
-                        $isProAccount = false;
-                        if (!empty($_SESSION['pro_user_id'])) {
-                            try {
-                                $pstmt = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
-                                $pstmt->execute([$_SESSION['pro_user_id']]);
-                                $prow = $pstmt->fetch(PDO::FETCH_ASSOC);
-                                $proExpires = $prow['pro_expires_at'] ?? null;
-                                $isProAccount = proUserIsPro((int)$_SESSION['pro_user_id']);
-                            } catch (Exception $e) {}
-                        }
-                        echo json_encode(['expires' => $proExpires, 'isPro' => $isProAccount]);
-                    ?>;
-                    if (!proExpiry.isPro) {
-                        document.getElementById('proExpiryLine').textContent = 'Free';
-                        return;
-                    }
-                    if (!proExpiry.expires) {
-                        document.getElementById('proExpiryLine').textContent = 'Pro: Lifetime';
-                        return;
-                    }
-                    var d = new Date(proExpiry.expires + ' UTC');
-                    var dd = String(d.getUTCDate()).padStart(2, '0');
-                    var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-                    var yyyy = d.getUTCFullYear();
-                    var dateOnly = dd + '/' + mm + '/' + yyyy;
-                    var now = new Date();
-                    var diffMs = d - now;
-                    if (diffMs <= 0) {
-                        document.getElementById('proExpiryLine').textContent = 'Pro expired on ' + dateOnly;
-                        document.getElementById('proExpiryLine').style.color = '#ff6b6b';
-                    } else {
-                        document.getElementById('proExpiryLine').textContent = 'Pro expires: ' + dateOnly;
-                    }
-                } catch (e) {}
-            })();
-            </script>
-            <?php endif; ?>
-            <!-- navbar script moved to partial -->
-        </div>
+$domain = $config['email']['domain'] ?? 'manjo.me';
 
-        <!-- Funktioner och information -->
-        <?php if (empty($_SESSION['pro_user_id'] ?? null)): ?>
-                    <div class="alert alert-info">
-                        <i class="fas fa-shield-alt"></i>
-                        <strong>Security:</strong> All email addresses and messages are automatically deleted after 24 hours. 
-                        Don't use for sensitive information.
-                    </div>
-        <div class="card fade-in">
-            <div class="card-header">
-                <h3><i class="fas fa-info-circle"></i> How It Works</h3>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-4 mb-4">
-                        <div class="text-center">
-                            <i class="fas fa-mouse-pointer fa-2x text-primary mb-3"></i>
-                            <h5>1. Generate</h5>
-                            <p>Click the button to get a new temporary email address</p>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-4">
-                        <div class="text-center">
-                            <i class="fas fa-paper-plane fa-2x text-success mb-3"></i>
-                            <h5>2. Use</h5>
-                            <p>Use the address for registrations and verifications</p>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-4">
-                        <div class="text-center">
-                            <i class="fas fa-eye fa-2x text-info mb-3"></i>
-                            <h5>3. Read</h5>
-                            <p>View incoming emails here on the page in real-time</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
+$msPage = [
+    'title'        => 'Mail Shield — Your inbox for everything else',
+    'description'  => 'A separate inbox for shopping, newsletters, signups and temporary email. Create permanent addresses or disposable temporary email addresses, and keep your primary inbox for what matters.',
+    'path'         => '/',
+    'preload_font' => true,
+];
 
-        <!-- Pro vs Regular comparison -->
-        <div class="card mt-4 card-main-width">
-            <div class="card-header"><h3>Pro vs Regular</h3></div>
-            <div class="card-body">
-                <p class="text-muted mb-3"><strong>Regular</strong> is a free, registered account — creating a temporary address now requires <a href="/register.php">signing up</a>. A logged-out visitor can only view an inbox they were given a direct link to.</p>
-                <div class="table-responsive">
-                    <table class="table table-bordered table-striped">
-                        <thead>
-                            <tr>
-                                <th>Feature</th>
-                                <th>Regular</th>
-                                <th>Pro</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>Address lifetime</td>
-                                <td>Default 24 hours</td>
-                                <td>Configurable (1–7 days)</td>
-                            </tr>
-                            <tr>
-                                <td>Personal addresses</td>
-                                <td>Not available</td>
-                                <td>Create up to 10 persistent personal addresses</td>
-                            </tr>
-                            <tr>
-                                <td>Webhooks</td>
-                                <td>Not available</td>
-                                <td>Receive webhooks for incoming mail (POST JSON)</td>
-                            </tr>
-                            <tr>
-                                <td>Digest emails</td>
-                                <td>Not available</td>
-                                <td>Periodic digests with unread messages</td>
-                            </tr>
-                            <tr>
-                                <td>RSS feed</td>
-                                <td>Not available</td>
-                                <td>Private RSS feed of your inbox (token protected)</td>
-                            </tr>
-                            <tr>
-                                <td>Remote agent</td>
-                                <td>Not available</td>
-                                <td>Monitor and manage any remote mailbox</td>
-                            </tr>
-                            <tr>
-                                <td>Address privacy</td>
-                                <td>Unauthenticated — anyone with the address/link can read the inbox</td>
-                                <td>Temp addresses shareable; Personal addresses private (login required)</td>
-                            </tr>
-                            <tr>
-                                <td>Attachments</td>
-                                <td>Signed, time-limited download links</td>
-                                <td>Signed, time-limited download links</td>
-                            </tr>
-                            <tr>
-                                <td>Support</td>
-                                <td>Community / public docs</td>
-                                <td>Priority support</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <?php if (empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                    <div class="mt-3 text-center">
-                        <a href="/register.php?plan=regular" class="btn btn-primary me-2">
-                            <i class="fas fa-user-plus"></i> Create a free account
-                        </a>
-                        <a href="/register.php?plan=pro" class="btn btn-outline-primary" rel="nofollow noreferrer">
-                            <i class="fas fa-key"></i> Get Pro with a code
-                        </a>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-    </div>
-
-
-    <!-- Footer -->
-    <footer class="text-center mt-5 py-4">
-        <div class="container">
-            <p class="text-light mb-0">
-                <small>Mail Shield · Operated by Manjo Consulting AB · v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
-            </p>
-            <p class="text-light mb-0 mt-1">
-                <small>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</small>
-            </p>
-        </div>
-    </footer>
-
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="assets/js/site-controls.js"></script>
-    <script>
-    (function(){
-        // No personal-address handlers on index; profile page contains those controls now.
-    })();
-    </script>
-</body>
-</html>
+require 'partials/brand.php';
+require 'partials/public_head.php';
+require 'partials/public_nav.php';
+?>
+<main id="main">
+<?php
+foreach ([
+    'hero',
+    'problem',
+    'how_it_works',
+    'addresses',
+    'temporary',
+    'automation',
+    'cleanup',
+    'external',
+    'plans',
+    'cta',
+] as $msSection) {
+    require __DIR__ . '/partials/landing/' . $msSection . '.php';
+}
+?>
+</main>
+<?php require 'partials/public_footer.php'; ?>

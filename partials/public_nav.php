@@ -11,6 +11,10 @@
  * on the current page; those links then point back at the landing page.
  *
  * A signed-in visitor still gets the marketing page — nothing here redirects.
+ *
+ * This partial emits the skip link, so it is the first focusable element in
+ * <body> on every marketing page. It targets #main, which each page's own
+ * <main id="main"> provides.
  */
 
 if (!isset($config) || !is_array($config)) {
@@ -31,6 +35,7 @@ $msNavEsc = function ($value): string {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 };
 ?>
+<a class="ms-skip" href="#main">Skip to content</a>
 <header class="ms-nav" id="ms-nav">
     <div class="ms-container ms-nav__inner">
         <?php echo ms_logo(['href' => '/', 'class' => 'ms-nav__logo']); ?>
