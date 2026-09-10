@@ -922,6 +922,22 @@ a:hover {
     color: var(--ms-text-faint);
 }
 
+/* --- Compact variant: no address sidebar ---------------------------------- */
+
+/* partials/landing/addresses.php shows the addresses outside the card, so the
+   mock stacks its header on top of the message list instead of splitting into
+   sidebar + list. Beats the 768px split above on specificity, so it also
+   restates the sidebar's border side. */
+.ms-mock--compact .ms-mock__body {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.ms-mock--compact .ms-mock__side {
+    padding: var(--ms-space-4);
+    border-right: 0;
+    border-bottom: 1px solid var(--ms-border);
+}
+
 /* --- Message list --------------------------------------------------------- */
 
 .ms-mock__list {
@@ -1164,4 +1180,188 @@ a:hover {
    padding would otherwise indent it by 18px. */
 .ms-how__more .ms-btn {
     padding-inline: 0;
+}
+
+/* ==========================================================================
+   n. Landing — personal addresses (partials/landing/addresses.php)
+   ========================================================================== */
+
+/* The copy sits above the diagram rather than beside it. That keeps the
+   diagram's own grid to three clean rows — one per address — which is what
+   lets the connector paths be drawn to fixed fractions instead of measured
+   pixel positions. */
+.ms-addresses {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-8);
+}
+
+/* A readable measure. The heading is left to run wider than the paragraphs —
+   at this size it is a single line, and clipping it to the body's measure
+   would break it in two for no reason. */
+.ms-addresses__body,
+.ms-addresses__kicker,
+.ms-addresses__tier {
+    max-width: 52ch;
+}
+
+.ms-addresses__body {
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* The closing thought: full-strength text, a step up from the body. */
+.ms-addresses__kicker {
+    margin: var(--ms-space-5) 0 0;
+    font-size: var(--ms-fs-lede);
+    line-height: var(--ms-lh-lede);
+    color: var(--ms-text);
+}
+
+/* Quiet, and required: personal addresses are Pro-only, and nothing else on
+   this page may imply a free account gets them. */
+.ms-addresses__tier {
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Single column: the pills, then the inbox ----------------------------- */
+
+/* The connectors are hidden, not squeezed. A curve drawn for a horizontal run
+   reads as a glitch once its two ends are stacked; the vertical rhythm between
+   the pills and the card carries the relationship instead. */
+.ms-addresses__routing {
+    display: grid;
+    /* minmax(0, 1fr), not the implicit auto column: the card's message rows
+       have a wide max-content width, and an auto column would take it and push
+       the page sideways on a phone instead of letting the rows ellipsis. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-6);
+}
+
+.ms-addresses__links {
+    display: none;
+}
+
+.ms-addresses__list {
+    display: grid;
+    gap: var(--ms-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* Full-width rows, so every pill ends on the same x — the connectors below
+   start from that edge and would not meet a ragged one. */
+.ms-addresses__item {
+    display: flex;
+}
+
+.ms-addresses__item .ms-addr {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ms-addresses__inbox {
+    max-width: 720px;
+}
+
+/* --- Two columns: pills, connectors, inbox -------------------------------- */
+
+@media (min-width: 900px) {
+    /* Three rows, one per address. The inbox card spans all three and is what
+       sizes them, so the pills land on exactly the thirds the connector paths
+       are drawn to — 1/6, 1/2 and 5/6 of the column. No pixel measurement is
+       assumed anywhere, so the alignment survives a different card height. */
+    .ms-addresses__routing {
+        grid-template-columns: minmax(0, 232px) clamp(56px, 7vw, 88px) minmax(0, 1fr);
+        grid-template-rows: repeat(3, minmax(0, 1fr));
+        gap: 0;
+    }
+
+    .ms-addresses__list {
+        grid-area: 1 / 1 / 4 / 2;
+        grid-template-rows: repeat(3, minmax(0, 1fr));
+        align-items: center;
+        gap: 0;
+    }
+
+    /* preserveAspectRatio="none" lets the viewBox stretch to whatever height
+       the card ends up at; non-scaling-stroke keeps that stretch from turning
+       the 1px line into a 3px one. The curve is still a curve — only its
+       proportions change. */
+    .ms-addresses__links {
+        display: block;
+        grid-area: 1 / 2 / 4 / 3;
+        width: 100%;
+        height: 100%;
+        fill: none;
+        stroke: var(--ms-border);
+        stroke-width: 1;
+    }
+
+    /* Not inherited from the <svg> above, and the one property that has to be
+       on the path itself. */
+    .ms-addresses__link {
+        vector-effect: non-scaling-stroke;
+    }
+
+    /* One live path — the address the hero's mockup has selected. */
+    .ms-addresses__link--active {
+        stroke: var(--ms-accent);
+        stroke-dasharray: 1;
+        animation: ms-addresses-draw 400ms var(--ms-ease) both;
+    }
+
+    .ms-addresses__inbox {
+        grid-area: 1 / 3 / 4 / 4;
+    }
+
+    /* The junctions. Three nodes where the pills meet the connectors, one where
+       the connectors meet the inbox. Drawn as boxes rather than SVG circles
+       because the viewBox is stretched non-uniformly, which would squash a
+       circle into an ellipse. */
+    .ms-addresses__item,
+    .ms-addresses__inbox {
+        position: relative;
+    }
+
+    .ms-addresses__item::after,
+    .ms-addresses__inbox::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: var(--ms-border-strong);
+        transform: translateY(-50%);
+    }
+
+    .ms-addresses__item::after {
+        right: -1.5px;
+    }
+
+    .ms-addresses__inbox::before {
+        left: -1.5px;
+    }
+}
+
+/* Draws the live connector once, on load. pathLength="1" on the path means the
+   dash is the whole line whatever the line's real length turns out to be. */
+@keyframes ms-addresses-draw {
+    from { stroke-dashoffset: 1; }
+    to   { stroke-dashoffset: 0; }
+}
+
+/* The global guard shortens the animation but leaves stroke-dashoffset at
+   whichever end `both` fill parked it, so drop it outright — with no animation
+   the offset is 0 and the line is simply drawn. */
+@media (prefers-reduced-motion: reduce) {
+    .ms-addresses__link--active {
+        animation: none;
+    }
 }
