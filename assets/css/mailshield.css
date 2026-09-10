@@ -442,6 +442,32 @@ a:hover {
     border: 0;
 }
 
+/* --- Brand ---------------------------------------------------------------- */
+
+.ms-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+.ms-logo:hover {
+    text-decoration: none;
+}
+
+.ms-logo__mark {
+    color: var(--ms-accent);
+    flex: none;
+}
+
+.ms-logo__word {
+    font-weight: 600;
+    letter-spacing: -.02em;
+    font-size: var(--ms-fs-body);
+    white-space: nowrap;
+}
+
 /* ==========================================================================
    d. Motion layer
    ========================================================================== */
