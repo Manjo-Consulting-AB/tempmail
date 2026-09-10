@@ -91,7 +91,7 @@ try {
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TempMail Pro - Dashboard</title>
+    <title>Your inbox · Mail Shield</title>
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -132,7 +132,7 @@ try {
     <div class="main-container">
         <!-- Header -->
         <div class="header">
-            <h1><i class="fas fa-envelope"></i> TempMail Pro</h1>
+            <h1><i class="fas fa-envelope"></i> Mail Shield</h1>
             <p class="lead">Temporary email addresses for pro users. Default lifetime applied to new addresses.</p>
             
             <?php require 'partials/nav.php'; ?>
@@ -385,7 +385,7 @@ try {
                     <footer class="text-center mt-5 py-4">
                         <div class="container">
                             <p class="text-light mb-0">
-                                <small>TempMail Pro - Secure temporary email | All messages deleted after 24 hours | v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
+                                <small>Mail Shield · Operated by Manjo Consulting AB · v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
                             </p>
                             <p class="text-light mb-0 mt-1">
                                 <small>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</small>

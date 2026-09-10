@@ -12,7 +12,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>FAQ - TempMail</title>
+    <title>FAQ · Mail Shield</title>
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -26,7 +26,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
     <div class="main-container">
         <div class="header">
             <h1><i class="fas fa-question-circle"></i> FAQ</h1>
-            <p class="lead">Frequently asked questions about TempMail</p>
+            <p class="lead">Frequently asked questions about Mail Shield</p>
 
             <?php require 'partials/nav.php'; ?>
         </div>
@@ -35,8 +35,8 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
             <div class="card-body">
                 <h3>General</h3>
                 <div class="mb-3">
-                    <strong>What is TempMail?</strong>
-                    <p class="mb-0">TempMail provides disposable email addresses you can use for registrations, verifications and one-time communication. Messages are shown in the web UI and removed automatically according to the service rules.</p>
+                    <strong>What is Mail Shield?</strong>
+                    <p class="mb-0">Mail Shield provides disposable email addresses you can use for registrations, verifications and one-time communication. Messages are shown in the web UI and removed automatically according to the service rules.</p>
                 </div>
 
                 <div class="mb-3">

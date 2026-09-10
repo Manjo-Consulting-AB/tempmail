@@ -139,9 +139,9 @@ try {
     }
     echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
     echo "<rss version=\"2.0\">\n<channel>\n";
-    echo "<title>TempMail Pro - {$user['email']} - Inbox</title>\n";
+    echo "<title>{$user['email']} · Inbox · Mail Shield</title>\n";
     echo "<link>" . htmlspecialchars($base ?: '') . "/pro.php</link>\n";
-    echo "<description>Recent messages for your TempMail Pro account</description>\n";
+    echo "<description>Recent messages for your Mail Shield account</description>\n";
     echo "<language>en</language>\n";
     echo "<lastBuildDate>" . date(DATE_RSS, $lastBuildTs) . "</lastBuildDate>\n";
 

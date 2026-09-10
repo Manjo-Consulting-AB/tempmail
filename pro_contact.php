@@ -56,10 +56,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $supportTo = $_ENV['SUPPORT_EMAIL'] ?? ('support@' . ($config['email']['domain'] ?? 'manjo.me'));
         $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
-        $subject = 'TempMail Pro contact form: ' . $category;
+        $subject = 'Mail Shield contact form: ' . $category;
         $body = "From: {$userEmail} (user_id {$userId})\nCategory: {$category}\n\n{$message}";
         $headers = [];
-        $headers[] = 'From: TempMail <' . $from . '>';
+        $headers[] = 'From: Mail Shield <' . $from . '>';
         $headers[] = 'Reply-To: ' . $userEmail;
         $headers[] = 'MIME-Version: 1.0';
         $headers[] = 'Content-Type: text/plain; charset=UTF-8';
@@ -87,7 +87,7 @@ $isProAccount = proUserIsPro((int)$userId);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Contact - TempMail Pro</title>
+    <title>Contact · Mail Shield</title>
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">

@@ -153,7 +153,7 @@ if ($format === 'json') {
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>TempMail Log Viewer</title>
+    <title>Log viewer · Mail Shield</title>
     <style>
         body { font-family: Inter, "Segoe UI", Arial, Helvetica, sans-serif; margin: 16px; background: #f7f7fb; }
         .controls { margin-bottom: 12px; }
@@ -176,7 +176,7 @@ if ($format === 'json') {
     <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
 </head>
 <body>
-<h3>TempMail Log Viewer</h3>
+<h3>Mail Shield Log Viewer</h3>
 
 <div class="tabs">
     <button type="button" id="tabLogs" class="active">Logs</button>

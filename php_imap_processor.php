@@ -391,7 +391,7 @@ class ImapProcessor
             if (empty($token) || empty($user)) throw new Exception('Pushover config missing');
             $message = ($payload['subject'] ?? '(No subject)') . "\n\n" . trim(strip_tags($payload['body'] ?? ''));
             if (strlen($message) > 4096) $message = substr($message, 0, 4000) . '...';
-            $post = ['token' => $token, 'user' => $user, 'message' => $message, 'title' => ($payload['to'] ?? 'TempMail')];
+            $post = ['token' => $token, 'user' => $user, 'message' => $message, 'title' => ($payload['to'] ?? 'Mail Shield')];
 
             if (function_exists('curl_init')) {
                 $ch = curl_init('https://api.pushover.net/1/messages.json');

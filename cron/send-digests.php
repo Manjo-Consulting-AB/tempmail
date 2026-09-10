@@ -160,14 +160,14 @@ try {
         }
 
         $loginUrl = rtrim($config['email']['base_url'], '/') . '/pro_login.php';
-        $subjectLine = "TempMail: You have {$count} waiting message" . ($count === 1 ? '' : 's');
-        $body = "Hello,\n\nYou have {$count} message" . ($count === 1 ? '' : 's') . " waiting in your TempMail Pro account.\n\nVisit your inbox to read them:\n{$loginUrl}\n\nMessages:\n" . implode("\n", $lines) . "\n\nThis is an automated summary from TempMail.\n";
+        $subjectLine = "Mail Shield: You have {$count} waiting message" . ($count === 1 ? '' : 's');
+        $body = "Hello,\n\nYou have {$count} message" . ($count === 1 ? '' : 's') . " waiting in your Mail Shield account.\n\nVisit your inbox to read them:\n{$loginUrl}\n\nMessages:\n" . implode("\n", $lines) . "\n\nThis is an automated summary from Mail Shield.\n";
 
         // Send email using similar logic to pro_auth::sendLoginEmail
         $to = $user['email'];
         $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
         $headers = [];
-        $headers[] = 'From: TempMail <' . $fromAddress . '>';
+        $headers[] = 'From: Mail Shield <' . $fromAddress . '>';
         $headers[] = 'MIME-Version: 1.0';
         $headers[] = 'Content-Type: text/plain; charset=UTF-8';
         $headersStr = implode("\r\n", $headers);

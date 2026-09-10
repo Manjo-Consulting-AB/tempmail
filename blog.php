@@ -131,7 +131,7 @@ usort($files, function ($a, $b) {
         gtag('js', new Date());
         gtag('config', 'G-BFX6EC3575');
     </script>
-    <title>TempMail - Blog</title>
+    <title>Blog · Mail Shield</title>
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -157,7 +157,7 @@ usort($files, function ($a, $b) {
     <div class="main-container">
         <div class="header blog-header">
             <h1><i class="fas fa-book-open"></i> Blog</h1>
-            <p class="lead">Updates, notes and news from the TempMail project.</p>
+            <p class="lead">Updates, notes and news from the Mail Shield project.</p>
         </div>
 
         <?php require 'partials/nav.php'; ?>

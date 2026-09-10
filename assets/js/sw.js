@@ -1,5 +1,5 @@
 // Simple service worker with basic offline caching for static assets.
-const CACHE_NAME = 'tempmail-static-v1';
+const CACHE_NAME = 'mailshield-static-v1';
 const PRECACHE_URLS = [
     '/',
     '/index.php',

@@ -70,7 +70,7 @@ if ($token) {
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>TempMail Pro - Login</title>
+    <title>Log in · Mail Shield</title>
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -88,7 +88,7 @@ if ($token) {
 <body>
     <div class="main-container">
         <div class="header">
-            <h1><i class="fas fa-user-lock"></i> TempMail Pro</h1>
+            <h1><i class="fas fa-user-lock"></i> Mail Shield</h1>
             <p class="lead">Sign in to manage your Pro account</p>
 
             <?php require 'partials/nav.php'; ?>
@@ -144,7 +144,7 @@ if ($token) {
                 </div>
 
                 <div id="twoFactorBlock" style="display:none;">
-                    <p class="text-muted">Open your authenticator app (1Password, Authy, Google Authenticator &hellip;) and enter the 6-digit code for TempMail.</p>
+                    <p class="text-muted">Open your authenticator app (1Password, Authy, Google Authenticator &hellip;) and enter the 6-digit code for Mail Shield.</p>
                     <form id="twoFactorForm">
                         <input type="hidden" name="action" value="verify_2fa">
                         <div class="mb-3 form-check">
@@ -177,7 +177,7 @@ if ($token) {
         <div class="card mt-4 card-main-width">
             <div class="card-header"><h3><i class="fas fa-rocket"></i> Getting Started</h3></div>
             <div class="card-body">
-                <p class="text-muted mb-3">New to TempMail Pro? Follow these simple steps to set up your account:</p>
+                <p class="text-muted mb-3">New to Mail Shield? Follow these simple steps to set up your account:</p>
                 
                 <div class="d-flex mb-3">
                     <div class="me-3">

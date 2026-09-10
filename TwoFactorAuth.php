@@ -205,7 +205,7 @@ final class TwoFactorAuth
 
     public static function otpauthUri(string $secret, string $accountEmail): string
     {
-        $issuer = 'TempMail (manjo.me)';
+        $issuer = 'Mail Shield (manjo.me)';
         $label = $issuer . ':' . $accountEmail;
 
         return 'otpauth://totp/' . rawurlencode($label)
