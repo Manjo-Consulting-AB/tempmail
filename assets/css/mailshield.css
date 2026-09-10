@@ -733,3 +733,36 @@ a:hover {
     font-size: var(--ms-fs-sm);
     color: var(--ms-text-muted);
 }
+
+/* ==========================================================================
+   h. Landing — sections rendered from partials/landing
+   ========================================================================== */
+
+/* Off-screen until focused, then pinned to the top-left corner. Sits above the
+   sticky nav (z-index 50) so it is never obscured when it appears. */
+.ms-skip {
+    position: absolute;
+    top: 0;
+    left: -9999px;
+    z-index: 100;
+    padding: var(--ms-space-3) var(--ms-space-4);
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-md);
+    box-shadow: var(--ms-shadow-md);
+    color: var(--ms-text);
+    font-size: var(--ms-fs-sm);
+    text-decoration: none;
+}
+
+.ms-skip:focus {
+    left: var(--ms-space-4);
+    top: var(--ms-space-4);
+}
+
+.ms-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-3);
+}
