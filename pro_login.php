@@ -81,6 +81,9 @@ if ($token) {
         window.showMagicLink = <?php echo (strpos($config['email']['base_url'], 'manjo.me') === false) ? 'true' : 'false'; ?>;
     </script>
 
+    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
 </head>
 <body>
     <div class="main-container">

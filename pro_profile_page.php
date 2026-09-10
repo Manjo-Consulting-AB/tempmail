@@ -35,6 +35,9 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
     <style>
         #tfaQrContainer svg { max-width: 200px; width: 100%; height: auto; }
     </style>
+    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
 </head>
 <body>
     <div class="main-container">
