@@ -149,6 +149,9 @@ usort($files, function ($a, $b) {
         .post-anchor { font-size:0.9rem; color: #6c757d; margin-left:0.5rem; text-decoration:none; }
         .post-anchor:hover { color: #343a40; }
     </style>
+    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
 </head>
 <body>
     <div class="main-container">
