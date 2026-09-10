@@ -2,15 +2,16 @@
 # Plockar det lägst numrerade öppna issuet märkt "Build" och kör det genom
 # DeepSeek (claude-subagent), ett i taget i stigande ordning eftersom
 # redesignens 28 issues bygger sekventiellt på varandra (tokens -> partials ->
-# sidor). Öppnar en PR mot den långlivade "upgrade"-grenen - INTE main - och
-# rör aldrig merge-knappen; en människa granskar och mergar. main triggar
+# sidor). Öppnar en PR mot "redesign/mail-shield" - INTE main - och rör
+# aldrig merge-knappen; en människa granskar och mergar. main triggar
 # prod.yml:s auto-deploy på varje push, så hela redesignen samlas på
-# "upgrade" och går mot main i en enda mänskligt godkänd merge när den är
-# klar.
+# redesign/mail-shield (grenen och dess CI-workflow redesign-pr.yml är redan
+# uppsatta av Opus, se tracking-issue #122) och går mot main i en enda
+# mänskligt godkänd merge vid go-live.
 #
 # Väntar med att plocka nästa issue tills en eventuell öppen redesign/*-PR är
 # mergad eller stängd, för att undvika att senare steg bygger på grenar som
-# ännu inte landat på "upgrade".
+# ännu inte landat på redesign/mail-shield.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -18,7 +19,7 @@ WORKTREE_BASE="$REPO_ROOT/.claude/worktrees"
 LOCK_PATH="$REPO_ROOT/.claude/deepseek-watcher.lock"
 LOG_DIR="$REPO_ROOT/.claude/logs"
 GH_REPO="Manjo-Consulting-AB/tempmail"
-BASE_BRANCH="upgrade"
+BASE_BRANCH="redesign/mail-shield"
 
 mkdir -p "$WORKTREE_BASE" "$LOG_DIR" "$(dirname "$LOCK_PATH")"
 
