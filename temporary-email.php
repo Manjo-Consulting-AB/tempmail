@@ -53,6 +53,38 @@ $msPage = [
     'preload_font' => true,
 ];
 
+// Article structured data for the keyword page (§14). The dates come from this
+// file's mtime, which is when the page last changed — an honest lastmod proxy
+// rather than an invented publication date.
+$msOrigin  = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
+$msModTime = @filemtime(__FILE__) ?: time();
+
+$msPage['jsonld'] = [
+    '@context'      => 'https://schema.org',
+    '@type'         => 'Article',
+    'headline'      => 'Temporary email addresses',
+    'description'   => $msPage['description'],
+    'datePublished' => gmdate('c', $msModTime),
+    'dateModified'  => gmdate('c', $msModTime),
+    'mainEntityOfPage' => $msOrigin . '/temporary-email.php',
+    // image + author are what make an Article eligible for a rich result rather
+    // than merely valid; both are real (the OG image, and the organisation that
+    // wrote the page), so neither is a fabricated claim.
+    'image'         => $msOrigin . '/assets/images/og-mailshield.png',
+    'author'        => [
+        '@type' => 'Organization',
+        'name'  => 'Mail Shield',
+    ],
+    'publisher'     => [
+        '@type' => 'Organization',
+        'name'  => 'Mail Shield',
+        'logo'  => [
+            '@type' => 'ImageObject',
+            'url'   => $msOrigin . '/assets/images/og-mailshield.png',
+        ],
+    ],
+];
+
 $msNavAnchors = false;   // anchors point back at /#... from this page
 
 require 'partials/brand.php';

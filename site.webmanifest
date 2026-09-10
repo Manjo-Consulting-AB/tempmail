@@ -1,0 +1,16 @@
+{
+    "name": "Mail Shield",
+    "short_name": "Mail Shield",
+    "start_url": "/",
+    "display": "browser",
+    "background_color": "#FAFAF9",
+    "theme_color": "#FAFAF9",
+    "icons": [
+        {
+            "src": "/assets/images/favicon.svg",
+            "type": "image/svg+xml",
+            "sizes": "any",
+            "purpose": "any"
+        }
+    ]
+}

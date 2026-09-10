@@ -260,6 +260,7 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-BFX6EC3575"></script>
         <script>
@@ -292,6 +293,7 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
 
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
+    <link rel="manifest" href="/site.webmanifest">
 
     <!-- App-layer dependencies, in the brief §11 order: the bridge loads last and
          wins. -->

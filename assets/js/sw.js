@@ -1,11 +1,16 @@
 // Simple service worker with basic offline caching for static assets.
-const CACHE_NAME = 'mailshield-static-v1';
+// Bumping CACHE_NAME evicts the previous cache: the activate handler deletes
+// every cache whose key differs, so an old entry can outlive a deploy otherwise.
+const CACHE_NAME = 'mailshield-static-v2';
 const PRECACHE_URLS = [
     '/',
     '/index.php',
     '/inbox.php',
     '/assets/js/app.js',
     '/assets/css/style.css',
+    '/assets/css/mailshield.css',
+    '/assets/css/mailshield-fonts.css',
+    '/site.webmanifest',
     '/assets/images/favicon.ico',
     '/assets/images/favicon.svg'
 ];
