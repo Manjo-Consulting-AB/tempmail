@@ -500,3 +500,236 @@ a:hover {
         transition-duration: .01ms !important;
     }
 }
+
+/* ==========================================================================
+   f. Public nav (partials/public_nav.php)
+   ========================================================================== */
+
+.ms-nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--ms-bg);
+    /* Transparent at scroll position 0; JS adds .ms-nav--scrolled past the top. */
+    border-bottom: 1px solid transparent;
+    transition: border-color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-nav.ms-nav--scrolled {
+    border-bottom-color: var(--ms-border);
+}
+
+/* Keep in-page anchor targets clear of the sticky bar. */
+:target {
+    scroll-margin-top: var(--ms-space-12);
+}
+
+.ms-nav__inner {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-5);
+    min-height: 4rem;
+}
+
+.ms-nav__logo {
+    flex: none;
+    margin-right: auto;
+}
+
+.ms-nav__toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-md);
+    background: transparent;
+    color: var(--ms-text);
+    cursor: pointer;
+    transition: background-color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-nav__toggle:hover {
+    background: var(--ms-bg-sunken);
+}
+
+.ms-nav__panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ms-space-4);
+    padding: var(--ms-space-4) var(--ms-gutter) var(--ms-space-5);
+    background: var(--ms-bg);
+    border-top: 1px solid var(--ms-border);
+    border-bottom: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-md);
+}
+
+/* Author `display` beats the UA rule for [hidden], so restate it here. */
+.ms-nav__panel[hidden] {
+    display: none;
+}
+
+.ms-nav__links {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-nav__links a {
+    display: block;
+    padding: var(--ms-space-3) 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-nav__links a:hover {
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+.ms-nav__actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ms-space-3);
+}
+
+.ms-nav__login {
+    padding: var(--ms-space-2) 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-nav__login:hover {
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+.ms-nav__user {
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+    max-width: 18ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+    .ms-nav__toggle {
+        display: none;
+    }
+
+    .ms-nav__panel,
+    .ms-nav__panel[hidden] {
+        position: static;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-5);
+        padding: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+    }
+
+    .ms-nav__links {
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-5);
+    }
+
+    .ms-nav__links a {
+        padding: 0;
+        white-space: nowrap;
+    }
+
+    .ms-nav__actions {
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-4);
+    }
+
+    /* The row is tight at 768px — the label must not wrap or shrink. */
+    .ms-nav__actions .ms-btn {
+        flex: none;
+        white-space: nowrap;
+    }
+
+    .ms-nav__login {
+        padding: 0;
+        white-space: nowrap;
+    }
+}
+
+/* ==========================================================================
+   g. Public footer (partials/public_footer.php)
+   ========================================================================== */
+
+.ms-footer {
+    background: var(--ms-bg-sunken);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-footer__inner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ms-space-8);
+    padding-block: var(--ms-space-10);
+}
+
+.ms-footer__trust {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-footer__cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--ms-space-6);
+}
+
+.ms-footer__heading {
+    margin: 0 0 var(--ms-space-3);
+    font-size: var(--ms-fs-eyebrow);
+    line-height: var(--ms-lh-eyebrow);
+    letter-spacing: var(--ms-ls-eyebrow);
+    font-weight: var(--ms-fw-eyebrow);
+    text-transform: uppercase;
+    color: var(--ms-text-muted);
+}
+
+.ms-footer__links {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-footer__links li + li {
+    margin-top: var(--ms-space-2);
+}
+
+.ms-footer__links a {
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-footer__links a:hover {
+    color: var(--ms-text);
+}
+
+.ms-footer__legal {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
