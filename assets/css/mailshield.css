@@ -3283,3 +3283,259 @@ a:hover {
     border-color: var(--ms-border);
     opacity: 1;
 }
+
+/* ==========================================================================
+   aa. Dashboard — pro.php (Redesign 24)
+   ========================================================================== */
+
+/* The dashboard is the inbox plus a rail, not a stack of cards. One column
+   below 1100px with the inbox first; above it, the rail sits beside the inbox.
+   The rail is placed by the grid, never by `order`, so the source order stays
+   inbox-then-rail — a phone stacks them correctly with no override, and the
+   keyboard walk stays in the order things are read (§5.5). */
+
+.ms-dash {
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+    padding-bottom: var(--ms-space-8);
+}
+
+/* The nav carries the identity now (#116), so this is a page label rather than
+   a headline: body-adjacent size, no display step. */
+.ms-dash__title {
+    margin: 0 0 var(--ms-space-5);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-dash__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-6);
+}
+
+/* --- Two columns ----------------------------------------------------------
+   Collapses at 1100px: below it the rail would squeeze the message rows
+   (from-name, subject and time on one line) before it stopped being useful. */
+
+@media (min-width: 1100px) {
+    .ms-dash__grid {
+        /* Narrow on purpose. Wide enough for `shopping@<domain>` in monospace
+           without an ellipsis, narrow enough that the rows keep their width. */
+        grid-template-columns: 220px minmax(0, 1fr);
+        align-items: start;
+    }
+
+    .ms-dash__inbox {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .ms-dash__rail {
+        grid-column: 1;
+        grid-row: 1;
+    }
+}
+
+/* --- Rail ----------------------------------------------------------------- */
+
+.ms-dash__rail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ms-space-6);
+    min-width: 0;
+}
+
+.ms-rail__group {
+    min-width: 0;
+}
+
+.ms-rail__title {
+    margin: 0 0 var(--ms-space-2);
+}
+
+/* Addresses read as a hairline-separated list, the same rhythm the landing
+   hero mockup gives its sidebar, rather than as another set of boxes. */
+.ms-rail__addrs {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* Rendered empty by PHP and filled by the page's inline script, so it takes no
+   space until there is something in it. */
+.ms-rail__addrs:empty {
+    display: none;
+}
+
+.ms-rail__addr {
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-rail__addr:first-child {
+    border-top: 0;
+}
+
+.ms-rail__addr-link {
+    display: block;
+    padding: var(--ms-space-2) 0;
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+
+.ms-rail__addr-link:hover,
+.ms-rail__addr-link:focus {
+    color: var(--ms-accent);
+    text-decoration: underline;
+}
+
+.ms-rail__empty,
+.ms-rail__hint {
+    margin: 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-rail__hint {
+    margin-top: var(--ms-space-3);
+}
+
+.ms-rail__select {
+    width: 100%;
+    max-width: 14rem;
+}
+
+/* The lifetime handler in pro.php's inline script writes inline colours —
+   #9ecbff while saving, #fff on success, #ff6b6b on error — chosen for the old
+   dark address panel. The first two are invisible on the rail's light surface.
+   The handler is deliberately untouched, so the feedback is given a dark chip
+   of its own while it has text: all three colours clear 4.5:1 on --ms-text, and
+   the chip is absent the rest of the time. */
+#ttlMsg:not(:empty) {
+    display: inline-block;
+    margin-top: var(--ms-space-2);
+    padding: .125rem .5rem;
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-text);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+}
+
+/* --- Pending profile changes: a band, not a card -------------------------- */
+
+/* The `card`, `card-header`, `badge` and `list-group-item` classes stay in the
+   markup because the inbox script looks all four up by name when a change is
+   cancelled (`closest('.card')`, `.find('.list-group-item')`,
+   `.find('.card-header .badge')`). They are hooks here, not a look — the
+   compound selectors below outrank mailshield-bootstrap.css, which loads after
+   this file and owns those class names. */
+
+.ms-inbox__frame > .ms-pending.card {
+    margin: 0;
+    background: var(--ms-bg-sunken);
+    border: 0;
+    border-bottom: 1px solid var(--ms-border);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.ms-pending > .ms-pending__head.card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-2) var(--ms-space-3);
+    padding: var(--ms-space-3) var(--ms-space-5);
+    background: none;
+    border-bottom: 1px solid var(--ms-border);
+    color: var(--ms-text);
+}
+
+.ms-pending__title {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-pending > .ms-pending__list.list-group {
+    background: none;
+    border-radius: 0;
+}
+
+.ms-pending .ms-pending__item.list-group-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+    padding: var(--ms-space-3) var(--ms-space-5);
+    background: none;
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    border-radius: 0;
+    color: var(--ms-text);
+}
+
+.ms-pending .ms-pending__item.list-group-item:first-child {
+    border-top: 0;
+}
+
+.ms-pending__body {
+    min-width: 0;
+}
+
+.ms-pending__action {
+    display: block;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+/* `set_password` has no detail line; the empty node should not leave a gap. */
+.ms-pending__detail:empty {
+    display: none;
+}
+
+.ms-pending__detail {
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-pending__meta {
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-pending__resend {
+    display: inline-block;
+    margin-top: var(--ms-space-1);
+    font-size: var(--ms-fs-xs);
+    color: var(--ms-accent);
+}
+
+/* --- The personal-address limit ------------------------------------------- */
+
+/* pro_profile_page.php marks its counter `.quota-reached` when all ten personal
+   addresses are used. The pulse that used to carry that state lived in an
+   inline <style> block on pro.php and so never applied to the page that sets
+   the class; §5.4 forbids looping animation. The state is a static hairline and
+   colour change instead — `.bg-danger` supplies the tint. */
+.quota-reached {
+    animation: none;
+    box-shadow: inset 0 0 0 1px var(--ms-danger);
+}
