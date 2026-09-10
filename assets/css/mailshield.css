@@ -2404,3 +2404,252 @@ a:hover {
     font-size: var(--ms-fs-xs);
     color: var(--ms-text-muted);
 }
+
+/* ==========================================================================
+   x. Blog — blog.php (Redesign 20)
+   ==========================================================================
+
+   Two views share the page: an index of every post and a single article. The
+   shell around them — slim bar, narrow reading column, footer — is the FAQ
+   shell from Redesign 19 (.ms-faq__*), reused rather than copied so the two
+   secondary pages cannot drift apart. What is new here is only what only the
+   blog needs: the hairline post index, the article header and the .ms-article
+   prose scope. */
+
+/* --- Post index ----------------------------------------------------------- */
+
+/* Rows separated by hairlines, never cards. The standfirst above the list is
+   already the separation, so the first row carries no rule of its own. */
+.ms-blog__list {
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-blog__item + .ms-blog__item {
+    border-top: 1px solid var(--ms-border);
+}
+
+/* The whole row is the link, so the hit area matches what the reader sees. On a
+   phone the date sits above the title; from 600px the two share a baseline and
+   the dates line up in a column of their own. */
+.ms-blog__entry {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--ms-space-1);
+    padding-block: var(--ms-space-5);
+    color: inherit;
+}
+
+.ms-blog__entry:hover {
+    text-decoration: none;
+}
+
+.ms-blog__date {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-blog__entry-title {
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+}
+
+.ms-blog__entry:hover .ms-blog__entry-title {
+    color: var(--ms-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.ms-blog__empty {
+    margin-top: var(--ms-space-8);
+    color: var(--ms-text-muted);
+}
+
+@media (min-width: 600px) {
+    .ms-blog__entry {
+        grid-template-columns: 10rem 1fr;
+        gap: var(--ms-space-5);
+        align-items: baseline;
+    }
+}
+
+/* --- Article header and the two ways out ---------------------------------- */
+
+/* The measure is set here as well as on .ms-article so the title, the date and
+   the body share one left and right edge. */
+.ms-blog__post {
+    max-width: 68ch;
+}
+
+.ms-blog__back {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+}
+
+/* The closing link ends the article, so it is set apart by a rule rather than
+   sitting flush under the last paragraph. */
+.ms-blog__back--end {
+    margin-top: var(--ms-space-10);
+    padding-top: var(--ms-space-6);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-blog__head {
+    margin-top: var(--ms-space-6);
+}
+
+.ms-blog__title {
+    margin: 0;
+    font-size: var(--ms-fs-h1);
+    line-height: var(--ms-lh-h1);
+    letter-spacing: var(--ms-ls-h1);
+    font-weight: var(--ms-fw-h1);
+}
+
+.ms-blog__head .ms-blog__date {
+    display: block;
+    margin-top: var(--ms-space-3);
+}
+
+/* --- .ms-article — long-form prose ---------------------------------------- */
+
+/* Everything markdown_to_html() can emit, styled as reading copy: h1–h6, p,
+   ul, ol, li, strong, em, code, pre > code, a and img.img-fluid. The converter
+   has no blockquote branch, so no rule for one is needed.
+
+   Measure and leading differ from .ms-prose on purpose: a post is read top to
+   bottom rather than skimmed as one paragraph in a card, so it runs to 68ch
+   with a looser 1.7 line-height. */
+
+.ms-article {
+    max-width: 68ch;
+    margin-top: var(--ms-space-8);
+    font-size: var(--ms-fs-body);
+    line-height: 1.7;
+}
+
+/* The rhythm between blocks. Bootstrap's reboot also gives every paragraph,
+   list and code block a bottom margin; inside an article the spacing comes
+   from here instead, so those are cleared rather than added to it. */
+.ms-article > * + * {
+    margin-top: var(--ms-space-4);
+}
+
+.ms-article p,
+.ms-article ul,
+.ms-article ol {
+    margin-bottom: 0;
+}
+
+/* A post's own `#` heading is lifted out as the page heading (see blog.php), so
+   the body starts at h2 and steps down from .ms-blog__title without skipping. */
+.ms-article h2,
+.ms-article h3,
+.ms-article h4,
+.ms-article h5,
+.ms-article h6 {
+    margin-top: var(--ms-space-8);
+    margin-bottom: 0;
+}
+
+.ms-article h2 {
+    font-size: var(--ms-fs-h2);
+    line-height: var(--ms-lh-h2);
+    letter-spacing: var(--ms-ls-h2);
+    font-weight: var(--ms-fw-h2);
+}
+
+.ms-article h3 {
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+}
+
+/* h4–h6 have no step of their own in the scale, so they stay at body size and
+   are told apart by weight and the space above them. */
+.ms-article h4,
+.ms-article h5,
+.ms-article h6 {
+    margin-top: var(--ms-space-6);
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-h3);
+    font-weight: 600;
+}
+
+/* Emphasis takes the system's heading weight rather than the browser's 700. */
+.ms-article strong {
+    font-weight: 600;
+}
+
+.ms-article ul,
+.ms-article ol {
+    padding-left: 1.5rem;
+}
+
+.ms-article li + li {
+    margin-top: var(--ms-space-2);
+}
+
+/* Inline code: a quiet well, no border. The block form below resets it. */
+.ms-article code {
+    font-family: var(--ms-font-mono);
+    font-size: .875em;
+    background: var(--ms-bg-sunken);
+    border-radius: var(--ms-radius-sm);
+    padding: .125rem .3125rem;
+}
+
+/* pre > code: the block carries both the surface and the horizontal scroll, so
+   a long line scrolls inside the box and never takes the page with it. */
+.ms-article pre {
+    margin-top: var(--ms-space-5);
+    margin-bottom: 0;
+    padding: var(--ms-space-4);
+    background: var(--ms-bg-sunken);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    overflow-x: auto;
+}
+
+.ms-article pre code {
+    display: block;
+    padding: 0;
+    background: none;
+    font-size: var(--ms-fs-sm);
+    line-height: 1.6;
+    white-space: pre;
+}
+
+/* Images: the converter adds class="img-fluid" and, for the `[alt](src|200)`
+   form, an inline width. Nothing here may set a width or that inline width
+   stops working — max-width: 100% from the base layer is what holds a wide
+   image inside the column. */
+.ms-article img {
+    margin-block: var(--ms-space-6);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+}
+
+/* Links are underlined, because they have to stay findable inside a paragraph
+   of running text. The converter's external-link icon and its visually-hidden
+   "(opens in new tab)" span both keep working as they are. */
+.ms-article a {
+    color: var(--ms-accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+.ms-article a:hover {
+    color: var(--ms-accent-hover);
+}
+
+.ms-article a .fa-external-link-alt {
+    font-size: .75em;
+}
