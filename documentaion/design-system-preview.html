@@ -370,6 +370,39 @@
     </div>
 </section>
 
+<!-- ===================== Brand ===================== -->
+<section class="ms-section ms-section--tight ms-section--sunken">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Brand</p>
+        <h2 class="ms-h2">Logo</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">Brief §4. The mark is inline SVG so it inherits <span class="ms-addr">currentColor</span> and needs no icon font. Both helpers live in <span class="ms-addr">partials/brand.php</span> and return escaped HTML — the static markup below is that partials output.</p>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-logo — mark + wordmark, links</div>
+            <p style="margin:0"><a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a></p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-logo at 16 / 22 / 48px — the mark must stay legible at all three</div>
+            <p style="display:flex; flex-wrap:wrap; gap: var(--ms-space-8); align-items:center; margin:0">
+                <a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+                <a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+                <a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+            </p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">ms_logo([&quot;mark_only&quot; =&gt; true]) — link target, no wordmark</div>
+            <p style="margin:0"><a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" role="img"><title>Mail Shield</title><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg></a></p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-logo without href renders a &lt;span&gt;</div>
+            <p style="margin:0"><span class="ms-logo"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></span></p>
+        </div>
+    </div>
+</section>
+
 <!-- ===================== Motion ===================== -->
 <section class="ms-section ms-section--tight">
     <div class="ms-container">
