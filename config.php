@@ -854,13 +854,17 @@ function handleBlockedVisitor(array $blockInfo): void {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Content-Type: text/html; charset=utf-8');
     
-    // Minimalistiskt meddelande utan systeminformation
+    // Minimalistiskt meddelande utan systeminformation.
+    // 403-sidan är engelskspråkig som resten av produkten: Redesign 21 (#115)
+    // kräver att ingen sida deklarerar svensk språkkod men serverar engelsk
+    // text, och att deklarera engelska för svensk text vore värre än att
+    // översätta de två raderna.
     echo '<!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Åtkomst nekad</title>
+    <title>Access denied</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
                display: flex; justify-content: center; align-items: center; 
@@ -874,7 +878,7 @@ function handleBlockedVisitor(array $blockInfo): void {
 <body>
     <div class="container">
         <h1>403</h1>
-        <p>Åtkomst nekad av säkerhetsskäl.</p>
+        <p>Access denied for security reasons.</p>
     </div>
 </body>
 </html>';

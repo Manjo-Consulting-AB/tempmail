@@ -63,6 +63,15 @@ if ($token) {
         exit;
     }
 }
+
+// Canonical/OG origin, from $config and never hardcoded (§14). This page stays
+// indexable (§14 lists only inbox/pro_profile/client_agent/log_viewer/pro_contact
+// as noindex) and is one of the six paths in sitemap.php.
+$msOgOrigin = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
+$msOgUrl    = $msOgOrigin . '/pro_login.php';
+$msOgImage  = $msOgOrigin . '/assets/images/og-mailshield.png';
+$msTitle    = 'Log in · Mail Shield';
+$msDesc     = 'Log in to Mail Shield with a magic link sent to your email address, or with your password if you have set one.';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -80,9 +89,29 @@ if ($token) {
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Log in · Mail Shield</title>
+    <meta name="theme-color" content="#FAFAF9">
+    <title><?php echo htmlspecialchars($msTitle, ENT_QUOTES, 'UTF-8'); ?></title>
+    <meta name="description" content="<?php echo htmlspecialchars($msDesc, ENT_QUOTES, 'UTF-8'); ?>">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="<?php echo htmlspecialchars($msOgUrl, ENT_QUOTES, 'UTF-8'); ?>">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mail Shield">
+    <meta property="og:title" content="<?php echo htmlspecialchars($msTitle, ENT_QUOTES, 'UTF-8'); ?>">
+    <meta property="og:description" content="<?php echo htmlspecialchars($msDesc, ENT_QUOTES, 'UTF-8'); ?>">
+    <meta property="og:url" content="<?php echo htmlspecialchars($msOgUrl, ENT_QUOTES, 'UTF-8'); ?>">
+    <meta property="og:image" content="<?php echo htmlspecialchars($msOgImage, ENT_QUOTES, 'UTF-8'); ?>">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="<?php echo htmlspecialchars($msTitle, ENT_QUOTES, 'UTF-8'); ?>">
+    <meta name="twitter:description" content="<?php echo htmlspecialchars($msDesc, ENT_QUOTES, 'UTF-8'); ?>">
+    <meta name="twitter:image" content="<?php echo htmlspecialchars($msOgImage, ENT_QUOTES, 'UTF-8'); ?>">
+
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
+    <link rel="manifest" href="/site.webmanifest">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">

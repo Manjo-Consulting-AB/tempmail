@@ -921,11 +921,38 @@ if ($urlAddress !== null) {
 
 $domain = $config['email']['domain'] ?? 'manjo.me';
 
+// Origin for structured data — the same $config source public_head.php derives
+// canonical/og:url from, never a hardcoded domain (§14).
+$msOrigin = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
+
+// Organization + WebSite only. Deliberately no SoftwareApplication with an
+// offers block: no price has been published (§9), and an invented Offer is
+// exactly the claim that gets a site penalised rather than ranked.
 $msPage = [
     'title'        => 'Mail Shield — Your inbox for everything else',
     'description'  => 'A separate inbox for shopping, newsletters, signups and temporary email. Create permanent addresses or disposable temporary email addresses, and keep your primary inbox for what matters.',
     'path'         => '/',
     'preload_font' => true,
+    'jsonld'       => [
+        '@context' => 'https://schema.org',
+        '@graph'   => [
+            [
+                '@type'              => 'Organization',
+                'name'               => 'Mail Shield',
+                'url'                => $msOrigin . '/',
+                'logo'               => $msOrigin . '/assets/images/og-mailshield.png',
+                'parentOrganization' => [
+                    '@type' => 'Organization',
+                    'name'  => 'Manjo Consulting AB',
+                ],
+            ],
+            [
+                '@type' => 'WebSite',
+                'name'  => 'Mail Shield',
+                'url'   => $msOrigin . '/',
+            ],
+        ],
+    ],
 ];
 
 require 'partials/brand.php';

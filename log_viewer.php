@@ -153,7 +153,11 @@ if ($format === 'json') {
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
+    <meta name="robots" content="noindex, nofollow">
     <title>Log viewer · Mail Shield</title>
+    <link rel="manifest" href="/site.webmanifest">
     <style>
         body { font-family: Inter, "Segoe UI", Arial, Helvetica, sans-serif; margin: 16px; background: #f7f7fb; }
         .controls { margin-bottom: 12px; }

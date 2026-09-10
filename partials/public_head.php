@@ -14,6 +14,7 @@
  *       'robots'       => 'index, follow',
  *       'og_type'      => 'website',
  *       'preload_font' => true,
+ *       'jsonld'       => [ … structured data … ],  // optional
  *   ];
  *   require 'partials/public_head.php';
  *
@@ -33,6 +34,7 @@ $msDefaults = [
     'robots'       => 'index, follow',
     'og_type'      => 'website',
     'preload_font' => false,
+    'jsonld'       => null,
 ];
 
 if (!isset($msPage) || !is_array($msPage)) {
@@ -76,6 +78,7 @@ $msEsc = function ($value): string {
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
     <title><?php echo $msEsc($msTitle); ?></title>
     <meta name="description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="robots" content="<?php echo $msEsc($msPage['robots']); ?>">
@@ -97,6 +100,17 @@ $msEsc = function ($value): string {
 
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
+    <link rel="manifest" href="/site.webmanifest">
+<?php if (!empty($msPage['jsonld'])) : ?>
+    <!--
+      Structured data, if the page supplied any (brief §14). Built with
+      json_encode() on a PHP array — never by concatenating values into JSON —
+      so a quote or an apostrophe in a headline cannot invalidate the block.
+      json_encode escapes "/" by default, and that is load-bearing here: it is
+      what stops a "</script>" inside a value from ending this element early.
+    -->
+    <script type="application/ld+json"><?php echo json_encode($msPage['jsonld']); ?></script>
+<?php endif; ?>
 <?php if (!empty($msPage['preload_font'])) : ?>
     <link rel="preload" href="/assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <?php endif; ?>
