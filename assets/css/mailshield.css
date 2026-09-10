@@ -766,3 +766,316 @@ a:hover {
     align-items: center;
     gap: var(--ms-space-3);
 }
+
+/* ==========================================================================
+   i. Hero (partials/landing/hero.php)
+   ========================================================================== */
+
+.ms-hero {
+    /* Deliberately short of a full viewport: the mockup is the hero image, not
+       a poster, and the section below it has to stay within reach. Only the top
+       of the rhythm is set here — the next section brings its own padding. */
+    padding-block: clamp(3.5rem, 7vw, 6rem) calc(var(--ms-section-y) * .6);
+}
+
+.ms-hero__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-10);
+    align-items: center;
+}
+
+.ms-hero__copy .ms-lede {
+    margin-top: var(--ms-space-5);
+}
+
+.ms-hero__actions {
+    margin-top: var(--ms-space-6);
+}
+
+.ms-hero__note {
+    margin-top: var(--ms-space-4);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-hero__media {
+    min-width: 0;
+}
+
+@media (min-width: 1024px) {
+    .ms-hero__inner {
+        grid-template-columns: minmax(0, 44fr) minmax(0, 56fr);
+    }
+
+    /* The mockup runs past the content edge for depth. The bleed is capped at
+       the container's own gutter so it can only ever use space the container
+       already reserves — it can never widen the page. */
+    .ms-hero__media {
+        width: calc(100% + var(--ms-gutter));
+    }
+}
+
+@media (min-width: 1280px) {
+    /* Room to spare on both sides, so the mockup clears the container's edge
+       proper rather than just its padding. Still bounded, still no overflow. */
+    .ms-hero__media {
+        width: calc(100% + (var(--ms-gutter) * 1.5));
+    }
+}
+
+/* ==========================================================================
+   j. Product mockup (partials/landing/hero.php)
+   ========================================================================== */
+
+.ms-mock {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-xl);
+    box-shadow: var(--ms-shadow-lg);
+    overflow: hidden;
+}
+
+.ms-mock__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+    padding: var(--ms-space-3) var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-mock__dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ms-border-strong);
+}
+
+/* --- Panes. Stacked on a phone: address strip above the message list ------ */
+
+.ms-mock__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.ms-mock__side {
+    min-width: 0;
+    padding: var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-mock__count {
+    margin: var(--ms-space-1) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+    white-space: nowrap;
+}
+
+.ms-mock__addrs-label {
+    margin-top: var(--ms-space-4);
+}
+
+/* Below 768px this is a horizontally scrollable strip of chips. The strip
+   scrolls; the page never does. */
+.ms-mock__addrs {
+    display: flex;
+    gap: var(--ms-space-2);
+    margin: var(--ms-space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.ms-mock__addrs::-webkit-scrollbar {
+    display: none;
+}
+
+.ms-mock__addr {
+    flex: none;
+    gap: var(--ms-space-2);
+    padding: .25rem .625rem;
+    font-family: var(--ms-font-mono);
+}
+
+.ms-mock__addr--active {
+    background: var(--ms-accent-soft);
+    border-color: var(--ms-accent-soft);
+    color: var(--ms-accent);
+}
+
+.ms-mock__addr-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ms-mock__addr-count {
+    flex: none;
+    color: var(--ms-text-faint);
+}
+
+/* --- Message list --------------------------------------------------------- */
+
+.ms-mock__list {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-mock__row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: var(--ms-space-3);
+    row-gap: 2px;
+    align-items: center;
+    padding: var(--ms-space-3) var(--ms-space-4);
+    /* Reserved on every row so the unread edge never shifts the text. */
+    border-left: 2px solid transparent;
+}
+
+.ms-mock__row + .ms-mock__row {
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-mock__row--unread {
+    border-left-color: var(--ms-accent);
+}
+
+.ms-mock__avatar {
+    grid-row: 1 / span 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-bg-sunken);
+    color: var(--ms-text-muted);
+    font-family: var(--ms-font-sans);
+    font-size: var(--ms-fs-xs);
+    font-weight: 600;
+}
+
+.ms-mock__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+    min-width: 0;
+}
+
+.ms-mock__from {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    font-weight: 500;
+    color: var(--ms-text);
+}
+
+.ms-mock__row--unread .ms-mock__from {
+    font-weight: 600;
+}
+
+.ms-mock__time {
+    flex: none;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-mock__sub {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+    min-width: 0;
+}
+
+.ms-mock__subject {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-mock__to {
+    flex: none;
+    font-family: var(--ms-font-mono);
+}
+
+/* --- Entrance: five rows, once, on load (§5.4) ---------------------------- */
+
+.ms-mock__list .ms-mock__row:nth-child(2) { --ms-rise-delay: 60ms; }
+.ms-mock__list .ms-mock__row:nth-child(3) { --ms-rise-delay: 120ms; }
+.ms-mock__list .ms-mock__row:nth-child(4) { --ms-rise-delay: 180ms; }
+.ms-mock__list .ms-mock__row:nth-child(5) { --ms-rise-delay: 240ms; }
+
+/* Four rows are enough on a phone — the fifth pushes the list past the fold. */
+.ms-mock__row:nth-child(5) {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .ms-mock__body {
+        grid-template-columns: 200px minmax(0, 1fr);
+    }
+
+    .ms-mock__side {
+        /* Narrow inline padding: inside 200px, every pixel spent here is a
+           pixel `shopping@<domain>` does not get, and the widest monospace
+           fallback needs the room to render without an ellipsis. */
+        padding: var(--ms-space-4) var(--ms-space-2);
+        border-bottom: 0;
+        border-right: 1px solid var(--ms-border);
+    }
+
+    /* The strip becomes the sidebar list. */
+    .ms-mock__addrs {
+        flex-direction: column;
+        gap: 0;
+        margin-top: var(--ms-space-2);
+        overflow-x: visible;
+    }
+
+    .ms-mock__addr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--ms-space-2) var(--ms-space-2) var(--ms-space-2) var(--ms-space-3);
+        /* Drops the chip box; the 2px edge is the active marker instead. */
+        border: 0;
+        border-left: 2px solid transparent;
+        border-radius: 0;
+    }
+
+    .ms-mock__addr--active {
+        border-left-color: var(--ms-accent);
+    }
+
+    .ms-mock__row:nth-child(5) {
+        display: grid;
+    }
+}
+
+/* The global reduced-motion guard shortens animations but leaves
+   animation-delay alone, and .ms-rise fills backwards — so a delayed row would
+   still sit invisible for up to 240ms. Drop the animation outright instead. */
+@media (prefers-reduced-motion: reduce) {
+    .ms-mock__row {
+        animation: none !important;
+    }
+}
