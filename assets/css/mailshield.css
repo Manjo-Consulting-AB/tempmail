@@ -289,6 +289,18 @@ a:hover {
     margin-top: var(--ms-space-4);
 }
 
+/* Lists inside prose. Left as plain lists: markers kept, no accent, no chips.
+   Only the indent is restated — the rhythm between the list and its neighbours
+   still comes from the rule above. */
+.ms-prose ul,
+.ms-prose ol {
+    padding-left: 1.25rem;
+}
+
+.ms-prose li + li {
+    margin-top: var(--ms-space-2);
+}
+
 .ms-addr {
     font-family: var(--ms-font-mono);
     font-size: var(--ms-fs-sm);
@@ -1877,4 +1889,114 @@ a:hover {
 /* The one button, given room. */
 .ms-cta__inner > .ms-btn {
     margin-top: var(--ms-space-7);
+}
+
+/* ==========================================================================
+   u. Content page — temporary-email.php (Redesign 17)
+   ========================================================================== */
+
+/* A reading page, not a landing page: one narrow column, whitespace between
+   sections instead of bands, hairlines only under the contents list and above
+   the two CTAs, where a boundary actually carries meaning. The sticky nav is in
+   flow (position: sticky), so the top padding is the page's own rhythm and not
+   a clearance hack. */
+
+.ms-doc {
+    padding-block: calc(var(--ms-section-y) * .8) var(--ms-section-y);
+}
+
+.ms-doc__title {
+    margin: 0;
+    font-size: var(--ms-fs-h1);
+    line-height: var(--ms-lh-h1);
+    letter-spacing: var(--ms-ls-h1);
+    font-weight: var(--ms-fw-h1);
+}
+
+/* .ms-lede caps at 46ch for the hero's two-column layout. This page is a single
+   column, so the lede takes the prose measure (62ch) and the two line up. */
+.ms-doc__lede {
+    margin-top: var(--ms-space-5);
+    max-width: 62ch;
+}
+
+/* The contents list. Grouped with the lede rather than set off from it: the
+   hairline above it is the page's first one, and it is what tells the reader
+   the introduction has ended and the document starts. */
+.ms-doc__toc {
+    margin-top: var(--ms-space-8);
+    padding-top: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-doc__toc-list {
+    margin: var(--ms-space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-doc__toc-list li + li {
+    margin-top: var(--ms-space-2);
+}
+
+/* Gap between sections comes from here, not from .ms-section — a reading page
+   wants one generous beat per section, not a full band of padding, and the
+   headings are the only thing that needs the air above them. */
+.ms-doc__section {
+    padding-top: var(--ms-section-y);
+}
+
+.ms-doc__section > .ms-h2 + * {
+    margin-top: var(--ms-space-5);
+}
+
+/* The retention split (§9: 24 hours free, 1–7 days Pro). A two-row hairline
+   comparison rather than two cards: the numbers are the whole point, and a card
+   would make them look like a pricing table. */
+.ms-doc__retention {
+    margin: var(--ms-space-6) 0;
+    padding: 0;
+}
+
+.ms-doc__tier {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--ms-space-4);
+    padding-block: var(--ms-space-4);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-doc__tier:last-child {
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-doc__tier dt,
+.ms-doc__tier dd {
+    margin: 0;
+}
+
+.ms-doc__tier-value {
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+}
+
+/* Both CTAs share the shape; the closing one gets more air because it is the
+   last thing on the page. */
+.ms-doc__cta {
+    margin-top: var(--ms-space-10);
+    padding-top: var(--ms-space-6);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-doc__cta-line {
+    margin: 0 0 var(--ms-space-4);
+    color: var(--ms-text-muted);
+}
+
+.ms-doc__cta--end {
+    margin-top: var(--ms-space-12);
 }
