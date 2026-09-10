@@ -10,8 +10,12 @@
  * The sunken band runs straight into the footer's own sunken background, so the
  * two share a colour field and the footer's hairline is the only seam between
  * them. That is the intent — the end of the page is one closing zone rather
- * than two competing bands — and it is why the section carries extra top
- * padding: the air has to be above the heading, not between it and the button.
+ * than two competing bands.
+ *
+ * The section takes its padding from --ms-section-y like every other one. It
+ * used to override that with a wider clamp of its own, which made the last band
+ * on the page out of step with the nine above it for no gain the token does not
+ * already give.
  *
  * Signed in, the button matches the nav and the hero and points at the app
  * instead of at a signup the visitor has already completed. The heading and the

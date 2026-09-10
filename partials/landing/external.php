@@ -26,12 +26,18 @@
  *
  * Sits on the default --ms-bg: automation.php above cleanup.php already
  * supplies the sunken band, and one is enough for this stretch of the page.
+ *
+ * Full .ms-container, not .ms-container--narrow. The narrow container is for
+ * the two centred sections (problem.php, cta.php), where its different width is
+ * invisible. This section is left-aligned, so a narrow container put its copy
+ * 200px to the right of every other section's at 1440px and the page lost its
+ * left edge. The measure is held by the paragraphs' own max-widths instead.
  */
 
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 ?>
 <section class="ms-section" id="external">
-    <div class="ms-container--narrow">
+    <div class="ms-container">
         <p class="ms-eyebrow">Power user</p>
         <h2 class="ms-h2">Bring other mailboxes into the picture.</h2>
         <p class="ms-external__body">Connect external email infrastructure and let Mail Shield handle it alongside your other addresses.</p>
