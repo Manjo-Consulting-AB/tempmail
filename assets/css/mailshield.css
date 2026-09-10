@@ -2653,3 +2653,271 @@ a:hover {
 .ms-article a .fa-external-link-alt {
     font-size: .75em;
 }
+
+/* ==========================================================================
+   y. App nav (partials/nav.php)
+   ========================================================================== */
+
+/* The bar shared by every page that keeps the Bootstrap bridge. It replaces a
+   glass strip on a purple gradient — the single most visible piece of the old
+   identity left in the app — with an opaque, quiet surface.
+
+   The anchors keep the legacy `navbar-link` class because tm_nav_active()
+   returns it; every rule below is scoped under `.ms-appnav` so it outranks
+   assets/css/style.css (loaded earlier) without that file being edited (§11).
+
+   z-index 1030 is Bootstrap's own "fixed" layer: above page content, below
+   --bs-zindex-modal-backdrop (1050), so an open email modal covers the bar
+   instead of the bar floating over the modal. The legacy bar used 9998ff,
+   which is exactly the bug this avoids. */
+
+.ms-appnav {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    background: var(--ms-bg);
+    border-bottom: 1px solid var(--ms-border);
+    /* .header centres its children; the nav is a left-aligned row. */
+    text-align: left;
+}
+
+.ms-appnav__inner {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-4);
+    min-height: 4rem;
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+/* Pushes the toggle (mobile) or the panel (desktop) to the right edge. */
+.ms-appnav__logo {
+    flex: none;
+    margin-right: auto;
+}
+
+/* --- Hamburger ------------------------------------------------------------ */
+
+.ms-appnav__toggle {
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: space-between;
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0.625rem 0.5rem;
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-md);
+    background: transparent;
+    color: var(--ms-text);
+    cursor: pointer;
+    transition: background-color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-appnav__toggle:hover {
+    background: var(--ms-bg-sunken);
+}
+
+.ms-appnav__toggle-line {
+    display: block;
+    width: 100%;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    transition: transform var(--ms-dur) var(--ms-ease), opacity var(--ms-dur) var(--ms-ease);
+}
+
+/* Open state is driven by aria-expanded, so the visual and the accessible
+   state cannot drift apart. 11px is the third of the 2.75rem box the three
+   2px bars sit on with `space-between`. */
+.ms-appnav__toggle[aria-expanded="true"] .ms-appnav__toggle-line:nth-child(1) {
+    transform: translateY(11px) rotate(45deg);
+}
+
+.ms-appnav__toggle[aria-expanded="true"] .ms-appnav__toggle-line:nth-child(2) {
+    opacity: 0;
+}
+
+.ms-appnav__toggle[aria-expanded="true"] .ms-appnav__toggle-line:nth-child(3) {
+    transform: translateY(-11px) rotate(-45deg);
+}
+
+/* --- Panel (mobile: drop-down, desktop: the row itself) -------------------- */
+
+/* Stacked, the bar shows the logo and the toggle only; the panel is revealed
+   by `.is-open`, which the partial's inline script toggles alongside
+   aria-expanded.
+
+   A class rather than the `hidden` attribute on purpose: these pages load
+   Bootstrap, whose Reboot ships `[hidden] { display: none !important }`.
+   Nothing an author writes beats that, so a `hidden` panel could never be
+   shown again at ≥992px — unlike the marketing nav, which is the only nav on
+   pages that load no Bootstrap and can therefore rely on `[hidden]`. */
+.ms-appnav__panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    display: none;
+    flex-direction: column;
+    gap: var(--ms-space-2);
+    padding: var(--ms-space-4) var(--ms-gutter) var(--ms-space-5);
+    background: var(--ms-bg-raised);
+    border-top: 1px solid var(--ms-border);
+    border-bottom: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-md);
+}
+
+.ms-appnav__panel.is-open {
+    display: flex;
+}
+
+/* --- Links ---------------------------------------------------------------- */
+
+.ms-appnav__links {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ms-space-1);
+}
+
+/* Scoped over the legacy rules in style.css: colour, pill background, border,
+   hover lift and per-link padding are all reset, not inherited. */
+.ms-appnav .navbar-link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    /* style.css centres the stacked link; the rows have to read left-aligned
+       so the active marker sits next to its label. */
+    justify-content: flex-start;
+    gap: var(--ms-space-2);
+    padding: var(--ms-space-3) 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    font-weight: 400;
+    text-decoration: none;
+    transition: color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-appnav .navbar-link:hover,
+.ms-appnav .navbar-link:focus {
+    background: none;
+    color: var(--ms-text);
+    text-decoration: none;
+    transform: none;
+}
+
+/* Active page: darker label plus a marker — a left bar while the links are
+   stacked, flipped to an underline at ≥992px. */
+.ms-appnav .navbar-link.active {
+    color: var(--ms-text);
+    padding-left: var(--ms-space-3);
+}
+
+.ms-appnav .navbar-link.active::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: var(--ms-accent);
+}
+
+.ms-appnav__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding-inline: 0.25rem;
+    border-radius: var(--ms-radius-pill);
+    background: var(--ms-accent-soft);
+    color: var(--ms-accent);
+    font-size: var(--ms-fs-xs);
+    font-weight: 600;
+}
+
+/* --- Account group -------------------------------------------------------- */
+
+.ms-appnav__account {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: var(--ms-space-3);
+    margin-top: var(--ms-space-2);
+    border-top: 1px solid var(--ms-border);
+    font-size: var(--ms-fs-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-appnav__email-addr {
+    font-family: var(--ms-font-mono);
+    word-break: break-all;
+}
+
+/* The inline scripts on pro.php / inbox.php write "Pro expired on ..." here and
+   set an inline colour for the expired case, which wins over this. */
+.ms-appnav__status {
+    color: var(--ms-text-faint);
+}
+
+/* --- Desktop: the panel becomes the bar's right-hand row ------------------- */
+
+/* Collapses at Bootstrap's `lg`, not `md`: seven links plus the account block
+   need ~870px, so at 768–991 the row would overrun the bar and clip the email.
+   Below `lg` the hamburger carries the same links instead. */
+@media (min-width: 992px) {
+    .ms-appnav__toggle {
+        display: none;
+    }
+
+    .ms-appnav__panel {
+        position: static;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-5);
+        padding: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+    }
+
+    .ms-appnav__links {
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-5);
+    }
+
+    .ms-appnav .navbar-link,
+    .ms-appnav .navbar-link.active {
+        padding: var(--ms-space-1) 0;
+        white-space: nowrap;
+    }
+
+    /* Marker flips from the stacked row's left bar to an underline. */
+    .ms-appnav .navbar-link.active::after {
+        top: auto;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: auto;
+        height: 2px;
+    }
+
+    /* Stays a column: the email on one line with the expiry beneath it, so the
+       group reads as one quiet block instead of three competing fragments. The
+       left border is what separates it from the links. */
+    .ms-appnav__account {
+        padding-top: 0;
+        padding-left: var(--ms-space-5);
+        margin-top: 0;
+        border-top: 0;
+        border-left: 1px solid var(--ms-border);
+    }
+}

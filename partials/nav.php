@@ -1,6 +1,27 @@
 <?php
-// Centralized navbar partial for TempMail
+/**
+ * Mail Shield app navigation. Spec: documentaion/REDESIGN_BRIEF.md §5, §11.
+ *
+ * Shared by the pages that keep the Bootstrap bridge (inbox.php, pro.php,
+ * pro_profile_page.php, client_agent_manage.php, pro_contact.php). The public
+ * marketing pages use partials/public_nav.php instead — the two are separate on
+ * purpose and must not be merged.
+ *
+ * Three things other code depends on and that must survive any change here:
+ *   - tm_nav_active() and the `navbar-link active` class it returns.
+ *   - #proExpiryLine, written into by inline scripts in index.php, pro.php,
+ *     inbox.php, pro_contact.php and pro_profile_page.php.
+ *   - #hamburgerBtn / #navbarMenu.
+ *
+ * The links carry the legacy `navbar-link` class because tm_nav_active()
+ * returns it; the new look is applied by the `ms-appnav` rules in
+ * assets/css/mailshield.css, scoped so they outrank assets/css/style.css
+ * without that file being edited (brief §11).
+ */
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+
+require_once __DIR__ . '/brand.php';
+
 $current = basename($_SERVER['SCRIPT_NAME'] ?? '');
 function tm_nav_active($name, $current) {
     return $name === $current ? 'navbar-link active' : 'navbar-link';
@@ -17,70 +38,82 @@ if (!empty($_SESSION['pro_user_id'] ?? null) && isset($pdo)) {
         $pendingChangeCount = 0;
     }
 }
-?>
-<nav class="header-navbar">
-    <div class="navbar-content">
-        <div class="navbar-left">
-            <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                <span class="navbar-user-info">Signed in as <span class="badge bg-light text-dark"><?php echo htmlspecialchars($_SESSION['pro_user_email'] ?? ''); ?></span></span>
-                <span id="proExpiryLine" class="navbar-pro-status"></span>
-            <?php else: ?>
-                <span class="navbar-user-info"><i class="fas fa-info-circle"></i> Help & Information</span>
-            <?php endif; ?>
-        </div>
 
-        <button class="hamburger-btn" id="hamburgerBtn" aria-label="Toggle menu">
-            <span class="hamburger-line"></span>
-            <span class="hamburger-line"></span>
-            <span class="hamburger-line"></span>
+$msNavSignedIn = !empty($_SESSION['pro_user_id'] ?? null);
+$msNavEmail    = (string) ($_SESSION['pro_user_email'] ?? '');
+
+$msNavEsc = function ($value): string {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+};
+?>
+<nav class="ms-appnav" aria-label="Application">
+    <div class="ms-appnav__inner">
+        <?php echo ms_logo([
+            'href'  => $msNavSignedIn ? '/pro.php' : '/',
+            'class' => 'ms-appnav__logo',
+        ]); ?>
+
+        <button type="button" class="ms-appnav__toggle" id="hamburgerBtn"
+                aria-expanded="false" aria-controls="navbarMenu" aria-label="Menu">
+            <span class="ms-appnav__toggle-line"></span>
+            <span class="ms-appnav__toggle-line"></span>
+            <span class="ms-appnav__toggle-line"></span>
         </button>
 
-        <div class="navbar-right" id="navbarMenu">
-            <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-            <a href="pro.php" class="<?php echo tm_nav_active('pro.php', $current); ?>" title="Home">
-                <i class="fas fa-home"></i> <span class="nav-text">Home</span>
-            </a>
-            <?php else: ?>
-            <a href="index.php" class="<?php echo tm_nav_active('index.php', $current); ?>" title="Home">
-                <i class="fas fa-home"></i> <span class="nav-text">Home</span>
-            </a>
-            <?php endif; ?>
-            <a href="blog.php" class="<?php echo tm_nav_active('blog.php', $current); ?>" title="Blog">
-                <i class="fas fa-book-open"></i> <span class="nav-text">Blog</span>
-            </a>
-            <a href="faq.php" class="<?php echo tm_nav_active('faq.php', $current); ?>" title="FAQ">
-                <i class="fas fa-question-circle"></i> <span class="nav-text">FAQ</span>
-            </a>
+        <div class="ms-appnav__panel" id="navbarMenu">
+            <div class="ms-appnav__links">
+                <?php if ($msNavSignedIn) : ?>
+                <a href="pro.php" class="<?php echo tm_nav_active('pro.php', $current); ?>">Home</a>
+                <?php else: ?>
+                <a href="index.php" class="<?php echo tm_nav_active('index.php', $current); ?>">Home</a>
+                <?php endif; ?>
+                <a href="blog.php" class="<?php echo tm_nav_active('blog.php', $current); ?>">Blog</a>
+                <a href="faq.php" class="<?php echo tm_nav_active('faq.php', $current); ?>">FAQ</a>
 
-            <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                <a href="client_agent_manage.php" class="<?php echo tm_nav_active('client_agent_manage.php', $current); ?>" title="Client Agent">
-                    <i class="fas fa-robot"></i> <span class="nav-text">Client Agent</span>
-                </a>
-                <a href="pro_profile_page.php" class="<?php echo tm_nav_active('pro_profile_page.php', $current); ?>" title="Profile">
-                    <i class="fas fa-cog"></i> <span class="nav-text">Settings</span>
-                </a>
-                <a href="pro_contact.php" class="<?php echo tm_nav_active('pro_contact.php', $current); ?>" title="Contact">
-                    <i class="fas fa-envelope"></i> <span class="nav-text">Contact</span>
-                </a>
-                <a href="pro_logout.php" class="navbar-link navbar-logout" title="Log out">
-                    <i class="fas fa-sign-out-alt"></i> <span class="nav-text">Log out</span>
-                </a>
-            <?php else: ?>
-                <a href="register.php" class="<?php echo tm_nav_active('register.php', $current); ?>" title="Sign up">
-                    <i class="fas fa-user-plus"></i> <span class="nav-text">Sign up</span>
-                </a>
-                <a href="pro_login.php" class="<?php echo tm_nav_active('pro_login.php', $current); ?>" title="Pro login">
-                    <i class="fas fa-user-lock"></i> <span class="nav-text">Pro</span>
-                </a>
+                <?php if ($msNavSignedIn) : ?>
+                    <a href="client_agent_manage.php" class="<?php echo tm_nav_active('client_agent_manage.php', $current); ?>">Client Agent</a>
+                    <a href="pro_profile_page.php" class="<?php echo tm_nav_active('pro_profile_page.php', $current); ?>">Settings<?php if ($pendingChangeCount > 0) : ?><span class="ms-appnav__count"><?php echo (int) $pendingChangeCount; ?><span class="ms-visually-hidden"> pending changes</span></span><?php endif; ?></a>
+                    <a href="pro_contact.php" class="<?php echo tm_nav_active('pro_contact.php', $current); ?>">Contact</a>
+                    <a href="pro_logout.php" class="navbar-link">Log out</a>
+                <?php else: ?>
+                    <a href="register.php" class="<?php echo tm_nav_active('register.php', $current); ?>">Sign up</a>
+                    <a href="pro_login.php" class="<?php echo tm_nav_active('pro_login.php', $current); ?>">Pro</a>
+                <?php endif; ?>
+            </div>
+
+            <?php if ($msNavSignedIn) : ?>
+            <div class="ms-appnav__account">
+                <span class="ms-appnav__email">Signed in as <span class="ms-appnav__email-addr"><?php echo $msNavEsc($msNavEmail); ?></span></span>
+                <span id="proExpiryLine" class="ms-appnav__status"></span>
+            </div>
             <?php endif; ?>
         </div>
     </div>
 </nav>
 
-
 <script>
-document.getElementById('hamburgerBtn')?.addEventListener('click', function(){
-    var menu = document.getElementById('navbarMenu'); this.classList.toggle('active'); menu.classList.toggle('show');
-});
-document.addEventListener('click', function(e){ var menu = document.getElementById('navbarMenu'); var btn = document.getElementById('hamburgerBtn'); if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) { menu.classList.remove('show'); btn.classList.remove('active'); } });
+(function () {
+    var btn = document.getElementById('hamburgerBtn');
+    var panel = document.getElementById('navbarMenu');
+    if (!btn || !panel) return;
+
+    function isOpen() { return btn.getAttribute('aria-expanded') === 'true'; }
+    function setOpen(open) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        panel.classList.toggle('is-open', open);
+    }
+    function close(moveFocus) {
+        if (!isOpen()) return;
+        setOpen(false);
+        if (moveFocus) btn.focus();
+    }
+
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(true); });
+    // An outside click leaves focus where the user clicked; only Escape pulls it
+    // back to the button.
+    document.addEventListener('click', function (e) {
+        if (!panel.contains(e.target) && !btn.contains(e.target)) close(false);
+    });
+})();
 </script>
