@@ -1707,3 +1707,125 @@ a:hover {
     content: "→ ";
     color: var(--ms-text-faint);
 }
+
+/* ==========================================================================
+   s. Landing — free and Pro (partials/landing/plans.php)
+   ========================================================================== */
+
+.ms-plans__body {
+    max-width: 52ch;
+    margin: var(--ms-space-4) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* Two columns, and deliberately not the full container: the two lists are short
+   lines, and at 1120px the cards would be half empty. Capped so each card stays
+   a card, and left-aligned rather than centred so the note and the buttons
+   below keep the same edge as every other section's copy on the page.
+   One column below 768px. */
+.ms-plans__grid {
+    display: grid;
+    gap: var(--ms-space-5);
+    max-width: 880px;
+    margin-top: var(--ms-space-8);
+}
+
+@media (min-width: 768px) {
+    .ms-plans__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* The recommended card, marked once: the accent on the hairline border it
+   already had, at the same 1px weight as the other card. No fill, no shadow
+   change, no transform, no ribbon. */
+.ms-plans__card--pro {
+    border-color: var(--ms-accent);
+}
+
+.ms-plans__head {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-3);
+    flex-wrap: wrap;
+}
+
+.ms-plans__summary {
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-plans__list {
+    margin: var(--ms-space-5) 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--ms-border);
+    padding-top: var(--ms-space-5);
+}
+
+.ms-plans__list li {
+    position: relative;
+    padding-left: var(--ms-space-5);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+}
+
+.ms-plans__list li + li {
+    margin-top: var(--ms-space-3);
+}
+
+/* A check, drawn rather than fetched — marketing pages load no icon font, and
+   the same mark is inline SVG in cleanup.php. Faint, not accent: eleven accent
+   ticks would spend the section's whole accent budget on bullet points (§5.1),
+   which is the same reason cleanup.php keeps its four muted. */
+.ms-plans__list li::before {
+    content: "";
+    position: absolute;
+    left: .125rem;
+    top: .5rem;
+    width: .3125rem;
+    height: .5625rem;
+    border-right: 1.5px solid var(--ms-text-faint);
+    border-bottom: 1.5px solid var(--ms-text-faint);
+    transform: rotate(45deg);
+}
+
+/* The voucher note. Its own line, above the buttons rather than beside them,
+   because it is the answer to the question the Pro button raises. */
+.ms-plans__note {
+    margin: var(--ms-space-7) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-plans__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-3);
+    margin-top: var(--ms-space-5);
+}
+
+/* ==========================================================================
+   t. Landing — final CTA (partials/landing/cta.php)
+   ========================================================================== */
+
+.ms-cta {
+    text-align: center;
+    padding-block: clamp(4.5rem, 10vw, 8rem);
+}
+
+.ms-cta__body {
+    margin: var(--ms-space-4) auto 0;
+    max-width: 46ch;
+    font-size: var(--ms-fs-lede);
+    line-height: var(--ms-lh-lede);
+    color: var(--ms-text-muted);
+}
+
+/* The one button, given room. */
+.ms-cta__inner > .ms-btn {
+    margin-top: var(--ms-space-7);
+}
