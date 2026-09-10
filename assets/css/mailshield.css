@@ -1579,3 +1579,131 @@ a:hover {
     line-height: var(--ms-lh-sm);
     color: var(--ms-text-muted);
 }
+
+/* ==========================================================================
+   q. Landing — smart cleanup (partials/landing/cleanup.php)
+   ========================================================================== */
+
+/* A readable measure, a step quieter than the heading it follows. */
+.ms-cleanup__body {
+    max-width: 52ch;
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* Two columns, named rather than auto-fit: four items in an auto-fit grid open
+   a third column on a wide screen and strand the fourth point alone on a second
+   row. Below 640px it is one column. */
+.ms-cleanup__list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--ms-space-8);
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* The hairline is the whole treatment — no border, no background, no card, so
+   the section does not repeat automation.php's grid of boxes. It sits above
+   each point, which means the first row also rules the list off from the copy.
+   Row gap stays 0: the padding below does that work. */
+.ms-cleanup__item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0 var(--ms-space-3);
+    padding-block: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+}
+
+/* Centred on the first line of text rather than on the item: at the body line
+   height that is (1.65 x 1rem - 16px) / 2. align-self keeps the 16px glyph from
+   being stretched to the height of the tallest point in the row. */
+.ms-cleanup__mark {
+    grid-column: 1;
+    align-self: start;
+    margin-top: .3rem;
+    color: var(--ms-text-muted);
+}
+
+/* Column 2 is named on both, because grid auto-placement is row-major: without
+   it the qualifier on point 2 (the only item with a third child) would wrap
+   back to column 1, land under the check mark, and stretch the `auto` track to
+   the width of the qualifier — which shoves that item's text into the middle of
+   the column. Naming the column lets the rows stack as intended. */
+.ms-cleanup__text,
+.ms-cleanup__qualifier {
+    grid-column: 2;
+}
+
+.ms-cleanup__text {
+    margin: 0;
+}
+
+/* Point 2 only: the sender lists run on the user's own server, through the
+   Agent, so the claim is qualified rather than dropped. As quiet as the copy
+   rules allow — it is a scope note, not a second point. */
+.ms-cleanup__qualifier {
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+@media (max-width: 639px) {
+    .ms-cleanup__list {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ==========================================================================
+   r. Landing — external email (partials/landing/external.php)
+   ========================================================================== */
+
+.ms-external__body {
+    max-width: 52ch;
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* The technical sentence, at full strength rather than muted: it is the
+   section's substance, and the body above it is the friendly version of the
+   same claim. A step down in size keeps it reading as a detail under that body
+   rather than as a second paragraph of equal weight. */
+.ms-external__detail {
+    max-width: 52ch;
+    margin: var(--ms-space-4) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+}
+
+/* The shape of the integration, in prose: three beats in monospace on a sunken
+   well. Monospace and sunken are what make it read as technical, and that is
+   all it claims to be — there is no request, header, endpoint or value in it,
+   because anything of that kind would be invented and someone would try it.
+   Sized to its longest line rather than to the measure: at the copy's width the
+   three short beats would sit in mostly empty panel. */
+.ms-external__flow {
+    width: fit-content;
+    max-width: 100%;
+    margin: var(--ms-space-6) 0 0;
+    padding: var(--ms-space-4) var(--ms-space-5);
+    list-style: none;
+    background: var(--ms-bg-sunken);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-external__step + .ms-external__step {
+    margin-top: var(--ms-space-2);
+}
+
+/* Generated so the markup stays three plain phrases, and faint so the arrows
+   read as connectors between the lines rather than as four more steps. */
+.ms-external__step + .ms-external__step::before {
+    content: "→ ";
+    color: var(--ms-text-faint);
+}
