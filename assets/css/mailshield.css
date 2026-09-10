@@ -2195,3 +2195,212 @@ a:hover {
         padding-inline: var(--ms-space-2);
     }
 }
+
+/* ==========================================================================
+   w. FAQ — faq.php (Redesign 19)
+   ==========================================================================
+
+   The public reading page that keeps the Bootstrap bridge (§11): blog.php
+   shares its <head> pattern, so converting one of them to the marketing shell
+   would fork the pair. What is added here is only the page shape, built from
+   the primitives the landing and content pages already use — one narrow
+   column, hairlines between items, prose capped at the 62ch measure.
+
+   The bar is rendered by faq.php itself, not by partials/nav.php: that partial
+   is still the pre-redesign app nav and Redesign 22 owns its restyle. Swap it
+   in here when Redesign 22 lands. */
+
+.ms-faq {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: var(--ms-bg);
+}
+
+/* --- Bar ------------------------------------------------------------------ */
+
+/* Two rows below 768px, one row above. The links list is a wrapping flex row
+   with `order: 3` and a full-width basis, so on a phone the bar settles as
+   logo + actions on the first line and the three links underneath — rather than
+   shrinking the wordmark or hiding the links behind a menu this page does not
+   otherwise need. */
+
+.ms-faq__bar {
+    background: var(--ms-bg);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-faq__bar-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-3) var(--ms-space-5);
+    min-height: 4rem;
+    padding-block: var(--ms-space-3);
+}
+
+.ms-faq__logo {
+    margin-right: auto;
+}
+
+.ms-faq__links {
+    order: 3;
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2) var(--ms-space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-faq__links a {
+    color: var(--ms-text-muted);
+}
+
+.ms-faq__links a:hover {
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+.ms-faq__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-4);
+}
+
+.ms-faq__login {
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-faq__login:hover {
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+@media (min-width: 768px) {
+    .ms-faq__bar-inner {
+        padding-block: 0;
+    }
+
+    /* One row: logo, links, actions. The auto margin moves to the links so the
+       actions stay pinned right and the gap between logo and links closes. */
+    .ms-faq__logo {
+        margin-right: 0;
+    }
+
+    .ms-faq__links {
+        order: 0;
+        flex-basis: auto;
+        margin-right: auto;
+    }
+}
+
+/* --- Reading column ------------------------------------------------------- */
+
+.ms-faq__main {
+    flex: 1 0 auto;
+    padding-block: calc(var(--ms-section-y) * .7) var(--ms-section-y);
+}
+
+.ms-faq__title {
+    margin: 0;
+    font-size: var(--ms-fs-h1);
+    line-height: var(--ms-lh-h1);
+    letter-spacing: var(--ms-ls-h1);
+    font-weight: var(--ms-fw-h1);
+}
+
+/* .ms-lede caps at 46ch for the hero's two-column layout; this page is a single
+   column, so the lede takes the prose measure and the two line up. */
+.ms-faq__lede {
+    margin-top: var(--ms-space-5);
+    max-width: 62ch;
+}
+
+/* --- Jump list ------------------------------------------------------------ */
+
+/* Same job as .ms-doc__toc on temporary-email.php: the hairline above it is what
+   tells the reader the introduction has ended. Laid out as a wrapping row
+   rather than a column — six short group names read faster together than as a
+   stack of six full-width lines. */
+
+.ms-faq__jump {
+    margin-top: var(--ms-space-8);
+    padding-top: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-faq__jump-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2) var(--ms-space-5);
+    margin: var(--ms-space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ms-fs-sm);
+}
+
+/* --- Groups and questions ------------------------------------------------- */
+
+/* Anchor targets for the jump list. The bar is in flow, not sticky, so this
+   offset is breathing room rather than a clearance hack — but it is set
+   explicitly so a jump never lands with the heading flush against the top of
+   the viewport if the bar becomes sticky later. */
+.ms-faq__group {
+    padding-top: calc(var(--ms-section-y) * .7);
+    scroll-margin-top: var(--ms-space-6);
+}
+
+/* The first group follows the jump list, which already carries the beat. */
+.ms-faq__group:first-of-type {
+    padding-top: var(--ms-space-10);
+}
+
+.ms-faq__items {
+    margin-top: var(--ms-space-6);
+}
+
+/* Hairlines between questions, never above the first: the <h2> above it is
+   already the separation. */
+.ms-faq__item + .ms-faq__item {
+    margin-top: var(--ms-space-6);
+    padding-top: var(--ms-space-6);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-faq__item .ms-prose {
+    margin-top: var(--ms-space-4);
+}
+
+/* --- Footer --------------------------------------------------------------- */
+
+/* .ms-container supplies the inline gutter; this only adds the block rhythm. */
+.ms-faq__foot {
+    padding-block: var(--ms-space-6) var(--ms-space-8);
+    border-top: 1px solid var(--ms-border);
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-faq__foot-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2) var(--ms-space-5);
+}
+
+.ms-faq__foot-links a {
+    color: var(--ms-text-muted);
+}
+
+.ms-faq__foot-links a:hover {
+    color: var(--ms-text);
+}
+
+.ms-faq__foot-legal {
+    margin: var(--ms-space-5) 0 0;
+    font-size: var(--ms-fs-xs);
+    color: var(--ms-text-muted);
+}
