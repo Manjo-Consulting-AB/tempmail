@@ -2,9 +2,19 @@
 /**
  * Login page for magic link (pro users)
  * Handles token verification and user session
+ *
+ * Shell: brief §11 keeps this page on the Bootstrap bridge — Bootstrap and
+ * jQuery stay and the bridge restyles them — so this issue replaces the page
+ * shape only (see the auth section at the end of assets/css/mailshield.css).
+ * All three entry paths are untouched: the token branch above, the magic-link
+ * form, the password form and the 2FA challenge below, including every element
+ * id, name and data-* attribute the jQuery in this file binds to. In
+ * particular the remember-this-browser checkbox keeps its place at the top of
+ * the 2FA form, which the auto-submit at six digits depends on (commit 0ba9ddc).
  */
 require_once 'config.php';
 require_once __DIR__ . '/pro_auth.php';
+require_once __DIR__ . '/partials/brand.php';
 
 session_start();
 
@@ -86,30 +96,29 @@ if ($token) {
     <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
 </head>
 <body>
-    <div class="main-container">
-        <div class="header">
-            <h1><i class="fas fa-user-lock"></i> Mail Shield</h1>
-            <p class="lead">Sign in to manage your Pro account</p>
+    <div class="ms-auth">
+        <header class="ms-auth__bar">
+            <div class="ms-auth__bar-inner">
+                <?php echo ms_logo(['href' => '/']); ?>
+            </div>
+        </header>
 
-            <?php require 'partials/nav.php'; ?>
-        </div>
+        <main class="ms-auth__main">
+            <div class="ms-card ms-auth__card">
+                <h1 class="ms-auth__title">Log in</h1>
+                <p class="ms-auth__sub">Sign in to your Mail Shield account.</p>
 
-        <div class="card mt-4 card-main-width">
-            <div class="card-header"><h3>Sign in</h3></div>
-            <div class="card-body">
                 <?php if ($error): ?>
                     <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
                 <?php endif; ?>
 
                 <div class="mb-3" id="loginModeToggle">
-                    <div class="d-flex align-items-center">
-                        <div class="btn-group me-3" role="group" aria-label="Login mode">
+                    <div class="ms-auth__segment" role="group" aria-label="Login mode">
                         <input type="radio" class="btn-check" name="loginMode" id="modeMagic" autocomplete="off" checked>
                         <label class="btn btn-outline-secondary" for="modeMagic">Magic link</label>
 
                         <input type="radio" class="btn-check" name="loginMode" id="modePassword" autocomplete="off">
                         <label class="btn btn-outline-secondary" for="modePassword">Password</label>
-                    </div>
                     </div>
                 </div>
 
@@ -122,7 +131,7 @@ if ($token) {
                             <label for="email" class="form-label">Email address</label>
                             <input type="email" class="form-control" name="email" id="email" required>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">Send login link</button>
+                        <button type="submit" class="btn btn-primary w-100">Send me a login link</button>
                     </form>
                     <div id="loginRequestMsg" class="mt-3"></div>
                 </div>
@@ -144,7 +153,7 @@ if ($token) {
                 </div>
 
                 <div id="twoFactorBlock" style="display:none;">
-                    <p class="text-muted">Open your authenticator app (1Password, Authy, Google Authenticator &hellip;) and enter the 6-digit code for Mail Shield.</p>
+                    <p class="ms-auth__hint ms-auth__hint--lead">Open your authenticator app (1Password, Authy, Google Authenticator &hellip;) and enter the 6-digit code for Mail Shield.</p>
                     <form id="twoFactorForm">
                         <input type="hidden" name="action" value="verify_2fa">
                         <div class="mb-3 form-check">
@@ -159,74 +168,40 @@ if ($token) {
                         </div>
                         <button type="submit" class="btn btn-primary w-100">Verify</button>
                     </form>
-                    <div class="mt-3">
+                    <div class="ms-auth__link-row">
                         <a href="#" id="useRecoveryCodeLink">Use a recovery code instead</a>
                     </div>
-                    <div class="mt-2">
+                    <div class="ms-auth__link-row">
                         <a href="#" id="lostAuthenticatorLink">Lost your authenticator? Sign in with an email link instead</a> &mdash; you can then turn off two-factor authentication in your profile.
                     </div>
-                    <div class="mt-2">
+                    <div class="ms-auth__link-row">
                         <a href="#" id="cancel2faLink">Cancel</a>
                     </div>
                     <div id="twoFactorMsg" class="mt-3"></div>
                 </div>
+
+                <p class="ms-auth__alt">New here? <a href="/register.php?plan=regular">Create your inbox</a>.</p>
             </div>
-        </div>
+        </main>
 
-        <!-- Getting Started Guide -->
-        <div class="card mt-4 card-main-width">
-            <div class="card-header"><h3><i class="fas fa-rocket"></i> Getting Started</h3></div>
-            <div class="card-body">
-                <p class="text-muted mb-3">New to Mail Shield? Follow these simple steps to set up your account:</p>
-                
-                <div class="d-flex mb-3">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">1</span>
-                    </div>
-                    <div>
-                        <strong>Create an Account</strong>
-                        <p class="text-muted mb-0 small">Don't have an account yet? <a href="register.php">Sign up here</a> — free accounts don't need a voucher code, Pro accounts do.</p>
-                    </div>
-                </div>
-
-                <div class="d-flex mb-3">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">2</span>
-                    </div>
-                    <div>
-                        <strong>Verify Your Email</strong>
-                        <p class="text-muted mb-0 small">Check your inbox for a verification link. Clicking it confirms your email address and signs you in — all in the same click.</p>
-                    </div>
-                </div>
-
-                <div class="d-flex mb-3">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">3</span>
-                    </div>
-                    <div>
-                        <strong>Sign In with Magic Link</strong>
-                        <p class="text-muted mb-0 small">Enter your email address and click "Send login link". You'll receive a secure, one-time link in your inbox — simply click it to sign in instantly.</p>
-                    </div>
-                </div>
-
-                <div class="d-flex">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;">4</span>
-                    </div>
-                    <div>
-                        <strong>Configure Your Preferences</strong>
-                        <p class="text-muted mb-0 small">Once signed in, navigate to your profile settings using the <i class="fas fa-cog"></i> icon. Here you can set a password for traditional login and customize your account preferences.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
+        <footer class="ms-auth__foot">
+            <p><a href="/">&larr; Back to Mail Shield</a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
+        </footer>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     $(function(){
+        // Each status region belongs to the fields that write into it, so the
+        // association is made here rather than in the markup: every one of
+        // those input lines carries an id, and this issue's regression check
+        // forbids touching any line that does. Set before first paint, so it is
+        // equivalent for assistive tech.
+        $('#email').attr('aria-describedby', 'loginRequestMsg');
+        $('#pwEmail, #pwPassword').attr('aria-describedby', 'passwordLoginMsg');
+        $('#twoFactorCode').attr('aria-describedby', 'twoFactorMsg');
+
         function showMode(mode) {
             if (mode === 'password') {
                 $('#magicBlock').hide();

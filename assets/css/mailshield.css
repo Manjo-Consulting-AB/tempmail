@@ -2000,3 +2000,198 @@ a:hover {
 .ms-doc__cta--end {
     margin-top: var(--ms-space-12);
 }
+
+/* ==========================================================================
+   v. Auth pages — register.php, pro_login.php (Redesign 18)
+   ==========================================================================
+
+   The two pages are a pair, and they are deliberately built from the same
+   shell: same logo-only bar, same single 440px column, same card, same footer.
+   Moving between "create an inbox" and "log in" should not feel like moving
+   between two sites.
+
+   Both pages keep Bootstrap and jQuery (brief §11) — the bridge restyles the
+   inputs, labels, alerts and buttons underneath this section, so what is added
+   here is only the page shape: the bar, the column, the segmented control and
+   the divider. The account-type and login-mode radios stay exactly as they
+   were (ids, names, `btn-check` pattern, `showMode()`), because pro_auth.php
+   mirrors the same whitelist and the jQuery bindings select them by name. */
+
+.ms-auth {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: var(--ms-bg);
+}
+
+/* --- Top bar: the wordmark and nothing else ------------------------------- */
+
+/* No app nav and no hamburger. An auth page has one job, and a FAQ link next
+   to the form competes with it (§1: don't remove a link target — these still
+   live in the site footer, which every marketing page links to). */
+
+.ms-auth__bar {
+    background: var(--ms-bg);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-auth__bar-inner {
+    display: flex;
+    align-items: center;
+    min-height: 4rem;
+    width: 100%;
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+/* --- The single column ---------------------------------------------------- */
+
+/* `flex: 1 0 auto` pushes the footer to the bottom of a short page without
+   centring the column vertically: the heading and the first field start high
+   enough to both clear the fold on a phone. */
+
+.ms-auth__main {
+    flex: 1 0 auto;
+    padding: clamp(3rem, 8vh, 6rem) var(--ms-gutter) var(--ms-space-10);
+}
+
+/* The column and the card are the same element on purpose. One centred
+   440px surface holding the heading, the mode control and the form reads as a
+   single task; nothing else on the page is boxed. */
+.ms-auth__card {
+    width: 100%;
+    max-width: 440px;
+    margin-inline: auto;
+    padding: var(--ms-space-6);
+}
+
+/* Every form in the card takes the same beat below whatever precedes it: the
+   mode hint on register.php, the `or` divider on pro_login.php. */
+.ms-auth__card form {
+    margin-top: var(--ms-space-5);
+}
+
+.ms-auth__title {
+    margin: 0;
+    font-size: var(--ms-fs-h2);
+    line-height: var(--ms-lh-h2);
+    letter-spacing: var(--ms-ls-h2);
+    font-weight: var(--ms-fw-h2);
+}
+
+.ms-auth__sub {
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* One line, swapped with the selected account type. Quiet: it exists to stop
+   the wrong tier being picked, not to sell the tier. */
+.ms-auth__hint {
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* The 2FA lead-in on pro_login.php takes over the top of the card once the
+   mode control and the divider are hidden, so it needs the beat that divider
+   used to provide. */
+.ms-auth__hint--lead {
+    margin-top: var(--ms-space-5);
+}
+
+/* The recovery / lost-authenticator / cancel rows under the 2FA form. */
+.ms-auth__link-row {
+    margin-top: var(--ms-space-3);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- The segmented control ------------------------------------------------ */
+
+/* Two equal halves that cannot overflow their column. `minmax(0, 1fr)` is the
+   part that matters: a plain `1fr` is `minmax(auto, 1fr)` and refuses to shrink
+   below the label's min-content width, which pushes the control wider than the
+   card at 375px. With the tracks allowed to shrink, the labels wrap instead.
+
+   The radios carry Bootstrap's `.btn-check`, which is absolutely positioned and
+   clipped, so only the two labels take part in the grid — and the input stays
+   immediately before its label, which is what the bridge's
+   `.btn-check:checked + .btn` rule needs. */
+.ms-auth__segment {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--ms-space-2);
+    margin-top: var(--ms-space-5);
+}
+
+.ms-auth__segment > .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: var(--ms-space-3) var(--ms-space-3);
+    border-radius: var(--ms-radius-md);
+    font-size: var(--ms-fs-sm);
+    line-height: 1.3;
+    white-space: normal;
+    text-align: center;
+}
+
+/* --- The `or` divider on pro_login.php ------------------------------------ */
+
+/* Matched by element because the divider is `<hr id="loginModeDivider">` and
+   jQuery shows and hides it by that id; the line carrying the id is frozen by
+   this issue's regression check, so it cannot take a class. */
+.ms-auth__card hr {
+    margin: var(--ms-space-5) 0 0;
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    opacity: 1;
+}
+
+/* --- Closing line inside the card ----------------------------------------- */
+
+.ms-auth__alt {
+    margin: var(--ms-space-5) 0 0;
+    padding-top: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Footer line ---------------------------------------------------------- */
+
+.ms-auth__foot {
+    padding: var(--ms-space-5) var(--ms-gutter) var(--ms-space-8);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+    text-align: center;
+}
+
+.ms-auth__foot p {
+    margin: 0;
+}
+
+.ms-auth__foot-sep {
+    margin-inline: var(--ms-space-2);
+    color: var(--ms-text-faint);
+}
+
+/* The card is the only thing on the page with a shadow, so on a phone it can
+   afford to sit flush against the gutters without shrinking further. */
+@media (max-width: 479px) {
+    .ms-auth__card {
+        padding: var(--ms-space-5);
+    }
+
+    .ms-auth__segment > .btn {
+        padding-inline: var(--ms-space-2);
+    }
+}

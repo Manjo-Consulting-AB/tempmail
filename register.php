@@ -1,10 +1,21 @@
 <?php
 /**
- * Registration page for new Regular/Pro accounts (ACCOUNT_TIERS.md §4).
- * Posts to pro_auth.php's register_account action - no new backend logic
- * lives here, this is purely the form and its client-side wiring.
+ * Registration page for new accounts — free, or Pro with a voucher code
+ * (ACCOUNT_TIERS.md §4). Posts to pro_auth.php's register_account action - no
+ * new backend logic lives here, this is purely the form and its client-side
+ * wiring.
+ *
+ * Shell: brief §11 keeps this page on the Bootstrap bridge (Bootstrap and
+ * jQuery stay, the bridge restyles them), so this issue only replaces the page
+ * shape — see the auth section at the end of assets/css/mailshield.css. Every
+ * input id, name and data-* attribute, every jQuery selector, the endpoint and
+ * MIN_PASSWORD_LENGTH are carried over untouched: pro_auth.php's
+ * register_account mirrors the same `?plan=` whitelist and the same length
+ * rule, and the regression check in this issue's acceptance criteria greps the
+ * diff for exactly those.
  */
 require_once 'config.php';
+require_once __DIR__ . '/partials/brand.php';
 
 session_start();
 
@@ -51,59 +62,30 @@ if (!in_array($plan, ['regular', 'pro'], true)) {
     <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
 </head>
 <body>
-    <div class="main-container">
-        <div class="header">
-            <h1><i class="fas fa-user-plus"></i> Mail Shield</h1>
-            <p class="lead">Create a free or Pro account</p>
-
-            <?php require 'partials/nav.php'; ?>
-        </div>
-
-        <!-- Getting Started Guide -->
-        <div class="card mt-4 card-main-width">
-            <div class="card-header"><h3><i class="fas fa-rocket"></i> Getting Started</h3></div>
-            <div class="card-body">
-                <p class="text-muted mb-3">Not sure which account to pick? Here's the difference:</p>
-
-                <div class="d-flex mb-3">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;"><i class="fas fa-check"></i></span>
-                    </div>
-                    <div>
-                        <strong>Free account</strong>
-                        <p class="text-muted mb-0 small">One temporary address at a time, with a 24-hour lifetime. No voucher code needed &mdash; just verify your email.</p>
-                    </div>
-                </div>
-
-                <div class="d-flex">
-                    <div class="me-3">
-                        <span class="badge bg-primary rounded-circle" style="width: 28px; height: 28px; line-height: 20px;"><i class="fas fa-star"></i></span>
-                    </div>
-                    <div>
-                        <strong>Pro account</strong>
-                        <p class="text-muted mb-0 small">Longer address lifetimes and extra features. Requires a voucher code until online payments launch.</p>
-                    </div>
-                </div>
+    <div class="ms-auth">
+        <header class="ms-auth__bar">
+            <div class="ms-auth__bar-inner">
+                <?php echo ms_logo(['href' => '/']); ?>
             </div>
-        </div>
+        </header>
 
-        <div class="card mt-4 card-main-width">
-            <div class="card-header"><h3>Create account</h3></div>
-            <div class="card-body">
+        <main class="ms-auth__main">
+            <div class="ms-card ms-auth__card">
+                <h1 class="ms-auth__title">Create your inbox</h1>
+                <p class="ms-auth__sub">Free to start. No card needed.</p>
 
                 <div class="mb-3" id="registerModeToggle">
-                    <div class="d-flex align-items-center">
-                        <div class="btn-group me-3" role="group" aria-label="Account type">
+                    <div class="ms-auth__segment" role="group" aria-label="Account type">
                         <input type="radio" class="btn-check" name="registerMode" id="modeRegular" autocomplete="off" <?php echo $plan === 'regular' ? 'checked' : ''; ?>>
-                        <label class="btn btn-outline-secondary" for="modeRegular">Free account</label>
+                        <label class="btn btn-outline-secondary" for="modeRegular">Free</label>
 
                         <input type="radio" class="btn-check" name="registerMode" id="modePro" autocomplete="off" <?php echo $plan === 'pro' ? 'checked' : ''; ?>>
-                        <label class="btn btn-outline-secondary" for="modePro">Pro (requires a code)</label>
-                    </div>
+                        <label class="btn btn-outline-secondary" for="modePro">Pro (voucher code)</label>
                     </div>
                 </div>
 
-                <hr>
+                <p class="ms-auth__hint" id="regHintFree">One temporary address at a time, deleted after 24 hours.</p>
+                <p class="ms-auth__hint" id="regHintPro" style="display:none;">Permanent addresses and automation. Requires a voucher code &mdash; online payment is on the way.</p>
 
                 <div id="registerBlock">
                     <form id="registerForm">
@@ -129,10 +111,13 @@ if (!in_array($plan, ['regular', 'pro'], true)) {
                     <div id="registerMsg" class="mt-3"></div>
                 </div>
 
-                <p class="text-muted mt-3 mb-0 small">Already have an account? <a href="pro_login.php">Sign in here</a>.</p>
+                <p class="ms-auth__alt">Already have an account? <a href="pro_login.php">Sign in here</a>.</p>
             </div>
-        </div>
+        </main>
 
+        <footer class="ms-auth__foot">
+            <p><a href="/">&larr; Back to Mail Shield</a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
+        </footer>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
@@ -145,11 +130,23 @@ if (!in_array($plan, ['regular', 'pro'], true)) {
         // the server remains authoritative.
         var MIN_PASSWORD_LENGTH = 8;
 
+        // The status region is shared by all three fields (and the voucher
+        // field when it is shown), so it is associated with them here rather
+        // than in the markup: every one of those input lines carries an id, and
+        // this issue's regression check forbids touching any line that does.
+        // Set before first paint, so it is equivalent for assistive tech.
+        $('#regEmail, #regPassword, #regPasswordConfirm, #regCode')
+            .attr('aria-describedby', 'registerMsg');
+
         function showMode(mode) {
             if (mode === 'pro') {
+                $('#regHintFree').hide();
+                $('#regHintPro').show();
                 $('#regCodeBlock').show();
                 $('#regCode').prop('required', true);
             } else {
+                $('#regHintPro').hide();
+                $('#regHintFree').show();
                 $('#regCodeBlock').hide();
                 $('#regCode').prop('required', false).val('');
             }
