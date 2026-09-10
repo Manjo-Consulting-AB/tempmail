@@ -1,0 +1,476 @@
+/* ==========================================================================
+   Mail Shield — design tokens and base stylesheet
+   Spec: documentaion/REDESIGN_BRIEF.md §5 (visual design system), §11 (CSS
+   architecture). Values here are approved; do not invent or "improve" them.
+
+   Layering: marketing pages load this file alone. App and auth pages load it
+   after style.css, with mailshield-bootstrap.css (Redesign 05) last. This file
+   must never define or shadow a Bootstrap class name — only `ms-` classes.
+   ========================================================================== */
+
+/* ==========================================================================
+   a. Tokens
+   ========================================================================== */
+
+:root {
+    /* --- Colour (§5.1) — light only, no dark mode in this redesign -------- */
+    --ms-bg: #FAFAF9;               /* page, warm off-white */
+    --ms-bg-raised: #FFFFFF;        /* cards, product surfaces */
+    --ms-bg-sunken: #F4F4F2;        /* wells, code, alternating bands */
+    --ms-text: #16161A;             /* near-black */
+    --ms-text-muted: #6B6B73;
+    --ms-text-faint: #9A9AA2;
+    --ms-border: #E5E5E1;           /* thin hairlines */
+    --ms-border-strong: #D4D4CF;
+    --ms-accent: #12695A;           /* deep teal-green — use sparingly */
+    --ms-accent-hover: #0E5649;
+    --ms-accent-soft: #E6F2EF;      /* tinted backgrounds only */
+    --ms-accent-contrast: #FFFFFF;  /* text on accent */
+    --ms-danger: #B4453C;
+    --ms-warning: #A86A1F;
+    --ms-success: #2F6B4F;
+
+    /* --- Typography: families (§5.2) -------------------------------------- */
+    --ms-font-sans: 'Inter var', 'Inter', -apple-system, BlinkMacSystemFont,
+        'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --ms-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+        'Liberation Mono', monospace;
+
+    /* --- Typography: scale (§5.2) — size / line-height / tracking / weight - */
+    --ms-fs-display: clamp(2.5rem, 6vw, 4.25rem);
+    --ms-lh-display: 1.02;
+    --ms-ls-display: -0.03em;
+    --ms-fw-display: 600;
+
+    --ms-fs-h1: clamp(2rem, 4vw, 3rem);
+    --ms-lh-h1: 1.08;
+    --ms-ls-h1: -0.025em;
+    --ms-fw-h1: 600;
+
+    --ms-fs-h2: clamp(1.6rem, 3vw, 2.25rem);
+    --ms-lh-h2: 1.15;
+    --ms-ls-h2: -0.02em;
+    --ms-fw-h2: 600;
+
+    --ms-fs-h3: 1.25rem;
+    --ms-lh-h3: 1.3;
+    --ms-ls-h3: -0.01em;
+    --ms-fw-h3: 600;
+
+    --ms-fs-lede: clamp(1.0625rem, 1.6vw, 1.25rem);
+    --ms-lh-lede: 1.6;
+    --ms-ls-lede: 0;
+    --ms-fw-lede: 400;
+
+    --ms-fs-body: 1rem;
+    --ms-lh-body: 1.65;
+    --ms-ls-body: 0;
+    --ms-fw-body: 400;
+
+    --ms-fs-sm: 0.875rem;
+    --ms-lh-sm: 1.55;
+    --ms-ls-sm: 0;
+    --ms-fw-sm: 400;
+
+    --ms-fs-xs: 0.8125rem;
+    --ms-lh-xs: 1.5;
+    --ms-ls-xs: 0;
+    --ms-fw-xs: 400;
+
+    --ms-fs-eyebrow: 0.75rem;
+    --ms-lh-eyebrow: 1.4;
+    --ms-ls-eyebrow: 0.08em;
+    --ms-fw-eyebrow: 600;
+
+    /* --- Space (4px base), radius, shadow, layout (§5.3) ------------------ */
+    --ms-space-1: .25rem;
+    --ms-space-2: .5rem;
+    --ms-space-3: .75rem;
+    --ms-space-4: 1rem;
+    --ms-space-5: 1.5rem;
+    --ms-space-6: 2rem;
+    --ms-space-7: 2.5rem;
+    --ms-space-8: 3rem;
+    --ms-space-10: 4rem;
+    --ms-space-12: 5rem;
+    --ms-space-16: 6.5rem;
+
+    --ms-radius-sm: 6px;
+    --ms-radius-md: 10px;
+    --ms-radius-lg: 14px;
+    --ms-radius-xl: 20px;
+    --ms-radius-pill: 999px;
+
+    --ms-shadow-xs: 0 1px 2px rgba(22,22,26,.04);
+    --ms-shadow-sm: 0 1px 3px rgba(22,22,26,.06), 0 1px 2px rgba(22,22,26,.04);
+    --ms-shadow-md: 0 4px 12px rgba(22,22,26,.06), 0 1px 3px rgba(22,22,26,.04);
+    --ms-shadow-lg: 0 18px 48px rgba(22,22,26,.10), 0 2px 8px rgba(22,22,26,.05);
+
+    --ms-container: 1120px;
+    --ms-container-narrow: 720px;
+    --ms-gutter: clamp(1rem, 4vw, 2rem);
+    --ms-section-y: clamp(4rem, 9vw, 7.5rem);
+
+    /* --- Motion (§5.4) ---------------------------------------------------- */
+    --ms-ease: cubic-bezier(.2,.6,.2,1);
+    --ms-dur-fast: 120ms;
+    --ms-dur: 180ms;
+    --ms-dur-slow: 280ms;
+}
+
+/* ==========================================================================
+   b. Base layer
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    background: var(--ms-bg);
+    color: var(--ms-text);
+    font-family: var(--ms-font-sans);
+    font-size: var(--ms-fs-body);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+img,
+svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* Components own their spacing. */
+h1, h2, h3, h4, h5, h6 {
+    margin: 0;
+}
+
+a {
+    color: var(--ms-accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+:focus-visible {
+    outline: 2px solid var(--ms-accent);
+    outline-offset: 2px;
+    border-radius: var(--ms-radius-sm);
+}
+
+::selection {
+    background: var(--ms-accent-soft);
+    color: var(--ms-text);
+}
+
+/* ==========================================================================
+   c. Component layer — every class prefixed `ms-`
+   ========================================================================== */
+
+/* --- Layout --------------------------------------------------------------- */
+
+.ms-container {
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+.ms-container--narrow {
+    max-width: var(--ms-container-narrow);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+.ms-section {
+    padding-block: var(--ms-section-y);
+}
+
+.ms-section--tight {
+    padding-block: calc(var(--ms-section-y) / 2);
+}
+
+.ms-section--sunken {
+    background: var(--ms-bg-sunken);
+    border-top: 1px solid var(--ms-border);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-grid {
+    display: grid;
+    gap: var(--ms-space-5);
+}
+
+.ms-grid--2 {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.ms-grid--3 {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.ms-grid--4 {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.ms-stack > * + * {
+    margin-top: var(--ms-space-4);
+}
+
+/* --- Type ----------------------------------------------------------------- */
+
+.ms-eyebrow {
+    display: block;
+    margin: 0;
+    font-size: var(--ms-fs-eyebrow);
+    line-height: var(--ms-lh-eyebrow);
+    letter-spacing: var(--ms-ls-eyebrow);
+    font-weight: var(--ms-fw-eyebrow);
+    text-transform: uppercase;
+    color: var(--ms-text-muted);
+}
+
+.ms-display {
+    margin: 0;
+    font-size: var(--ms-fs-display);
+    line-height: var(--ms-lh-display);
+    letter-spacing: var(--ms-ls-display);
+    font-weight: var(--ms-fw-display);
+}
+
+.ms-h2 {
+    margin: 0;
+    font-size: var(--ms-fs-h2);
+    line-height: var(--ms-lh-h2);
+    letter-spacing: var(--ms-ls-h2);
+    font-weight: var(--ms-fw-h2);
+}
+
+.ms-h3 {
+    margin: 0;
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+}
+
+.ms-lede {
+    font-size: var(--ms-fs-lede);
+    line-height: var(--ms-lh-lede);
+    letter-spacing: var(--ms-ls-lede);
+    color: var(--ms-text-muted);
+    max-width: 46ch;
+}
+
+.ms-prose {
+    max-width: 62ch;
+}
+
+.ms-prose > * + * {
+    margin-top: var(--ms-space-4);
+}
+
+.ms-addr {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-sm);
+    background: var(--ms-bg-sunken);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-sm);
+    padding: .1875rem .4375rem;
+    white-space: nowrap;
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+.ms-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ms-space-2);
+    padding: .625rem 1.125rem;
+    border-radius: var(--ms-radius-md);
+    font-family: inherit;
+    font-weight: 500;
+    font-size: var(--ms-fs-sm);
+    line-height: 1.2;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ms-text);
+    cursor: pointer;
+    text-decoration: none;
+    transition:
+        background-color var(--ms-dur) var(--ms-ease),
+        border-color var(--ms-dur) var(--ms-ease),
+        color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-btn:hover {
+    text-decoration: none;
+}
+
+.ms-btn--primary {
+    background: var(--ms-accent);
+    color: var(--ms-accent-contrast);
+}
+
+.ms-btn--primary:hover {
+    background: var(--ms-accent-hover);
+}
+
+.ms-btn--secondary {
+    background: transparent;
+    border-color: var(--ms-border-strong);
+    color: var(--ms-text);
+}
+
+.ms-btn--secondary:hover {
+    background: var(--ms-bg-raised);
+}
+
+.ms-btn--quiet {
+    background: transparent;
+    color: var(--ms-text-muted);
+}
+
+.ms-btn--quiet:hover {
+    color: var(--ms-text);
+}
+
+.ms-btn--lg {
+    padding: .8125rem 1.375rem;
+    font-size: var(--ms-fs-body);
+}
+
+.ms-btn[disabled],
+.ms-btn--disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* --- Cards ---------------------------------------------------------------- */
+
+.ms-card {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    padding: var(--ms-space-5);
+    box-shadow: var(--ms-shadow-sm);
+}
+
+.ms-card--flat {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    padding: var(--ms-space-5);
+    box-shadow: none;
+}
+
+.ms-card--interactive {
+    transition:
+        border-color var(--ms-dur) var(--ms-ease),
+        box-shadow var(--ms-dur) var(--ms-ease);
+}
+
+.ms-card--interactive:hover {
+    border-color: var(--ms-border-strong);
+    box-shadow: var(--ms-shadow-md);
+}
+
+/* --- Chips, badges, rules ------------------------------------------------- */
+
+.ms-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ms-space-1);
+    padding: .125rem .5rem;
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-pill);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+    white-space: nowrap;
+}
+
+.ms-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: .0625rem .375rem;
+    border-radius: var(--ms-radius-sm);
+    font-size: var(--ms-fs-eyebrow);
+    line-height: var(--ms-lh-eyebrow);
+    letter-spacing: var(--ms-ls-eyebrow);
+    font-weight: var(--ms-fw-eyebrow);
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.ms-badge--soon {
+    background: var(--ms-accent-soft);
+    color: var(--ms-accent);
+}
+
+.ms-hairline {
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    margin: 0;
+}
+
+/* --- Utilities ------------------------------------------------------------ */
+
+.ms-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ==========================================================================
+   d. Motion layer
+   ========================================================================== */
+
+@keyframes ms-rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ms-rise {
+    animation: ms-rise var(--ms-dur-slow) var(--ms-ease) both;
+    animation-delay: var(--ms-rise-delay, 0ms);
+}
+
+/* ==========================================================================
+   e. Reduced motion
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}
