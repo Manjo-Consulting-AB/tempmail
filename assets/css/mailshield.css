@@ -1365,3 +1365,120 @@ a:hover {
         animation: none;
     }
 }
+
+/* ==========================================================================
+   o. Landing — temporary addresses (partials/landing/temporary.php)
+   ========================================================================== */
+
+/* A readable measure, and one step quieter than the page's body copy — this
+   section is not the headline act (§2). */
+.ms-temp__body {
+    max-width: 56ch;
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* --- The lifecycle: create, use, gone ------------------------------------- */
+
+/* One column by default, so the beats read downwards on a phone; the wide
+   layout turns the same three items into a row. Nothing else about the list
+   changes between the two, so there is one markup and one set of styles. */
+.ms-lifecycle {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-6);
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-lifecycle__beat {
+    position: relative;
+}
+
+/* The connector between two beats. Hairline, muted, no arrowhead — it marks
+   that these are steps in one sequence, nothing more. Drawn as a pseudo-
+   element on the later beat so it lands in the gap, which means it needs no
+   measured length: it is exactly as long as the gap is wide (or tall). */
+.ms-lifecycle__beat + .ms-lifecycle__beat::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: calc(-1 * var(--ms-space-6));
+    width: 1px;
+    height: var(--ms-space-6);
+    background: var(--ms-border);
+}
+
+/* The one beat that spends the accent (§5.1: use it sparingly). The payoff is
+   that the address is gone again, so the label carries the colour and the
+   detail underneath stays muted. */
+.ms-lifecycle__beat--end .ms-lifecycle__label {
+    color: var(--ms-accent);
+}
+
+.ms-lifecycle__addr {
+    display: inline-block;
+    margin-top: var(--ms-space-3);
+}
+
+.ms-lifecycle__detail {
+    display: block;
+    margin-top: var(--ms-space-2);
+    color: var(--ms-text-muted);
+}
+
+/* --- Three across --------------------------------------------------------- */
+
+@media (min-width: 900px) {
+    .ms-lifecycle {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        column-gap: var(--ms-space-8);
+        row-gap: 0;
+    }
+
+    /* The same rule, on its side. It spans the column gap exactly, so it
+       bridges the two beats rather than floating between them. Vertically it
+       is centred on the label's line box: --ms-fs-eyebrow x --ms-lh-eyebrow is
+       the height the browser gives that line, so half of it is its middle. */
+    .ms-lifecycle__beat + .ms-lifecycle__beat::before {
+        left: calc(-1 * var(--ms-space-8));
+        top: calc(var(--ms-fs-eyebrow) * var(--ms-lh-eyebrow) / 2);
+        width: var(--ms-space-8);
+        height: 1px;
+    }
+}
+
+/* --- Closing lines -------------------------------------------------------- */
+
+/* The tier fact, at full strength while the body copy around it is muted: it
+   is the claim this section is accountable for (§9), and the "Gone" beat above
+   is what it quantifies. It sits below the beats on purpose — read as the
+   answer to "how long?", it needs no explanation. */
+.ms-temp__retention {
+    max-width: 62ch;
+    margin: var(--ms-space-7) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text);
+}
+
+/* Slightly clever, not winking (§7) — and the one place the landing page says
+   "disposable email" in its own voice, which §14 asks it to keep ranking for. */
+.ms-temp__aside {
+    max-width: 62ch;
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-temp__more {
+    margin: var(--ms-space-6) 0 0;
+}
+
+/* Closes flush with the text's left edge — the button's own inline padding
+   would otherwise indent it by 18px, as in the how-it-works section. */
+.ms-temp__more .ms-btn {
+    padding-inline: 0;
+}
