@@ -95,14 +95,14 @@ function consumeLoginToken(string $token): ?array {
 function sendLoginEmail($email, $token) {
     global $config;
     $loginUrl = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
-    $subject = "Your login link for TempMail Pro";
-    $message = "Hello,\n\nClick the link below to sign in to your TempMail Pro account:\n\n" . $loginUrl . "\n\nThis link is valid for 30 minutes.\n\nIf you did not request this link, please ignore this email.\n\nRegards,\nThe TempMail Team";
+    $subject = "Your login link for Mail Shield";
+    $message = "Hello,\n\nClick the link below to sign in to your Mail Shield account:\n\n" . $loginUrl . "\n\nThis link is valid for 30 minutes.\n\nIf you did not request this link, please ignore this email.\n\nRegards,\nThe Mail Shield Team";
     // Bestäm avsändaradress (kan sättas via ENV t.ex. EMAIL_FROM)
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
 
     // Sätt headers för en tydlig avsändare och charset
     $headers = [];
-    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'From: Mail Shield <' . $fromAddress . '>';
     $headers[] = 'Reply-To: ' . $fromAddress;
     $headers[] = 'MIME-Version: 1.0';
     $headers[] = 'Content-Type: text/plain; charset=UTF-8';
@@ -161,12 +161,12 @@ function sendLoginEmail($email, $token) {
 function sendVerificationEmail(string $email, string $token): bool {
     global $config;
     $verifyUrl = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
-    $subject = "Confirm your TempMail account";
-    $message = "Hello,\n\nThanks for signing up. Click the link below to verify your email address and sign in:\n\n" . $verifyUrl . "\n\nThis link is valid for 30 minutes.\n\nIf you did not create this account, please ignore this email.\n\nRegards,\nThe TempMail Team";
+    $subject = "Confirm your Mail Shield account";
+    $message = "Hello,\n\nThanks for signing up. Click the link below to verify your email address and sign in:\n\n" . $verifyUrl . "\n\nThis link is valid for 30 minutes.\n\nIf you did not create this account, please ignore this email.\n\nRegards,\nThe Mail Shield Team";
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
 
     $headers = [];
-    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'From: Mail Shield <' . $fromAddress . '>';
     $headers[] = 'Reply-To: ' . $fromAddress;
     $headers[] = 'MIME-Version: 1.0';
     $headers[] = 'Content-Type: text/plain; charset=UTF-8';
@@ -207,12 +207,12 @@ function sendVerificationEmail(string $email, string $token): bool {
 function sendAlreadyRegisteredEmail(string $email): bool {
     global $config;
     $loginUrl = $config['email']['base_url'] . "pro_login.php";
-    $subject = "You already have a TempMail account";
-    $message = "Hello,\n\nSomeone (hopefully you) just tried to create a TempMail account with this email address, but an account already exists.\n\nIf that was you, sign in here:\n\n" . $loginUrl . "\n\nIf you don't remember signing up, you can request a magic sign-in link from that page - no password needed.\n\nIf you did not try to create an account, you can safely ignore this email.\n\nRegards,\nThe TempMail Team";
+    $subject = "You already have a Mail Shield account";
+    $message = "Hello,\n\nSomeone (hopefully you) just tried to create a Mail Shield account with this email address, but an account already exists.\n\nIf that was you, sign in here:\n\n" . $loginUrl . "\n\nIf you don't remember signing up, you can request a magic sign-in link from that page - no password needed.\n\nIf you did not try to create an account, you can safely ignore this email.\n\nRegards,\nThe Mail Shield Team";
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
 
     $headers = [];
-    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'From: Mail Shield <' . $fromAddress . '>';
     $headers[] = 'Reply-To: ' . $fromAddress;
     $headers[] = 'MIME-Version: 1.0';
     $headers[] = 'Content-Type: text/plain; charset=UTF-8';
@@ -246,12 +246,12 @@ function sendAlreadyRegisteredEmail(string $email): bool {
 // användarens egen inloggning.
 function sendAdminRegistrationNotification(string $userEmail): bool {
     $adminEmail = $_ENV['ADMIN_NOTIFICATION_EMAIL'] ?? 'tony@manjo.me';
-    $subject = "New TempMail registration verified";
-    $message = "A new user just registered and verified their email address:\n\n" . $userEmail . "\n\nRegards,\nThe TempMail System";
+    $subject = "New Mail Shield registration verified";
+    $message = "A new user just registered and verified their email address:\n\n" . $userEmail . "\n\nRegards,\nThe Mail Shield System";
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($GLOBALS['config']['email']['domain'] ?? 'manjo.me'));
 
     $headers = [];
-    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'From: Mail Shield <' . $fromAddress . '>';
     $headers[] = 'MIME-Version: 1.0';
     $headers[] = 'Content-Type: text/plain; charset=UTF-8';
     $headers[] = 'X-Mailer: PHP/' . phpversion();
@@ -480,11 +480,11 @@ function send_2fa_recovery_code_used_email($userId) {
         if (!$email) {
             return;
         }
-        $subject = 'A two-factor recovery code was used to sign in to TempMail Pro';
-        $message = "Hello,\n\nA two-factor recovery code was just used to sign in to your TempMail Pro account. Recovery codes are meant as a backup — consider generating new ones from your profile if you're running low.\n\nIf you did not sign in just now, sign in using your magic link, disable two-factor authentication and change your password immediately.\n\nRegards,\nThe TempMail Team";
+        $subject = 'A two-factor recovery code was used to sign in to Mail Shield';
+        $message = "Hello,\n\nA two-factor recovery code was just used to sign in to your Mail Shield account. Recovery codes are meant as a backup — consider generating new ones from your profile if you're running low.\n\nIf you did not sign in just now, sign in using your magic link, disable two-factor authentication and change your password immediately.\n\nRegards,\nThe Mail Shield Team";
         $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
         $headers = [];
-        $headers[] = 'From: TempMail <' . $from . '>';
+        $headers[] = 'From: Mail Shield <' . $from . '>';
         $headers[] = 'MIME-Version: 1.0';
         $headers[] = 'Content-Type: text/plain; charset=UTF-8';
         $headersStr = implode("\r\n", $headers);
@@ -1205,11 +1205,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             // Notify old email that account email has changed (no undo link)
             try {
                 if (!empty($oldEmail) && filter_var($oldEmail, FILTER_VALIDATE_EMAIL) && $oldEmail !== $newEmail) {
-                    $subjectOld = 'Your TempMail Pro email has been changed';
-                    $messageOld = "Hello,\n\nThis is a notification that the email address for your TempMail Pro account was changed from " . $oldEmail . " to " . $newEmail . ".\n\nIf you did NOT authorize this change, please contact support immediately.\n\nRegards,\nThe TempMail Team";
+                    $subjectOld = 'Your Mail Shield email has been changed';
+                    $messageOld = "Hello,\n\nThis is a notification that the email address for your Mail Shield account was changed from " . $oldEmail . " to " . $newEmail . ".\n\nIf you did NOT authorize this change, please contact support immediately.\n\nRegards,\nThe Mail Shield Team";
                     $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                     $headers = [];
-                    $headers[] = 'From: TempMail <' . $from . '>';
+                    $headers[] = 'From: Mail Shield <' . $from . '>';
                     $headers[] = 'MIME-Version: 1.0';
                     $headers[] = 'Content-Type: text/plain; charset=UTF-8';
                     $headersStr = implode("\r\n", $headers);
@@ -1266,11 +1266,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             // Notify old email that password has changed (no undo link)
             try {
                 if (!empty($oldEmail) && filter_var($oldEmail, FILTER_VALIDATE_EMAIL)) {
-                    $subjectOld = 'Your TempMail Pro password has been changed';
-                    $messageOld = "Hello,\n\nThis is a notification that the password for your TempMail Pro account associated with " . $oldEmail . " has been changed.\n\nIf you did NOT authorize this change, contact support immediately.\n\nRegards,\nThe TempMail Team";
+                    $subjectOld = 'Your Mail Shield password has been changed';
+                    $messageOld = "Hello,\n\nThis is a notification that the password for your Mail Shield account associated with " . $oldEmail . " has been changed.\n\nIf you did NOT authorize this change, contact support immediately.\n\nRegards,\nThe Mail Shield Team";
                     $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                     $headers = [];
-                    $headers[] = 'From: TempMail <' . $from . '>';
+                    $headers[] = 'From: Mail Shield <' . $from . '>';
                     $headers[] = 'MIME-Version: 1.0';
                     $headers[] = 'Content-Type: text/plain; charset=UTF-8';
                     $headersStr = implode("\r\n", $headers);
@@ -1392,7 +1392,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                         // ignore
                     }
 
-                    echo "Your TempMail Pro account has been deleted.";
+                    echo "Your Mail Shield account has been deleted.";
                     exit;
                 } catch (Exception $e) {
                     if ($pdo->inTransaction()) $pdo->rollBack();

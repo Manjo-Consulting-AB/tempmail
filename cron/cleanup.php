@@ -426,22 +426,22 @@ function sendInactivityWarningEmail($email) {
     global $config;
 
     $loginUrl = $config['email']['base_url'] . "pro_login.php";
-    $subject = "Your TempMail account will be deleted soon";
+    $subject = "Your Mail Shield account will be deleted soon";
     $message = "Hello,\n\n"
-        . "Your TempMail account (" . $email . ") has been inactive for a while. "
+        . "Your Mail Shield account (" . $email . ") has been inactive for a while. "
         . "To keep it, simply sign in within the next month:\n\n"
         . $loginUrl . "\n\n"
         . "If you do not sign in, your account and all of its email addresses "
         . "will be automatically and permanently deleted in about 30 days.\n\n"
         . "If you no longer need this account, no action is required - it will "
         . "be removed automatically.\n\n"
-        . "Regards,\nThe TempMail Team";
+        . "Regards,\nThe Mail Shield Team";
 
     // Bestäm avsändaradress (kan sättas via ENV t.ex. EMAIL_FROM)
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
 
     $headers = [];
-    $headers[] = 'From: TempMail <' . $fromAddress . '>';
+    $headers[] = 'From: Mail Shield <' . $fromAddress . '>';
     $headers[] = 'Reply-To: ' . $fromAddress;
     $headers[] = 'MIME-Version: 1.0';
     $headers[] = 'Content-Type: text/plain; charset=UTF-8';
@@ -807,7 +807,7 @@ if (php_sapi_name() === 'cli') {
                 $options['stats_only'] = true;
                 break;
             case '--help':
-                echo "TempMail Cleanup Script\n\n";
+                echo "Mail Shield Cleanup Script\n\n";
                 echo "Usage: php cleanup.php [options]\n\n";
                 echo "Options:\n";
                 echo "  --optimize    Run database optimization\n";
@@ -820,7 +820,7 @@ if (php_sapi_name() === 'cli') {
 
 // Huvudkörning
 if (php_sapi_name() === 'cli') {
-    echo "TempMail - Starting cleanup process...\n";
+    echo "Mail Shield - Starting cleanup process...\n";
 }
 
 if (isset($options['stats_only']) && $options['stats_only']) {

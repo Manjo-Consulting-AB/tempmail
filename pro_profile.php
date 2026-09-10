@@ -123,16 +123,16 @@ function send_2fa_notification_email(int $userId, string $event): void {
         }
 
         if ($event === 'enabled') {
-            $subject = 'Two-factor authentication enabled for TempMail Pro';
-            $message = "Hello,\n\nTwo-factor authentication was just enabled on your TempMail Pro account. Signing in with your password will now also require a code from your authenticator app.\n\nIf you did not make this change, sign in using your magic link and disable two-factor authentication immediately.\n\nRegards,\nThe TempMail Team";
+            $subject = 'Two-factor authentication enabled for Mail Shield';
+            $message = "Hello,\n\nTwo-factor authentication was just enabled on your Mail Shield account. Signing in with your password will now also require a code from your authenticator app.\n\nIf you did not make this change, sign in using your magic link and disable two-factor authentication immediately.\n\nRegards,\nThe Mail Shield Team";
         } else {
-            $subject = 'Two-factor authentication disabled for TempMail Pro';
-            $message = "Hello,\n\nTwo-factor authentication was just disabled on your TempMail Pro account. Signing in with your password no longer requires a code.\n\nIf you did not make this change, sign in using your magic link, re-enable two-factor authentication and change your password.\n\nRegards,\nThe TempMail Team";
+            $subject = 'Two-factor authentication disabled for Mail Shield';
+            $message = "Hello,\n\nTwo-factor authentication was just disabled on your Mail Shield account. Signing in with your password no longer requires a code.\n\nIf you did not make this change, sign in using your magic link, re-enable two-factor authentication and change your password.\n\nRegards,\nThe Mail Shield Team";
         }
 
         $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
         $headers = [];
-        $headers[] = 'From: TempMail <' . $from . '>';
+        $headers[] = 'From: Mail Shield <' . $from . '>';
         $headers[] = 'MIME-Version: 1.0';
         $headers[] = 'Content-Type: text/plain; charset=UTF-8';
         $headersStr = implode("\r\n", $headers);
@@ -313,11 +313,11 @@ try {
 
                 // Send confirmation email to the new email address
                 $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
-                $subject = 'Confirm your email change for TempMail Pro';
-                $message = "Hello,\n\nA request was made to change the email for your TempMail Pro account to this address.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email.\n\nRegards,\nThe TempMail Team";
+                $subject = 'Confirm your email change for Mail Shield';
+                $message = "Hello,\n\nA request was made to change the email for your Mail Shield account to this address.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email.\n\nRegards,\nThe Mail Shield Team";
                 $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                 $headers = [];
-                $headers[] = 'From: TempMail <' . $from . '>';
+                $headers[] = 'From: Mail Shield <' . $from . '>';
                 $headers[] = 'MIME-Version: 1.0';
                 $headers[] = 'Content-Type: text/plain; charset=UTF-8';
                 $headersStr = implode("\r\n", $headers);
@@ -363,11 +363,11 @@ try {
                 // Send confirmation email to current user email
                 $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
                 $to = $_SESSION['pro_user_email'] ?? '';
-                $subject = 'Confirm your password change for TempMail Pro';
-                $message = "Hello,\n\nA request was made to change the password for your TempMail Pro account.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe TempMail Team";
+                $subject = 'Confirm your password change for Mail Shield';
+                $message = "Hello,\n\nA request was made to change the password for your Mail Shield account.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe Mail Shield Team";
                 $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                 $headers = [];
-                $headers[] = 'From: TempMail <' . $from . '>';
+                $headers[] = 'From: Mail Shield <' . $from . '>';
                 $headers[] = 'MIME-Version: 1.0';
                 $headers[] = 'Content-Type: text/plain; charset=UTF-8';
                 $headersStr = implode("\r\n", $headers);
@@ -715,7 +715,7 @@ try {
                 $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
                 $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                 $headers = [];
-                $headers[] = 'From: TempMail <' . $from . '>';
+                $headers[] = 'From: Mail Shield <' . $from . '>';
                 $headers[] = 'MIME-Version: 1.0';
                 $headers[] = 'Content-Type: text/plain; charset=UTF-8';
                 $headersStr = implode("\r\n", $headers);
@@ -725,8 +725,8 @@ try {
                     if (!$to) {
                         send_json(['success' => false, 'error' => 'Pending email address missing']);
                     }
-                    $subject = 'Confirm your email change for TempMail Pro';
-                    $message = "Hello,\n\nThis is a resend of the confirmation link for your TempMail Pro email change request.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email.\n\nRegards,\nThe TempMail Team";
+                    $subject = 'Confirm your email change for Mail Shield';
+                    $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield email change request.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email.\n\nRegards,\nThe Mail Shield Team";
                     @mail($to, $subject, $message, $headersStr);
                     send_json(['success' => true, 'message' => 'Confirmation link resent to the new email address']);
                 }
@@ -736,8 +736,8 @@ try {
                     if (!$to) {
                         send_json(['success' => false, 'error' => 'User email not available']);
                     }
-                    $subject = 'Confirm your password change for TempMail Pro';
-                    $message = "Hello,\n\nThis is a resend of the confirmation link for your TempMail Pro password change request.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe TempMail Team";
+                    $subject = 'Confirm your password change for Mail Shield';
+                    $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield password change request.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe Mail Shield Team";
                     @mail($to, $subject, $message, $headersStr);
                     send_json(['success' => true, 'message' => 'Confirmation link resent to your email address']);
                 }
@@ -747,8 +747,8 @@ try {
                     if (!$to) {
                         send_json(['success' => false, 'error' => 'User email not available']);
                     }
-                    $subject = 'Confirm your account deletion for TempMail Pro';
-                    $message = "Hello,\n\nThis is a resend of the confirmation link for your TempMail Pro account deletion request.\n\nPlease confirm the deletion by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe TempMail Team";
+                    $subject = 'Confirm your account deletion for Mail Shield';
+                    $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield account deletion request.\n\nPlease confirm the deletion by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe Mail Shield Team";
                     @mail($to, $subject, $message, $headersStr);
                     send_json(['success' => true, 'message' => 'Confirmation link resent to your email address']);
                 }
@@ -998,7 +998,7 @@ try {
                         $token = $configArr['token'] ?? null;
                         $userKey = $configArr['user'] ?? null;
                         if (!empty($token) && !empty($userKey)) {
-                            $post = ['token' => $token, 'user' => $userKey, 'message' => $payload['message'], 'title' => 'TempMail Test'];
+                            $post = ['token' => $token, 'user' => $userKey, 'message' => $payload['message'], 'title' => 'Mail Shield Test'];
                             if (function_exists('curl_init')) {
                                 $ch = curl_init('https://api.pushover.net/1/messages.json');
                                 curl_setopt($ch, CURLOPT_POST, 1);
@@ -1178,11 +1178,11 @@ try {
                 // Send confirmation email with magic link
                 $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
                 $to = $_SESSION['pro_user_email'] ?? '';
-                $subject = 'Confirm account deletion for TempMail Pro';
-                $message = "Hello,\n\nA request was made to permanently delete your TempMail Pro account.\n\nIf you want to proceed, please confirm by clicking the link below (valid for 2 hours):\n\n" . $confirmUrl . "\n\nIf you did not request this, ignore this email.\n\nRegards,\nThe TempMail Team";
+                $subject = 'Confirm account deletion for Mail Shield';
+                $message = "Hello,\n\nA request was made to permanently delete your Mail Shield account.\n\nIf you want to proceed, please confirm by clicking the link below (valid for 2 hours):\n\n" . $confirmUrl . "\n\nIf you did not request this, ignore this email.\n\nRegards,\nThe Mail Shield Team";
                 $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                 $headers = [];
-                $headers[] = 'From: TempMail <' . $from . '>';
+                $headers[] = 'From: Mail Shield <' . $from . '>';
                 $headers[] = 'MIME-Version: 1.0';
                 $headers[] = 'Content-Type: text/plain; charset=UTF-8';
                 $headersStr = implode("\r\n", $headers);

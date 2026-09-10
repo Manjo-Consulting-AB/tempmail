@@ -914,7 +914,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TempMail - Temporary Email Service</title>
+    <title>Mail Shield — Your inbox for everything else</title>
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
     
@@ -935,7 +935,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="main-container">
         <!-- Header -->
         <div class="header">
-            <h1><i class="fas fa-envelope"></i> TempMail<?php echo !empty($_SESSION['pro_user_id'] ?? null) ? ' Pro' : ''; ?></h1>
+            <h1><i class="fas fa-envelope"></i> Mail Shield</h1>
             <p class="lead"><?php echo !empty($_SESSION['pro_user_id'] ?? null) 
                 ? 'Temporary email addresses for pro users. Default lifetime applied to new addresses.' 
                 : 'Temporary email addresses that are deleted after 24 hours'; ?></p>
@@ -1328,7 +1328,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <footer class="text-center mt-5 py-4">
         <div class="container">
             <p class="text-light mb-0">
-                <small>TempMail - Secure temporary email | All messages deleted after 24 hours | v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
+                <small>Mail Shield · Operated by Manjo Consulting AB · v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
             </p>
             <p class="text-light mb-0 mt-1">
                 <small>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</small>
