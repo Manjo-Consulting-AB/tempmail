@@ -612,3 +612,23 @@ The 27 child issues each open with an instruction to fetch this file from
 `claude/manjo-redesign-m70zw3` if it is not already on the base branch. Once `redesign/mail-shield`
 exists that fallback never fires, because this file is on the integration branch. The scratch branch
 is kept alive anyway so the instruction stays valid if anyone follows it literally.
+
+---
+
+## Status
+
+**2026-09-10.** Redesign 01–26 (issues #95–#120) are merged into `redesign/mail-shield`; Redesign 27
+(#121) is this endnote plus the `CLAUDE.md` rewrite. Not yet live — go-live is the §15.3 merge.
+
+Documented as it actually shipped, where that differs from what this brief specified:
+
+- §11 names two Mail Shield stylesheets; there are **three**. `assets/css/mailshield-fonts.css`
+  (Redesign 01) was added ahead of them, so "marketing pages load only `mailshield.css`" in practice
+  means **fonts + `mailshield.css`**, and the app group loads fonts first.
+- §11's app/auth group stands as written: `faq.php` and `blog.php` are public pages that nevertheless
+  kept Bootstrap and are styled through the bridge, rather than being rebuilt on the marketing shell.
+- The `TEMPMAIL_APP` include guard ended up on `partials/landing/*.php` only. The `public_*` shell
+  partials have no guard, because only guarded pages include them.
+- A `.htaccess` rewrite for `/sitemap.xml` was needed; §14 implied the route without naming it.
+- §9's "does not exist" rows were honoured: the `Coming` badge appears only in the automation landing
+  section, and no price string, no pricing page and no push/VAPID reference exists anywhere in the tree.
