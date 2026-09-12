@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mail Shield — design system preview</title>
+<meta name="robots" content="noindex, nofollow">
+<!--
+  Static review page for the Mail Shield design system (Redesign 02).
+  Renders every token and component in assets/css/mailshield.css so the result
+  can be reviewed before any page consumes it. No PHP, no JS, not linked from
+  any page in the app.
+-->
+<link href="../assets/css/mailshield-fonts.css" rel="stylesheet">
+<link href="../assets/css/mailshield.css" rel="stylesheet">
+<style>
+/* Preview chrome only. Never restyles an `ms-` class. */
+.pv-note { color: var(--ms-text-muted); font-size: var(--ms-fs-sm); }
+.pv-row { display: grid; grid-template-columns: 15rem 1fr; gap: var(--ms-space-4); align-items: baseline; padding-block: var(--ms-space-3); border-bottom: 1px solid var(--ms-border); }
+.pv-row:last-child { border-bottom: 0; }
+.pv-token { font-family: var(--ms-font-mono); font-size: var(--ms-fs-xs); color: var(--ms-text-muted); }
+.pv-swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--ms-space-4); }
+.pv-swatch { border: 1px solid var(--ms-border); border-radius: var(--ms-radius-md); overflow: hidden; background: var(--ms-bg-raised); }
+.pv-swatch__chip { height: 64px; border-bottom: 1px solid var(--ms-border); }
+.pv-swatch__meta { padding: var(--ms-space-2) var(--ms-space-3); }
+.pv-swatch__hex { font-family: var(--ms-font-mono); font-size: var(--ms-fs-xs); color: var(--ms-text); }
+.pv-bar { height: 20px; background: var(--ms-accent-soft); border: 1px solid var(--ms-border); border-radius: 2px; }
+.pv-radius { height: 64px; background: var(--ms-bg-sunken); border: 1px solid var(--ms-border-strong); }
+.pv-buttons { display: flex; flex-wrap: wrap; gap: var(--ms-space-3); align-items: center; }
+.pv-label { font-family: var(--ms-font-mono); font-size: var(--ms-fs-xs); color: var(--ms-text-faint); margin-bottom: var(--ms-space-2); }
+.pv-group { padding-block: var(--ms-space-4); }
+@media (max-width: 640px) { .pv-row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header class="ms-section ms-section--tight ms-section--sunken">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Redesign 02 — design system</p>
+        <h1 class="ms-display">Mail Shield design system</h1>
+        <p class="ms-lede" style="margin-top: var(--ms-space-4)">Every token and component defined in <span class="ms-addr">assets/css/mailshield.css</span>. Review this page before any product page consumes it.</p>
+        <p class="pv-note" style="margin-top: var(--ms-space-4)">Hover and focus states are live, not mocked — hover a button or press <kbd>Tab</kbd> to see them. If your OS is set to reduce motion, the rise animation below will not play.</p>
+    </div>
+</header>
+
+<main>
+
+<!-- ===================== Colour ===================== -->
+<section class="ms-section ms-section--tight">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Tokens</p>
+        <h2 class="ms-h2">Colour</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">Brief §5.1. Light only — there is no dark mode in this redesign.</p>
+
+        <div class="pv-swatches">
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#FAFAF9"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#FAFAF9</div><div class="pv-token">--ms-bg</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#FFFFFF"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#FFFFFF</div><div class="pv-token">--ms-bg-raised</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#F4F4F2"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#F4F4F2</div><div class="pv-token">--ms-bg-sunken</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#16161A"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#16161A</div><div class="pv-token">--ms-text</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#6B6B73"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#6B6B73</div><div class="pv-token">--ms-text-muted</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#9A9AA2"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#9A9AA2</div><div class="pv-token">--ms-text-faint</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#E5E5E1"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#E5E5E1</div><div class="pv-token">--ms-border</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#D4D4CF"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#D4D4CF</div><div class="pv-token">--ms-border-strong</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#12695A"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#12695A</div><div class="pv-token">--ms-accent</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#0E5649"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#0E5649</div><div class="pv-token">--ms-accent-hover</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#E6F2EF"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#E6F2EF</div><div class="pv-token">--ms-accent-soft</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#FFFFFF"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#FFFFFF</div><div class="pv-token">--ms-accent-contrast</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#B4453C"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#B4453C</div><div class="pv-token">--ms-danger</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#A86A1F"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#A86A1F</div><div class="pv-token">--ms-warning</div></div></div>
+            <div class="pv-swatch"><div class="pv-swatch__chip" style="background:#2F6B4F"></div><div class="pv-swatch__meta"><div class="pv-swatch__hex">#2F6B4F</div><div class="pv-token">--ms-success</div></div></div>
+        </div>
+    </div>
+</section>
+
+<!-- ===================== Type scale ===================== -->
+<section class="ms-section ms-section--tight ms-section--sunken">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Tokens</p>
+        <h2 class="ms-h2">Type scale</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">Brief §5.2. Self-hosted Inter; email addresses always render in <span class="ms-addr">--ms-font-mono</span>.</p>
+
+        <div class="ms-card--flat" style="padding: 0 var(--ms-space-5)">
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-display</div><div class="pv-token">1.02 / -0.03em / 600</div></div>
+                <p class="ms-display">Disposable inbox</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-h1</div><div class="pv-token">1.08 / -0.025em / 600</div></div>
+                <p style="margin:0; font-size: var(--ms-fs-h1); line-height: var(--ms-lh-h1); letter-spacing: var(--ms-ls-h1); font-weight: var(--ms-fw-h1)">A clean inbox, every time</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-h2</div><div class="pv-token">1.15 / -0.02em / 600</div></div>
+                <p class="ms-h2">How it works</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-h3</div><div class="pv-token">1.3 / -0.01em / 600</div></div>
+                <p class="ms-h3">Personal addresses</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-lede</div><div class="pv-token">1.6 / 0 / 400</div></div>
+                <p class="ms-lede" style="margin:0">Keep your real address out of signup forms, newsletters and one-off downloads.</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-body</div><div class="pv-token">1.65 / 0 / 400</div></div>
+                <p style="margin:0">Body copy. The quick brown fox jumps over the lazy dog, 0123456789.</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-sm</div><div class="pv-token">1.55 / 0 / 400</div></div>
+                <p style="margin:0; font-size: var(--ms-fs-sm); line-height: var(--ms-lh-sm)">Small copy. The quick brown fox jumps over the lazy dog.</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-xs</div><div class="pv-token">1.5 / 0 / 400</div></div>
+                <p style="margin:0; font-size: var(--ms-fs-xs); line-height: var(--ms-lh-xs)">Extra-small copy. The quick brown fox jumps over the lazy dog.</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-fs-eyebrow</div><div class="pv-token">1.4 / 0.08em / 600</div></div>
+                <p class="ms-eyebrow" style="margin:0">Eyebrow label</p>
+            </div>
+            <div class="pv-row">
+                <div><div class="pv-token">--ms-font-mono</div><div class="pv-token">address rendering</div></div>
+                <p style="margin:0"><span class="ms-addr">shopping@manjo.me</span></p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===================== Buttons ===================== -->
+<section class="ms-section ms-section--tight">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Components</p>
+        <h2 class="ms-h2">Buttons</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">Sentence case, no letter-spacing, no shadow, transitions on background/border/colour only. The focus row is live — press <kbd>Tab</kbd> to walk it.</p>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-btn--primary</div>
+            <div class="pv-buttons">
+                <button type="button" class="ms-btn ms-btn--primary">Get a free address</button>
+                <button type="button" class="ms-btn ms-btn--primary" disabled>Get a free address</button>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-btn--secondary</div>
+            <div class="pv-buttons">
+                <button type="button" class="ms-btn ms-btn--secondary">See how it works</button>
+                <button type="button" class="ms-btn ms-btn--secondary" disabled>See how it works</button>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-btn--quiet</div>
+            <div class="pv-buttons">
+                <button type="button" class="ms-btn ms-btn--quiet">Read the FAQ</button>
+                <button type="button" class="ms-btn ms-btn--quiet" disabled>Read the FAQ</button>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-btn--lg (with .ms-btn--primary / .ms-btn--secondary)</div>
+            <div class="pv-buttons">
+                <button type="button" class="ms-btn ms-btn--primary ms-btn--lg">Get started</button>
+                <button type="button" class="ms-btn ms-btn--secondary ms-btn--lg">Compare plans</button>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-btn--disabled (non-button element)</div>
+            <div class="pv-buttons">
+                <a href="#buttons" class="ms-btn ms-btn--primary ms-btn--disabled" aria-disabled="true">Unavailable</a>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">Keyboard focus — real :focus-visible, press Tab</div>
+            <div class="pv-buttons">
+                <button type="button" class="ms-btn ms-btn--primary">Primary, tab to me</button>
+                <button type="button" class="ms-btn ms-btn--secondary">Secondary, tab to me</button>
+                <a href="#buttons">Inline link, tab to me</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===================== Cards ===================== -->
+<section class="ms-section ms-section--tight ms-section--sunken">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Components</p>
+        <h2 class="ms-h2">Cards</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">Whitespace is the primary layout tool. Shadows are barely visible; there is no hover lift and no <span class="ms-addr">translateY</span> anywhere.</p>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-card</div>
+            <div class="ms-grid ms-grid--3">
+                <div class="ms-card">
+                    <h3 class="ms-h3">Temporary email</h3>
+                    <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">A throwaway address that expires on its own schedule.</p>
+                </div>
+                <div class="ms-card">
+                    <h3 class="ms-h3">Smart cleanup</h3>
+                    <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">Old addresses and their mail are removed for you.</p>
+                </div>
+                <div class="ms-card">
+                    <h3 class="ms-h3">External email</h3>
+                    <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">Bring your own domain and filter mail before it lands.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-card--flat</div>
+            <div class="ms-grid ms-grid--2">
+                <div class="ms-card--flat">
+                    <h3 class="ms-h3">No shadow</h3>
+                    <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">Same surface, for cards sitting on a sunken band.</p>
+                </div>
+                <div class="ms-card--flat">
+                    <h3 class="ms-h3">Hairline only</h3>
+                    <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">Border does the separating work.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-card--interactive (hover one — border and shadow only, no movement)</div>
+            <div class="ms-grid ms-grid--2">
+                <a href="#cards" class="ms-card ms-card--interactive" style="text-decoration:none; color:inherit">
+                    <h3 class="ms-h3">Interactive card</h3>
+                    <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">Hover to see the border darken and the shadow deepen.</p>
+                </a>
+                <a href="#cards" class="ms-card ms-card--interactive" style="text-decoration:none; color:inherit">
+                    <h3 class="ms-h3">Interactive card</h3>
+                    <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">Tab to it to see the focus ring on a card surface.</p>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===================== Grids, chips, badges ===================== -->
+<section class="ms-section ms-section--tight">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Components</p>
+        <h2 class="ms-h2">Grids, chips, badges</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">The grid columns collapse without media queries — narrow the window to check.</p>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-grid --2 / --3 / --4</div>
+            <div class="ms-grid ms-grid--2">
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--2 · 260px</p></div>
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--2 · 260px</p></div>
+            </div>
+            <div class="ms-grid ms-grid--3" style="margin-top: var(--ms-space-5)">
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--3 · 240px</p></div>
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--3 · 240px</p></div>
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--3 · 240px</p></div>
+            </div>
+            <div class="ms-grid ms-grid--4" style="margin-top: var(--ms-space-5)">
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--4 · 200px</p></div>
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--4 · 200px</p></div>
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--4 · 200px</p></div>
+                <div class="ms-card--flat"><p style="margin:0" class="pv-token">--4 · 200px</p></div>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-chip</div>
+            <p style="display:flex; flex-wrap:wrap; gap: var(--ms-space-2); margin:0">
+                <span class="ms-chip">Free</span>
+                <span class="ms-chip">Pro</span>
+                <span class="ms-chip">RSS feed</span>
+                <span class="ms-chip">IMAP</span>
+            </p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-badge and .ms-badge--soon</div>
+            <p style="display:flex; flex-wrap:wrap; gap: var(--ms-space-2); align-items:center; margin:0">
+                <span class="ms-badge" style="background: var(--ms-bg-sunken); color: var(--ms-text-muted)">New</span>
+                <span class="ms-badge ms-badge--soon">Coming</span>
+                <span>API access <span class="ms-badge ms-badge--soon">Coming</span></span>
+            </p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-addr</div>
+            <p style="margin:0">Your address is <span class="ms-addr">shopping@manjo.me</span> — it stays unread-proof.</p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-hairline</div>
+            <p style="margin:0 0 var(--ms-space-4)">Above the rule</p>
+            <hr class="ms-hairline">
+            <p style="margin: var(--ms-space-4) 0 0">Below the rule</p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-stack (rhythm without a class per child)</div>
+            <div class="ms-stack" style="border-left: 2px solid var(--ms-border); padding-left: var(--ms-space-4)">
+                <p style="margin:0">First child — no top margin.</p>
+                <p style="margin:0">Second child — spaced by <span class="pv-token">--ms-space-4</span>.</p>
+                <p style="margin:0">Third child — same rhythm.</p>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-visually-hidden (visible here only because the demo box reveals it)</div>
+            <div style="border:1px dashed var(--ms-border-strong); padding: var(--ms-space-3); display:flex; gap: var(--ms-space-2); align-items:center">
+                <button type="button" class="ms-btn ms-btn--secondary">Button with hidden label <span class="ms-visually-hidden">for screen readers</span></button>
+                <span class="pv-note">The clipped text is in the accessibility tree but occupies no space.</span>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-prose (62ch measure)</div>
+            <div class="ms-prose">
+                <p style="margin:0">Mail Shield gives you an address you can throw away. Use it once, never see the follow-up mail.</p>
+                <p style="margin:0">Nothing here is designed to keep you on the page. You get an address, you read your mail, you leave.</p>
+            </div>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-container--narrow (720px, centred)</div>
+            <div class="ms-container--narrow" style="background: var(--ms-bg-sunken); border: 1px dashed var(--ms-border-strong)">
+                <p style="margin:0; text-align:center" class="pv-token">narrow measure</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===================== Space / radius ===================== -->
+<section class="ms-section ms-section--tight ms-section--sunken">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Tokens</p>
+        <h2 class="ms-h2">Space and radius</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">Brief §5.3. The 4px base scale and the modest radii.</p>
+
+        <div class="ms-grid ms-grid--2">
+            <div class="ms-card--flat">
+                <div class="pv-label">Space scale</div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-1</span><div class="pv-bar" style="width:.25rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-2</span><div class="pv-bar" style="width:.5rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-3</span><div class="pv-bar" style="width:.75rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-4</span><div class="pv-bar" style="width:1rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-5</span><div class="pv-bar" style="width:1.5rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-6</span><div class="pv-bar" style="width:2rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-7</span><div class="pv-bar" style="width:2.5rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-8</span><div class="pv-bar" style="width:3rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-10</span><div class="pv-bar" style="width:4rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-12</span><div class="pv-bar" style="width:5rem"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">--ms-space-16</span><div class="pv-bar" style="width:6.5rem"></div></div>
+            </div>
+
+            <div class="ms-card--flat">
+                <div class="pv-label">Radius scale</div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">radius-sm 6px</span><div class="pv-radius" style="border-radius: var(--ms-radius-sm)"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">radius-md 10px</span><div class="pv-radius" style="border-radius: var(--ms-radius-md)"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">radius-lg 14px</span><div class="pv-radius" style="border-radius: var(--ms-radius-lg)"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">radius-xl 20px</span><div class="pv-radius" style="border-radius: var(--ms-radius-xl)"></div></div>
+                <div class="pv-row" style="grid-template-columns: 7rem 1fr"><span class="pv-token">radius-pill 999px</span><div class="pv-radius" style="border-radius: var(--ms-radius-pill)"></div></div>
+
+                <div class="pv-label" style="margin-top: var(--ms-space-6)">Shadow scale</div>
+                <div class="ms-grid ms-grid--2">
+                    <div class="ms-card--flat" style="box-shadow: var(--ms-shadow-xs)"><span class="pv-token">shadow-xs</span></div>
+                    <div class="ms-card--flat" style="box-shadow: var(--ms-shadow-sm)"><span class="pv-token">shadow-sm</span></div>
+                    <div class="ms-card--flat" style="box-shadow: var(--ms-shadow-md)"><span class="pv-token">shadow-md</span></div>
+                    <div class="ms-card--flat" style="box-shadow: var(--ms-shadow-lg)"><span class="pv-token">shadow-lg</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===================== Brand ===================== -->
+<section class="ms-section ms-section--tight ms-section--sunken">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Brand</p>
+        <h2 class="ms-h2">Logo</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">Brief §4. The mark is inline SVG so it inherits <span class="ms-addr">currentColor</span> and needs no icon font. Both helpers live in <span class="ms-addr">partials/brand.php</span> and return escaped HTML — the static markup below is that partials output.</p>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-logo — mark + wordmark, links</div>
+            <p style="margin:0"><a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a></p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-logo at 16 / 22 / 48px — the mark must stay legible at all three</div>
+            <p style="display:flex; flex-wrap:wrap; gap: var(--ms-space-8); align-items:center; margin:0">
+                <a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+                <a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+                <a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+            </p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">ms_logo([&quot;mark_only&quot; =&gt; true]) — link target, no wordmark</div>
+            <p style="margin:0"><a class="ms-logo" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" role="img"><title>Mail Shield</title><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg></a></p>
+        </div>
+
+        <div class="pv-group">
+            <div class="pv-label">.ms-logo without href renders a &lt;span&gt;</div>
+            <p style="margin:0"><span class="ms-logo"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></span></p>
+        </div>
+    </div>
+</section>
+
+<!-- ===================== Motion ===================== -->
+<section class="ms-section ms-section--tight">
+    <div class="ms-container">
+        <p class="ms-eyebrow">Motion</p>
+        <h2 class="ms-h2">The one keyframe</h2>
+        <p class="ms-lede" style="margin-block: var(--ms-space-4) var(--ms-space-8)">Brief §5.4 — <span class="ms-addr">ms-rise</span>, staggered with <span class="ms-addr">--ms-rise-delay</span>. Reload to replay. Disabled entirely under <span class="ms-addr">prefers-reduced-motion</span>.</p>
+
+        <div class="ms-grid ms-grid--3">
+            <div class="ms-card ms-rise" style="--ms-rise-delay: 0ms">
+                <h3 class="ms-h3">ms-rise</h3>
+                <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">delay 0ms</p>
+            </div>
+            <div class="ms-card ms-rise" style="--ms-rise-delay: 120ms">
+                <h3 class="ms-h3">ms-rise</h3>
+                <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">delay 120ms</p>
+            </div>
+            <div class="ms-card ms-rise" style="--ms-rise-delay: 240ms">
+                <h3 class="ms-h3">ms-rise</h3>
+                <p style="margin-top: var(--ms-space-3); color: var(--ms-text-muted); font-size: var(--ms-fs-sm)">delay 240ms</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+</main>
+
+<footer class="ms-section ms-section--tight ms-section--sunken">
+    <div class="ms-container">
+        <hr class="ms-hairline" style="margin-bottom: var(--ms-space-5)">
+        <p class="pv-note" style="margin:0">Mail Shield design system preview — Redesign 02. Not linked from the product.</p>
+    </div>
+</footer>
+
+</body>
+</html>

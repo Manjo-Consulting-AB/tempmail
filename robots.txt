@@ -1,0 +1,39 @@
+# Mail Shield crawler hints. Spec: documentaion/REDESIGN_BRIEF.md §14.
+#
+# This is a hint, not access control. Nothing below protects anything — the real
+# protections are the TEMPMAIL_APP include guards, the session checks and the
+# signed download URLs. A crawler that ignores this file still cannot read a
+# private page, and a private page never appears in sitemap.php either.
+#
+# The Sitemap: line needs an absolute origin and this file is static, so the
+# production origin is hardcoded here deliberately. The rest of the app derives
+# its origin from $config['email']['base_url'] (env BASE_URL); this one deploy
+# constant is the documented exception.
+
+User-agent: *
+Allow: /
+
+Disallow: /inbox.php
+Disallow: /files.php
+Disallow: /download_attachment.php
+Disallow: /pro.php
+Disallow: /pro_profile_page.php
+Disallow: /pro_profile.php
+Disallow: /pro_auth.php
+Disallow: /pro_contact.php
+Disallow: /pro_feed.php
+Disallow: /pro_logout.php
+Disallow: /client_agent_api.php
+Disallow: /client_agent_download.php
+Disallow: /client_agent_install_download.php
+Disallow: /client_agent_manage.php
+Disallow: /log_viewer.php
+Disallow: /bmac_handler.php
+Disallow: /parse.php
+Disallow: /run_imap_processor.php
+Disallow: /documentaion/
+Disallow: /partials/
+Disallow: /cron/
+Disallow: /client/
+
+Sitemap: https://manjo.me/sitemap.xml

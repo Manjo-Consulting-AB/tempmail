@@ -1,0 +1,894 @@
+/* ==========================================================================
+   Mail Shield — Bootstrap bridge
+   Spec: documentaion/REDESIGN_BRIEF.md §11 (CSS architecture).
+
+   Loaded LAST on app and auth pages, after bootstrap.min.css, style.css and
+   mailshield.css. Its only job is to override:
+
+     a. Bootstrap 5.3's own custom properties, so anything reading them follows
+        the Mail Shield tokens with no markup change.
+     b. the decorative identity in the legacy assets/css/style.css (purple
+        gradient, glass cards, uppercase pill buttons, cyan gradients, hover
+        lifts), which the bridge wins against by source order.
+     c. the handful of Bootstrap components these pages actually use.
+
+   style.css is NOT deleted: it also carries functional rules (.modal-main
+   widths, #webhookList flex behaviour, .email-list scroll, .tm-img-placeholder,
+   hamburger geometry). Those selectors are deliberately absent here.
+
+   Nothing new is defined — no layout, no new classes, no `ms-` components.
+   ========================================================================== */
+
+/* ==========================================================================
+   a. Bootstrap variable remap
+   ========================================================================== */
+
+:root {
+    /* --- Body, type, headings -------------------------------------------- */
+    --bs-body-bg: var(--ms-bg);
+    --bs-body-color: var(--ms-text);
+    --bs-body-font-family: var(--ms-font-sans);
+    --bs-body-font-size: var(--ms-fs-body);
+    --bs-body-font-weight: 400;
+    --bs-body-line-height: 1.65;
+
+    --bs-font-sans-serif: var(--ms-font-sans);
+    --bs-font-monospace: var(--ms-font-mono);
+
+    --bs-heading-color: var(--ms-text);
+    --bs-emphasis-color: var(--ms-text);
+    --bs-secondary-color: var(--ms-text-muted);
+    --bs-tertiary-color: var(--ms-text-faint);
+    --bs-secondary-bg: var(--ms-bg-sunken);
+    --bs-tertiary-bg: var(--ms-bg-sunken);
+
+    /* --- Hairlines, radii, shadows --------------------------------------- */
+    --bs-border-color: var(--ms-border);
+    --bs-border-color-translucent: rgba(22, 22, 26, .1);
+    --bs-border-radius: var(--ms-radius-md);
+    --bs-border-radius-sm: var(--ms-radius-sm);
+    --bs-border-radius-lg: var(--ms-radius-lg);
+    --bs-border-radius-xl: var(--ms-radius-xl);
+    --bs-border-radius-xxl: var(--ms-radius-xl);
+    --bs-border-radius-pill: var(--ms-radius-pill);
+
+    --bs-box-shadow-sm: var(--ms-shadow-sm);
+    --bs-box-shadow: var(--ms-shadow-md);
+    --bs-box-shadow-lg: var(--ms-shadow-lg);
+
+    /* --- Links, accent, status -------------------------------------------- */
+    --bs-primary: var(--ms-accent);
+    --bs-link-color: var(--ms-accent);
+    --bs-link-hover-color: var(--ms-accent-hover);
+    --bs-secondary: var(--ms-text-muted);
+    --bs-success: var(--ms-success);
+    --bs-danger: var(--ms-danger);
+    --bs-warning: var(--ms-warning);
+    --bs-info: var(--ms-text-muted);
+
+    /* Numeric triplets. Bootstrap interpolates these into rgba() for
+       .bg-*, .link-*, .border-* and its striped/hover table states, and var()
+       cannot be substituted inside an rgb() triplet — so the token hex values
+       are written out by hand. Keep in sync with mailshield.css §5.1:
+         accent #12695A · accent-hover #0E5649 · text #16161A · bg #FAFAF9
+         muted #6B6B73 · faint #9A9AA2 · sunken #F4F4F2
+         success #2F6B4F · danger #B4453C · warning #A86A1F                     */
+    --bs-primary-rgb: 18, 105, 90;
+    --bs-link-color-rgb: 18, 105, 90;
+    --bs-link-hover-color-rgb: 14, 86, 73;
+    --bs-body-color-rgb: 22, 22, 26;
+    --bs-body-bg-rgb: 250, 250, 249;
+    --bs-emphasis-color-rgb: 22, 22, 26;
+    --bs-secondary-color-rgb: 107, 107, 115;
+    --bs-secondary-bg-rgb: 244, 244, 242;
+    --bs-tertiary-bg-rgb: 244, 244, 242;
+    --bs-secondary-rgb: 107, 107, 115;
+    --bs-success-rgb: 47, 107, 79;
+    --bs-danger-rgb: 180, 69, 60;
+    --bs-warning-rgb: 168, 106, 31;
+    --bs-info-rgb: 107, 107, 115;
+    --bs-light-rgb: 244, 244, 242;
+    --bs-dark-rgb: 22, 22, 26;
+    --bs-white-rgb: 255, 255, 255;
+    --bs-black-rgb: 22, 22, 26;
+
+    /* --- Tinted variants: alerts, badges, tables -------------------------- */
+    --bs-primary-text-emphasis: var(--ms-accent);
+    --bs-primary-bg-subtle: var(--ms-accent-soft);
+    --bs-primary-border-subtle: var(--ms-border);
+
+    --bs-secondary-text-emphasis: var(--ms-text-muted);
+    --bs-secondary-bg-subtle: var(--ms-bg-sunken);
+    --bs-secondary-border-subtle: var(--ms-border);
+
+    --bs-success-text-emphasis: var(--ms-success);
+    --bs-success-bg-subtle: #EAF2ED;
+    --bs-success-border-subtle: var(--ms-border);
+
+    --bs-danger-text-emphasis: var(--ms-danger);
+    --bs-danger-bg-subtle: #F7ECEB;
+    --bs-danger-border-subtle: var(--ms-border);
+
+    --bs-warning-text-emphasis: var(--ms-warning);
+    --bs-warning-bg-subtle: #F8F1E7;
+    --bs-warning-border-subtle: var(--ms-border);
+
+    --bs-info-text-emphasis: var(--ms-text-muted);
+    --bs-info-bg-subtle: var(--ms-bg-sunken);
+    --bs-info-border-subtle: var(--ms-border);
+
+    --bs-light-text-emphasis: var(--ms-text);
+    --bs-light-bg-subtle: var(--ms-bg-sunken);
+    --bs-light-border-subtle: var(--ms-border);
+
+    --bs-dark-text-emphasis: var(--ms-text);
+    --bs-dark-bg-subtle: var(--ms-bg-sunken);
+    --bs-dark-border-subtle: var(--ms-border);
+
+    /* --- Focus ring ------------------------------------------------------- */
+    --bs-focus-ring-width: 2px;
+    --bs-focus-ring-offset: 2px;
+    --bs-focus-ring-color: rgba(18, 105, 90, .35);
+
+    /* Bootstrap's default inline-code colour is a pink (#d63384) that belongs to
+       the old identity and only reaches 4.09:1 on the sunken well. */
+    --bs-code-color: var(--ms-text);
+}
+
+/* ==========================================================================
+   b. The old decorative identity in style.css, neutralised
+   ========================================================================== */
+
+/* Purple page gradient and the 20px body padding that framed it. Wins over
+   style.css's own mobile override by source order. */
+body {
+    background: var(--ms-bg);
+    padding: 0;
+    font-family: var(--ms-font-sans);
+}
+
+/* --- Headings and page header --------------------------------------------- */
+
+.header h1 {
+    color: var(--ms-text);
+    text-shadow: none;
+}
+
+.header .lead {
+    color: var(--ms-text-muted);
+}
+
+/* --- Cards: glass -> plain raised surface --------------------------------- */
+
+.card {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    box-shadow: var(--ms-shadow-sm);
+    backdrop-filter: none;
+    transition: border-color var(--ms-dur) var(--ms-ease),
+        box-shadow var(--ms-dur) var(--ms-ease);
+}
+
+.card:hover {
+    transform: none;
+    box-shadow: var(--ms-shadow-sm);
+}
+
+.card-header {
+    background: transparent;
+    background-image: none;
+    color: var(--ms-text);
+    border-bottom: 1px solid var(--ms-border);
+    padding: var(--ms-space-4) var(--ms-space-5);
+    /* style.css pins the top corners with !important — restated in kind. */
+    border-radius: 0 !important;
+}
+
+.card-header h3 {
+    font-weight: 500;
+}
+
+/* --- Stats ---------------------------------------------------------------- */
+
+.stat-box {
+    background: var(--ms-bg-raised);
+    background-image: none;
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    transition: border-color var(--ms-dur) var(--ms-ease);
+}
+
+.stat-box:hover {
+    background: var(--ms-bg-raised);
+    background-image: none;
+    border-color: var(--ms-border-strong);
+    transform: none;
+}
+
+.stat-number {
+    color: var(--ms-text);
+    text-shadow: none;
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+/* Bootstrap's .btn is driven by --bs-btn-*; point the ones style.css does not
+   hardcode at the tokens, then restate the properties style.css overrides so
+   the bridge wins by source order. */
+.btn {
+    --bs-btn-padding-x: 1.125rem;
+    --bs-btn-padding-y: .625rem;
+    --bs-btn-font-weight: 500;
+    --bs-btn-border-radius: var(--ms-radius-md);
+    /* Kills Bootstrap's coloured focus glow and pressed inset for every
+       variant in one place; the token ring below replaces it. */
+    --bs-btn-focus-box-shadow: none;
+    --bs-btn-active-shadow: none;
+
+    padding: var(--bs-btn-padding-y) var(--bs-btn-padding-x);
+    border: var(--bs-btn-border-width) solid var(--bs-btn-border-color);
+    border-radius: var(--bs-btn-border-radius);
+    background-color: var(--bs-btn-bg);
+    background-image: none;
+    color: var(--bs-btn-color);
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: normal;
+    box-shadow: none;
+    transition: background-color var(--ms-dur) var(--ms-ease),
+        border-color var(--ms-dur) var(--ms-ease),
+        color var(--ms-dur) var(--ms-ease);
+}
+
+/* style.css's hover rules (.btn-primary:hover, .btn-success:hover,
+   .btn-outline-secondary:hover) outweigh a bare .btn rule. */
+.btn:hover,
+.btn:focus,
+.btn:active,
+.btn.active {
+    transform: none;
+    box-shadow: none;
+    background-image: none;
+}
+
+.btn:hover {
+    background-color: var(--bs-btn-hover-bg);
+    border-color: var(--bs-btn-hover-border-color);
+    color: var(--bs-btn-hover-color);
+}
+
+.btn:active,
+.btn.active {
+    background-color: var(--bs-btn-active-bg);
+    border-color: var(--bs-btn-active-border-color);
+    color: var(--bs-btn-active-color);
+}
+
+.btn-primary {
+    --bs-btn-color: var(--ms-accent-contrast);
+    --bs-btn-bg: var(--ms-accent);
+    --bs-btn-border-color: var(--ms-accent);
+    --bs-btn-hover-color: var(--ms-accent-contrast);
+    --bs-btn-hover-bg: var(--ms-accent-hover);
+    --bs-btn-hover-border-color: var(--ms-accent-hover);
+    --bs-btn-active-color: var(--ms-accent-contrast);
+    --bs-btn-active-bg: var(--ms-accent-hover);
+    --bs-btn-active-border-color: var(--ms-accent-hover);
+    --bs-btn-disabled-color: var(--ms-accent-contrast);
+    --bs-btn-disabled-bg: var(--ms-accent);
+    --bs-btn-disabled-border-color: var(--ms-accent);
+}
+
+.btn-success {
+    --bs-btn-color: var(--ms-accent-contrast);
+    --bs-btn-bg: var(--ms-success);
+    --bs-btn-border-color: var(--ms-success);
+    --bs-btn-hover-color: var(--ms-accent-contrast);
+    --bs-btn-hover-bg: var(--ms-accent-hover);
+    --bs-btn-hover-border-color: var(--ms-accent-hover);
+    --bs-btn-active-color: var(--ms-accent-contrast);
+    --bs-btn-active-bg: var(--ms-accent-hover);
+    --bs-btn-active-border-color: var(--ms-accent-hover);
+    --bs-btn-disabled-color: var(--ms-accent-contrast);
+    --bs-btn-disabled-bg: var(--ms-success);
+    --bs-btn-disabled-border-color: var(--ms-success);
+}
+
+.btn-secondary {
+    --bs-btn-color: var(--ms-text);
+    --bs-btn-bg: var(--ms-bg-sunken);
+    --bs-btn-border-color: var(--ms-border);
+    --bs-btn-hover-color: var(--ms-text);
+    --bs-btn-hover-bg: var(--ms-border);
+    --bs-btn-hover-border-color: var(--ms-border-strong);
+    --bs-btn-active-color: var(--ms-text);
+    --bs-btn-active-bg: var(--ms-border);
+    --bs-btn-active-border-color: var(--ms-border-strong);
+}
+
+.btn-danger {
+    --bs-btn-color: var(--ms-accent-contrast);
+    --bs-btn-bg: var(--ms-danger);
+    --bs-btn-border-color: var(--ms-danger);
+    --bs-btn-hover-color: var(--ms-accent-contrast);
+    --bs-btn-hover-bg: #9C3A32;
+    --bs-btn-hover-border-color: #9C3A32;
+    --bs-btn-active-color: var(--ms-accent-contrast);
+    --bs-btn-active-bg: #9C3A32;
+    --bs-btn-active-border-color: #9C3A32;
+    --bs-btn-disabled-color: var(--ms-accent-contrast);
+    --bs-btn-disabled-bg: var(--ms-danger);
+    --bs-btn-disabled-border-color: var(--ms-danger);
+}
+
+.btn-outline-primary {
+    --bs-btn-color: var(--ms-accent);
+    --bs-btn-border-color: var(--ms-border-strong);
+    --bs-btn-hover-color: var(--ms-accent-contrast);
+    --bs-btn-hover-bg: var(--ms-accent);
+    --bs-btn-hover-border-color: var(--ms-accent);
+    --bs-btn-active-color: var(--ms-accent-contrast);
+    --bs-btn-active-bg: var(--ms-accent-hover);
+    --bs-btn-active-border-color: var(--ms-accent-hover);
+    --bs-btn-disabled-color: var(--ms-accent);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--ms-border-strong);
+}
+
+/* The most used variant in the app (25 call sites). style.css gives it a
+   2px grey border over a blurred white field — flatten it onto tokens. */
+.btn-outline-secondary {
+    --bs-btn-color: var(--ms-text);
+    --bs-btn-border-color: var(--ms-border-strong);
+    --bs-btn-hover-color: var(--ms-text);
+    --bs-btn-hover-bg: var(--ms-bg-sunken);
+    --bs-btn-hover-border-color: var(--ms-border-strong);
+    --bs-btn-active-color: var(--ms-accent);
+    --bs-btn-active-bg: var(--ms-accent-soft);
+    --bs-btn-active-border-color: var(--ms-accent);
+    --bs-btn-disabled-color: var(--ms-text-faint);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--ms-border);
+
+    background-color: transparent;
+    backdrop-filter: none;
+}
+
+.btn-outline-danger {
+    --bs-btn-color: var(--ms-danger);
+    --bs-btn-border-color: var(--ms-border-strong);
+    --bs-btn-hover-color: var(--ms-accent-contrast);
+    --bs-btn-hover-bg: var(--ms-danger);
+    --bs-btn-hover-border-color: var(--ms-danger);
+    --bs-btn-active-color: var(--ms-accent-contrast);
+    --bs-btn-active-bg: var(--ms-danger);
+    --bs-btn-active-border-color: var(--ms-danger);
+    --bs-btn-disabled-color: var(--ms-danger);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--ms-border);
+}
+
+/* The image toggle's resting state is re-classed to .btn-outline-light by
+   updateImageToggleButton() in app.js, which this redesign may not change. That
+   variant resolves to Bootstrap's near-white #f8f9fa, which was legible on the
+   old gradient header but vanishes on the white inbox toolbar, so it takes the
+   same treatment as .btn-outline-secondary. */
+.btn-outline-light {
+    --bs-btn-color: var(--ms-text);
+    --bs-btn-border-color: var(--ms-border-strong);
+    --bs-btn-hover-color: var(--ms-text);
+    --bs-btn-hover-bg: var(--ms-bg-sunken);
+    --bs-btn-hover-border-color: var(--ms-border-strong);
+    --bs-btn-active-color: var(--ms-accent);
+    --bs-btn-active-bg: var(--ms-accent-soft);
+    --bs-btn-active-border-color: var(--ms-accent);
+    --bs-btn-disabled-color: var(--ms-text-faint);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--ms-border);
+
+    background-color: transparent;
+    backdrop-filter: none;
+}
+
+.btn-link {
+    --bs-btn-color: var(--ms-accent);
+    --bs-btn-hover-color: var(--ms-accent-hover);
+    --bs-btn-active-color: var(--ms-accent-hover);
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-bg: transparent;
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-bg: transparent;
+    --bs-btn-active-border-color: transparent;
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: transparent;
+    text-decoration: none;
+}
+
+.btn-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* Cyan->green gradient pill used on the profile page. */
+.btn-create-personal {
+    background: var(--ms-accent);
+    background-image: none;
+    color: var(--ms-accent-contrast);
+    border: 1px solid var(--ms-accent);
+    border-radius: var(--ms-radius-md);
+    box-shadow: none;
+    padding: .5rem 1rem;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.btn-create-personal:hover {
+    background: var(--ms-accent-hover);
+    background-image: none;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-create-personal:disabled,
+.btn-create-personal[disabled] {
+    opacity: .55;
+    box-shadow: none;
+}
+
+/* --- Address panel: pink/red gradient -> sunken well ---------------------- */
+
+.email-display {
+    background: var(--ms-bg-sunken);
+    color: var(--ms-text);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    padding: var(--ms-space-5);
+}
+
+.email-display::before {
+    content: none;
+}
+
+.email-address {
+    font-family: var(--ms-font-mono);
+    color: var(--ms-text);
+}
+
+.email-info {
+    color: var(--ms-text-muted);
+    opacity: 1;
+}
+
+/* --- Email list ----------------------------------------------------------- */
+
+/* The row is still the legacy `.email-item`: app.js delegates its click handler
+   on that class and pro.php renders the same rows into its own list, so the
+   container is restyled here. Everything inside a row is new markup and is
+   styled by the `ms-mail__*` rules in mailshield.css ("Inbox"). */
+
+.email-item {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: var(--ms-space-3);
+    row-gap: 2px;
+    align-items: center;
+    padding: var(--ms-space-3) var(--ms-space-4);
+    background: var(--ms-bg-raised);
+    /* Rows meet the frame edges and are separated by hairlines instead of being
+       cards. The left edge is reserved on every row so an unread row never
+       shifts its own text. */
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    margin-bottom: 0;
+    cursor: pointer;
+    transition:
+        background-color var(--ms-dur) var(--ms-ease),
+        border-color var(--ms-dur) var(--ms-ease);
+}
+
+.email-item + .email-item {
+    border-top: 1px solid var(--ms-border);
+}
+
+/* style.css paints every border side cyan and lifts the row 2px on hover; both
+   are restated here. Hover changes background and border colour only. */
+.email-item:hover {
+    background: var(--ms-bg-sunken);
+    border-top-color: var(--ms-border);
+    border-left-color: transparent;
+    box-shadow: none;
+    transform: none;
+}
+
+/* Unread: the 2px accent edge and a heavier sender, no gradient wash. The full
+   shorthand is restated because style.css sets a 4px cyan border-left here, and
+   declared after :hover so the edge survives a hovered row. */
+.email-item.unread {
+    border-left: 2px solid var(--ms-accent);
+    background-image: none;
+}
+
+.email-item.unread .ms-mail__from {
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.email-content {
+    background: var(--ms-bg-sunken);
+    border-radius: var(--ms-radius-md);
+}
+
+/* --- Status, loading, notifications --------------------------------------- */
+
+.status-online {
+    background: var(--ms-success);
+    background-image: none;
+    color: var(--ms-accent-contrast);
+}
+
+.status-offline {
+    background: var(--ms-danger);
+    background-image: none;
+    color: var(--ms-accent-contrast);
+}
+
+.loading {
+    color: var(--ms-text-muted);
+}
+
+.spinner {
+    border-color: var(--ms-border);
+    border-top-color: var(--ms-accent);
+}
+
+.auto-refresh {
+    background: var(--ms-bg-raised);
+    color: var(--ms-text);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-pill);
+    box-shadow: var(--ms-shadow-md);
+    backdrop-filter: none;
+    transition: background-color var(--ms-dur) var(--ms-ease);
+}
+
+.auto-refresh:hover {
+    background: var(--ms-bg-sunken);
+    transform: none;
+}
+
+.copy-notification {
+    background: var(--ms-success);
+    border-radius: var(--ms-radius-md);
+    box-shadow: var(--ms-shadow-md);
+}
+
+/* The `.header-navbar` / `.navbar-*` overrides #99 added here are gone:
+   partials/nav.php no longer emits those classes, and the app bar is styled
+   from scratch by the `ms-appnav` rules in mailshield.css. The `.hamburger-*`
+   geometry below is left alone on purpose — it belongs to style.css.
+
+   The hamburger geometry and its JS-driven .active/.show behaviour stay in
+   style.css; only the colour changes, otherwise white bars vanish on an
+   opaque navbar. */
+.hamburger-line {
+    background: var(--ms-text);
+}
+
+/* --- Modals --------------------------------------------------------------- */
+
+.modal-content {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    box-shadow: var(--ms-shadow-lg);
+}
+
+.modal-header {
+    background: transparent;
+    background-image: none;
+    color: var(--ms-text);
+    border-bottom: 1px solid var(--ms-border);
+    border-radius: 0;
+}
+
+.modal-header .modal-title {
+    font-size: var(--ms-fs-h3);
+    font-weight: 600;
+    letter-spacing: var(--ms-ls-h3);
+}
+
+.modal-footer {
+    border-top: 1px solid var(--ms-border);
+}
+
+/* ==========================================================================
+   c. Bootstrap components, onto tokens
+   ========================================================================== */
+
+/* --- Forms ---------------------------------------------------------------- */
+
+.form-label {
+    color: var(--ms-text);
+    font-weight: 500;
+    font-size: var(--ms-fs-sm);
+    margin-bottom: var(--ms-space-2);
+}
+
+.form-control,
+.form-select {
+    background-color: var(--ms-bg-raised);
+    border-color: var(--ms-border-strong);
+    border-radius: var(--ms-radius-md);
+    color: var(--ms-text);
+}
+
+.form-control::placeholder {
+    color: var(--ms-text-faint);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+    background-color: var(--ms-bg-sunken);
+    color: var(--ms-text-muted);
+}
+
+.form-text {
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-xs);
+}
+
+.form-check-input {
+    background-color: var(--ms-bg-raised);
+    border-color: var(--ms-border-strong);
+}
+
+.form-check-input:checked {
+    background-color: var(--ms-accent);
+    border-color: var(--ms-accent);
+}
+
+.form-check-input:disabled {
+    background-color: var(--ms-bg-sunken);
+}
+
+.form-check-label {
+    color: var(--ms-text);
+}
+
+/* Account-type toggle on register.php: pure CSS :checked, no JS involved. */
+.btn-check:checked + .btn,
+.btn-check:active + .btn {
+    background-color: var(--ms-accent-soft);
+    border-color: var(--ms-accent);
+    color: var(--ms-accent);
+}
+
+.btn-check:disabled + .btn,
+.btn-check[disabled] + .btn {
+    opacity: .55;
+}
+
+.input-group-text {
+    background-color: var(--ms-bg-sunken);
+    border-color: var(--ms-border-strong);
+    color: var(--ms-text-muted);
+}
+
+/* --- Tables --------------------------------------------------------------- */
+
+.table {
+    --bs-table-color: var(--ms-text);
+    --bs-table-bg: transparent;
+    --bs-table-border-color: var(--ms-border);
+    --bs-table-striped-color: var(--ms-text);
+    --bs-table-striped-bg: var(--ms-bg-sunken);
+    --bs-table-hover-color: var(--ms-text);
+    --bs-table-hover-bg: var(--ms-bg-sunken);
+    --bs-table-active-color: var(--ms-text);
+    --bs-table-active-bg: var(--ms-bg-sunken);
+
+    color: var(--ms-text);
+    border-color: var(--ms-border);
+}
+
+.table > :not(caption) > * > * {
+    border-color: var(--ms-border);
+}
+
+.table > thead {
+    color: var(--ms-text-muted);
+    font-weight: 500;
+}
+
+/* --- List groups ---------------------------------------------------------- */
+
+.list-group {
+    --bs-list-group-color: var(--ms-text);
+    --bs-list-group-bg: var(--ms-bg-raised);
+    --bs-list-group-border-color: var(--ms-border);
+    --bs-list-group-border-radius: var(--ms-radius-md);
+    --bs-list-group-action-color: var(--ms-text);
+    --bs-list-group-action-hover-color: var(--ms-text);
+    --bs-list-group-action-hover-bg: var(--ms-bg-sunken);
+    --bs-list-group-action-active-color: var(--ms-text);
+    --bs-list-group-action-active-bg: var(--ms-bg-sunken);
+    --bs-list-group-disabled-color: var(--ms-text-faint);
+    --bs-list-group-disabled-bg: var(--ms-bg-raised);
+}
+
+/* --- Alerts: flat tint, hairline border, no gradient ---------------------- */
+
+.alert {
+    --bs-alert-border-radius: var(--ms-radius-md);
+    --bs-alert-padding-x: var(--ms-space-4);
+    --bs-alert-padding-y: var(--ms-space-3);
+    --bs-alert-border-color: var(--ms-border);
+
+    background-image: none;
+    border-radius: var(--ms-radius-md);
+}
+
+.alert-primary {
+    --bs-alert-color: var(--ms-accent);
+    --bs-alert-bg: var(--ms-accent-soft);
+    --bs-alert-link-color: var(--ms-accent-hover);
+}
+
+.alert-secondary {
+    --bs-alert-color: var(--ms-text-muted);
+    --bs-alert-bg: var(--ms-bg-sunken);
+    --bs-alert-link-color: var(--ms-text);
+}
+
+.alert-success {
+    --bs-alert-color: var(--ms-success);
+    --bs-alert-bg: #EAF2ED;
+    --bs-alert-link-color: var(--ms-success);
+}
+
+.alert-danger {
+    --bs-alert-color: var(--ms-danger);
+    --bs-alert-bg: #F7ECEB;
+    --bs-alert-link-color: var(--ms-danger);
+}
+
+/* --ms-warning (#A86A1F) only reaches 3.95:1 on this tint, under the 4.5:1
+   accessibility floor in brief §5.5. Same hue, darkened to 5.24:1. */
+.alert-warning {
+    --bs-alert-color: #8F5815;
+    --bs-alert-bg: #F8F1E7;
+    --bs-alert-link-color: #8F5815;
+}
+
+.alert-info {
+    --bs-alert-color: var(--ms-text-muted);
+    --bs-alert-bg: var(--ms-bg-sunken);
+    --bs-alert-link-color: var(--ms-text);
+}
+
+.alert-light {
+    --bs-alert-color: var(--ms-text);
+    --bs-alert-bg: var(--ms-bg-sunken);
+}
+
+.alert-dark {
+    --bs-alert-color: var(--ms-text);
+    --bs-alert-bg: var(--ms-bg-sunken);
+}
+
+/* --- Badges --------------------------------------------------------------- */
+
+.badge {
+    --bs-badge-border-radius: var(--ms-radius-sm);
+    border-radius: var(--ms-radius-sm);
+    font-weight: 500;
+    letter-spacing: 0;
+}
+
+/* --- Tabs ----------------------------------------------------------------- */
+
+.nav-tabs {
+    --bs-nav-tabs-border-color: var(--ms-border);
+    --bs-nav-tabs-link-hover-border-color: var(--ms-border);
+    --bs-nav-tabs-link-active-color: var(--ms-text);
+    --bs-nav-tabs-link-active-bg: var(--ms-bg-raised);
+    --bs-nav-tabs-link-active-border-color: var(--ms-border) var(--ms-border) var(--ms-bg-raised);
+}
+
+.nav-tabs .nav-link {
+    color: var(--ms-text-muted);
+}
+
+.nav-tabs .nav-link:hover {
+    color: var(--ms-text);
+    border-color: transparent;
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--ms-text);
+    font-weight: 500;
+}
+
+/* --- Modal, close button, spinners ---------------------------------------- */
+
+.modal {
+    --bs-modal-bg: var(--ms-bg-raised);
+    --bs-modal-border-color: var(--ms-border);
+    --bs-modal-border-radius: var(--ms-radius-lg);
+    --bs-modal-header-border-color: var(--ms-border);
+    --bs-modal-footer-border-color: var(--ms-border);
+}
+
+/* style.css sizes these two dialogs with class-qualified selectors that outrank
+   a bare .modal-content, and pins a 6px radius along the way. Restate only the
+   radius at matching specificity — the width/height and overflow rules sitting
+   beside it are functional and are deliberately left alone. */
+.modal-dialog.modal-main .modal-content,
+.modal-dialog.modal-fullscreen-sm-down .modal-content {
+    border-radius: var(--ms-radius-lg);
+}
+
+.btn-close {
+    --bs-btn-close-focus-shadow: none;
+    opacity: .5;
+}
+
+.btn-close:hover {
+    opacity: .8;
+}
+
+/* Bootstrap draws spinners with currentColor, which keeps a spinner inside a
+   filled button legible — nothing to remap there. */
+.spinner-border,
+.spinner-grow {
+    color: inherit;
+}
+
+/* --- Text utilities ------------------------------------------------------- */
+
+/* Bootstrap ships .text-muted with !important, so matching it needs the same. */
+.text-muted,
+.text-body-secondary,
+.text-body-tertiary {
+    color: var(--ms-text-muted) !important;
+}
+
+/* Footer and blurb copy in pro.php, index.php and faq.php is authored as
+   .text-light because it used to sit on the purple gradient. On the light page
+   it resolves to --bs-light-rgb and disappears, so the same !important is
+   needed to pull it back to a readable colour. */
+.text-light {
+    color: var(--ms-text-muted) !important;
+}
+
+/* ==========================================================================
+   d. Focus
+   Bootstrap's controls zero their own outline and paint a blue box-shadow
+   instead. Replace that with the design system's ring: 2px accent, 2px offset,
+   no glow. Inputs get it on :focus (they are never "mouse-only"), buttons and
+   links on :focus-visible.
+   ========================================================================== */
+
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus,
+.input-group-text:focus {
+    border-color: var(--ms-accent);
+    outline: 2px solid var(--ms-accent);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+.btn:focus-visible,
+.btn-check:focus-visible + .btn,
+.btn-close:focus-visible,
+.nav-link:focus-visible,
+.page-link:focus-visible {
+    outline: 2px solid var(--ms-accent);
+    outline-offset: 2px;
+    box-shadow: none;
+}

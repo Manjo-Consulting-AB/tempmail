@@ -56,10 +56,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $supportTo = $_ENV['SUPPORT_EMAIL'] ?? ('support@' . ($config['email']['domain'] ?? 'manjo.me'));
         $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
-        $subject = 'TempMail Pro contact form: ' . $category;
+        $subject = 'Mail Shield contact form: ' . $category;
         $body = "From: {$userEmail} (user_id {$userId})\nCategory: {$category}\n\n{$message}";
         $headers = [];
-        $headers[] = 'From: TempMail <' . $from . '>';
+        $headers[] = 'From: Mail Shield <' . $from . '>';
         $headers[] = 'Reply-To: ' . $userEmail;
         $headers[] = 'MIME-Version: 1.0';
         $headers[] = 'Content-Type: text/plain; charset=UTF-8';
@@ -87,19 +87,22 @@ $isProAccount = proUserIsPro((int)$userId);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Contact - TempMail Pro</title>
+    <meta name="theme-color" content="#FAFAF9">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Contact support · Mail Shield</title>
     <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
     <link rel="alternate icon" href="/assets/images/favicon.ico">
+    <link rel="manifest" href="/site.webmanifest">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
 </head>
 <body>
     <div class="main-container">
         <div class="header">
-            <h1><i class="fas fa-envelope-open-text"></i> Contact Us</h1>
-            <p class="lead">Have a question, suggestion, or found a bug? Let us know!</p>
-            
             <?php require 'partials/nav.php'; ?>
             <script>
             (function(){
@@ -133,13 +136,22 @@ $isProAccount = proUserIsPro((int)$userId);
             </script>
         </div>
 
-        <div class="card mt-4 card-main-width">
-            <div class="card-header">
-                <h3><i class="fas fa-paper-plane"></i> Send a Message</h3>
-            </div>
-            <div class="card-body">
+        <!-- One centred column and one card: this page does a single thing, and
+             nothing else on it is boxed. The category values, the textarea, the
+             ids and the jQuery handler below are untouched — pro_contact.php
+             validates the category against $validCategories server-side. -->
+        <main class="ms-contact">
+            <h1 class="ms-contact__title">Contact support</h1>
+            <p class="ms-contact__lede">Messages go straight to the team. We reply by email to the address on your account.</p>
+
+            <div class="ms-card ms-contact__card">
                 <div id="contactAlert"></div>
-                
+
+                <p class="ms-contact__to">
+                    Reply goes to
+                    <span class="ms-contact__to-addr"><?php echo htmlspecialchars($userEmail, ENT_QUOTES, 'UTF-8'); ?></span>
+                </p>
+
                 <form id="contactForm">
                     <div class="mb-3">
                         <label for="category" class="form-label">Category</label>
@@ -150,28 +162,28 @@ $isProAccount = proUserIsPro((int)$userId);
                             <option value="Bug report">Bug report</option>
                         </select>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="message" class="form-label">Message</label>
-                        <textarea class="form-control" id="message" name="message" rows="6" 
-                                  placeholder="Please describe your question, suggestion, or the bug you encountered..." 
+                        <textarea class="form-control" id="message" name="message" rows="6"
+                                  placeholder="Please describe your question, suggestion, or the bug you encountered..."
                                   required maxlength="5000"></textarea>
                         <div class="form-text">
                             <span id="charCount">0</span> / 5000 characters
                         </div>
                     </div>
-                    
-                    <div class="d-flex justify-content-between align-items-center">
+
+                    <div class="ms-contact__actions">
                         <a href="pro.php" class="btn btn-outline-secondary">
-                            <i class="fas fa-arrow-left"></i> Back to Dashboard
+                            <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to dashboard
                         </a>
                         <button type="submit" class="btn btn-primary" id="submitBtn">
-                            <i class="fas fa-paper-plane"></i> Send Message
+                            <i class="fas fa-paper-plane" aria-hidden="true"></i> Send message
                         </button>
                     </div>
                 </form>
             </div>
-        </div>
+        </main>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>

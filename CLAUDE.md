@@ -2,18 +2,52 @@
 
 This file gives Claude Code (and other AI assistants) the context needed to work effectively in this repository.
 
+> ## ⚠️ Active redesign — read before opening a pull request
+>
+> A full visual/communicative redesign is in progress, tracked in issues **Redesign 00–27**
+> and specified in **`documentaion/REDESIGN_BRIEF.md`** (read it before touching any frontend file).
+>
+> **Redesign pull requests target the `redesign/mail-shield` branch, never `main`.**
+> `.github/workflows/prod.yml` deploys to production on every push to `main`, so a redesign PR
+> merged into `main` goes live immediately and half-finished. Branch off `redesign/mail-shield`,
+> open the PR against it, and if you opened it against `main` by mistake, retarget it rather than
+> merging. Full rationale, go-live and rollback procedure: brief §15.
+>
+> The product is called **Mail Shield** in all user-facing copy. The internal identifiers
+> `TEMPMAIL_APP`, `window.tempMailConfig`, `class TempMailApp`, the `TEMPMAIL_*` env vars, database
+> names and file names deliberately keep the old name — do not "finish" the rename in code.
+>
+> This block is removed at go-live, when `redesign/mail-shield` is merged into `main` (brief §15.3).
+
 ## What this is
 
-TempMail (manjo.me) is a disposable/temporary email address web service written in plain PHP (no framework, no build step). Users get throwaway inboxes; incoming mail is fetched over IMAP and shown in a web UI. There's also a paid "Pro" tier (magic-link login, saved profile, RSS feed of messages, Buy Me a Coffee billing) and a newer, mostly separate "Client Agent" subsystem that end users install on their own mail server to filter mail locally, driven by RSA-signed webhooks from this backend.
+**Mail Shield** is a *secondary email environment* — permanent personal addresses, temporary addresses, and automation — operated by Manjo Consulting AB on the domain `manjo.me`. It is written in plain PHP (no framework, no build step). A visitor can:
 
-There is no `README.md` at the repo root — this file and `documentaion/` are the closest thing to onboarding docs. Several docs under `documentaion/` and `client/` are written in Swedish, as are many code comments; expect to read/write Swedish comments when touching existing code, but prefer English for new comments unless matching surrounding style.
+- create a disposable **temporary address** that receives mail for 24 hours (Pro: 1–7 days);
+- keep up to **10 long-lived personal addresses** (Pro only);
+- wire the inbox into other systems — RSS, webhooks, Pushover, digests — or run the **Client Agent** on their own mail server to filter mail locally.
+
+Temporary email is therefore **one feature, not the identity**. The paid "Pro" tier covers magic-link login, a saved profile, the RSS feed of messages and Buy Me a Coffee billing; the "Client Agent" subsystem is mostly separate and end users install it on their own mail server, driven by RSA-signed webhooks from this backend. Positioning and the approved copy are in brief §2 and §8 — read the brief before writing any user-facing text.
+
+**Naming rule:** the product is called **Mail Shield** in all user-facing copy. The internal identifiers `TEMPMAIL_APP`, `window.tempMailConfig`, `class TempMailApp`, the `TEMPMAIL_*` env vars, database names and file names deliberately keep the old name — do not "finish" the rename in code.
+
+There is no `README.md` at the repo root — this file and `documentaion/` are the closest thing to onboarding docs. Several docs under `documentaion/` and `client/` are written in Swedish, as are many code comments; expect to read/write Swedish comments when touching existing code, but prefer English for new comments unless matching surrounding style. (`documentaion/` is a real, intentional typo in the directory name — don't "fix" it, it is used as a path elsewhere.)
 
 ## Tech stack
 
 - **Language**: PHP, procedural with some classes. No framework (no Laravel/Symfony).
 - **Database**: MySQL/MariaDB via PDO (`$pdo` global set up in `config.php`).
 - **Mail parsing**: `php-mime-mail-parser/php-mime-mail-parser` and `zbateson/mail-mime-parser` (see `composer.json`). IMAP access uses the PHP `imap` extension where available, with `LegacyImapFallback.php` and `python_imap_fallback.py` as fallbacks when it isn't (e.g. some Docker images).
-- **Frontend**: vanilla JS (`assets/js/app.js`, class `TempMailApp`) and vanilla CSS (`assets/css/style.css`). No Node/npm, no TypeScript, no bundler. A service worker lives at `assets/js/sw.js`.
+- **Frontend**: vanilla JS and plain CSS. No Node/npm, no TypeScript, no bundler, **no preprocessor and no build step**. Before editing anything under `assets/css/`, `assets/js/`, `partials/` or any public page, read `documentaion/REDESIGN_BRIEF.md` — §11 (CSS layering), §12 (hard rules) and §14 (SEO guardrails) are binding.
+  - **Font**: a self-hosted Inter variable font in `assets/fonts/`, declared in `assets/css/mailshield-fonts.css`. No font CDN.
+  - **Three stylesheets with a layering rule** (brief §11) — this is the rule most likely to be broken:
+    - `assets/css/mailshield.css` — the design system: `--ms-*` tokens and `ms-`-prefixed components. **Never** shadows a Bootstrap class name.
+    - `assets/css/mailshield-bootstrap.css` — the bridge. The **only** place allowed to restyle `.btn`, `.card`, `.form-control`, etc. Loaded last on Bootstrap pages.
+    - `assets/css/style.css` — legacy. Retains its functional rules (modal widths, `#webhookList` flex behaviour, `.email-list` scrolling, hamburger geometry); its decorative rules are overridden by the bridge, **not deleted**.
+  - **Marketing pages** (`index.php`, `temporary-email.php`) load only the fonts + `mailshield.css`: no Bootstrap, no Font Awesome, no jQuery. Icons are inline SVG.
+  - **App and auth pages** (`inbox.php`, `register.php`, `pro_login.php`, `pro.php`, `pro_profile_page.php`, `client_agent_manage.php`, `pro_contact.php`, `faq.php`, `blog.php`) keep Bootstrap 5.3 + Font Awesome 6 + jQuery 3.7.1 from CDN and add the two Mail Shield stylesheets after `style.css`.
+  - `assets/js/app.js` (class `TempMailApp`) drives the inbox; `assets/js/site-controls.js` is a no-op theme stub kept so the pages that still reference it do not break; a service worker lives at `assets/js/sw.js`.
+  - Assets are cache-busted with `filemtime()`.
 - **Deploy target**: traditional shared PHP hosting (see `.htaccess`, which blocks `.env|.log|.sql|.backup` and Docker files from being served). Docker is used for local/dev only.
 
 ## Commands
@@ -21,6 +55,7 @@ There is no `README.md` at the repo root — this file and `documentaion/` are t
 There is no build step and no automated test suite (no PHPUnit/Pest, no `tests/` directory).
 
 ```bash
+php -S 127.0.0.1:8085            # serve the site locally — there is no other way to view it (no build step, no dev server config)
 composer install                 # install PHP dependencies (vendor/ is gitignored)
 php check_parser.php             # manual smoke test: verifies MIME parser classes load
 php prod_diagnostics.php         # manual CLI diagnostics: env/DB/IMAP/attachments/vendor + dry-run ImapProcessor
@@ -32,11 +67,15 @@ php migrate_account_types.php    # one-time/idempotent migration: adds account_t
 php check_account_tiers.php      # manual CLI diagnostics: reports account_type migration/column status and exercises proUserIsPro()/proUserAccountType()
 ```
 
+`php -S 127.0.0.1:8085` is the local preview the redesign work was done against: when there is no `.env` override, `config.php` defaults `$config['email']['base_url']` to `http://localhost:8085/` outside production, so the port is not arbitrary. Check your work in a browser at that origin before calling a frontend change done — and at 375 / 768 / 1024 / 1440px (see Frontend conventions). `php -l <file>` must pass on every PHP file you touch (brief §12.7); there is no linter config to run instead.
+
 `parse.php` is the new (#34) DirectAdmin pipe-forwarder entrypoint and is intended to complement, not yet replace, `cron/run_imap_once.php` — both can save incoming mail into the same `stored_emails`/`email_attachments` tables while the migration is verified end-to-end (#35).
 
 CI (`.github/workflows/main.yml`, "Säkerhetsscanning", daily + on-demand) runs:
 - `semgrep scan --config p/php --config p/security-audit --error` — treat semgrep findings as build-breaking; check `.semgrepignore` before assuming a file is covered (it currently excludes `client/backend/api.php` and `client/agent/agent.php`).
 - `composer audit --locked`
+
+Because a PR against `redesign/mail-shield` gets no scan from `main.yml` (weekly) or `prod.yml` (push to `main`), `.github/workflows/redesign-pr.yml` runs Semgrep and `composer audit` on every PR targeting that branch and every push to it. A finding there blocks the same as on `main`.
 
 There is no linter/formatter config (no `.eslintrc`, `.prettierrc`, `tsconfig`, `phpcs.xml`) — match existing style by hand.
 
@@ -51,7 +90,15 @@ Never commit `.env.*` files, real secrets, or values for the vars above — `.gi
 ## Architecture
 
 - **`config.php`** — env loading, `$config`, global `$pdo`. Required by nearly everything.
-- **`index.php`** — main web UI and the POST-based AJAX/API surface (address generation/validation, inbox reads against `temp_emails`). This is the largest and most central file (~69KB); look here first for how request handling and DB access conventions work before adding new endpoints. Address creation (`case 'generate'`, via `saveNewAddress()` in `config.php`, and `case 'create_personal'`) calls `createDirectAdminForwarder()` (`config.php`), and address deletion (`case 'delete_personal'`, and the old-address replacement inside `case 'generate'`) calls `deleteDirectAdminForwarder()` (`config.php`) — both no-op fail-open calls while `DA_FORWARDER_ENABLED` is off (see the `DirectAdminClient.php` entry below).
+- **`index.php`** — the public marketing landing page **and** still the POST/AJAX action surface. The split is deliberate: after Redesign 07 the inbox reader moved to `inbox.php`, but the request handler stayed here because `assets/js/app.js` posts to the *relative* URL `'index.php'` (7 call sites), which resolves from `inbox.php` just as well — moving the handler would have meant touching every call. A request carrying a valid `?address=` on `index.php` 302-redirects to `inbox.php?address=…`, so old shared links keep working (brief §12.4). Everything above the landing markup is untouched legacy request handling (address generation/validation, inbox reads against `temp_emails`) — still the first place to look for the request-handling and DB-access conventions, and still a large file (~55KB), but no longer the largest. Address creation (`case 'generate'`, via `saveNewAddress()` in `config.php`, and `case 'create_personal'`) calls `createDirectAdminForwarder()` (`config.php`), and address deletion (`case 'delete_personal'`, and the old-address replacement inside `case 'generate'`) calls `deleteDirectAdminForwarder()` (`config.php`) — both no-op fail-open calls while `DA_FORWARDER_ENABLED` is off (see the `DirectAdminClient.php` entry below). The page body is the ten landing sections from `partials/landing/`, plus a `$msPage` array for the shell.
+- **`inbox.php`** — the inbox reader, split out of `index.php`. Serves both a logged-in user and a logged-out visitor following a shared `?address=` link, which is why it is public but `noindex, nofollow`. Loads the app shell (`partials/nav.php`) and the Bootstrap/FA/jQuery dependencies plus the Mail Shield layers.
+- **`temporary-email.php`** — the dedicated SEO page for the temporary/disposable-email keywords (brief §14). It exists so the site keeps the tempmail ranking it had without making the brand a TempMail site: it carries the tempmail-oriented `<h1>`, headings and body copy and links back to the landing page and to sign-up. Built directly on the public shell rather than from `partials/landing/`, with its own `ms-doc__section` sections.
+- **`partials/`** — the shared page chrome:
+  - `brand.php` — `ms_logo()` and `ms_shield_mark()` (both built on the internal `ms_shield_svg()`), returning inline SVG so the mark needs no icon font and inherits `currentColor`. Deliberately dependency-free — no `config.php`, no session, no DB — and every function is `function_exists`-guarded so a repeat `require` cannot redeclare them.
+  - `public_head.php`, `public_nav.php`, `public_footer.php` — the marketing shell, driven by a `$msPage` array (`title`, `description`, `path`, `preload_font`, `og_type`, `jsonld`, `robots`) that each marketing page sets before requiring `public_head.php`. `public_head.php` emits the canonical/OG/Twitter tags, the JSON-LD block, the favicon and manifest links and the two marketing stylesheets, deriving the origin from `$config['email']['base_url']` — never from a literal.
+  - `nav.php` — the **app** navigation (Bootstrap-classed markup that the bridge restyles; links unchanged). Two contracts inline scripts depend on, and which must not be renamed: the `#proExpiryLine` element that the expiry status is written into, and `tm_nav_active()` plus the `navbar-link active` class it returns.
+  - `landing/*.php` — one file per landing section, required in a fixed order by `index.php`: `hero`, `problem`, `how_it_works`, `addresses`, `temporary`, `automation`, `cleanup`, `external`, `plans`, `cta`. Each is guarded by `if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }`. The `public_*` shell partials carry no such guard — only guarded pages include them.
+- **`sitemap.php`**, **`robots.txt`**, **`site.webmanifest`** — the crawler-facing metadata added by Redesign 21. `sitemap.php` is *generated*, not hand-written: it lists only the public indexable routes, takes `<lastmod>` from `filemtime()` of the file that serves each path, and derives its origin from `$config`; `.htaccess` rewrites `/sitemap.xml` to it. `robots.txt` disallows the private routes (`inbox.php`, `files.php`, `download_attachment.php`, `pro_*`, `client_agent_*`, `log_viewer.php`, `bmac_handler.php`, `parse.php`, `cron/`, `partials/`, `client/`, `documentaion/`) and is the **one deliberate exception** to "never hardcode the origin" — it is a static file, so its `Sitemap:` line hardcodes `https://manjo.me/sitemap.xml`, and it says so in a comment. `site.webmanifest` is minimal (name, theme colour, favicon); there is no offline app and no push.
 - **`php_imap_processor.php`** (`ImapProcessor` class) + **`MailParser.php`** (`MailParser` class) — fetch mail via IMAP and parse MIME into DB rows + `attachments/`. `LegacyImapFallback.php` / `python_imap_fallback.py` back these when the `imap` extension is unavailable. Triggered via `run_imap_processor.php` / `cron/run_imap_once.php`.
 - **`parse.php`** — CLI-only entrypoint for the DirectAdmin pipe-forwarder mail intake (#34): DirectAdmin pipes each incoming message to `php parse.php`, which reads the raw RFC822 message from `php://stdin`, derives the recipient's temp-address local part from `argv[1]`/`LOCAL_PART`/`RECIPIENT` (see the script's header comment — this hasn't been confirmed against the live Exim config), validates it with the same regex as everything else here, looks up the `temp_emails` row, and saves via `MailParser` into `stored_emails`/`email_attachments` using the same columns as `ImapProcessor::saveEmail()`. Rejects (non-zero exit) on invalid/unknown/expired recipients so the MTA can bounce. Refuses to run outside CLI SAPI. Does not yet dispatch Pro webhooks (`ImapProcessor::dispatchWebhooks()`'s pipe-path equivalent is unported) and doesn't replace IMAP polling — both intake paths coexist until `DA_FORWARDER_ENABLED` is verified end-to-end (#35).
 - **`DirectAdminClient.php`** (`DirectAdminClient` class) — isolated API client for DirectAdmin's `CMD_API_EMAIL_FORWARDERS` endpoint (`createForwarder($alias, $destination)` / `deleteForwarder($alias)`), part of an in-progress migration from IMAP-polling/catch-all to a DirectAdmin forwarder that pipes mail directly into a parser script. Configured via `$config['directadmin']` (`DA_HOST`, `DA_USER`, `DA_API_KEY`, `DA_DOMAIN`, `DA_FORWARDER_DESTINATION`, `DA_FORWARDER_ENABLED` — the latter is a kill switch, off by default in all environments until the integration is verified end-to-end (#35)). `config.php`'s `createDirectAdminForwarder($alias)` / `deleteDirectAdminForwarder($alias)` wrap the client with fail-open error handling (a failed delete logs `ERROR` since it can leave an orphaned forwarder) and are called from address creation/deletion in `index.php` and expiry cleanup in `cron/cleanup.php` (see those entries). `php check_directadmin_client.php` runs a DB/network-free CLI smoke test of construction and alias validation.
@@ -60,7 +107,8 @@ Never commit `.env.*` files, real secrets, or values for the vars above — `.gi
 - **`TwoFactorAuth.php`** (`TwoFactorAuth` class) — TOTP (RFC 6238) core library for optional 2FA on Pro password login: secret generation/AES-256-GCM encryption, code/recovery-code verification, `two_factor_attempts` rate limiting, and "remember this browser" trusted-device cookies. The endpoints/UI that consume it live in the Pro tier files above: `pro_auth.php` (`verify_2fa`/`cancel_2fa`, and the `pending_2fa` session challenge inside `password_login`), `pro_profile.php` (`totp_*` and `trusted_devices_*` actions), `pro_profile_page.php` (the Two-factor authentication section of the profile UI). See `documentaion/2FA_DESIGN.md` for the full design, including a "deviations from the original design" section. `php check_totp.php` runs a DB-free CLI smoke test of its crypto paths.
 - **Attachments** — `files.php` / `download_attachment.php` are signed-URL proxies for downloading files out of `attachments/` (not directly web-served).
 - **Client Agent subsystem** — a mostly separate feature: `client/agent/` (agent.php, install.php, bootstrap.php) is code end users install on their own mail server; it verifies RSA-signed webhooks and stores AES-256-GCM-encrypted local secrets. `client/backend/` (api.php, bootstrap.php) is the manjo.me-side API managing filter scripts/lists (tables documented in `documentaion/backend/DATA_MODEL.md`: `mailfilter_scripts`, `mailfilter_whitelist`/`blacklist`, `mailfilter_reported_senders`, `mailfilter_webhook_log`). Root-level `client_agent_*.php` files (`api`, `download`, `install_download`, `manage`) are the public entry points into this subsystem. Read `documentaion/agent/ARCHITECTURE.md` and `documentaion/backend/*.md` before changing this area — it has its own security model (RSA signing, key rotation via `cron/rotate_signing_keys.php`) distinct from the rest of the app.
-- **`blog.php`** — renders markdown files from `blog/*.md` as a minimal blog.
+- **`blog.php`** — renders markdown files from `blog/*.md` as a minimal blog. Rebuilt by Redesign 20 on the same shell as `faq.php` (which Redesign 19 rebuilt): an index plus long-form prose. Both are public pages that nevertheless sit in the *app* style group, so they load Bootstrap.
+- **`assets/js/sw.js`** — a small service-worker cache for the static shell, registered by `assets/js/app.js`. `PRECACHE_URLS` must be kept in step with the real routes — it names `/`, `/index.php`, `/inbox.php`, the Mail Shield stylesheets, `site.webmanifest` and the two favicons — and `CACHE_NAME` must be **bumped whenever that list changes**, because the `activate` handler only evicts caches whose key differs; an unbumped list leaves a stale entry serving the old shell.
 - **`log_viewer.php`** — standalone admin UI over a `system_logs` DB table.
 - **`debug_logger.php`** — JSON-lines file logger independent of the DB, used by mail-parsing code so a logging failure can't cascade into a parsing failure.
 
@@ -70,4 +118,15 @@ Never commit `.env.*` files, real secrets, or values for the vars above — `.gi
 - User-supplied identifiers (e.g. the temp address in `index.php`) are validated with a strict regex (`^[a-f0-9]{8,16}$`) before being used in queries or lookups — apply the same "validate then look up" pattern for new address/ID handling.
 - `detectSuspiciousPatterns()` + `logMessage('WARNING', ...)` is used in `index.php` to flag and log potentially malicious input on POST actions before they're processed further.
 - This codebase has had repeated rounds of Semgrep-driven security hardening (see git log: "Sec issues fixed in index", "nosemgrep" commits) — when Semgrep flags something, prefer fixing the underlying issue over adding a `// nosemgrep` suppression; only suppress with a comment explaining why it's a false positive.
-- Several files/dirs use Swedish names or comments (`documentaion/` is a real, intentional typo in the directory name — don't "fix" it without checking references first, since it's used as a path elsewhere).
+
+## Frontend conventions
+
+The enforceable subset. The full spec is `documentaion/REDESIGN_BRIEF.md` — §11 (CSS layering), §12 (hard rules), §14 (SEO guardrails). If you are about to write frontend code and have not read those, read them first.
+
+- New CSS classes are prefixed `ms-`. Colours and sizes come from the `--ms-*` tokens in `assets/css/mailshield.css` — never a raw hex value, and never a hardcoded `px`/`rem` font size.
+- **Never hardcode the mail domain in copy** — render `$config['email']['domain']` so example addresses cannot lie if the domain changes. **Never hardcode the origin** — use `$config['email']['base_url']`. (`robots.txt` is the sole documented exception, because it is static.)
+- **Never claim a feature the code lacks.** Brief §9 is the inventory; copy may only promise what is in it. The two current traps: there is **no public API** (anything beyond a `Coming` badge is a lie) and **no browser/web push** (never mention it at all).
+- Retention and tier facts, which copy keeps getting wrong: free temporary addresses last **24 hours**, Pro **1–7 days**; personal addresses are **Pro-only, max 10**; Pro requires a **voucher code** — there are **no published prices and no pricing page**.
+- Animation is sparing: no loops, no scroll-triggered motion, no hover `transform`, and every animation sits inside the `prefers-reduced-motion` guard.
+- `htmlspecialchars()` every PHP value printed into HTML; `escapeHtml()` every value interpolated in `assets/js/app.js` — mail headers are attacker-controlled.
+- Check 375 / 768 / 1024 / 1440px. Wide content (tables, code, the inbox list) scrolls **inside its own container, never the page**.

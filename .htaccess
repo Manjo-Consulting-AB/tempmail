@@ -4,6 +4,9 @@
 # Aktivera mod_rewrite
 RewriteEngine On
 
+# /sitemap.xml serveras av sitemap.php (genererad, se sitemap.php)
+RewriteRule ^sitemap\.xml$ sitemap.php [L]
+
 # Sätt standardindex-fil
 DirectoryIndex index.php
 

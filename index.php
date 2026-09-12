@@ -899,460 +899,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     exit;
 }
+
+// Shared inbox links used to be read on this page. The inbox now lives in
+// inbox.php; redirect so existing links keep working.
+if ($urlAddress !== null) {
+    header('Location: inbox.php?address=' . urlencode($urlAddress), true, 302);
+    exit;
+}
 ?>
-<!DOCTYPE html>
-<html lang="sv">
-<head>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-BFX6EC3575"></script>
-        <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);} 
-        gtag('js', new Date());
-        gtag('config', 'G-BFX6EC3575');
-    </script>
+<?php
+/**
+ * Mail Shield landing page. Spec: documentaion/REDESIGN_BRIEF.md §8 (section
+ * order and copy) and §11 (marketing pages load only the mailshield
+ * stylesheets).
+ *
+ * Everything above this point is the POST/AJAX action surface that app.js in
+ * inbox.php still posts to — it is deliberately untouched. The page body itself
+ * is ten stub sections, one file each, so Redesigns 09–15 can fill them in
+ * independently without touching this file.
+ */
 
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TempMail - Temporary Email Service</title>
-    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
-    <link rel="alternate icon" href="/assets/images/favicon.ico">
-    
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    
-    <!-- Custom CSS -->
-    <link href="assets/css/style.css" rel="stylesheet">
-    
-    <meta name="description" content="Create temporary email addresses that are automatically deleted after 24 hours. Safe and easy to use.">
-    
-</head>
-<body>
-    <div class="main-container">
-        <!-- Header -->
-        <div class="header">
-            <h1><i class="fas fa-envelope"></i> TempMail<?php echo !empty($_SESSION['pro_user_id'] ?? null) ? ' Pro' : ''; ?></h1>
-            <p class="lead"><?php echo !empty($_SESSION['pro_user_id'] ?? null) 
-                ? 'Temporary email addresses for pro users. Default lifetime applied to new addresses.' 
-                : 'Temporary email addresses that are deleted after 24 hours'; ?></p>
-            
-            <?php require 'partials/nav.php'; ?>
-            <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-            <script>
-            (function(){
-                try {
-                    var proExpiry = <?php 
-                        // Fetch pro_expires_at from session or database
-                        $proExpires = null;
-                        $isProAccount = false;
-                        if (!empty($_SESSION['pro_user_id'])) {
-                            try {
-                                $pstmt = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
-                                $pstmt->execute([$_SESSION['pro_user_id']]);
-                                $prow = $pstmt->fetch(PDO::FETCH_ASSOC);
-                                $proExpires = $prow['pro_expires_at'] ?? null;
-                                $isProAccount = proUserIsPro((int)$_SESSION['pro_user_id']);
-                            } catch (Exception $e) {}
-                        }
-                        echo json_encode(['expires' => $proExpires, 'isPro' => $isProAccount]);
-                    ?>;
-                    if (!proExpiry.isPro) {
-                        document.getElementById('proExpiryLine').textContent = 'Free';
-                        return;
-                    }
-                    if (!proExpiry.expires) {
-                        document.getElementById('proExpiryLine').textContent = 'Pro: Lifetime';
-                        return;
-                    }
-                    var d = new Date(proExpiry.expires + ' UTC');
-                    var dd = String(d.getUTCDate()).padStart(2, '0');
-                    var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-                    var yyyy = d.getUTCFullYear();
-                    var dateOnly = dd + '/' + mm + '/' + yyyy;
-                    var now = new Date();
-                    var diffMs = d - now;
-                    if (diffMs <= 0) {
-                        document.getElementById('proExpiryLine').textContent = 'Pro expired on ' + dateOnly;
-                        document.getElementById('proExpiryLine').style.color = '#ff6b6b';
-                    } else {
-                        document.getElementById('proExpiryLine').textContent = 'Pro expires: ' + dateOnly;
-                    }
-                } catch (e) {}
-            })();
-            </script>
-            <?php endif; ?>
-            <!-- navbar script moved to partial -->
-        </div>
+$domain = $config['email']['domain'] ?? 'manjo.me';
 
-        <!-- Funktioner och information -->
-        <?php if (empty($_SESSION['pro_user_id'] ?? null)): ?>
-                    <div class="alert alert-info">
-                        <i class="fas fa-shield-alt"></i>
-                        <strong>Security:</strong> All email addresses and messages are automatically deleted after 24 hours. 
-                        Don't use for sensitive information.
-                    </div>
-        <div class="card fade-in">
-            <div class="card-header">
-                <h3><i class="fas fa-info-circle"></i> How It Works</h3>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-4 mb-4">
-                        <div class="text-center">
-                            <i class="fas fa-mouse-pointer fa-2x text-primary mb-3"></i>
-                            <h5>1. Generate</h5>
-                            <p>Click the button to get a new temporary email address</p>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-4">
-                        <div class="text-center">
-                            <i class="fas fa-paper-plane fa-2x text-success mb-3"></i>
-                            <h5>2. Use</h5>
-                            <p>Use the address for registrations and verifications</p>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-4">
-                        <div class="text-center">
-                            <i class="fas fa-eye fa-2x text-info mb-3"></i>
-                            <h5>3. Read</h5>
-                            <p>View incoming emails here on the page in real-time</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
-            </div>
-        </div>
+// Origin for structured data — the same $config source public_head.php derives
+// canonical/og:url from, never a hardcoded domain (§14).
+$msOrigin = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 
-        
+// Organization + WebSite only. Deliberately no SoftwareApplication with an
+// offers block: no price has been published (§9), and an invented Offer is
+// exactly the claim that gets a site penalised rather than ranked.
+$msPage = [
+    'title'        => 'Mail Shield — Your inbox for everything else',
+    'description'  => 'A separate inbox for shopping, newsletters, signups and temporary email. Create permanent addresses or disposable temporary email addresses, and keep your primary inbox for what matters.',
+    'path'         => '/',
+    'preload_font' => true,
+    'jsonld'       => [
+        '@context' => 'https://schema.org',
+        '@graph'   => [
+            [
+                '@type'              => 'Organization',
+                'name'               => 'Mail Shield',
+                'url'                => $msOrigin . '/',
+                'logo'               => $msOrigin . '/assets/images/og-mailshield.png',
+                'parentOrganization' => [
+                    '@type' => 'Organization',
+                    'name'  => 'Manjo Consulting AB',
+                ],
+            ],
+            [
+                '@type' => 'WebSite',
+                'name'  => 'Mail Shield',
+                'url'   => $msOrigin . '/',
+            ],
+        ],
+    ],
+];
 
-        <!-- Initial address generator (visas tills adress är skapad) -->
-        <div id="initial-generator" class="card fade-in card-main-width">
-            <div class="card-body text-center">
-                <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                    <h4 class="mb-3">Click to get your temporary email address</h4>
-                    <button id="generateBtn" class="btn btn-primary btn-lg">
-                        <i class="fas fa-magic"></i> Get Email Address
-                    </button>
-                <?php else: ?>
-                    <h4 class="mb-3">An account is required to create a temporary email address</h4>
-                    <a href="/register.php" class="btn btn-primary btn-lg">
-                        <i class="fas fa-user-plus"></i> Create a free account
-                    </a>
-                    <div class="mt-2">
-                        <a href="/pro_login.php" class="small" rel="nofollow noreferrer">Already have an account? Log in</a>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <!-- E-postadress display (visas när adress är skapad) -->
-        <div class="email-container d-none">
-            <div class="card fade-in card-main-width">
-                <div class="card-header">
-                    <h3><i class="fas fa-envelope-open"></i> Your Temporary Email Address</h3>
-                </div>
-                <div class="card-body">
-                    <div class="email-display">
-                        <h4 class="email-address" id="currentEmail" tabindex="0"></h4>
-                        <div class="email-info">
-                            <span id="privacyIndicator" class="d-none me-3"><i class="fas fa-lock"></i> <span id="privacyText">Private</span></span>
-                            <i class="fas fa-clock"></i> <span id="validityText">Valid for 24 hours</span>
-                        </div>
-                    </div>
-                    
-                    <div class="row mt-4">
-                        <div class="col-md-6 mb-3">
-                            <button id="copyBtn" class="btn btn-success w-100">
-                                <i class="fas fa-copy"></i> Copy Address
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="refreshBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-sync-alt"></i> Refresh
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="shareBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-share-alt"></i> Share Link
-                            </button>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <button id="newAddressBtn" class="btn btn-outline-secondary w-100">
-                                <i class="fas fa-plus"></i> New Address
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="text-end mt-3">
-                        <small class="text-muted">
-                            Last updated: <span id="lastUpdate">Never</span>
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <!-- E-postlista -->
-            <div class="card fade-in card-main-width">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h3><i class="fas fa-inbox"></i> Incoming Emails</h3>
-                    <div class="d-flex align-items-center">
-                        <span class="badge bg-primary me-2" id="emailCount">0</span>
-                        <button id="imageToggle" class="btn btn-sm btn-outline-secondary" title="Blockera externa bilder">
-                            <i class="fas fa-image"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body p-0">
-                    <div class="email-list" id="emailList">
-                        <!-- E-postmeddelanden läses in här via JavaScript -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Statistik -->
-        <!-- Pro vs Regular comparison -->
-        <div class="card mt-4 card-main-width">
-            <div class="card-header"><h3>Pro vs Regular</h3></div>
-            <div class="card-body">
-                <p class="text-muted mb-3"><strong>Regular</strong> is a free, registered account — creating a temporary address now requires <a href="/register.php">signing up</a>. A logged-out visitor can only view an inbox they were given a direct link to.</p>
-                <div class="table-responsive">
-                    <table class="table table-bordered table-striped">
-                        <thead>
-                            <tr>
-                                <th>Feature</th>
-                                <th>Regular</th>
-                                <th>Pro</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>Address lifetime</td>
-                                <td>Default 24 hours</td>
-                                <td>Configurable (1–7 days)</td>
-                            </tr>
-                            <tr>
-                                <td>Personal addresses</td>
-                                <td>Not available</td>
-                                <td>Create up to 10 persistent personal addresses</td>
-                            </tr>
-                            <tr>
-                                <td>Webhooks</td>
-                                <td>Not available</td>
-                                <td>Receive webhooks for incoming mail (POST JSON)</td>
-                            </tr>
-                            <tr>
-                                <td>Digest emails</td>
-                                <td>Not available</td>
-                                <td>Periodic digests with unread messages</td>
-                            </tr>
-                            <tr>
-                                <td>RSS feed</td>
-                                <td>Not available</td>
-                                <td>Private RSS feed of your inbox (token protected)</td>
-                            </tr>
-                            <tr>
-                                <td>Remote agent</td>
-                                <td>Not available</td>
-                                <td>Monitor and manage any remote mailbox</td>
-                            </tr>
-                            <tr>
-                                <td>Address privacy</td>
-                                <td>Unauthenticated — anyone with the address/link can read the inbox</td>
-                                <td>Temp addresses shareable; Personal addresses private (login required)</td>
-                            </tr>
-                            <tr>
-                                <td>Attachments</td>
-                                <td>Signed, time-limited download links</td>
-                                <td>Signed, time-limited download links</td>
-                            </tr>
-                            <tr>
-                                <td>Support</td>
-                                <td>Community / public docs</td>
-                                <td>Priority support</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <?php if (empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                    <div class="mt-3 text-center">
-                        <a href="/register.php?plan=regular" class="btn btn-primary me-2">
-                            <i class="fas fa-user-plus"></i> Create a free account
-                        </a>
-                        <a href="/register.php?plan=pro" class="btn btn-outline-primary" rel="nofollow noreferrer">
-                            <i class="fas fa-key"></i> Get Pro with a code
-                        </a>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <div class="card fade-in card-main-width">
-            <div class="card-header">
-                <h3><i class="fas fa-chart-bar"></i> System Statistics</h3>
-            </div>
-            <div class="card-body">
-                <div class="row text-center">
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-inbox fa-2x text-info mb-2"></i>
-                            <h4 class="stat-number" id="statsTotal">0</h4>
-                            <p class="text-muted mb-0">Total Emails</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-envelope-open-text fa-2x text-primary mb-2"></i>
-                            <h4 class="stat-number" id="statsProcessed">0</h4>
-                            <p class="text-muted mb-0">Emails Processed</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-plus-circle fa-2x text-success mb-2"></i>
-                            <h4 class="stat-number" id="statsCreated">0</h4>
-                            <p class="text-muted mb-0">Addresses Created</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <div class="stat-box">
-                            <i class="fas fa-paperclip fa-2x text-warning mb-2"></i>
-                            <h4 class="stat-number" id="statsAttachments">0</h4>
-                            <p class="text-muted mb-0">Attachments Processed</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="text-center mt-3">
-                    <small class="text-muted">
-                        <i class="fas fa-sync-alt"></i> 
-                        Statistics updated automatically every minute
-                    </small>
-                    <br>
-                    <div class="status-indicator mt-2">
-                        <i class="fas fa-circle"></i> Ready
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- E-post Modal -->
-    <div class="modal fade" id="emailModal" tabindex="-1" aria-labelledby="emailModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-main modal-fullscreen-sm-down">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="emailModalLabel">Email Message</h5>
-                    <div class="d-flex align-items-center">
-                        <button id="modalShowImagesBtn" type="button" class="btn btn-sm btn-outline-secondary me-2" title="Visa bilder i detta meddelande">Visa bilder</button>
-                        <button type="button" class="btn-close" aria-label="Close"></button>
-                    </div>
-                </div>
-                <div class="modal-body">
-                    <div class="row mb-3">
-                        <div class="col-sm-3"><strong>From:</strong></div>
-                        <div class="col-sm-9" id="emailFrom"></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-sm-3"><strong>To:</strong></div>
-                        <div class="col-sm-9" id="emailTo"></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-sm-3"><strong>Date:</strong></div>
-                        <div class="col-sm-9" id="emailDate"></div>
-                    </div>
-                    <hr>
-                    <div class="email-content" id="emailContent">
-                        <!-- Email content loaded here -->
-                    </div>
-                    <div id="emailAttachments" class="mt-3" style="display:none">
-                        <h6>Attachments</h6>
-                        <!-- Attachment links injected here -->
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Pro Profile Modal -->
-    <div class="modal fade" id="proProfileModal" tabindex="-1" aria-labelledby="proProfileLabel" aria-hidden="true">
-        <div class="modal-dialog modal-main modal-fullscreen-sm-down">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="proProfileLabel">Profile</h5>
-                    <button type="button" class="btn-close" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div id="proProfileAlert"></div>
-                    <form id="proProfileForm">
-                        <div class="mb-3">
-                            <label class="form-label">Email</label>
-                            <input type="email" class="form-control" id="proEmail" />
-                        </div>
-                        <div class="mb-3">
-                            <button type="button" id="saveProfileEmailBtn" class="btn btn-primary">Save email</button>
-                        </div>
-
-                        <hr>
-                        <h6>Set a password for direct access</h6>
-                        <div id="proPasswordCurrentGroup" class="mb-3 d-none">
-                            <label class="form-label">Current password</label>
-                            <input type="password" class="form-control" id="proPasswordCurrent" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">New password</label>
-                            <input type="password" class="form-control" id="proPassword" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Confirm password</label>
-                            <input type="password" class="form-control" id="proPasswordConfirm" />
-                        </div>
-                        <div class="mb-3">
-                            <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Footer -->
-    <footer class="text-center mt-5 py-4">
-        <div class="container">
-            <p class="text-light mb-0">
-                <small>TempMail - Secure temporary email | All messages deleted after 24 hours | v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
-            </p>
-            <p class="text-light mb-0 mt-1">
-                <small>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</small>
-            </p>
-        </div>
-    </footer>
-
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="assets/js/site-controls.js"></script>
-    <script>
-        // Konfigurations-objekt för JavaScript
-        window.tempMailConfig = {
-            domain: '<?php echo $config['email']['domain']; ?>',
-            refreshRate: 10000,
-            maxEmailPreview: 150,
-            urlAddress: <?php echo $urlAddress ? "'" . htmlspecialchars($urlAddress, ENT_QUOTES) . "'" : 'null'; ?>,
-            urlExpiresAt: <?php echo $urlExpiresAt ? "'" . htmlspecialchars($urlExpiresAt, ENT_QUOTES) . "'" : 'null'; ?>,
-            isPro: <?php echo !empty($_SESSION['pro_user_id']) ? 'true' : 'false'; ?>
-        };
-    </script>
-    <script src="assets/js/app.js?v=<?php echo file_exists(__DIR__ . '/assets/js/app.js') ? filemtime(__DIR__ . '/assets/js/app.js') : time(); ?>"></script>
-    <script>
-    (function(){
-        // No personal-address handlers on index; profile page contains those controls now.
-    })();
-    </script>
-</body>
-</html>
+require 'partials/brand.php';
+require 'partials/public_head.php';
+require 'partials/public_nav.php';
+?>
+<main id="main">
+<?php
+foreach ([
+    'hero',
+    'problem',
+    'how_it_works',
+    'addresses',
+    'temporary',
+    'automation',
+    'cleanup',
+    'external',
+    'plans',
+    'cta',
+] as $msSection) {
+    require __DIR__ . '/partials/landing/' . $msSection . '.php';
+}
+?>
+</main>
+<?php require 'partials/public_footer.php'; ?>

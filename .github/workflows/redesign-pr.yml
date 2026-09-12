@@ -1,0 +1,64 @@
+name: Redesign PR-kontroll (Semgrep + Composer)
+
+# main.yml kör Semgrep en gång i veckan, och prod.yml kör den på push till main
+# (där den grindar deployen). En PR scannas alltså inte alls som standard.
+#
+# Under redesignen mergas ~27 PR:er till redesign/mail-shield innan något går
+# live. Utan den här workflowen skulle första scanningen ske vid go-live-mergen
+# till main - alltså i det ögonblick ett fynd är dyrast att hitta. Det här
+# jobbet flyttar samma kontroller till varje PR i stället.
+#
+# Kan tas bort när redesign/mail-shield är mergad och borttagen.
+
+on:
+  pull_request:
+    branches:
+      - redesign/mail-shield
+  push:
+    branches:
+      - redesign/mail-shield
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Samma konfiguration som main.yml och prod.yml - avsiktligt identisk, så att
+  # en PR som är grön här inte kan fälla deployen vid go-live.
+  semgrep-scan:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Hämta källkod
+        uses: actions/checkout@v5
+      - name: Kör Semgrep Säkerhetsscan
+        run: semgrep scan --config p/php --config p/security-audit --error ./
+
+  composer-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hämta källkod
+        uses: actions/checkout@v5
+      - name: Kontrollera sårbarheter i Composer-paket
+        run: composer audit --locked
+
+  # Syntaxkontroll av all PHP. Billigt, och fångar den vanligaste regressionen
+  # i ett frontendarbete: en trasig fil efter omflyttad markup.
+  php-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hämta källkod
+        uses: actions/checkout@v5
+      - name: Sätt upp PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+      - name: php -l på alla PHP-filer
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r f; do
+            php -l "$f" > /dev/null || { echo "::error file=$f::Syntaxfel"; fail=1; }
+          done < <(git ls-files '*.php')
+          exit "$fail"

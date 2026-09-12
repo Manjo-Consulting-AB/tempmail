@@ -1,0 +1,4361 @@
+/* ==========================================================================
+   Mail Shield — design tokens and base stylesheet
+   Spec: documentaion/REDESIGN_BRIEF.md §5 (visual design system), §11 (CSS
+   architecture). Values here are approved; do not invent or "improve" them.
+
+   Layering: marketing pages load this file alone. App and auth pages load it
+   after style.css, with mailshield-bootstrap.css (Redesign 05) last. This file
+   must never define or shadow a Bootstrap class name — only `ms-` classes.
+   ========================================================================== */
+
+/* ==========================================================================
+   a. Tokens
+   ========================================================================== */
+
+:root {
+    /* --- Colour (§5.1) — light only, no dark mode in this redesign -------- */
+    --ms-bg: #FAFAF9;               /* page, warm off-white */
+    --ms-bg-raised: #FFFFFF;        /* cards, product surfaces */
+    --ms-bg-sunken: #F4F4F2;        /* wells, code, alternating bands */
+    --ms-text: #16161A;             /* near-black */
+    --ms-text-muted: #6B6B73;
+    /* Darkened by the Redesign 16 QA pass. The approved value was 2.8:1 on
+       --ms-bg-raised — under the 4.5:1 the brief's §5.5 floor asks of small
+       text, and it carries real text: the mockup timestamps, the step numbers
+       and the cleanup qualifier. Now 5.05:1 on raised, 4.83:1 on --ms-bg and
+       4.59:1 on --ms-bg-sunken. It sits close to --ms-text-muted as a result;
+       those two are told apart by size and context rather than by weight. */
+    --ms-text-faint: #6F6F78;
+    --ms-border: #E5E5E1;           /* thin hairlines */
+    --ms-border-strong: #D4D4CF;
+    --ms-accent: #12695A;           /* deep teal-green — use sparingly */
+    --ms-accent-hover: #0E5649;
+    --ms-accent-soft: #E6F2EF;      /* tinted backgrounds only */
+    --ms-accent-contrast: #FFFFFF;  /* text on accent */
+    --ms-danger: #B4453C;
+    --ms-warning: #A86A1F;
+    --ms-success: #2F6B4F;
+
+    /* --- Typography: families (§5.2) -------------------------------------- */
+    --ms-font-sans: 'Inter var', 'Inter', -apple-system, BlinkMacSystemFont,
+        'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --ms-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+        'Liberation Mono', monospace;
+
+    /* --- Typography: scale (§5.2) — size / line-height / tracking / weight - */
+    --ms-fs-display: clamp(2.5rem, 6vw, 4.25rem);
+    --ms-lh-display: 1.02;
+    --ms-ls-display: -0.03em;
+    --ms-fw-display: 600;
+
+    --ms-fs-h1: clamp(2rem, 4vw, 3rem);
+    --ms-lh-h1: 1.08;
+    --ms-ls-h1: -0.025em;
+    --ms-fw-h1: 600;
+
+    --ms-fs-h2: clamp(1.6rem, 3vw, 2.25rem);
+    --ms-lh-h2: 1.15;
+    --ms-ls-h2: -0.02em;
+    --ms-fw-h2: 600;
+
+    --ms-fs-h3: 1.25rem;
+    --ms-lh-h3: 1.3;
+    --ms-ls-h3: -0.01em;
+    --ms-fw-h3: 600;
+
+    --ms-fs-lede: clamp(1.0625rem, 1.6vw, 1.25rem);
+    --ms-lh-lede: 1.6;
+    --ms-ls-lede: 0;
+    --ms-fw-lede: 400;
+
+    --ms-fs-body: 1rem;
+    --ms-lh-body: 1.65;
+    --ms-ls-body: 0;
+    --ms-fw-body: 400;
+
+    --ms-fs-sm: 0.875rem;
+    --ms-lh-sm: 1.55;
+    --ms-ls-sm: 0;
+    --ms-fw-sm: 400;
+
+    --ms-fs-xs: 0.8125rem;
+    --ms-lh-xs: 1.5;
+    --ms-ls-xs: 0;
+    --ms-fw-xs: 400;
+
+    --ms-fs-eyebrow: 0.75rem;
+    --ms-lh-eyebrow: 1.4;
+    --ms-ls-eyebrow: 0.08em;
+    --ms-fw-eyebrow: 600;
+
+    /* --- Space (4px base), radius, shadow, layout (§5.3) ------------------ */
+    --ms-space-1: .25rem;
+    --ms-space-2: .5rem;
+    --ms-space-3: .75rem;
+    --ms-space-4: 1rem;
+    --ms-space-5: 1.5rem;
+    --ms-space-6: 2rem;
+    --ms-space-7: 2.5rem;
+    --ms-space-8: 3rem;
+    --ms-space-10: 4rem;
+    --ms-space-12: 5rem;
+    --ms-space-16: 6.5rem;
+
+    --ms-radius-sm: 6px;
+    --ms-radius-md: 10px;
+    --ms-radius-lg: 14px;
+    --ms-radius-xl: 20px;
+    --ms-radius-pill: 999px;
+
+    --ms-shadow-xs: 0 1px 2px rgba(22,22,26,.04);
+    --ms-shadow-sm: 0 1px 3px rgba(22,22,26,.06), 0 1px 2px rgba(22,22,26,.04);
+    --ms-shadow-md: 0 4px 12px rgba(22,22,26,.06), 0 1px 3px rgba(22,22,26,.04);
+    --ms-shadow-lg: 0 18px 48px rgba(22,22,26,.10), 0 2px 8px rgba(22,22,26,.05);
+
+    --ms-container: 1120px;
+    --ms-container-narrow: 720px;
+    --ms-gutter: clamp(1rem, 4vw, 2rem);
+    --ms-section-y: clamp(4rem, 9vw, 7.5rem);
+
+    /* --- Motion (§5.4) ---------------------------------------------------- */
+    --ms-ease: cubic-bezier(.2,.6,.2,1);
+    --ms-dur-fast: 120ms;
+    --ms-dur: 180ms;
+    --ms-dur-slow: 280ms;
+}
+
+/* ==========================================================================
+   b. Base layer
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    background: var(--ms-bg);
+    color: var(--ms-text);
+    font-family: var(--ms-font-sans);
+    font-size: var(--ms-fs-body);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+img,
+svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* Components own their spacing. */
+h1, h2, h3, h4, h5, h6 {
+    margin: 0;
+}
+
+a {
+    color: var(--ms-accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+:focus-visible {
+    outline: 2px solid var(--ms-accent);
+    outline-offset: 2px;
+    border-radius: var(--ms-radius-sm);
+}
+
+::selection {
+    background: var(--ms-accent-soft);
+    color: var(--ms-text);
+}
+
+/* ==========================================================================
+   c. Component layer — every class prefixed `ms-`
+   ========================================================================== */
+
+/* --- Layout --------------------------------------------------------------- */
+
+.ms-container {
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+.ms-container--narrow {
+    max-width: var(--ms-container-narrow);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+.ms-section {
+    padding-block: var(--ms-section-y);
+}
+
+.ms-section--tight {
+    padding-block: calc(var(--ms-section-y) / 2);
+}
+
+.ms-section--sunken {
+    background: var(--ms-bg-sunken);
+    border-top: 1px solid var(--ms-border);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-grid {
+    display: grid;
+    gap: var(--ms-space-5);
+}
+
+.ms-grid--2 {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.ms-grid--3 {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.ms-grid--4 {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.ms-stack > * + * {
+    margin-top: var(--ms-space-4);
+}
+
+/* --- Type ----------------------------------------------------------------- */
+
+.ms-eyebrow {
+    display: block;
+    margin: 0;
+    font-size: var(--ms-fs-eyebrow);
+    line-height: var(--ms-lh-eyebrow);
+    letter-spacing: var(--ms-ls-eyebrow);
+    font-weight: var(--ms-fw-eyebrow);
+    text-transform: uppercase;
+    color: var(--ms-text-muted);
+}
+
+.ms-display {
+    margin: 0;
+    font-size: var(--ms-fs-display);
+    line-height: var(--ms-lh-display);
+    letter-spacing: var(--ms-ls-display);
+    font-weight: var(--ms-fw-display);
+}
+
+.ms-h2 {
+    margin: 0;
+    font-size: var(--ms-fs-h2);
+    line-height: var(--ms-lh-h2);
+    letter-spacing: var(--ms-ls-h2);
+    font-weight: var(--ms-fw-h2);
+}
+
+.ms-h3 {
+    margin: 0;
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+}
+
+.ms-lede {
+    font-size: var(--ms-fs-lede);
+    line-height: var(--ms-lh-lede);
+    letter-spacing: var(--ms-ls-lede);
+    color: var(--ms-text-muted);
+    max-width: 46ch;
+}
+
+.ms-prose {
+    max-width: 62ch;
+}
+
+.ms-prose > * + * {
+    margin-top: var(--ms-space-4);
+}
+
+/* Lists inside prose. Left as plain lists: markers kept, no accent, no chips.
+   Only the indent is restated — the rhythm between the list and its neighbours
+   still comes from the rule above. */
+.ms-prose ul,
+.ms-prose ol {
+    padding-left: 1.25rem;
+}
+
+.ms-prose li + li {
+    margin-top: var(--ms-space-2);
+}
+
+.ms-addr {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-sm);
+    background: var(--ms-bg-sunken);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-sm);
+    padding: .1875rem .4375rem;
+    white-space: nowrap;
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+.ms-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ms-space-2);
+    padding: .625rem 1.125rem;
+    border-radius: var(--ms-radius-md);
+    font-family: inherit;
+    font-weight: 500;
+    font-size: var(--ms-fs-sm);
+    line-height: 1.2;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ms-text);
+    cursor: pointer;
+    text-decoration: none;
+    transition:
+        background-color var(--ms-dur) var(--ms-ease),
+        border-color var(--ms-dur) var(--ms-ease),
+        color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-btn:hover {
+    text-decoration: none;
+}
+
+.ms-btn--primary {
+    background: var(--ms-accent);
+    color: var(--ms-accent-contrast);
+}
+
+.ms-btn--primary:hover {
+    background: var(--ms-accent-hover);
+}
+
+.ms-btn--secondary {
+    background: transparent;
+    border-color: var(--ms-border-strong);
+    color: var(--ms-text);
+}
+
+.ms-btn--secondary:hover {
+    background: var(--ms-bg-raised);
+}
+
+.ms-btn--quiet {
+    background: transparent;
+    color: var(--ms-text-muted);
+}
+
+.ms-btn--quiet:hover {
+    color: var(--ms-text);
+}
+
+.ms-btn--lg {
+    padding: .8125rem 1.375rem;
+    font-size: var(--ms-fs-body);
+}
+
+.ms-btn[disabled],
+.ms-btn--disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* The default button is 39px tall — fine under a mouse, under the 44px a thumb
+   wants. Only the height changes: the inline padding stays, so a quiet button
+   still closes flush with the text it sits under. */
+@media (max-width: 767px) {
+    .ms-btn {
+        min-height: 2.75rem;
+    }
+}
+
+/* --- Cards ---------------------------------------------------------------- */
+
+.ms-card {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    padding: var(--ms-space-5);
+    box-shadow: var(--ms-shadow-sm);
+}
+
+.ms-card--flat {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    padding: var(--ms-space-5);
+    box-shadow: none;
+}
+
+.ms-card--interactive {
+    transition:
+        border-color var(--ms-dur) var(--ms-ease),
+        box-shadow var(--ms-dur) var(--ms-ease);
+}
+
+.ms-card--interactive:hover {
+    border-color: var(--ms-border-strong);
+    box-shadow: var(--ms-shadow-md);
+}
+
+/* --- Chips, badges, rules ------------------------------------------------- */
+
+.ms-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ms-space-1);
+    padding: .125rem .5rem;
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-pill);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+    white-space: nowrap;
+}
+
+.ms-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: .0625rem .375rem;
+    border-radius: var(--ms-radius-sm);
+    font-size: var(--ms-fs-eyebrow);
+    line-height: var(--ms-lh-eyebrow);
+    letter-spacing: var(--ms-ls-eyebrow);
+    font-weight: var(--ms-fw-eyebrow);
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.ms-badge--soon {
+    background: var(--ms-accent-soft);
+    color: var(--ms-accent);
+}
+
+.ms-hairline {
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    margin: 0;
+}
+
+/* --- Utilities ------------------------------------------------------------ */
+
+.ms-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* --- Brand ---------------------------------------------------------------- */
+
+.ms-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+.ms-logo:hover {
+    text-decoration: none;
+}
+
+.ms-logo__mark {
+    color: var(--ms-accent);
+    flex: none;
+}
+
+.ms-logo__word {
+    font-weight: 600;
+    letter-spacing: -.02em;
+    font-size: var(--ms-fs-body);
+    white-space: nowrap;
+}
+
+/* ==========================================================================
+   d. Motion layer
+   ========================================================================== */
+
+@keyframes ms-rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ms-rise {
+    animation: ms-rise var(--ms-dur-slow) var(--ms-ease) both;
+    animation-delay: var(--ms-rise-delay, 0ms);
+}
+
+/* ==========================================================================
+   e. Reduced motion
+   ========================================================================== */
+
+/* Every animation on the site lands on a visible final state, so shortening it
+   to nothing is enough — the element simply appears in place. animation-delay
+   has to be reset as well: .ms-rise fills backwards, so a delayed element would
+   otherwise still sit at its opacity:0 start state for the length of the delay
+   even though the animation itself is over. Resetting it here rather than in a
+   per-component rule is what keeps .ms-rise safe to reuse. */
+@media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-delay: 0ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}
+
+/* ==========================================================================
+   f. Public nav (partials/public_nav.php)
+   ========================================================================== */
+
+.ms-nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--ms-bg);
+    /* Transparent at scroll position 0; JS adds .ms-nav--scrolled past the top. */
+    border-bottom: 1px solid transparent;
+    transition: border-color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-nav.ms-nav--scrolled {
+    border-bottom-color: var(--ms-border);
+}
+
+/* Keep in-page anchor targets clear of the sticky bar. */
+:target {
+    scroll-margin-top: var(--ms-space-12);
+}
+
+.ms-nav__inner {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-5);
+    min-height: 4rem;
+}
+
+.ms-nav__logo {
+    flex: none;
+    margin-right: auto;
+}
+
+.ms-nav__toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-md);
+    background: transparent;
+    color: var(--ms-text);
+    cursor: pointer;
+    transition: background-color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-nav__toggle:hover {
+    background: var(--ms-bg-sunken);
+}
+
+.ms-nav__panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ms-space-4);
+    padding: var(--ms-space-4) var(--ms-gutter) var(--ms-space-5);
+    background: var(--ms-bg);
+    border-top: 1px solid var(--ms-border);
+    border-bottom: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-md);
+}
+
+/* Author `display` beats the UA rule for [hidden], so restate it here. */
+.ms-nav__panel[hidden] {
+    display: none;
+}
+
+.ms-nav__links {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-nav__links a {
+    display: block;
+    padding: var(--ms-space-3) 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-nav__links a:hover {
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+.ms-nav__actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ms-space-3);
+}
+
+.ms-nav__login {
+    padding: var(--ms-space-2) 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-nav__login:hover {
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+.ms-nav__user {
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+    max-width: 18ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+    .ms-nav__toggle {
+        display: none;
+    }
+
+    .ms-nav__panel,
+    .ms-nav__panel[hidden] {
+        position: static;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-5);
+        padding: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+    }
+
+    .ms-nav__links {
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-5);
+    }
+
+    .ms-nav__links a {
+        padding: 0;
+        white-space: nowrap;
+    }
+
+    .ms-nav__actions {
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-4);
+    }
+
+    /* The row is tight at 768px — the label must not wrap or shrink. */
+    .ms-nav__actions .ms-btn {
+        flex: none;
+        white-space: nowrap;
+    }
+
+    .ms-nav__login {
+        padding: 0;
+        white-space: nowrap;
+    }
+}
+
+/* In the collapsed panel every row is a thumb target: the links are stacked
+   rather than sitting in a line, so each needs the same 44px the buttons get.
+   The logo is a link too, and the bar is 4rem tall, so the height costs the
+   header nothing. */
+@media (max-width: 767px) {
+    .ms-nav__logo,
+    .ms-nav__links a,
+    .ms-nav__login {
+        display: flex;
+        align-items: center;
+        min-height: 2.75rem;
+    }
+}
+
+/* ==========================================================================
+   g. Public footer (partials/public_footer.php)
+   ========================================================================== */
+
+.ms-footer {
+    background: var(--ms-bg-sunken);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-footer__inner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ms-space-8);
+    padding-block: var(--ms-space-10);
+}
+
+.ms-footer__trust {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-footer__cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--ms-space-6);
+}
+
+.ms-footer__heading {
+    margin: 0 0 var(--ms-space-3);
+    font-size: var(--ms-fs-eyebrow);
+    line-height: var(--ms-lh-eyebrow);
+    letter-spacing: var(--ms-ls-eyebrow);
+    font-weight: var(--ms-fw-eyebrow);
+    text-transform: uppercase;
+    color: var(--ms-text-muted);
+}
+
+.ms-footer__links {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-footer__links li + li {
+    margin-top: var(--ms-space-2);
+}
+
+.ms-footer__links a {
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-footer__links a:hover {
+    color: var(--ms-text);
+}
+
+/* The columns are vertical lists, so on a phone each link is a target in its
+   own right rather than a word inside a sentence. Stacking them at full height
+   supplies the separation the row gap used to, which is why the gap goes. */
+@media (max-width: 767px) {
+    .ms-footer__links a {
+        display: flex;
+        align-items: center;
+        min-height: 2.75rem;
+    }
+
+    .ms-footer__links li + li {
+        margin-top: 0;
+    }
+}
+
+.ms-footer__legal {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+/* ==========================================================================
+   h. Landing — sections rendered from partials/landing
+   ========================================================================== */
+
+/* Off-screen until focused, then pinned to the top-left corner. Sits above the
+   sticky nav (z-index 50) so it is never obscured when it appears. */
+.ms-skip {
+    position: absolute;
+    top: 0;
+    left: -9999px;
+    z-index: 100;
+    padding: var(--ms-space-3) var(--ms-space-4);
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-md);
+    box-shadow: var(--ms-shadow-md);
+    color: var(--ms-text);
+    font-size: var(--ms-fs-sm);
+    text-decoration: none;
+}
+
+.ms-skip:focus {
+    left: var(--ms-space-4);
+    top: var(--ms-space-4);
+}
+
+.ms-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-3);
+}
+
+/* ==========================================================================
+   i. Hero (partials/landing/hero.php)
+   ========================================================================== */
+
+.ms-hero {
+    /* Deliberately short of a full viewport: the mockup is the hero image, not
+       a poster, and the section below it has to stay within reach. Both ends
+       are still the section token, just not the whole of it — the hero sits
+       directly under the sticky nav rather than after another section, and the
+       problem below it is the closest-coupled pair on the page. Only the top
+       of the rhythm is set here; the next section brings its own padding. */
+    padding-block: calc(var(--ms-section-y) * .8) calc(var(--ms-section-y) * .6);
+}
+
+.ms-hero__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-10);
+    align-items: center;
+}
+
+.ms-hero__copy .ms-lede {
+    margin-top: var(--ms-space-5);
+}
+
+.ms-hero__actions {
+    margin-top: var(--ms-space-6);
+}
+
+.ms-hero__note {
+    margin-top: var(--ms-space-4);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-hero__media {
+    min-width: 0;
+}
+
+@media (min-width: 1024px) {
+    .ms-hero__inner {
+        grid-template-columns: minmax(0, 44fr) minmax(0, 56fr);
+    }
+
+    /* The mockup runs past the content edge for depth. The bleed is capped at
+       the container's own gutter so it can only ever use space the container
+       already reserves — it can never widen the page. */
+    .ms-hero__media {
+        width: calc(100% + var(--ms-gutter));
+    }
+}
+
+@media (min-width: 1280px) {
+    /* Room to spare on both sides, so the mockup clears the container's edge
+       proper rather than just its padding. Still bounded, still no overflow. */
+    .ms-hero__media {
+        width: calc(100% + (var(--ms-gutter) * 1.5));
+    }
+}
+
+/* ==========================================================================
+   j. Product mockup (partials/landing/hero.php)
+   ========================================================================== */
+
+.ms-mock {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-xl);
+    box-shadow: var(--ms-shadow-lg);
+    overflow: hidden;
+}
+
+.ms-mock__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+    padding: var(--ms-space-3) var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-mock__dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ms-border-strong);
+}
+
+/* --- Panes. Stacked on a phone: address strip above the message list ------ */
+
+.ms-mock__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.ms-mock__side {
+    min-width: 0;
+    padding: var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-mock__count {
+    margin: var(--ms-space-1) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+    white-space: nowrap;
+}
+
+.ms-mock__addrs-label {
+    margin-top: var(--ms-space-4);
+}
+
+/* Below 768px this is a horizontally scrollable strip of chips. The strip
+   scrolls; the page never does. */
+.ms-mock__addrs {
+    display: flex;
+    gap: var(--ms-space-2);
+    margin: var(--ms-space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.ms-mock__addrs::-webkit-scrollbar {
+    display: none;
+}
+
+.ms-mock__addr {
+    flex: none;
+    gap: var(--ms-space-2);
+    padding: .25rem .625rem;
+    font-family: var(--ms-font-mono);
+}
+
+.ms-mock__addr--active {
+    background: var(--ms-accent-soft);
+    border-color: var(--ms-accent-soft);
+    color: var(--ms-accent);
+}
+
+.ms-mock__addr-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ms-mock__addr-count {
+    flex: none;
+    color: var(--ms-text-faint);
+}
+
+/* --- Compact variant: no address sidebar ---------------------------------- */
+
+/* partials/landing/addresses.php shows the addresses outside the card, so the
+   mock stacks its header on top of the message list instead of splitting into
+   sidebar + list. Beats the 768px split above on specificity, so it also
+   restates the sidebar's border side. */
+.ms-mock--compact .ms-mock__body {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.ms-mock--compact .ms-mock__side {
+    padding: var(--ms-space-4);
+    border-right: 0;
+    border-bottom: 1px solid var(--ms-border);
+}
+
+/* --- Message list --------------------------------------------------------- */
+
+.ms-mock__list {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-mock__row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: var(--ms-space-3);
+    row-gap: 2px;
+    align-items: center;
+    padding: var(--ms-space-3) var(--ms-space-4);
+    /* Reserved on every row so the unread edge never shifts the text. */
+    border-left: 2px solid transparent;
+}
+
+.ms-mock__row + .ms-mock__row {
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-mock__row--unread {
+    border-left-color: var(--ms-accent);
+}
+
+.ms-mock__avatar {
+    grid-row: 1 / span 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-bg-sunken);
+    color: var(--ms-text-muted);
+    font-family: var(--ms-font-sans);
+    font-size: var(--ms-fs-xs);
+    font-weight: 600;
+}
+
+.ms-mock__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+    min-width: 0;
+}
+
+.ms-mock__from {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    font-weight: 500;
+    color: var(--ms-text);
+}
+
+.ms-mock__row--unread .ms-mock__from {
+    font-weight: 600;
+}
+
+.ms-mock__time {
+    flex: none;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-mock__sub {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+    min-width: 0;
+}
+
+.ms-mock__subject {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-mock__to {
+    flex: none;
+    font-family: var(--ms-font-mono);
+}
+
+/* --- Entrance: five rows, once, on load (§5.4) ---------------------------- */
+
+.ms-mock__list .ms-mock__row:nth-child(2) { --ms-rise-delay: 60ms; }
+.ms-mock__list .ms-mock__row:nth-child(3) { --ms-rise-delay: 120ms; }
+.ms-mock__list .ms-mock__row:nth-child(4) { --ms-rise-delay: 180ms; }
+.ms-mock__list .ms-mock__row:nth-child(5) { --ms-rise-delay: 240ms; }
+
+/* Four rows are enough on a phone — the fifth pushes the list past the fold. */
+.ms-mock__row:nth-child(5) {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .ms-mock__body {
+        grid-template-columns: 200px minmax(0, 1fr);
+    }
+
+    .ms-mock__side {
+        /* Narrow inline padding: inside 200px, every pixel spent here is a
+           pixel `shopping@<domain>` does not get, and the widest monospace
+           fallback needs the room to render without an ellipsis. */
+        padding: var(--ms-space-4) var(--ms-space-2);
+        border-bottom: 0;
+        border-right: 1px solid var(--ms-border);
+    }
+
+    /* The strip becomes the sidebar list. */
+    .ms-mock__addrs {
+        flex-direction: column;
+        gap: 0;
+        margin-top: var(--ms-space-2);
+        overflow-x: visible;
+    }
+
+    .ms-mock__addr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--ms-space-2) var(--ms-space-2) var(--ms-space-2) var(--ms-space-3);
+        /* Drops the chip box; the 2px edge is the active marker instead. */
+        border: 0;
+        border-left: 2px solid transparent;
+        border-radius: 0;
+    }
+
+    .ms-mock__addr--active {
+        border-left-color: var(--ms-accent);
+    }
+
+    .ms-mock__row:nth-child(5) {
+        display: grid;
+    }
+}
+
+/* ==========================================================================
+   k. Landing — anchor targets
+   ========================================================================== */
+
+/* A jump to a landing section must not tuck its heading under the sticky nav,
+   which is 4rem tall (.ms-nav__inner). --ms-space-12 is 5rem, so the target
+   lands a hair below the bar rather than flush against it. The nav's own
+   `:target` rule uses the same value; this restates it on the sections
+   themselves so it also holds for scrolls that do not go through the URL
+   fragment. */
+.ms-section[id] {
+    scroll-margin-top: var(--ms-space-12);
+}
+
+/* ==========================================================================
+   l. Landing — problem (partials/landing/problem.php)
+   ========================================================================== */
+
+.ms-problem {
+    text-align: center;
+}
+
+.ms-problem__body {
+    margin: var(--ms-space-6) auto 0;
+    max-width: 52ch;
+    font-size: var(--ms-fs-lede);
+    line-height: var(--ms-lh-lede);
+    color: var(--ms-text-muted);
+}
+
+/* The turn. Full-strength text, closer to the paragraph it answers than the
+   heading is to the one that opens the section. */
+.ms-problem__body--turn {
+    margin-top: var(--ms-space-5);
+    color: var(--ms-text);
+}
+
+/* The categories the product absorbs. .ms-chip already supplies the hairline
+   border and the muted text; nothing here adds accent, an icon or a shadow —
+   it is a row of words, not a tag cloud. */
+.ms-problem__chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--ms-space-2);
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* ==========================================================================
+   m. Landing — how it works (partials/landing/how_it_works.php)
+   ========================================================================== */
+
+/* The list semantics the <ol> carries are reset here; the columns are named
+   rather than left to .ms-grid--3's auto-fit. Three steps in an auto-fit grid
+   drop to two columns somewhere between 568px and 832px, which strands the
+   third card alone on a second row — it reads as a card that fell out of the
+   grid rather than as step three of three. Naming the breakpoints keeps it one
+   column on a phone and three across from 768px, with no window in between. */
+.ms-steps {
+    grid-template-columns: minmax(0, 1fr);
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+@media (min-width: 768px) {
+    .ms-steps {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+.ms-step__num {
+    display: block;
+    margin-bottom: var(--ms-space-2);
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-step__body {
+    margin: var(--ms-space-3) 0 0;
+    color: var(--ms-text-muted);
+}
+
+.ms-how__more {
+    margin: var(--ms-space-8) 0 0;
+}
+
+/* Closes the section flush with the grid's left edge — the button's own inline
+   padding would otherwise indent it by 18px. */
+.ms-how__more .ms-btn {
+    padding-inline: 0;
+}
+
+/* ==========================================================================
+   n. Landing — personal addresses (partials/landing/addresses.php)
+   ========================================================================== */
+
+/* The copy sits above the diagram rather than beside it. That keeps the
+   diagram's own grid to three clean rows — one per address — which is what
+   lets the connector paths be drawn to fixed fractions instead of measured
+   pixel positions. */
+.ms-addresses {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-8);
+}
+
+/* A readable measure. The heading is left to run wider than the paragraphs —
+   at this size it is a single line, and clipping it to the body's measure
+   would break it in two for no reason. */
+.ms-addresses__body,
+.ms-addresses__kicker,
+.ms-addresses__tier {
+    max-width: 52ch;
+}
+
+.ms-addresses__body {
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* The closing thought: full-strength text, a step up from the body. */
+.ms-addresses__kicker {
+    margin: var(--ms-space-5) 0 0;
+    font-size: var(--ms-fs-lede);
+    line-height: var(--ms-lh-lede);
+    color: var(--ms-text);
+}
+
+/* Quiet, and required: personal addresses are Pro-only, and nothing else on
+   this page may imply a free account gets them. */
+.ms-addresses__tier {
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Single column: the pills, then the inbox ----------------------------- */
+
+/* The connectors are hidden, not squeezed. A curve drawn for a horizontal run
+   reads as a glitch once its two ends are stacked; the vertical rhythm between
+   the pills and the card carries the relationship instead. */
+.ms-addresses__routing {
+    display: grid;
+    /* minmax(0, 1fr), not the implicit auto column: the card's message rows
+       have a wide max-content width, and an auto column would take it and push
+       the page sideways on a phone instead of letting the rows ellipsis. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-6);
+}
+
+.ms-addresses__links {
+    display: none;
+}
+
+.ms-addresses__list {
+    display: grid;
+    gap: var(--ms-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* Full-width rows, so every pill ends on the same x — the connectors below
+   start from that edge and would not meet a ragged one. */
+.ms-addresses__item {
+    display: flex;
+}
+
+.ms-addresses__item .ms-addr {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ms-addresses__inbox {
+    max-width: 720px;
+}
+
+/* --- Two columns: pills, connectors, inbox -------------------------------- */
+
+@media (min-width: 900px) {
+    /* Three rows, one per address. The inbox card spans all three and is what
+       sizes them, so the pills land on exactly the thirds the connector paths
+       are drawn to — 1/6, 1/2 and 5/6 of the column. No pixel measurement is
+       assumed anywhere, so the alignment survives a different card height. */
+    .ms-addresses__routing {
+        grid-template-columns: minmax(0, 232px) clamp(56px, 7vw, 88px) minmax(0, 1fr);
+        grid-template-rows: repeat(3, minmax(0, 1fr));
+        gap: 0;
+    }
+
+    .ms-addresses__list {
+        grid-area: 1 / 1 / 4 / 2;
+        grid-template-rows: repeat(3, minmax(0, 1fr));
+        align-items: center;
+        gap: 0;
+    }
+
+    /* preserveAspectRatio="none" lets the viewBox stretch to whatever height
+       the card ends up at; non-scaling-stroke keeps that stretch from turning
+       the 1px line into a 3px one. The curve is still a curve — only its
+       proportions change. */
+    .ms-addresses__links {
+        display: block;
+        grid-area: 1 / 2 / 4 / 3;
+        width: 100%;
+        height: 100%;
+        fill: none;
+        stroke: var(--ms-border);
+        stroke-width: 1;
+    }
+
+    /* Not inherited from the <svg> above, and the one property that has to be
+       on the path itself. */
+    .ms-addresses__link {
+        vector-effect: non-scaling-stroke;
+    }
+
+    /* One live path — the address the hero's mockup has selected. */
+    .ms-addresses__link--active {
+        stroke: var(--ms-accent);
+        stroke-dasharray: 1;
+        animation: ms-addresses-draw 400ms var(--ms-ease) both;
+    }
+
+    .ms-addresses__inbox {
+        grid-area: 1 / 3 / 4 / 4;
+    }
+
+    /* The junctions. Three nodes where the pills meet the connectors, one where
+       the connectors meet the inbox. Drawn as boxes rather than SVG circles
+       because the viewBox is stretched non-uniformly, which would squash a
+       circle into an ellipse. */
+    .ms-addresses__item,
+    .ms-addresses__inbox {
+        position: relative;
+    }
+
+    .ms-addresses__item::after,
+    .ms-addresses__inbox::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: var(--ms-border-strong);
+        transform: translateY(-50%);
+    }
+
+    .ms-addresses__item::after {
+        right: -1.5px;
+    }
+
+    .ms-addresses__inbox::before {
+        left: -1.5px;
+    }
+}
+
+/* Draws the live connector once, on load. pathLength="1" on the path means the
+   dash is the whole line whatever the line's real length turns out to be. */
+@keyframes ms-addresses-draw {
+    from { stroke-dashoffset: 1; }
+    to   { stroke-dashoffset: 0; }
+}
+
+/* ==========================================================================
+   o. Landing — temporary addresses (partials/landing/temporary.php)
+   ========================================================================== */
+
+/* A readable measure, and one step quieter than the page's body copy — this
+   section is not the headline act (§2). */
+.ms-temp__body {
+    max-width: 56ch;
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* --- The lifecycle: create, use, gone ------------------------------------- */
+
+/* One column by default, so the beats read downwards on a phone; the wide
+   layout turns the same three items into a row. Nothing else about the list
+   changes between the two, so there is one markup and one set of styles. */
+.ms-lifecycle {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-6);
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-lifecycle__beat {
+    position: relative;
+}
+
+/* The connector between two beats. Hairline, muted, no arrowhead — it marks
+   that these are steps in one sequence, nothing more. Drawn as a pseudo-
+   element on the later beat so it lands in the gap, which means it needs no
+   measured length: it is exactly as long as the gap is wide (or tall). */
+.ms-lifecycle__beat + .ms-lifecycle__beat::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: calc(-1 * var(--ms-space-6));
+    width: 1px;
+    height: var(--ms-space-6);
+    background: var(--ms-border);
+}
+
+/* The one beat that spends the accent (§5.1: use it sparingly). The payoff is
+   that the address is gone again, so the label carries the colour and the
+   detail underneath stays muted. */
+.ms-lifecycle__beat--end .ms-lifecycle__label {
+    color: var(--ms-accent);
+}
+
+.ms-lifecycle__addr {
+    display: inline-block;
+    margin-top: var(--ms-space-3);
+}
+
+.ms-lifecycle__detail {
+    display: block;
+    margin-top: var(--ms-space-2);
+    color: var(--ms-text-muted);
+}
+
+/* --- Three across --------------------------------------------------------- */
+
+@media (min-width: 900px) {
+    .ms-lifecycle {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        column-gap: var(--ms-space-8);
+        row-gap: 0;
+    }
+
+    /* The same rule, on its side. It spans the column gap exactly, so it
+       bridges the two beats rather than floating between them. Vertically it
+       is centred on the label's line box: --ms-fs-eyebrow x --ms-lh-eyebrow is
+       the height the browser gives that line, so half of it is its middle. */
+    .ms-lifecycle__beat + .ms-lifecycle__beat::before {
+        left: calc(-1 * var(--ms-space-8));
+        top: calc(var(--ms-fs-eyebrow) * var(--ms-lh-eyebrow) / 2);
+        width: var(--ms-space-8);
+        height: 1px;
+    }
+}
+
+/* --- Closing lines -------------------------------------------------------- */
+
+/* The tier fact, at full strength while the body copy around it is muted: it
+   is the claim this section is accountable for (§9), and the "Gone" beat above
+   is what it quantifies. It sits below the beats on purpose — read as the
+   answer to "how long?", it needs no explanation. */
+.ms-temp__retention {
+    max-width: 62ch;
+    margin: var(--ms-space-7) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text);
+}
+
+/* Slightly clever, not winking (§7) — and the one place the landing page says
+   "disposable email" in its own voice, which §14 asks it to keep ranking for. */
+.ms-temp__aside {
+    max-width: 62ch;
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-temp__more {
+    margin: var(--ms-space-6) 0 0;
+}
+
+/* Closes flush with the text's left edge — the button's own inline padding
+   would otherwise indent it by 18px, as in the how-it-works section. */
+.ms-temp__more .ms-btn {
+    padding-inline: 0;
+}
+
+/* ==========================================================================
+   p. Landing — automation (partials/landing/automation.php)
+   ========================================================================== */
+
+/* A readable measure, a step quieter than the heading it follows. */
+.ms-automation__body {
+    max-width: 52ch;
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* Quiet, and load-bearing: every card below is a Pro feature, and nothing on
+   this page may imply a free account gets automation. */
+.ms-automation__tier {
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* The columns come from .ms-grid--3; this only resets the list semantics the
+   <ul> carries, so the auto-fit collapse stays the grid's own behaviour — the
+   same division of labour as .ms-steps above. */
+.ms-automation__grid {
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-automation__card {
+    display: flex;
+    flex-direction: column;
+}
+
+/* 20px on a 20-unit viewBox, so the coordinates drawn in the partial are the
+   pixels they render at and the 1.5 stroke is a real 1.5. Muted: the glyph
+   marks the card and the title names it, so the row of icons reads as a
+   rhythm rather than as seven more headings. */
+.ms-automation__icon {
+    color: var(--ms-text-muted);
+}
+
+/* The badge rides the title's line box rather than sitting under it. */
+.ms-automation__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-2);
+    margin-top: var(--ms-space-4);
+}
+
+/* Full strength, unlike the card bodies elsewhere on the page: these seven are
+   the section's argument, and the one card that is deliberately quieter (below)
+   only reads as quieter against them. max-width only ever applies to that wide
+   card — everywhere else the grid column is narrower than the measure. */
+.ms-automation__text {
+    max-width: 46ch;
+    margin: var(--ms-space-3) 0 0;
+}
+
+/* --- The one that has not shipped ----------------------------------------- */
+
+/* Two small differences: the body copy drops to --ms-text-muted and the
+   hairline is mixed back towards the card it outlines. Together they say "not
+   yet" without hiding it — this is a roadmap note, not a disabled control, so
+   it stays as legible as the six around it. Nothing else changes: the shadow,
+   the radius and the padding are the other cards'. */
+.ms-automation__card--soon {
+    border-color: color-mix(in srgb, var(--ms-border) 45%, var(--ms-bg-raised));
+}
+
+.ms-automation__card--soon .ms-automation__text {
+    color: var(--ms-text-muted);
+}
+
+/* Below the width at which auto-fit fits four columns, seven cards leave the
+   seventh alone on a row — two columns at 768px, three at 1024px. It is the
+   roadmap card, so it takes the whole row instead: a deliberate closing note
+   rather than a card that looks like it fell out of the grid. The 1096px
+   threshold is where four columns first fit (container 1120px, 2rem gutters,
+   4 x 240px + 3 x 24px gaps = 1032px of content); above it the card is one of
+   four, and 4 + 3 fills both rows with nobody stranded. At one column the span
+   is a no-op. Nothing here moves on hover — these cards do nothing. */
+@media (max-width: 1095px) {
+    .ms-automation__card--soon {
+        grid-column: 1 / -1;
+    }
+}
+
+/* The closing line: the section's own summary, at footnote size. */
+.ms-automation__note {
+    margin: var(--ms-space-6) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* ==========================================================================
+   q. Landing — smart cleanup (partials/landing/cleanup.php)
+   ========================================================================== */
+
+/* A readable measure, a step quieter than the heading it follows. */
+.ms-cleanup__body {
+    max-width: 52ch;
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* Two columns, named rather than auto-fit: four items in an auto-fit grid open
+   a third column on a wide screen and strand the fourth point alone on a second
+   row. Below 640px it is one column. */
+.ms-cleanup__list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--ms-space-8);
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* The hairline is the whole treatment — no border, no background, no card, so
+   the section does not repeat automation.php's grid of boxes. It sits above
+   each point, which means the first row also rules the list off from the copy.
+   Row gap stays 0: the padding below does that work. */
+.ms-cleanup__item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0 var(--ms-space-3);
+    padding-block: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+}
+
+/* Centred on the first line of text rather than on the item: at the body line
+   height that is (1.65 x 1rem - 16px) / 2. align-self keeps the 16px glyph from
+   being stretched to the height of the tallest point in the row. */
+.ms-cleanup__mark {
+    grid-column: 1;
+    align-self: start;
+    margin-top: .3rem;
+    color: var(--ms-text-muted);
+}
+
+/* Column 2 is named on both, because grid auto-placement is row-major: without
+   it the qualifier on point 2 (the only item with a third child) would wrap
+   back to column 1, land under the check mark, and stretch the `auto` track to
+   the width of the qualifier — which shoves that item's text into the middle of
+   the column. Naming the column lets the rows stack as intended. */
+.ms-cleanup__text,
+.ms-cleanup__qualifier {
+    grid-column: 2;
+}
+
+.ms-cleanup__text {
+    margin: 0;
+}
+
+/* Point 2 only: the sender lists run on the user's own server, through the
+   Agent, so the claim is qualified rather than dropped. As quiet as the copy
+   rules allow — it is a scope note, not a second point. */
+.ms-cleanup__qualifier {
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+@media (max-width: 639px) {
+    .ms-cleanup__list {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ==========================================================================
+   r. Landing — external email (partials/landing/external.php)
+   ========================================================================== */
+
+.ms-external__body {
+    max-width: 52ch;
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* The technical sentence, at full strength rather than muted: it is the
+   section's substance, and the body above it is the friendly version of the
+   same claim. A step down in size keeps it reading as a detail under that body
+   rather than as a second paragraph of equal weight. */
+.ms-external__detail {
+    max-width: 52ch;
+    margin: var(--ms-space-4) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+}
+
+/* The shape of the integration, in prose: three beats in monospace on a sunken
+   well. Monospace and sunken are what make it read as technical, and that is
+   all it claims to be — there is no request, header, endpoint or value in it,
+   because anything of that kind would be invented and someone would try it.
+   Sized to its longest line rather than to the measure: at the copy's width the
+   three short beats would sit in mostly empty panel. */
+.ms-external__flow {
+    width: fit-content;
+    max-width: 100%;
+    margin: var(--ms-space-6) 0 0;
+    padding: var(--ms-space-4) var(--ms-space-5);
+    list-style: none;
+    background: var(--ms-bg-sunken);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-external__step + .ms-external__step {
+    margin-top: var(--ms-space-2);
+}
+
+/* Generated so the markup stays three plain phrases, and faint so the arrows
+   read as connectors between the lines rather than as four more steps. */
+.ms-external__step + .ms-external__step::before {
+    content: "→ ";
+    color: var(--ms-text-faint);
+}
+
+/* ==========================================================================
+   s. Landing — free and Pro (partials/landing/plans.php)
+   ========================================================================== */
+
+.ms-plans__body {
+    max-width: 52ch;
+    /* --ms-space-5, like every other left-aligned section's heading-to-body
+       gap. It was --ms-space-4, which made this one section's body sit a step
+       closer to its heading than the five around it. */
+    margin: var(--ms-space-5) 0 0;
+    color: var(--ms-text-muted);
+}
+
+/* Two columns, and deliberately not the full container: the two lists are short
+   lines, and at 1120px the cards would be half empty. Capped so each card stays
+   a card, and left-aligned rather than centred so the note and the buttons
+   below keep the same edge as every other section's copy on the page.
+   One column below 768px. */
+.ms-plans__grid {
+    display: grid;
+    gap: var(--ms-space-5);
+    max-width: 880px;
+    margin-top: var(--ms-space-8);
+}
+
+@media (min-width: 768px) {
+    .ms-plans__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* The recommended card, marked once: the accent on the hairline border it
+   already had, at the same 1px weight as the other card. No fill, no shadow
+   change, no transform, no ribbon. */
+.ms-plans__card--pro {
+    border-color: var(--ms-accent);
+}
+
+.ms-plans__head {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-3);
+    flex-wrap: wrap;
+}
+
+.ms-plans__summary {
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-plans__list {
+    margin: var(--ms-space-5) 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--ms-border);
+    padding-top: var(--ms-space-5);
+}
+
+.ms-plans__list li {
+    position: relative;
+    padding-left: var(--ms-space-5);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+}
+
+.ms-plans__list li + li {
+    margin-top: var(--ms-space-3);
+}
+
+/* A check, drawn rather than fetched — marketing pages load no icon font, and
+   the same mark is inline SVG in cleanup.php. Faint, not accent: eleven accent
+   ticks would spend the section's whole accent budget on bullet points (§5.1),
+   which is the same reason cleanup.php keeps its four muted. */
+.ms-plans__list li::before {
+    content: "";
+    position: absolute;
+    left: .125rem;
+    top: .5rem;
+    width: .3125rem;
+    height: .5625rem;
+    border-right: 1.5px solid var(--ms-text-faint);
+    border-bottom: 1.5px solid var(--ms-text-faint);
+    transform: rotate(45deg);
+}
+
+/* The voucher note. Its own line, above the buttons rather than beside them,
+   because it is the answer to the question the Pro button raises. */
+.ms-plans__note {
+    margin: var(--ms-space-7) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-plans__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-3);
+    margin-top: var(--ms-space-5);
+}
+
+/* ==========================================================================
+   t. Landing — final CTA (partials/landing/cta.php)
+   ========================================================================== */
+
+.ms-cta {
+    text-align: center;
+}
+
+.ms-cta__body {
+    margin: var(--ms-space-4) auto 0;
+    max-width: 46ch;
+    font-size: var(--ms-fs-lede);
+    line-height: var(--ms-lh-lede);
+    color: var(--ms-text-muted);
+}
+
+/* The one button, given room. */
+.ms-cta__inner > .ms-btn {
+    margin-top: var(--ms-space-7);
+}
+
+/* ==========================================================================
+   u. Content page — temporary-email.php (Redesign 17)
+   ========================================================================== */
+
+/* A reading page, not a landing page: one narrow column, whitespace between
+   sections instead of bands, hairlines only under the contents list and above
+   the two CTAs, where a boundary actually carries meaning. The sticky nav is in
+   flow (position: sticky), so the top padding is the page's own rhythm and not
+   a clearance hack. */
+
+.ms-doc {
+    padding-block: calc(var(--ms-section-y) * .8) var(--ms-section-y);
+}
+
+.ms-doc__title {
+    margin: 0;
+    font-size: var(--ms-fs-h1);
+    line-height: var(--ms-lh-h1);
+    letter-spacing: var(--ms-ls-h1);
+    font-weight: var(--ms-fw-h1);
+}
+
+/* .ms-lede caps at 46ch for the hero's two-column layout. This page is a single
+   column, so the lede takes the prose measure (62ch) and the two line up. */
+.ms-doc__lede {
+    margin-top: var(--ms-space-5);
+    max-width: 62ch;
+}
+
+/* The contents list. Grouped with the lede rather than set off from it: the
+   hairline above it is the page's first one, and it is what tells the reader
+   the introduction has ended and the document starts. */
+.ms-doc__toc {
+    margin-top: var(--ms-space-8);
+    padding-top: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-doc__toc-list {
+    margin: var(--ms-space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-doc__toc-list li + li {
+    margin-top: var(--ms-space-2);
+}
+
+/* Gap between sections comes from here, not from .ms-section — a reading page
+   wants one generous beat per section, not a full band of padding, and the
+   headings are the only thing that needs the air above them. */
+.ms-doc__section {
+    padding-top: var(--ms-section-y);
+}
+
+.ms-doc__section > .ms-h2 + * {
+    margin-top: var(--ms-space-5);
+}
+
+/* The retention split (§9: 24 hours free, 1–7 days Pro). A two-row hairline
+   comparison rather than two cards: the numbers are the whole point, and a card
+   would make them look like a pricing table. */
+.ms-doc__retention {
+    margin: var(--ms-space-6) 0;
+    padding: 0;
+}
+
+.ms-doc__tier {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--ms-space-4);
+    padding-block: var(--ms-space-4);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-doc__tier:last-child {
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-doc__tier dt,
+.ms-doc__tier dd {
+    margin: 0;
+}
+
+.ms-doc__tier-value {
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+}
+
+/* Both CTAs share the shape; the closing one gets more air because it is the
+   last thing on the page. */
+.ms-doc__cta {
+    margin-top: var(--ms-space-10);
+    padding-top: var(--ms-space-6);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-doc__cta-line {
+    margin: 0 0 var(--ms-space-4);
+    color: var(--ms-text-muted);
+}
+
+.ms-doc__cta--end {
+    margin-top: var(--ms-space-12);
+}
+
+/* ==========================================================================
+   v. Auth pages — register.php, pro_login.php (Redesign 18)
+   ==========================================================================
+
+   The two pages are a pair, and they are deliberately built from the same
+   shell: same logo-only bar, same single 440px column, same card, same footer.
+   Moving between "create an inbox" and "log in" should not feel like moving
+   between two sites.
+
+   Both pages keep Bootstrap and jQuery (brief §11) — the bridge restyles the
+   inputs, labels, alerts and buttons underneath this section, so what is added
+   here is only the page shape: the bar, the column, the segmented control and
+   the divider. The account-type and login-mode radios stay exactly as they
+   were (ids, names, `btn-check` pattern, `showMode()`), because pro_auth.php
+   mirrors the same whitelist and the jQuery bindings select them by name. */
+
+.ms-auth {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: var(--ms-bg);
+}
+
+/* --- Top bar: the wordmark and nothing else ------------------------------- */
+
+/* No app nav and no hamburger. An auth page has one job, and a FAQ link next
+   to the form competes with it (§1: don't remove a link target — these still
+   live in the site footer, which every marketing page links to). */
+
+.ms-auth__bar {
+    background: var(--ms-bg);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-auth__bar-inner {
+    display: flex;
+    align-items: center;
+    min-height: 4rem;
+    width: 100%;
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+/* --- The single column ---------------------------------------------------- */
+
+/* `flex: 1 0 auto` pushes the footer to the bottom of a short page without
+   centring the column vertically: the heading and the first field start high
+   enough to both clear the fold on a phone. */
+
+.ms-auth__main {
+    flex: 1 0 auto;
+    padding: clamp(3rem, 8vh, 6rem) var(--ms-gutter) var(--ms-space-10);
+}
+
+/* The column and the card are the same element on purpose. One centred
+   440px surface holding the heading, the mode control and the form reads as a
+   single task; nothing else on the page is boxed. */
+.ms-auth__card {
+    width: 100%;
+    max-width: 440px;
+    margin-inline: auto;
+    padding: var(--ms-space-6);
+}
+
+/* Every form in the card takes the same beat below whatever precedes it: the
+   mode hint on register.php, the `or` divider on pro_login.php. */
+.ms-auth__card form {
+    margin-top: var(--ms-space-5);
+}
+
+.ms-auth__title {
+    margin: 0;
+    font-size: var(--ms-fs-h2);
+    line-height: var(--ms-lh-h2);
+    letter-spacing: var(--ms-ls-h2);
+    font-weight: var(--ms-fw-h2);
+}
+
+.ms-auth__sub {
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* One line, swapped with the selected account type. Quiet: it exists to stop
+   the wrong tier being picked, not to sell the tier. */
+.ms-auth__hint {
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* The 2FA lead-in on pro_login.php takes over the top of the card once the
+   mode control and the divider are hidden, so it needs the beat that divider
+   used to provide. */
+.ms-auth__hint--lead {
+    margin-top: var(--ms-space-5);
+}
+
+/* The recovery / lost-authenticator / cancel rows under the 2FA form. */
+.ms-auth__link-row {
+    margin-top: var(--ms-space-3);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- The segmented control ------------------------------------------------ */
+
+/* Two equal halves that cannot overflow their column. `minmax(0, 1fr)` is the
+   part that matters: a plain `1fr` is `minmax(auto, 1fr)` and refuses to shrink
+   below the label's min-content width, which pushes the control wider than the
+   card at 375px. With the tracks allowed to shrink, the labels wrap instead.
+
+   The radios carry Bootstrap's `.btn-check`, which is absolutely positioned and
+   clipped, so only the two labels take part in the grid — and the input stays
+   immediately before its label, which is what the bridge's
+   `.btn-check:checked + .btn` rule needs. */
+.ms-auth__segment {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--ms-space-2);
+    margin-top: var(--ms-space-5);
+}
+
+.ms-auth__segment > .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: var(--ms-space-3) var(--ms-space-3);
+    border-radius: var(--ms-radius-md);
+    font-size: var(--ms-fs-sm);
+    line-height: 1.3;
+    white-space: normal;
+    text-align: center;
+}
+
+/* --- The `or` divider on pro_login.php ------------------------------------ */
+
+/* Matched by element because the divider is `<hr id="loginModeDivider">` and
+   jQuery shows and hides it by that id; the line carrying the id is frozen by
+   this issue's regression check, so it cannot take a class. */
+.ms-auth__card hr {
+    margin: var(--ms-space-5) 0 0;
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    opacity: 1;
+}
+
+/* --- Closing line inside the card ----------------------------------------- */
+
+.ms-auth__alt {
+    margin: var(--ms-space-5) 0 0;
+    padding-top: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Footer line ---------------------------------------------------------- */
+
+.ms-auth__foot {
+    padding: var(--ms-space-5) var(--ms-gutter) var(--ms-space-8);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+    text-align: center;
+}
+
+.ms-auth__foot p {
+    margin: 0;
+}
+
+.ms-auth__foot-sep {
+    margin-inline: var(--ms-space-2);
+    color: var(--ms-text-faint);
+}
+
+/* The card is the only thing on the page with a shadow, so on a phone it can
+   afford to sit flush against the gutters without shrinking further. */
+@media (max-width: 479px) {
+    .ms-auth__card {
+        padding: var(--ms-space-5);
+    }
+
+    .ms-auth__segment > .btn {
+        padding-inline: var(--ms-space-2);
+    }
+}
+
+/* ==========================================================================
+   w. FAQ — faq.php (Redesign 19)
+   ==========================================================================
+
+   The public reading page that keeps the Bootstrap bridge (§11): blog.php
+   shares its <head> pattern, so converting one of them to the marketing shell
+   would fork the pair. What is added here is only the page shape, built from
+   the primitives the landing and content pages already use — one narrow
+   column, hairlines between items, prose capped at the 62ch measure.
+
+   The bar is rendered by faq.php itself, not by partials/nav.php: that partial
+   is still the pre-redesign app nav and Redesign 22 owns its restyle. Swap it
+   in here when Redesign 22 lands. */
+
+.ms-faq {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: var(--ms-bg);
+}
+
+/* --- Bar ------------------------------------------------------------------ */
+
+/* Two rows below 768px, one row above. The links list is a wrapping flex row
+   with `order: 3` and a full-width basis, so on a phone the bar settles as
+   logo + actions on the first line and the three links underneath — rather than
+   shrinking the wordmark or hiding the links behind a menu this page does not
+   otherwise need. */
+
+.ms-faq__bar {
+    background: var(--ms-bg);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-faq__bar-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-3) var(--ms-space-5);
+    min-height: 4rem;
+    padding-block: var(--ms-space-3);
+}
+
+.ms-faq__logo {
+    margin-right: auto;
+}
+
+.ms-faq__links {
+    order: 3;
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2) var(--ms-space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-faq__links a {
+    color: var(--ms-text-muted);
+}
+
+.ms-faq__links a:hover {
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+.ms-faq__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-4);
+}
+
+.ms-faq__login {
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-faq__login:hover {
+    color: var(--ms-text);
+    text-decoration: none;
+}
+
+@media (min-width: 768px) {
+    .ms-faq__bar-inner {
+        padding-block: 0;
+    }
+
+    /* One row: logo, links, actions. The auto margin moves to the links so the
+       actions stay pinned right and the gap between logo and links closes. */
+    .ms-faq__logo {
+        margin-right: 0;
+    }
+
+    .ms-faq__links {
+        order: 0;
+        flex-basis: auto;
+        margin-right: auto;
+    }
+}
+
+/* --- Reading column ------------------------------------------------------- */
+
+.ms-faq__main {
+    flex: 1 0 auto;
+    padding-block: calc(var(--ms-section-y) * .7) var(--ms-section-y);
+}
+
+.ms-faq__title {
+    margin: 0;
+    font-size: var(--ms-fs-h1);
+    line-height: var(--ms-lh-h1);
+    letter-spacing: var(--ms-ls-h1);
+    font-weight: var(--ms-fw-h1);
+}
+
+/* .ms-lede caps at 46ch for the hero's two-column layout; this page is a single
+   column, so the lede takes the prose measure and the two line up. */
+.ms-faq__lede {
+    margin-top: var(--ms-space-5);
+    max-width: 62ch;
+}
+
+/* --- Jump list ------------------------------------------------------------ */
+
+/* Same job as .ms-doc__toc on temporary-email.php: the hairline above it is what
+   tells the reader the introduction has ended. Laid out as a wrapping row
+   rather than a column — six short group names read faster together than as a
+   stack of six full-width lines. */
+
+.ms-faq__jump {
+    margin-top: var(--ms-space-8);
+    padding-top: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-faq__jump-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2) var(--ms-space-5);
+    margin: var(--ms-space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ms-fs-sm);
+}
+
+/* --- Groups and questions ------------------------------------------------- */
+
+/* Anchor targets for the jump list. The bar is in flow, not sticky, so this
+   offset is breathing room rather than a clearance hack — but it is set
+   explicitly so a jump never lands with the heading flush against the top of
+   the viewport if the bar becomes sticky later. */
+.ms-faq__group {
+    padding-top: calc(var(--ms-section-y) * .7);
+    scroll-margin-top: var(--ms-space-6);
+}
+
+/* The first group follows the jump list, which already carries the beat. */
+.ms-faq__group:first-of-type {
+    padding-top: var(--ms-space-10);
+}
+
+.ms-faq__items {
+    margin-top: var(--ms-space-6);
+}
+
+/* Hairlines between questions, never above the first: the <h2> above it is
+   already the separation. */
+.ms-faq__item + .ms-faq__item {
+    margin-top: var(--ms-space-6);
+    padding-top: var(--ms-space-6);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-faq__item .ms-prose {
+    margin-top: var(--ms-space-4);
+}
+
+/* --- Footer --------------------------------------------------------------- */
+
+/* .ms-container supplies the inline gutter; this only adds the block rhythm. */
+.ms-faq__foot {
+    padding-block: var(--ms-space-6) var(--ms-space-8);
+    border-top: 1px solid var(--ms-border);
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-faq__foot-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2) var(--ms-space-5);
+}
+
+.ms-faq__foot-links a {
+    color: var(--ms-text-muted);
+}
+
+.ms-faq__foot-links a:hover {
+    color: var(--ms-text);
+}
+
+.ms-faq__foot-legal {
+    margin: var(--ms-space-5) 0 0;
+    font-size: var(--ms-fs-xs);
+    color: var(--ms-text-muted);
+}
+
+/* ==========================================================================
+   x. Blog — blog.php (Redesign 20)
+   ==========================================================================
+
+   Two views share the page: an index of every post and a single article. The
+   shell around them — slim bar, narrow reading column, footer — is the FAQ
+   shell from Redesign 19 (.ms-faq__*), reused rather than copied so the two
+   secondary pages cannot drift apart. What is new here is only what only the
+   blog needs: the hairline post index, the article header and the .ms-article
+   prose scope. */
+
+/* --- Post index ----------------------------------------------------------- */
+
+/* Rows separated by hairlines, never cards. The standfirst above the list is
+   already the separation, so the first row carries no rule of its own. */
+.ms-blog__list {
+    margin: var(--ms-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ms-blog__item + .ms-blog__item {
+    border-top: 1px solid var(--ms-border);
+}
+
+/* The whole row is the link, so the hit area matches what the reader sees. On a
+   phone the date sits above the title; from 600px the two share a baseline and
+   the dates line up in a column of their own. */
+.ms-blog__entry {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--ms-space-1);
+    padding-block: var(--ms-space-5);
+    color: inherit;
+}
+
+.ms-blog__entry:hover {
+    text-decoration: none;
+}
+
+.ms-blog__date {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-blog__entry-title {
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+}
+
+.ms-blog__entry:hover .ms-blog__entry-title {
+    color: var(--ms-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.ms-blog__empty {
+    margin-top: var(--ms-space-8);
+    color: var(--ms-text-muted);
+}
+
+@media (min-width: 600px) {
+    .ms-blog__entry {
+        grid-template-columns: 10rem 1fr;
+        gap: var(--ms-space-5);
+        align-items: baseline;
+    }
+}
+
+/* --- Article header and the two ways out ---------------------------------- */
+
+/* The measure is set here as well as on .ms-article so the title, the date and
+   the body share one left and right edge. */
+.ms-blog__post {
+    max-width: 68ch;
+}
+
+.ms-blog__back {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+}
+
+/* The closing link ends the article, so it is set apart by a rule rather than
+   sitting flush under the last paragraph. */
+.ms-blog__back--end {
+    margin-top: var(--ms-space-10);
+    padding-top: var(--ms-space-6);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-blog__head {
+    margin-top: var(--ms-space-6);
+}
+
+.ms-blog__title {
+    margin: 0;
+    font-size: var(--ms-fs-h1);
+    line-height: var(--ms-lh-h1);
+    letter-spacing: var(--ms-ls-h1);
+    font-weight: var(--ms-fw-h1);
+}
+
+.ms-blog__head .ms-blog__date {
+    display: block;
+    margin-top: var(--ms-space-3);
+}
+
+/* --- .ms-article — long-form prose ---------------------------------------- */
+
+/* Everything markdown_to_html() can emit, styled as reading copy: h1–h6, p,
+   ul, ol, li, strong, em, code, pre > code, a and img.img-fluid. The converter
+   has no blockquote branch, so no rule for one is needed.
+
+   Measure and leading differ from .ms-prose on purpose: a post is read top to
+   bottom rather than skimmed as one paragraph in a card, so it runs to 68ch
+   with a looser 1.7 line-height. */
+
+.ms-article {
+    max-width: 68ch;
+    margin-top: var(--ms-space-8);
+    font-size: var(--ms-fs-body);
+    line-height: 1.7;
+}
+
+/* The rhythm between blocks. Bootstrap's reboot also gives every paragraph,
+   list and code block a bottom margin; inside an article the spacing comes
+   from here instead, so those are cleared rather than added to it. */
+.ms-article > * + * {
+    margin-top: var(--ms-space-4);
+}
+
+.ms-article p,
+.ms-article ul,
+.ms-article ol {
+    margin-bottom: 0;
+}
+
+/* A post's own `#` heading is lifted out as the page heading (see blog.php), so
+   the body starts at h2 and steps down from .ms-blog__title without skipping. */
+.ms-article h2,
+.ms-article h3,
+.ms-article h4,
+.ms-article h5,
+.ms-article h6 {
+    margin-top: var(--ms-space-8);
+    margin-bottom: 0;
+}
+
+.ms-article h2 {
+    font-size: var(--ms-fs-h2);
+    line-height: var(--ms-lh-h2);
+    letter-spacing: var(--ms-ls-h2);
+    font-weight: var(--ms-fw-h2);
+}
+
+.ms-article h3 {
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+}
+
+/* h4–h6 have no step of their own in the scale, so they stay at body size and
+   are told apart by weight and the space above them. */
+.ms-article h4,
+.ms-article h5,
+.ms-article h6 {
+    margin-top: var(--ms-space-6);
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-h3);
+    font-weight: 600;
+}
+
+/* Emphasis takes the system's heading weight rather than the browser's 700. */
+.ms-article strong {
+    font-weight: 600;
+}
+
+.ms-article ul,
+.ms-article ol {
+    padding-left: 1.5rem;
+}
+
+.ms-article li + li {
+    margin-top: var(--ms-space-2);
+}
+
+/* Inline code: a quiet well, no border. The block form below resets it. */
+.ms-article code {
+    font-family: var(--ms-font-mono);
+    font-size: .875em;
+    background: var(--ms-bg-sunken);
+    border-radius: var(--ms-radius-sm);
+    padding: .125rem .3125rem;
+}
+
+/* pre > code: the block carries both the surface and the horizontal scroll, so
+   a long line scrolls inside the box and never takes the page with it. */
+.ms-article pre {
+    margin-top: var(--ms-space-5);
+    margin-bottom: 0;
+    padding: var(--ms-space-4);
+    background: var(--ms-bg-sunken);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    overflow-x: auto;
+}
+
+.ms-article pre code {
+    display: block;
+    padding: 0;
+    background: none;
+    font-size: var(--ms-fs-sm);
+    line-height: 1.6;
+    white-space: pre;
+}
+
+/* Images: the converter adds class="img-fluid" and, for the `[alt](src|200)`
+   form, an inline width. Nothing here may set a width or that inline width
+   stops working — max-width: 100% from the base layer is what holds a wide
+   image inside the column. */
+.ms-article img {
+    margin-block: var(--ms-space-6);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+}
+
+/* Links are underlined, because they have to stay findable inside a paragraph
+   of running text. The converter's external-link icon and its visually-hidden
+   "(opens in new tab)" span both keep working as they are. */
+.ms-article a {
+    color: var(--ms-accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+.ms-article a:hover {
+    color: var(--ms-accent-hover);
+}
+
+.ms-article a .fa-external-link-alt {
+    font-size: .75em;
+}
+
+/* ==========================================================================
+   y. App nav (partials/nav.php)
+   ========================================================================== */
+
+/* The bar shared by every page that keeps the Bootstrap bridge. It replaces a
+   glass strip on a purple gradient — the single most visible piece of the old
+   identity left in the app — with an opaque, quiet surface.
+
+   The anchors keep the legacy `navbar-link` class because tm_nav_active()
+   returns it; every rule below is scoped under `.ms-appnav` so it outranks
+   assets/css/style.css (loaded earlier) without that file being edited (§11).
+
+   z-index 1030 is Bootstrap's own "fixed" layer: above page content, below
+   --bs-zindex-modal-backdrop (1050), so an open email modal covers the bar
+   instead of the bar floating over the modal. The legacy bar used 9998ff,
+   which is exactly the bug this avoids. */
+
+.ms-appnav {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    background: var(--ms-bg);
+    border-bottom: 1px solid var(--ms-border);
+    /* .header centres its children; the nav is a left-aligned row. */
+    text-align: left;
+}
+
+.ms-appnav__inner {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-4);
+    min-height: 4rem;
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+/* Pushes the toggle (mobile) or the panel (desktop) to the right edge. */
+.ms-appnav__logo {
+    flex: none;
+    margin-right: auto;
+}
+
+/* --- Hamburger ------------------------------------------------------------ */
+
+.ms-appnav__toggle {
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: space-between;
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0.625rem 0.5rem;
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-md);
+    background: transparent;
+    color: var(--ms-text);
+    cursor: pointer;
+    transition: background-color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-appnav__toggle:hover {
+    background: var(--ms-bg-sunken);
+}
+
+.ms-appnav__toggle-line {
+    display: block;
+    width: 100%;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    transition: transform var(--ms-dur) var(--ms-ease), opacity var(--ms-dur) var(--ms-ease);
+}
+
+/* Open state is driven by aria-expanded, so the visual and the accessible
+   state cannot drift apart. 11px is the third of the 2.75rem box the three
+   2px bars sit on with `space-between`. */
+.ms-appnav__toggle[aria-expanded="true"] .ms-appnav__toggle-line:nth-child(1) {
+    transform: translateY(11px) rotate(45deg);
+}
+
+.ms-appnav__toggle[aria-expanded="true"] .ms-appnav__toggle-line:nth-child(2) {
+    opacity: 0;
+}
+
+.ms-appnav__toggle[aria-expanded="true"] .ms-appnav__toggle-line:nth-child(3) {
+    transform: translateY(-11px) rotate(-45deg);
+}
+
+/* --- Panel (mobile: drop-down, desktop: the row itself) -------------------- */
+
+/* Stacked, the bar shows the logo and the toggle only; the panel is revealed
+   by `.is-open`, which the partial's inline script toggles alongside
+   aria-expanded.
+
+   A class rather than the `hidden` attribute on purpose: these pages load
+   Bootstrap, whose Reboot ships `[hidden] { display: none !important }`.
+   Nothing an author writes beats that, so a `hidden` panel could never be
+   shown again at ≥992px — unlike the marketing nav, which is the only nav on
+   pages that load no Bootstrap and can therefore rely on `[hidden]`. */
+.ms-appnav__panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    display: none;
+    flex-direction: column;
+    gap: var(--ms-space-2);
+    padding: var(--ms-space-4) var(--ms-gutter) var(--ms-space-5);
+    background: var(--ms-bg-raised);
+    border-top: 1px solid var(--ms-border);
+    border-bottom: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-md);
+}
+
+.ms-appnav__panel.is-open {
+    display: flex;
+}
+
+/* --- Links ---------------------------------------------------------------- */
+
+.ms-appnav__links {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ms-space-1);
+}
+
+/* Scoped over the legacy rules in style.css: colour, pill background, border,
+   hover lift and per-link padding are all reset, not inherited. */
+.ms-appnav .navbar-link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    /* style.css centres the stacked link; the rows have to read left-aligned
+       so the active marker sits next to its label. */
+    justify-content: flex-start;
+    gap: var(--ms-space-2);
+    padding: var(--ms-space-3) 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    font-weight: 400;
+    text-decoration: none;
+    transition: color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-appnav .navbar-link:hover,
+.ms-appnav .navbar-link:focus {
+    background: none;
+    color: var(--ms-text);
+    text-decoration: none;
+    transform: none;
+}
+
+/* Active page: darker label plus a marker — a left bar while the links are
+   stacked, flipped to an underline at ≥992px. */
+.ms-appnav .navbar-link.active {
+    color: var(--ms-text);
+    padding-left: var(--ms-space-3);
+}
+
+.ms-appnav .navbar-link.active::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: var(--ms-accent);
+}
+
+.ms-appnav__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding-inline: 0.25rem;
+    border-radius: var(--ms-radius-pill);
+    background: var(--ms-accent-soft);
+    color: var(--ms-accent);
+    font-size: var(--ms-fs-xs);
+    font-weight: 600;
+}
+
+/* --- Account group -------------------------------------------------------- */
+
+.ms-appnav__account {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: var(--ms-space-3);
+    margin-top: var(--ms-space-2);
+    border-top: 1px solid var(--ms-border);
+    font-size: var(--ms-fs-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-appnav__email-addr {
+    font-family: var(--ms-font-mono);
+    word-break: break-all;
+}
+
+/* The inline scripts on pro.php / inbox.php write "Pro expired on ..." here and
+   set an inline colour for the expired case, which wins over this. */
+.ms-appnav__status {
+    color: var(--ms-text-faint);
+}
+
+/* --- Desktop: the panel becomes the bar's right-hand row ------------------- */
+
+/* Collapses at Bootstrap's `lg`, not `md`: seven links plus the account block
+   need ~870px, so at 768–991 the row would overrun the bar and clip the email.
+   Below `lg` the hamburger carries the same links instead. */
+@media (min-width: 992px) {
+    .ms-appnav__toggle {
+        display: none;
+    }
+
+    .ms-appnav__panel {
+        position: static;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-5);
+        padding: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+    }
+
+    .ms-appnav__links {
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ms-space-5);
+    }
+
+    .ms-appnav .navbar-link,
+    .ms-appnav .navbar-link.active {
+        padding: var(--ms-space-1) 0;
+        white-space: nowrap;
+    }
+
+    /* Marker flips from the stacked row's left bar to an underline. */
+    .ms-appnav .navbar-link.active::after {
+        top: auto;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: auto;
+        height: 2px;
+    }
+
+    /* Stays a column: the email on one line with the expiry beneath it, so the
+       group reads as one quiet block instead of three competing fragments. The
+       left border is what separates it from the links. */
+    .ms-appnav__account {
+        padding-top: 0;
+        padding-left: var(--ms-space-5);
+        margin-top: 0;
+        border-top: 0;
+        border-left: 1px solid var(--ms-border);
+    }
+}
+
+/* ==========================================================================
+   z. Inbox — inbox.php, and the rows assets/js/app.js renders into pro.php
+   ========================================================================== */
+
+/* One frame instead of three stacked cards: the address, its actions, the
+   message list and the statistics footnote are sections of a single raised
+   surface, sized and cornered like the landing hero mockup (§6) so the page
+   the visitor lands on looks like the product that was sold to them.
+
+   The row *container* is still the legacy `.email-item` — app.js delegates its
+   click handler on that class and pro.php renders the same rows — and is
+   restyled in mailshield-bootstrap.css. Everything inside a row is new markup
+   and is named `ms-mail__*` below. */
+
+.ms-inbox {
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+}
+
+.ms-inbox__frame {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    box-shadow: var(--ms-shadow-sm);
+    /* Clips the first and last row to the frame's radius. */
+    overflow: hidden;
+}
+
+/* --- Header strip --------------------------------------------------------- */
+
+.ms-inbox__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--ms-space-4);
+    padding: var(--ms-space-5);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-inbox__id {
+    min-width: 0;
+}
+
+.ms-inbox__label {
+    margin: 0 0 var(--ms-space-1);
+}
+
+.ms-inbox__addr {
+    margin: 0;
+    font-family: var(--ms-font-mono);
+    font-size: clamp(1.0625rem, 3.2vw, 1.375rem);
+    line-height: 1.3;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--ms-text);
+    word-break: break-all;
+}
+
+.ms-inbox__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-2) var(--ms-space-4);
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-inbox__privacy,
+.ms-inbox__validity {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ms-space-1);
+}
+
+/* --- Action toolbar ------------------------------------------------------- */
+
+.ms-inbox__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2);
+}
+
+/* Inline toolbar rather than four full-width grid buttons. Scoped to the
+   inbox, so the bridge's .btn sizing is untouched everywhere else. */
+.ms-inbox__actions .btn {
+    padding: .5rem .875rem;
+    font-size: var(--ms-fs-sm);
+}
+
+/* --- List bar: count, image toggle, freshness ----------------------------- */
+
+.ms-inbox__listbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-2) var(--ms-space-4);
+    padding: var(--ms-space-3) var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-inbox__count {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+}
+
+#emailCount {
+    color: var(--ms-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ms-inbox__freshness {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-2) var(--ms-space-4);
+}
+
+/* "Last updated: 12:04" is one fact, not two. */
+.ms-inbox__updated {
+    white-space: nowrap;
+}
+
+/* Icon-only toggle: square, so it reads as a control rather than a pill of
+   padding around a glyph. */
+#imageToggle {
+    padding: .375rem .5rem;
+    line-height: 1;
+}
+
+/* app.js adds .btn-danger while images are blocked but leaves the outline class
+   in place, and Bootstrap paints outline variants after the solid ones — so
+   without this the "blocked" state would never show. */
+#imageToggle.btn-danger {
+    background: var(--ms-danger);
+    border-color: var(--ms-danger);
+    color: var(--ms-accent-contrast);
+}
+
+/* The pill is driven by app.js (status-online / status-offline / loading). On a
+   white bar style.css's padding reads as a stray gap, so it is trimmed here;
+   the colours still come from the bridge. */
+.ms-inbox__freshness .status-indicator {
+    padding: .0625rem .5rem;
+    margin: 0;
+    font-size: var(--ms-fs-xs);
+    font-weight: 400;
+    border-radius: var(--ms-radius-pill);
+}
+
+/* --- Message rows --------------------------------------------------------- */
+/* .email-item (the grid, the hairline between rows, the unread edge and the
+   hover) lives in mailshield-bootstrap.css. These are the cells inside it. */
+
+.ms-mail__avatar {
+    grid-row: 1 / span 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-bg-sunken);
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-xs);
+    font-weight: 600;
+    line-height: 1;
+}
+
+.ms-mail__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+    min-width: 0;
+}
+
+.ms-mail__from {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    font-weight: 500;
+    color: var(--ms-text);
+}
+
+.ms-mail__time {
+    flex: none;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.ms-mail__sub {
+    display: flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+    min-width: 0;
+}
+
+.ms-mail__subject {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* The one visible cue that several addresses land in one inbox. */
+.ms-mail__to {
+    flex: none;
+    font-family: var(--ms-font-mono);
+}
+
+.ms-mail__preview {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+/* --- Empty list (an address with no mail yet) ----------------------------- */
+
+.ms-mail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ms-space-1);
+    padding: var(--ms-space-10) var(--ms-space-5);
+    text-align: center;
+}
+
+.ms-mail-empty__line {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-mail-empty__hint {
+    margin: 0;
+    font-size: var(--ms-fs-xs);
+    color: var(--ms-text-faint);
+}
+
+/* --- No address yet: the generator / register prompt ---------------------- */
+
+.ms-inbox__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ms-space-4);
+    padding: var(--ms-space-10) var(--ms-space-5);
+    text-align: center;
+}
+
+.ms-inbox__empty-title {
+    max-width: 34ch;
+    margin: 0;
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-inbox__empty-hint {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Statistics: a footnote, not a feature -------------------------------- */
+
+.ms-inbox__stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--ms-space-3) 0;
+    padding: var(--ms-space-4) var(--ms-space-5);
+    background: var(--ms-bg-sunken);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-inbox__stat {
+    padding-inline: var(--ms-space-4);
+    border-left: 1px solid var(--ms-border);
+}
+
+.ms-inbox__stat:first-child {
+    padding-left: 0;
+    border-left: 0;
+}
+
+.ms-inbox__stat-n {
+    display: block;
+    font-size: var(--ms-fs-body);
+    line-height: 1.3;
+    font-weight: 600;
+    color: var(--ms-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.ms-inbox__stat-l {
+    display: block;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+@media (max-width: 575.98px) {
+    .ms-inbox__head,
+    .ms-inbox__listbar,
+    .ms-inbox__stats {
+        padding-inline: var(--ms-space-4);
+    }
+
+    .ms-inbox__stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ms-inbox__stat:nth-child(odd) {
+        padding-left: 0;
+        border-left: 0;
+    }
+}
+
+/* --- Message modal -------------------------------------------------------- */
+
+/* CSS only — the brief leaves the dialog's markup and its content sanitising
+   alone. From/To/Date are Bootstrap rows with <strong> labels and no class of
+   their own, so the muted label and the hairline are read off that structure. */
+#emailModal .modal-body > .row > [class*="col-"]:first-child {
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    font-weight: 500;
+}
+
+#emailModal .modal-body > .row > [class*="col-"]:first-child strong {
+    font-weight: 500;
+}
+
+#emailModal .modal-body > hr {
+    margin-block: var(--ms-space-5);
+    border-color: var(--ms-border);
+    opacity: 1;
+}
+
+/* ==========================================================================
+   aa. Dashboard — pro.php (Redesign 24)
+   ========================================================================== */
+
+/* The dashboard is the inbox plus a rail, not a stack of cards. One column
+   below 1100px with the inbox first; above it, the rail sits beside the inbox.
+   The rail is placed by the grid, never by `order`, so the source order stays
+   inbox-then-rail — a phone stacks them correctly with no override, and the
+   keyboard walk stays in the order things are read (§5.5). */
+
+.ms-dash {
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+    padding-bottom: var(--ms-space-8);
+}
+
+/* The nav carries the identity now (#116), so this is a page label rather than
+   a headline: body-adjacent size, no display step. */
+.ms-dash__title {
+    margin: 0 0 var(--ms-space-5);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-dash__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-6);
+}
+
+/* --- Two columns ----------------------------------------------------------
+   Collapses at 1100px: below it the rail would squeeze the message rows
+   (from-name, subject and time on one line) before it stopped being useful. */
+
+@media (min-width: 1100px) {
+    .ms-dash__grid {
+        /* Narrow on purpose. Wide enough for `shopping@<domain>` in monospace
+           without an ellipsis, narrow enough that the rows keep their width. */
+        grid-template-columns: 220px minmax(0, 1fr);
+        align-items: start;
+    }
+
+    .ms-dash__inbox {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .ms-dash__rail {
+        grid-column: 1;
+        grid-row: 1;
+    }
+}
+
+/* --- Rail ----------------------------------------------------------------- */
+
+.ms-dash__rail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ms-space-6);
+    min-width: 0;
+}
+
+.ms-rail__group {
+    min-width: 0;
+}
+
+.ms-rail__title {
+    margin: 0 0 var(--ms-space-2);
+}
+
+/* Addresses read as a hairline-separated list, the same rhythm the landing
+   hero mockup gives its sidebar, rather than as another set of boxes. */
+.ms-rail__addrs {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* Rendered empty by PHP and filled by the page's inline script, so it takes no
+   space until there is something in it. */
+.ms-rail__addrs:empty {
+    display: none;
+}
+
+.ms-rail__addr {
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-rail__addr:first-child {
+    border-top: 0;
+}
+
+.ms-rail__addr-link {
+    display: block;
+    padding: var(--ms-space-2) 0;
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+
+.ms-rail__addr-link:hover,
+.ms-rail__addr-link:focus {
+    color: var(--ms-accent);
+    text-decoration: underline;
+}
+
+.ms-rail__empty,
+.ms-rail__hint {
+    margin: 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-rail__hint {
+    margin-top: var(--ms-space-3);
+}
+
+.ms-rail__select {
+    width: 100%;
+    max-width: 14rem;
+}
+
+/* The lifetime handler in pro.php's inline script writes inline colours —
+   #9ecbff while saving, #fff on success, #ff6b6b on error — chosen for the old
+   dark address panel. The first two are invisible on the rail's light surface.
+   The handler is deliberately untouched, so the feedback is given a dark chip
+   of its own while it has text: all three colours clear 4.5:1 on --ms-text, and
+   the chip is absent the rest of the time. */
+#ttlMsg:not(:empty) {
+    display: inline-block;
+    margin-top: var(--ms-space-2);
+    padding: .125rem .5rem;
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-text);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+}
+
+/* --- Pending profile changes: a band, not a card -------------------------- */
+
+/* The `card`, `card-header`, `badge` and `list-group-item` classes stay in the
+   markup because the inbox script looks all four up by name when a change is
+   cancelled (`closest('.card')`, `.find('.list-group-item')`,
+   `.find('.card-header .badge')`). They are hooks here, not a look — the
+   compound selectors below outrank mailshield-bootstrap.css, which loads after
+   this file and owns those class names. */
+
+.ms-inbox__frame > .ms-pending.card {
+    margin: 0;
+    background: var(--ms-bg-sunken);
+    border: 0;
+    border-bottom: 1px solid var(--ms-border);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.ms-pending > .ms-pending__head.card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-2) var(--ms-space-3);
+    padding: var(--ms-space-3) var(--ms-space-5);
+    background: none;
+    border-bottom: 1px solid var(--ms-border);
+    color: var(--ms-text);
+}
+
+.ms-pending__title {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-pending > .ms-pending__list.list-group {
+    background: none;
+    border-radius: 0;
+}
+
+.ms-pending .ms-pending__item.list-group-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+    padding: var(--ms-space-3) var(--ms-space-5);
+    background: none;
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    border-radius: 0;
+    color: var(--ms-text);
+}
+
+.ms-pending .ms-pending__item.list-group-item:first-child {
+    border-top: 0;
+}
+
+.ms-pending__body {
+    min-width: 0;
+}
+
+.ms-pending__action {
+    display: block;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+/* `set_password` has no detail line; the empty node should not leave a gap. */
+.ms-pending__detail:empty {
+    display: none;
+}
+
+.ms-pending__detail {
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-pending__meta {
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-faint);
+}
+
+.ms-pending__resend {
+    display: inline-block;
+    margin-top: var(--ms-space-1);
+    font-size: var(--ms-fs-xs);
+    color: var(--ms-accent);
+}
+
+/* --- The personal-address limit ------------------------------------------- */
+
+/* pro_profile_page.php marks its counter `.quota-reached` when all ten personal
+   addresses are used. The pulse that used to carry that state lived in an
+   inline <style> block on pro.php and so never applied to the page that sets
+   the class; §5.4 forbids looping animation. The state is a static hairline and
+   colour change instead — `.bg-danger` supplies the tint. */
+.quota-reached {
+    animation: none;
+    box-shadow: inset 0 0 0 1px var(--ms-danger);
+}
+
+/* ==========================================================================
+   bb. Settings — pro_profile_page.php (Redesign 25)
+   ========================================================================== */
+
+/* The page was one card holding every setting, each block separated by a rule
+   and two rem of padding, so a page of eleven settings scrolled for thousands
+   of pixels. It is now five groups behind a rail of anchors.
+
+   Anchored, not tabbed, on purpose: every section stays in the document flow,
+   so no control that the page's own inline scripts bind by id — they reach
+   into all five groups — can end up inside a panel that is hidden when the
+   script runs. Deep links and find-in-page keep working for the same reason.
+
+   There is no scroll spy. The rail marker is moved by `:has(:target)`, which
+   fits the way a reader actually navigates a contents list — follow a link,
+   land on a section — and costs no script state. The marker is presentational:
+   the rail links carry no aria-current, because an attribute that cannot track
+   the scroll position would announce the wrong section. */
+
+.ms-settings {
+    /* The nav is the page's only bar and stands 4rem tall (.ms-appnav__inner
+       min-height). Sections, the rail and the alert all clear it by one more
+       step of the scale. It is the same offset at every width — there is no
+       second sticky layer to stack underneath. */
+    --ms-settings-nav: calc(var(--ms-space-10) + var(--ms-space-4));
+
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+    padding-bottom: var(--ms-space-6);
+}
+
+/* --- Page label -----------------------------------------------------------
+   The nav carries the identity (#116) and the page carried a 2.5rem heading
+   with a cog icon and a "Manage your Pro account" lead. What is left is a page
+   label, taking the h3 step for the same reason the dashboard's does, and the
+   rail and the group headings below carry the orientation the lead used to. */
+
+.ms-settings__title {
+    margin: 0 0 var(--ms-space-5);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+/* --- Rail and content ----------------------------------------------------- */
+
+.ms-settings__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-5);
+}
+
+/* Collapses at 1000px, the width the issue names: below it the rail would
+   squeeze the webhook rows and the two-factor column before it stopped being
+   worth its own column. */
+@media (min-width: 1000px) {
+    .ms-settings__grid {
+        grid-template-columns: 13rem minmax(0, 1fr);
+        gap: var(--ms-space-6);
+        /* Required for the rail's `position: sticky` — a stretched grid item
+           is exactly as tall as the row and has nowhere to stick within. */
+        align-items: start;
+    }
+}
+
+.ms-settings__content {
+    /* Lets the webhook rows wrap instead of widening the grid column. */
+    min-width: 0;
+}
+
+/* --- The rail -------------------------------------------------------------
+   A horizontal, scrollable strip on a phone; a sticky column from 1000px up.
+   Two renditions of one list, not a drawer and not a select. */
+
+.ms-settings__rail {
+    min-width: 0;
+}
+
+.ms-settings__rail-list {
+    display: flex;
+    gap: var(--ms-space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.ms-settings__rail-link {
+    display: block;
+    padding: var(--ms-space-2) 0;
+    /* Mobile resting state: a rule under the link, matching the strip. */
+    border-bottom: 2px solid transparent;
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--ms-dur) var(--ms-ease),
+        border-color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-settings__rail-link:hover,
+.ms-settings__rail-link:focus-visible {
+    color: var(--ms-text);
+}
+
+/* Which group is current. One rule, keyed off `aria-current`, which the small
+   spy in the page maintains. The first group carries the attribute in the
+   markup, so the marker is correct before the script runs and stays correct if
+   it never does. `border-color` covers both renditions of the rail on its own:
+   only the bottom border has width on a phone, only the left one has width in
+   the column. */
+.ms-settings__rail-link[aria-current] {
+    border-color: var(--ms-accent);
+    color: var(--ms-text);
+    font-weight: 600;
+}
+
+@media (min-width: 1000px) {
+    .ms-settings__rail {
+        position: sticky;
+        top: var(--ms-settings-nav);
+    }
+
+    .ms-settings__rail-list {
+        flex-direction: column;
+        gap: 0;
+        overflow: visible;
+    }
+
+    .ms-settings__rail-link {
+        padding: var(--ms-space-2) var(--ms-space-3);
+        /* Desktop resting state: a rule beside the link, matching the column. */
+        border-bottom: 0;
+        border-left: 2px solid transparent;
+    }
+}
+
+/* --- The page's own status line -------------------------------------------
+   Email, password and signing-key outcomes all land in #proProfileAlert, and
+   it used to sit at the top of a page that scrolled for thousands of pixels —
+   a key rotation failing in the last group reported itself out of sight. It
+   sticks under the nav for as long as it has something to say, and is absent
+   the rest of the time, which is what `:empty` tests. */
+
+.ms-settings__alert:not(:empty) {
+    position: sticky;
+    top: var(--ms-settings-nav);
+    z-index: 2;
+    margin-bottom: var(--ms-space-4);
+    background: var(--ms-bg);
+}
+
+/* --- A group -------------------------------------------------------------- */
+
+.ms-settings__section {
+    /* An anchor jump must not tuck the heading under the bar. The stylesheet
+       already offsets `:target` for the marketing pages; settings sections are
+       linked to from the rail as well, so they carry the offset themselves. */
+    scroll-margin-top: var(--ms-settings-nav);
+}
+
+.ms-settings__section + .ms-settings__section {
+    margin-top: var(--ms-space-7);
+}
+
+.ms-settings__section-title {
+    margin: 0 0 var(--ms-space-1);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-settings__section-lede {
+    margin: 0 0 var(--ms-space-3);
+    max-width: 62ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- A setting ------------------------------------------------------------
+   One card per setting, holding a heading, a one-line description, the
+   control and that control's own status element. The padding is deliberately
+   the smallest that still separates a setting from its neighbours: the old
+   stack leaned on rules and margins instead, and this page has eleven settings
+   to get through. */
+
+.ms-card {
+    padding: var(--ms-space-3) var(--ms-space-5);
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+}
+
+.ms-card + .ms-card {
+    margin-top: var(--ms-space-2);
+}
+
+.ms-card__title {
+    margin: 0 0 var(--ms-space-1);
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-body);
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-card__desc {
+    margin: 0 0 var(--ms-space-2);
+    max-width: 68ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* The control is the last thing in most cards, so the description above it
+   should not leave a gap under the card. */
+.ms-card__desc:last-child,
+.ms-card__note:last-child {
+    margin-bottom: 0;
+}
+
+.ms-card__note {
+    margin: 0 0 var(--ms-space-3);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text);
+}
+
+/* A second heading level inside one card — "Your webhooks", "Trusted
+   devices" — for a control that owns a list of its own. */
+.ms-card__subtitle {
+    margin: var(--ms-space-5) 0 var(--ms-space-2);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+/* --- The personal-address status message ----------------------------------
+   The create handler writes inline colours picked for the old dark address
+   panel — #9ecbff while creating, #fff on success, #ff6b6b on error. The
+   handler is deliberately untouched, so the message is given a dark chip of
+   its own while it has text, exactly as the lifetime message already is: all
+   three colours clear 4.5:1 on --ms-text. */
+
+.ms-settings #personalMsg:not(:empty) {
+    display: inline-block;
+    padding: .125rem .5rem;
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-text);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+}
+
+/* ==========================================================================
+   cc. Client Agent — client_agent_manage.php (Redesign 26)
+   ==========================================================================
+
+   The public entry point into the agent subsystem: install, filter scripts,
+   sender lists, and whether any of it is running.
+
+   It was three full-width stacked cards — an install guide, then a scripts card
+   holding five more cards and two rules — and the one thing a reader opens the
+   page to find out, whether the agent is reporting, was the fourth block down
+   inside the third card. It is now four groups in the order the work happens,
+   listed in a contents strip at the top.
+
+   Anchored, not tabbed, for the same reason as the settings page (bb): the
+   page's own inline script reaches into every group by id, and a group that
+   stays in the document flow cannot hide a control it binds when the script
+   runs. Deep links and find-in-page keep working for the same reason. */
+
+.ms-agent {
+    /* The nav is the page's only bar and stands 4rem tall
+       (.ms-appnav__inner min-height); the groups and the sticky alert clear it
+       by one more step of the scale. Same offset as the settings page, because
+       it is the same bar. */
+    --ms-agent-nav: calc(var(--ms-space-10) + var(--ms-space-4));
+
+    max-width: var(--ms-container);
+    margin-inline: auto;
+    padding-inline: var(--ms-gutter);
+    padding-bottom: var(--ms-space-8);
+}
+
+/* --- Page label -----------------------------------------------------------
+   The nav carries the identity (#116), so this is a page label rather than a
+   headline — the same step the dashboard and the settings page take. */
+
+.ms-agent__title {
+    margin: 0 0 var(--ms-space-3);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-agent__lede {
+    margin: 0 0 var(--ms-space-5);
+    max-width: 68ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Contents -------------------------------------------------------------
+   Four short labels, so they wrap rather than scroll: a strip wide enough to
+   need a scrollbar is a strip a reader has to operate to find out what the page
+   contains. `flex-wrap` is what keeps a phone from scrolling sideways (§12.8);
+   the `overflow-x` is a floor for a translated label, and never fires while the
+   labels wrap. */
+
+.ms-agent__contents-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2) var(--ms-space-5);
+    margin: 0 0 var(--ms-space-6);
+    padding: 0 0 var(--ms-space-3);
+    border-bottom: 1px solid var(--ms-border);
+    list-style: none;
+    overflow-x: auto;
+}
+
+.ms-agent__contents-link {
+    display: block;
+    padding: var(--ms-space-1) 0;
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--ms-dur) var(--ms-ease);
+}
+
+.ms-agent__contents-link:hover,
+.ms-agent__contents-link:focus-visible {
+    color: var(--ms-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* --- The page's own status line -------------------------------------------
+   Create, run-cycle, settings and list outcomes all land in
+   #clientAgentAlert, and the controls that raise them sit in the last two
+   groups. It sticks under the nav while it has something to say, and is absent
+   the rest of the time, which is what `:empty` tests. */
+
+.ms-agent__alert:not(:empty) {
+    position: sticky;
+    top: var(--ms-agent-nav);
+    z-index: 2;
+    margin-bottom: var(--ms-space-5);
+    background: var(--ms-bg);
+}
+
+/* --- A group -------------------------------------------------------------- */
+
+.ms-agent__section {
+    /* An anchor jump must not tuck the heading under the bar. */
+    scroll-margin-top: var(--ms-agent-nav);
+}
+
+.ms-agent__section + .ms-agent__section {
+    margin-top: var(--ms-space-8);
+}
+
+.ms-agent__section-title {
+    margin: 0 0 var(--ms-space-1);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+.ms-agent__section-lede {
+    margin: 0 0 var(--ms-space-4);
+    max-width: 68ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- A block inside a group ---------------------------------------------- */
+
+.ms-agent__block {
+    margin-top: var(--ms-space-5);
+    padding-top: var(--ms-space-5);
+    border-top: 1px solid var(--ms-border);
+}
+
+/* The detail head already closed itself with a rule. */
+.ms-agent__detail-head + .ms-agent__block {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.ms-agent__block-title {
+    margin: 0 0 var(--ms-space-1);
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-body);
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-agent__block-desc {
+    margin: 0 0 var(--ms-space-3);
+    max-width: 68ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+/* --- Status ---------------------------------------------------------------
+   The most useful block on the page, so it is first, and it is a row of
+   label/value pairs rather than a card inside a card.
+
+   The script renders `.row.g-3` and two `.col-md-6` cells of its own into
+   #statusSummary. Zeroing the gutter variables removes the negative side
+   margins that would otherwise overhang the column by half a gutter on each
+   side, and the column padding that comes with them; `gap` spaces the cells
+   instead. The cells are then given a flex basis so they sit two-up on a wide
+   screen and full width on a phone — `col-md-6` is written without the `col-12`
+   that normally pairs with it, so below 768px they would otherwise be
+   auto-width flex items instead of full-width ones. */
+
+.ms-agent #statusSummary {
+    --bs-gutter-x: 0;
+    --bs-gutter-y: 0;
+    gap: var(--ms-space-3);
+}
+
+.ms-agent #statusSummary > * {
+    flex: 1 1 16rem;
+    min-width: 0;
+}
+
+/* The label and the badge stay together rather than being pushed to opposite
+   edges: at 1120px the two would sit most of a screen apart, and the badge is
+   the answer to the label, not a separate corner of the page. */
+.ms-agent__status-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-2);
+    margin-bottom: var(--ms-space-3);
+}
+
+.ms-agent__status-label {
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ms-text-muted);
+}
+
+/* Delivery state reads as the words "Delivered" / "Not delivered" first; the
+   hairline only repeats it in the same colour, which `currentColor` takes from
+   the `text-success` / `text-danger` the script sets on the element itself.
+   Nothing on this page is said by colour alone (§5.5). */
+.ms-agent #statusSummary .text-success,
+.ms-agent #statusSummary .text-danger {
+    padding-left: var(--ms-space-2);
+    border-left: 2px solid currentColor;
+}
+
+/* --- Install --------------------------------------------------------------
+   This part is a runbook, so it is set as reading copy in the `.ms-article`
+   treatment (x) instead of in cards. `pre` inside that treatment already
+   carries `overflow-x: auto` on its own surface, which is what keeps the long
+   `encrypt_local_config.php` command from taking the page with it (§12.8). */
+
+.ms-agent__downloads {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-3);
+}
+
+/* `.ms-article` opens with the space a blog post needs under its own heading;
+   here it follows two buttons. */
+.ms-agent__article {
+    margin-top: var(--ms-space-5);
+}
+
+/* The command blocks are labels for a runbook step, not post headings, so they
+   take body size and the article's own heading step is not spent on them. */
+.ms-agent__article h3 {
+    margin-top: var(--ms-space-6);
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-h3);
+    font-weight: 600;
+}
+
+.ms-agent__details {
+    margin-top: var(--ms-space-5);
+}
+
+.ms-agent__details > summary {
+    cursor: pointer;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-agent__details > summary:hover {
+    color: var(--ms-accent);
+}
+
+.ms-agent__details > summary:focus-visible {
+    outline: 2px solid var(--ms-accent);
+    outline-offset: 2px;
+}
+
+.ms-agent__details-body {
+    margin-top: var(--ms-space-4);
+}
+
+.ms-agent__details-body > *:first-child {
+    margin-top: 0;
+}
+
+/* --- Filter scripts -------------------------------------------------------
+   A list of scripts beside the selected script's settings, the way the page
+   always meant it (col-lg-4 / col-lg-8). Collapses at 900px: below it neither
+   column could show a script id or a settings field without wrapping. */
+
+.ms-agent__create {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2);
+    margin-bottom: var(--ms-space-5);
+}
+
+/* The field takes the room, the button keeps its width. `min-width: 0` is what
+   lets the field shrink past its intrinsic width on a phone. */
+.ms-agent__create .form-control {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
+.ms-agent__scripts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-5);
+}
+
+@media (min-width: 900px) {
+    .ms-agent__scripts {
+        grid-template-columns: 15rem minmax(0, 1fr);
+        gap: var(--ms-space-6);
+        align-items: start;
+    }
+}
+
+/* The script list is hairline-separated rows, not the list-group's rounded
+   panel, so it reads as a list of equal things rather than as another card.
+
+   `.list-group-item.active` is Bootstrap's own blue: the bridge remaps the
+   group's other variables but not that pair, so a selected script used to be
+   the one element on the page still wearing the old palette. The selected row
+   is also weighted and carries an accent edge, so the selection is not carried
+   by its tint alone. */
+
+.ms-agent__script-list {
+    border: 0;
+    border-radius: 0;
+}
+
+.ms-agent__script-list .list-group-item {
+    padding: var(--ms-space-3) var(--ms-space-4);
+    background: none;
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    border-radius: 0;
+    color: var(--ms-text);
+    overflow-wrap: anywhere;
+}
+
+.ms-agent__script-list .list-group-item:first-child {
+    border-top: 0;
+}
+
+.ms-agent__script-list .list-group-item-action:hover,
+.ms-agent__script-list .list-group-item-action:focus-visible {
+    background: var(--ms-bg-sunken);
+}
+
+.ms-agent__script-list .list-group-item.active {
+    background: var(--ms-accent-soft);
+    border-color: var(--ms-border);
+    box-shadow: inset 2px 0 0 var(--ms-accent);
+    color: var(--ms-text);
+    font-weight: 600;
+}
+
+/* Script ids, sender addresses and match patterns all read in monospace
+   (§5.2). The script renders them as `.small.text-muted` in some places and as
+   a bare span in others, so both shapes are covered rather than the script
+   being changed. */
+.ms-agent__script-list .list-group-item .small,
+.ms-agent__list .list-group-item .small,
+.ms-agent__list .list-group-item > span {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+}
+
+/* --- The selected script's panel ------------------------------------------ */
+
+.ms-agent__detail-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+    padding-bottom: var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-agent__detail-head .ms-agent__block-desc {
+    margin-bottom: 0;
+}
+
+.ms-agent__detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2);
+}
+
+.ms-agent__settings,
+.ms-agent__filter-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-3) var(--ms-space-4);
+}
+
+/* A field whose control is a select or a checkbox has no text baseline to
+   align to, so the row aligns its controls to the bottom instead. */
+.ms-agent__filter-form {
+    align-items: end;
+    margin-top: var(--ms-space-3);
+}
+
+@media (min-width: 900px) {
+    .ms-agent__settings {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ms-agent__filter-form {
+        grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+    }
+}
+
+.ms-agent__field {
+    min-width: 0;
+}
+
+.ms-agent__field--full {
+    grid-column: 1 / -1;
+}
+
+/* --- Sender lists ---------------------------------------------------------
+   The group a user is in most often, so both lists are compact: an inline add
+   field over hairline rows, not a card per list. */
+
+.ms-agent__lists {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ms-space-6);
+}
+
+@media (min-width: 900px) {
+    .ms-agent__lists {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--ms-space-7);
+    }
+}
+
+.ms-agent__list-block {
+    min-width: 0;
+}
+
+.ms-agent__list-form {
+    display: flex;
+    gap: var(--ms-space-2);
+}
+
+.ms-agent__list-form .form-control {
+    min-width: 0;
+}
+
+.ms-agent__list {
+    margin-bottom: 0;
+    border: 0;
+    border-radius: 0;
+}
+
+.ms-agent__list .list-group-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-2) var(--ms-space-3);
+    padding: var(--ms-space-2) 0;
+    background: none;
+    border: 0;
+    border-top: 1px solid var(--ms-border);
+    border-radius: 0;
+    color: var(--ms-text);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    overflow-wrap: anywhere;
+}
+
+.ms-agent__list .list-group-item:first-child {
+    border-top: 0;
+}
+
+/* --- The sender lists before a script is chosen ---------------------------
+   With no scripts at all, the page's script puts `.d-none` back on the details
+   panel and the list controls reach for a script id that does not exist yet —
+   they return early and do nothing. So the section says so instead of offering
+   two add forms that silently discard what is typed into them.
+
+   The state comes from the class the script already toggles, so no script state
+   is added for it. Without `:has()` support the note stays hidden and the lists
+   stay visible, which is exactly how the page behaved before. */
+
+.ms-agent__lists-note {
+    display: none;
+    margin: 0 0 var(--ms-space-4);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-agent:has(#scriptDetails.d-none) .ms-agent__lists {
+    display: none;
+}
+
+.ms-agent:has(#scriptDetails.d-none) .ms-agent__lists-note {
+    display: block;
+}
+
+/* ==========================================================================
+   dd. Contact — pro_contact.php (Redesign 26)
+   ==========================================================================
+
+   One centred column and one card. The page does a single thing — write to the
+   team — and the composition it had (a 2.5rem heading with an icon, a lead, and
+   then a card whose header repeated the heading) read as a section of a larger
+   page rather than as a finished task. */
+
+.ms-contact {
+    max-width: var(--ms-container-narrow);
+    margin-inline: auto;
+    padding: var(--ms-space-7) var(--ms-gutter) var(--ms-space-8);
+}
+
+.ms-contact__title {
+    margin: 0 0 var(--ms-space-2);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
+/* Says where the message goes and promises no response time, because none is
+   published. */
+.ms-contact__lede {
+    margin: 0 0 var(--ms-space-5);
+    max-width: 62ch;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-contact__card {
+    padding: var(--ms-space-6);
+}
+
+/* Where the reply lands, as read-only context rather than as a field: it is the
+   address on the account, and the server sends there whatever this says. */
+.ms-contact__to {
+    margin: 0 0 var(--ms-space-4);
+    padding: var(--ms-space-2) var(--ms-space-3);
+    background: var(--ms-bg-sunken);
+    border-radius: var(--ms-radius-sm);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-contact__to-addr {
+    font-family: var(--ms-font-mono);
+    color: var(--ms-text);
+}
+
+.ms-contact__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+}

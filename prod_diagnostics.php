@@ -7,7 +7,7 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-echo "== TempMail Production Diagnostics ==\n";
+echo "== Mail Shield Production Diagnostics ==\n";
 echo "Run: php src/prod_diagnostics.php\n\n";
 
 // Attempt to load config (this will perform environment detection)
