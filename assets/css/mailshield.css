@@ -495,6 +495,47 @@ a:hover {
     white-space: nowrap;
 }
 
+/* --- Password field (#150) ------------------------------------------------ */
+
+/* A field with a show/hide toggle over its right edge. Three pages use it —
+   the two auth pages and the settings page — so it sits here with the other
+   components instead of in any one page's lettered section.
+
+   The wrapper only establishes the containing block; the button is positioned
+   against the input's height, so it stays centred whatever the field's size.
+   The space the button needs is reserved as padding *on* the Bootstrap
+   `.form-control` it sits over — that rule belongs to the bridge, not here
+   (§11), and is the only reason the two rules are split across the files. */
+
+.ms-password-field {
+    position: relative;
+}
+
+.ms-password-toggle {
+    position: absolute;
+    top: 50%;
+    right: var(--ms-space-2);
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    padding: var(--ms-space-2);
+    background: none;
+    border: 0;
+    border-radius: var(--ms-radius-sm);
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.ms-password-toggle:hover {
+    color: var(--ms-text);
+}
+
+/* No focus rule here: the base layer's global `:focus-visible` already draws
+   the ring, and Bootstrap's reboot only clears an outline for a plain button
+   focused by mouse, which is the behaviour we want anyway. */
+
 /* ==========================================================================
    d. Motion layer
    ========================================================================== */

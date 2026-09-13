@@ -117,11 +117,17 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                                 <!-- Current-password field removed: users can change password without supplying previous password -->
                                 <div class="mb-3">
                                     <label class="form-label">New password</label>
-                                    <input type="password" class="form-control" id="proPassword" />
+                                    <div class="ms-password-field">
+                                        <input type="password" class="form-control" id="proPassword" />
+                                        <button type="button" class="ms-password-toggle" data-target="proPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                    </div>
                                 </div>
                                 <div class="mb-3">
                                     <label class="form-label">Confirm password</label>
-                                    <input type="password" class="form-control" id="proPasswordConfirm" />
+                                    <div class="ms-password-field">
+                                        <input type="password" class="form-control" id="proPasswordConfirm" />
+                                        <button type="button" class="ms-password-toggle" data-target="proPasswordConfirm" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                    </div>
                                 </div>
                                 <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
                             </div>
@@ -336,7 +342,13 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                                     <div id="tfaDisableForm" class="d-none mt-2">
                                         <div id="tfaDisablePasswordField" class="mb-2">
                                             <label class="form-label" for="tfaDisablePasswordInput">Enter your password to confirm</label>
-                                            <input type="password" class="form-control" id="tfaDisablePasswordInput" style="max-width:260px;">
+                                            <!-- The width constraint sits on the wrapper, not the
+                                                 field: the toggle is positioned against the wrapper,
+                                                 so the two have to be the same box. -->
+                                            <div class="ms-password-field" style="max-width:260px;">
+                                                <input type="password" class="form-control" id="tfaDisablePasswordInput">
+                                                <button type="button" class="ms-password-toggle" data-target="tfaDisablePasswordInput" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                            </div>
                                         </div>
                                         <button type="button" id="tfaDisableConfirmBtn" class="btn btn-danger btn-sm">Disable 2FA</button>
                                         <button type="button" id="tfaDisableCancelBtn" class="btn btn-link btn-sm">Cancel</button>
@@ -1358,6 +1370,43 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
         window.addEventListener('scroll', onScroll, { passive: true });
         window.addEventListener('resize', onScroll);
         update();
+    })();
+    </script>
+
+    <script>
+    /**
+     * Show/hide toggles for password fields.
+     *
+     * Generic by design: each button names its input in `data-target`, so one
+     * binding covers all three fields on this page and a further field needs
+     * markup only. The profile page does not load the inbox script (it polls),
+     * so the binding is repeated here rather than shared.
+     *
+     * The buttons carry `type="button"` in the markup. That matters more here
+     * than on the auth pages: the three fields sit inside one large settings
+     * form, so an untyped button would submit every setting on the page.
+     */
+    (function () {
+        var buttons = document.querySelectorAll('.ms-password-toggle');
+
+        Array.prototype.forEach.call(buttons, function (btn) {
+            btn.addEventListener('click', function () {
+                var input = document.getElementById(btn.getAttribute('data-target'));
+                if (!input) return;
+
+                var masked = input.type === 'password';
+                input.type = masked ? 'text' : 'password';
+
+                var icon = btn.querySelector('i');
+                if (icon) {
+                    icon.classList.toggle('fa-eye', !masked);
+                    icon.classList.toggle('fa-eye-slash', masked);
+                }
+
+                btn.setAttribute('aria-pressed', String(masked));
+                btn.setAttribute('aria-label', masked ? 'Hide password' : 'Show password');
+            });
+        });
     })();
     </script>
 </body>

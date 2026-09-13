@@ -636,6 +636,16 @@ body {
     color: var(--ms-text-muted);
 }
 
+/* Reserve the right edge for the show/hide toggle the component layer
+   positions there (`.ms-password-field`, #150). This is padding on
+   `.form-control`, so it lives in the bridge and not in `mailshield.css`
+   (§11). Two rem covers the button's box — 0.5rem inset, 0.5rem padding either
+   side and the icon — so the remaining rem is clear space between the longest
+   value and the icon. */
+.ms-password-field .form-control {
+    padding-right: var(--ms-space-8);
+}
+
 .form-text {
     color: var(--ms-text-muted);
     font-size: var(--ms-fs-xs);
