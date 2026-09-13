@@ -125,11 +125,17 @@ $msDesc     = 'Create a free Mail Shield account and get a separate inbox for th
                         </div>
                         <div class="mb-3">
                             <label for="regPassword" class="form-label">Password</label>
-                            <input type="password" class="form-control" name="password" id="regPassword" autocomplete="new-password" required>
+                            <div class="ms-password-field">
+                                <input type="password" class="form-control" name="password" id="regPassword" autocomplete="new-password" required>
+                                <button type="button" class="ms-password-toggle" data-target="regPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                            </div>
                         </div>
                         <div class="mb-3">
                             <label for="regPasswordConfirm" class="form-label">Confirm password</label>
-                            <input type="password" class="form-control" name="password_confirm" id="regPasswordConfirm" autocomplete="new-password" required>
+                            <div class="ms-password-field">
+                                <input type="password" class="form-control" name="password_confirm" id="regPasswordConfirm" autocomplete="new-password" required>
+                                <button type="button" class="ms-password-toggle" data-target="regPasswordConfirm" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                            </div>
                         </div>
                         <div class="mb-3" id="regCodeBlock" style="display:none;">
                             <label for="regCode" class="form-label">Voucher code</label>
@@ -233,6 +239,43 @@ $msDesc     = 'Create a free Mail Shield account and get a separate inbox for th
             });
         });
     });
+    </script>
+
+    <script>
+    /**
+     * Show/hide toggles for password fields.
+     *
+     * Generic by design: each button names its input in `data-target`, so one
+     * binding covers both fields here and a further field needs markup only.
+     * The auth pages do not load the inbox script, so the binding is repeated
+     * here rather than shared; it is deliberately vanilla instead of jQuery so
+     * it does not queue behind the ready handler above.
+     *
+     * The button carries `type="button"` in the markup, without which it would
+     * submit the registration form.
+     */
+    (function () {
+        var buttons = document.querySelectorAll('.ms-password-toggle');
+
+        Array.prototype.forEach.call(buttons, function (btn) {
+            btn.addEventListener('click', function () {
+                var input = document.getElementById(btn.getAttribute('data-target'));
+                if (!input) return;
+
+                var masked = input.type === 'password';
+                input.type = masked ? 'text' : 'password';
+
+                var icon = btn.querySelector('i');
+                if (icon) {
+                    icon.classList.toggle('fa-eye', !masked);
+                    icon.classList.toggle('fa-eye-slash', masked);
+                }
+
+                btn.setAttribute('aria-pressed', String(masked));
+                btn.setAttribute('aria-label', masked ? 'Hide password' : 'Show password');
+            });
+        });
+    })();
     </script>
 </body>
 </html>
