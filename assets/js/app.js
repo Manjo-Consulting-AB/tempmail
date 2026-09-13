@@ -14,6 +14,9 @@ class TempMailApp {
         this.autoRefreshCount = 0; // Räknar auto-refresh cykler
         this.lastKnownEmailId = 0; // track latest known email id to avoid full reloads
         this.isPersonalAddress = false; // track if current address is personal/private
+        this.allEmails = []; // senast hämtade, ofiltrerade meddelandelistan
+        this.activeAddressFilter = null; // full mottagaradress att filtrera på (pro.php)
+        this.knownPersonalAddresses = []; // kontots permanenta adresser, satta av pro.php
 
         this.init();
 
@@ -145,8 +148,27 @@ class TempMailApp {
             this.shareLink();
         });
         
+        // Filtrera inkorgen på en permanent adress (rail-listan i pro.php).
+        // Delegerad: raderna byggs av pro.php efter att sidan laddats.
+        $(document).on('click', '.ms-rail__addr-link', (e) => {
+            e.preventDefault();
+            const address = $(e.currentTarget).attr('data-address');
+            if (address) this.setAddressFilter(address);
+        });
+
+        // Rensa adressfiltret. Samma knappklass i filterraden och i empty state.
+        $(document).on('click', '.ms-address-filter-clear', (e) => {
+            e.preventDefault();
+            this.clearAddressFilter();
+        });
+
+        // Bakåt/framåt: URL:en är filtertillståndet.
+        window.addEventListener('popstate', () => {
+            this.applyAddressFilterFromUrl();
+        });
+
         // Theme removed: no theme toggle handler
-        
+
         // Uppdatera e-post (med IMAP-refresh)
         $(document).on('click', '#refreshBtn', () => {
             console.log('Refresh button clicked, current address:', this.currentAddress);
@@ -513,7 +535,10 @@ class TempMailApp {
             console.log('Email response:', response);
             
             if (response.success) {
-                this.displayEmails(response.emails || []);
+                // Behåll hela svaret ofiltrerat; filtret är en ren vy över det.
+                this.allEmails = response.emails || [];
+                this.updateLastKnownEmailId(this.allEmails);
+                this.renderFilteredEmails();
                 this.updateStatus('online');
                 
                 // Uppdatera tidsstämpel
@@ -538,12 +563,154 @@ class TempMailApp {
     }
     
     /**
+     * Rendera den filtrerade vyn över den senast hämtade listan
+     */
+    renderFilteredEmails() {
+        let emails = this.allEmails || [];
+        if (this.activeAddressFilter) {
+            const filter = this.activeAddressFilter.toLowerCase();
+            emails = emails.filter(e => (e.to_address || '').toLowerCase() === filter);
+        }
+        this.displayEmails(emails);
+    }
+
+    /**
+     * Filtrera inkorgen på en permanent adress. Ingen ny hämtning: hela listan
+     * ligger redan i this.allEmails.
+     */
+    setAddressFilter(address, options = {}) {
+        const value = String(address == null ? '' : address).trim();
+        if (!value) return;
+        this.activeAddressFilter = value;
+        this.renderFilteredEmails();
+        this.syncAddressFilterUI();
+        if (options.updateUrl !== false) this.updateAddressFilterUrl();
+    }
+
+    /**
+     * Ta bort adressfiltret och visa samtliga meddelanden igen
+     */
+    clearAddressFilter(options = {}) {
+        if (!this.activeAddressFilter) return;
+        this.activeAddressFilter = null;
+        this.renderFilteredEmails();
+        this.syncAddressFilterUI();
+        if (options.updateUrl !== false) this.updateAddressFilterUrl();
+    }
+
+    /**
+     * Adresserna i rail-listan (pro.php). Behövs för att kunna avgöra om en
+     * adress i ?filter_address= verkligen tillhör det inloggade kontot.
+     */
+    setKnownPersonalAddresses(addresses) {
+        this.knownPersonalAddresses = Array.isArray(addresses) ? addresses.slice() : [];
+        this.applyAddressFilterFromUrl();
+    }
+
+    /**
+     * Applicera filtret som URL:en pekar ut, om adressen är kontots egen.
+     * Okänd adress → visa allt (fail open).
+     */
+    applyAddressFilterFromUrl() {
+        let requested = null;
+        try {
+            requested = new URLSearchParams(window.location.search).get('filter_address');
+        } catch (e) {
+            requested = null;
+        }
+        const known = this.knownPersonalAddresses || [];
+        const match = requested
+            ? known.find(a => String(a).toLowerCase() === String(requested).toLowerCase())
+            : null;
+        if (match) {
+            this.setAddressFilter(match, { updateUrl: false });
+        } else if (this.activeAddressFilter) {
+            this.clearAddressFilter({ updateUrl: false });
+        }
+    }
+
+    /**
+     * Spegla filtret i URL:en utan att ladda om sidan
+     */
+    updateAddressFilterUrl() {
+        if (!history.pushState) return;
+        const params = new URLSearchParams(window.location.search);
+        if (this.activeAddressFilter) {
+            params.set('filter_address', this.activeAddressFilter);
+        } else {
+            params.delete('filter_address');
+        }
+        const query = params.toString();
+        const newUrl = window.location.pathname + (query ? '?' + query : '');
+        history.pushState({ filterAddress: this.activeAddressFilter }, '', newUrl);
+    }
+
+    /**
+     * Markera vald adress i rail-listan och visa filterraden ovanför listan
+     */
+    syncAddressFilterUI() {
+        const filter = this.activeAddressFilter ? this.activeAddressFilter.toLowerCase() : null;
+
+        $('#railAddressList .ms-rail__addr').each(function () {
+            const $row = $(this);
+            const $link = $row.find('.ms-rail__addr-link');
+            const address = String($link.attr('data-address') || '').toLowerCase();
+            const isActive = !!filter && address === filter;
+            $row.toggleClass('is-active', isActive);
+            if (isActive) {
+                $link.attr('aria-current', 'true');
+            } else {
+                $link.removeAttr('aria-current');
+            }
+        });
+
+        const $bar = $('#addressFilterBar');
+        if (!$bar.length) return;
+        if (this.activeAddressFilter) {
+            $('#addressFilterLabel').text(this.activeAddressFilter);
+            $bar.prop('hidden', false);
+        } else {
+            $bar.prop('hidden', true);
+        }
+    }
+
+    /**
+     * Räkna högsta kända meddelande-id över hela listan, så bakgrundskollen
+     * inte rapporterar nya mail bara för att filtret döljer dem.
+     */
+    updateLastKnownEmailId(emails) {
+        try {
+            if (emails && emails.length) {
+                let maxId = 0;
+                emails.forEach(e => { if (e && e.id && Number(e.id) > maxId) maxId = Number(e.id); });
+                if (maxId > this.lastKnownEmailId) this.lastKnownEmailId = maxId;
+            }
+        } catch (e) {
+            console.warn('Failed updating lastKnownEmailId', e);
+        }
+    }
+
+    /**
      * Visa e-postmeddelanden
      */
     displayEmails(emails) {
         const container = $('#emailList');
-        
+
         if (emails.length === 0) {
+            if (this.activeAddressFilter) {
+                // Ett aktivt filter som inte matchar något är inte samma sak som
+                // en tom inkorg — säg vilken adress som saknar mail.
+                container.html(`
+                    <div class="ms-mail-empty">
+                        <p class="ms-mail-empty__line">No messages for ${this.escapeHtml(this.activeAddressFilter)}</p>
+                        <p class="ms-mail-empty__hint">Nothing has been sent to this address yet.
+                            <button type="button" class="ms-address-filter-clear">Clear filter</button>
+                        </p>
+                    </div>
+                `);
+                $('#emailCount').text(0);
+                return;
+            }
             container.html(`
                 <div class="ms-mail-empty">
                     <p class="ms-mail-empty__line">No messages yet</p>
@@ -595,19 +762,6 @@ class TempMailApp {
         
         // Uppdatera email counter badge
         $('#emailCount').text(emails.length);
-
-        // Update lastKnownEmailId to avoid unnecessary full reloads
-        try {
-            if (emails && emails.length) {
-                let maxId = 0;
-                emails.forEach(e => { if (e && e.id && Number(e.id) > maxId) maxId = Number(e.id); });
-                if (maxId > this.lastKnownEmailId) this.lastKnownEmailId = maxId;
-            } else {
-                // if no emails, keep lastKnown as-is (no change)
-            }
-        } catch (e) {
-            console.warn('Failed updating lastKnownEmailId', e);
-        }
     }
 
     /**
@@ -1070,7 +1224,10 @@ class TempMailApp {
      */
     updateURL() {
         if (this.currentAddress && history.pushState) {
-            const newUrl = `${window.location.pathname}?address=${this.currentAddress}`;
+            // Behåll övriga parametrar (t.ex. filter_address) när adressen byts.
+            const params = new URLSearchParams(window.location.search);
+            params.set('address', this.currentAddress);
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
             history.pushState({address: this.currentAddress}, '', newUrl);
         }
     }

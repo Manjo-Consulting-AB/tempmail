@@ -270,6 +270,17 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                                 </div>
                             </div>
 
+                            <!-- Aktivt adressfilter. Raden hålls dold tills
+                                 app.js visar den; adressen skrivs in som text i
+                                 #addressFilterLabel av syncAddressFilterUI(). -->
+                            <div class="ms-inbox__filter" id="addressFilterBar" hidden>
+                                <span class="ms-chip ms-inbox__filter-chip">
+                                    <i class="fas fa-filter" aria-hidden="true"></i>
+                                    <span>Filtered by: <strong id="addressFilterLabel"></strong></span>
+                                </span>
+                                <button type="button" class="ms-address-filter-clear">Clear filter</button>
+                            </div>
+
                             <!-- E-postlista -->
                             <div class="email-list" id="emailList">
                                 <!-- E-postmeddelanden läses in här via JavaScript -->
@@ -298,8 +309,9 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                     </div>
                 </div>
 
-                <!-- The rail. Read-only: the personal-address controls stay on
-                     the profile page, and every address here links there. -->
+                <!-- The rail. Creating and deleting addresses stays on the
+                     profile page (the hint below links there); a row here
+                     filters the inbox on that address instead of navigating. -->
                 <div class="ms-dash__rail">
                     <section class="ms-rail__group" aria-labelledby="railAddressesTitle">
                         <h2 class="ms-eyebrow ms-rail__title" id="railAddressesTitle">Addresses</h2>
@@ -434,8 +446,9 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
 
     // The rail's address list. Reads the existing index.php `list_personal`
     // action — it already returns the account's personal addresses, so no new
-    // endpoint is needed. Read-only: each row links to the profile page, which
-    // stays the only place addresses are created or deleted.
+    // endpoint is needed. Each row filters the inbox on that address (handled
+    // by the delegated .ms-rail__addr-link handler in assets/js/app.js); the
+    // profile page stays the only place addresses are created or deleted.
     (function(){
         var list = document.getElementById('railAddressList');
         if (!list) return;
@@ -452,12 +465,22 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                 list.innerHTML = '<li class="ms-rail__empty">No personal addresses yet</li>';
                 return;
             }
+            var addresses = [];
             list.innerHTML = rows.map(function(a){
                 var full = a.full_address || a.address || '';
+                addresses.push(full);
                 return '<li class="ms-rail__addr">' +
-                       '<a class="ms-rail__addr-link" href="pro_profile_page.php">' + esc(full) + '</a>' +
+                       '<button type="button" class="ms-rail__addr-link" data-address="' + esc(full) + '"' +
+                       ' title="Show only mail sent to this address">' + esc(full) + '</button>' +
                        '</li>';
             }).join('');
+            // The inbox script needs the list to tell an address that belongs
+            // to this account from one that does not, before it applies a
+            // ?filter_address= from the URL. Passing it also applies that
+            // filter, now that the rows above exist to be marked active.
+            if (window.tempMailApp && typeof window.tempMailApp.setKnownPersonalAddresses === 'function') {
+                window.tempMailApp.setKnownPersonalAddresses(addresses);
+            }
         }, 'json').fail(function(){
             list.innerHTML = '<li class="ms-rail__empty">Could not load addresses</li>';
         });
