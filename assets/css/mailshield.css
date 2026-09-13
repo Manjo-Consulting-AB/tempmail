@@ -3121,6 +3121,60 @@ a:hover {
     border-radius: var(--ms-radius-pill);
 }
 
+/* --- Address filter bar --------------------------------------------------- */
+/* Shown by app.js only while an address is selected in the rail. The bar is a
+   flex container, so the `hidden` attribute has to be re-stated or it loses to
+   the display rule below. */
+
+.ms-inbox__filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-2) var(--ms-space-4);
+    padding: var(--ms-space-2) var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+    background: var(--ms-accent-soft);
+}
+
+.ms-inbox__filter[hidden] {
+    display: none;
+}
+
+/* The address is long and the bar is not, so the chip is allowed to shrink
+   and wrap rather than push the clear control off the edge. */
+.ms-inbox__filter-chip {
+    min-width: 0;
+    max-width: 100%;
+    border-color: var(--ms-border-strong);
+    background: var(--ms-bg-raised);
+    white-space: normal;
+}
+
+.ms-inbox__filter-chip strong {
+    font-family: var(--ms-font-mono);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+/* Used both in the bar and in the filtered empty state, so it is a bare text
+   control rather than a Bootstrap button. */
+.ms-address-filter-clear {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ms-accent);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.ms-address-filter-clear:hover,
+.ms-address-filter-clear:focus {
+    color: var(--ms-accent-hover);
+}
+
 /* --- Message rows --------------------------------------------------------- */
 /* .email-item (the grid, the hairline between rows, the unread edge and the
    hover) lives in mailshield-bootstrap.css. These are the cells inside it. */
@@ -3421,9 +3475,16 @@ a:hover {
     border-top: 0;
 }
 
+/* A button, not a link: clicking a row filters the inbox instead of leaving
+   the page. Reset to read as the same full-width text row it replaced. */
 .ms-rail__addr-link {
     display: block;
+    width: 100%;
     padding: var(--ms-space-2) 0;
+    border: 0;
+    background: none;
+    text-align: left;
+    cursor: pointer;
     font-family: var(--ms-font-mono);
     font-size: var(--ms-fs-xs);
     line-height: var(--ms-lh-xs);
@@ -3436,6 +3497,13 @@ a:hover {
 .ms-rail__addr-link:focus {
     color: var(--ms-accent);
     text-decoration: underline;
+}
+
+/* The row whose address the inbox is filtered on. Matched by
+   syncAddressFilterUI() in assets/js/app.js, which also sets aria-current. */
+.ms-rail__addr.is-active .ms-rail__addr-link {
+    color: var(--ms-accent);
+    font-weight: 600;
 }
 
 .ms-rail__empty,
