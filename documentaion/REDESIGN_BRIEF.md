@@ -617,8 +617,10 @@ is kept alive anyway so the instruction stays valid if anyone follows it literal
 
 ## Status
 
-**2026-09-10.** Redesign 01–26 (issues #95–#120) are merged into `redesign/mail-shield`; Redesign 27
-(#121) is this endnote plus the `CLAUDE.md` rewrite. Not yet live — go-live is the §15.3 merge.
+**2026-09-14.** Live. The §15.3 go-live merge landed on `main` 2026-09-12 (Redesign 01–27, issues
+#95–#121). Redesign 28–31 (issues #150, #151, #154, #157) merged into `redesign/mail-shield`
+afterward and reached `main`/production on 2026-09-14, reconciling a window where manual deploys
+off `redesign/mail-shield` and ordinary pushes to `main` had been overwriting each other.
 
 Documented as it actually shipped, where that differs from what this brief specified:
 
