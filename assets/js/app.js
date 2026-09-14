@@ -984,6 +984,14 @@ class TempMailApp {
      * Hämta och uppdatera statistik
      */
     async loadStats() {
+        // Statistiken är systemövergripande siffror som bara visas för utloggade
+        // besökare (inbox.php), så markupen avgör om det finns något att fylla i.
+        // Går inte på window.tempMailConfig.isPro: den är true även på pro.php,
+        // som har kvar blocket och ska fortsätta ladda siffrorna.
+        if (!document.getElementById('statsTotal')) {
+            return;
+        }
+
         try {
             const response = await $.ajax({
                 url: 'index.php',
