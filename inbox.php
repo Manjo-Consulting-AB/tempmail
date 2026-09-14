@@ -198,7 +198,11 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
                     </div>
                 </div>
 
-                <!-- Statistik: en fotnot, inte en funktion -->
+                <!-- Statistik: en fotnot, inte en funktion. Siffrorna kommer från
+                     den systemövergripande email_stats-tabellen, inte från den
+                     inloggades konto - därför visas de bara för utloggade
+                     besökare, som inte kan förväxla dem med sin egen användning. -->
+                <?php if (empty($_SESSION['pro_user_id'] ?? null)) : ?>
                 <div class="ms-inbox__stats">
                     <div class="ms-inbox__stat">
                         <span class="ms-inbox__stat-n" id="statsTotal">0</span>
@@ -217,6 +221,7 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
                         <span class="ms-inbox__stat-l">Attachments processed</span>
                     </div>
                 </div>
+                <?php endif; ?>
             </div>
         </main>
     </div>
