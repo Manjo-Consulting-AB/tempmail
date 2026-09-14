@@ -495,6 +495,47 @@ a:hover {
     white-space: nowrap;
 }
 
+/* --- Password field (#150) ------------------------------------------------ */
+
+/* A field with a show/hide toggle over its right edge. Three pages use it —
+   the two auth pages and the settings page — so it sits here with the other
+   components instead of in any one page's lettered section.
+
+   The wrapper only establishes the containing block; the button is positioned
+   against the input's height, so it stays centred whatever the field's size.
+   The space the button needs is reserved as padding *on* the Bootstrap
+   `.form-control` it sits over — that rule belongs to the bridge, not here
+   (§11), and is the only reason the two rules are split across the files. */
+
+.ms-password-field {
+    position: relative;
+}
+
+.ms-password-toggle {
+    position: absolute;
+    top: 50%;
+    right: var(--ms-space-2);
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    padding: var(--ms-space-2);
+    background: none;
+    border: 0;
+    border-radius: var(--ms-radius-sm);
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.ms-password-toggle:hover {
+    color: var(--ms-text);
+}
+
+/* No focus rule here: the base layer's global `:focus-visible` already draws
+   the ring, and Bootstrap's reboot only clears an outline for a plain button
+   focused by mouse, which is the behaviour we want anyway. */
+
 /* ==========================================================================
    d. Motion layer
    ========================================================================== */
@@ -3080,6 +3121,60 @@ a:hover {
     border-radius: var(--ms-radius-pill);
 }
 
+/* --- Address filter bar --------------------------------------------------- */
+/* Shown by app.js only while an address is selected in the rail. The bar is a
+   flex container, so the `hidden` attribute has to be re-stated or it loses to
+   the display rule below. */
+
+.ms-inbox__filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-2) var(--ms-space-4);
+    padding: var(--ms-space-2) var(--ms-space-4);
+    border-bottom: 1px solid var(--ms-border);
+    background: var(--ms-accent-soft);
+}
+
+.ms-inbox__filter[hidden] {
+    display: none;
+}
+
+/* The address is long and the bar is not, so the chip is allowed to shrink
+   and wrap rather than push the clear control off the edge. */
+.ms-inbox__filter-chip {
+    min-width: 0;
+    max-width: 100%;
+    border-color: var(--ms-border-strong);
+    background: var(--ms-bg-raised);
+    white-space: normal;
+}
+
+.ms-inbox__filter-chip strong {
+    font-family: var(--ms-font-mono);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+/* Used both in the bar and in the filtered empty state, so it is a bare text
+   control rather than a Bootstrap button. */
+.ms-address-filter-clear {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ms-accent);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.ms-address-filter-clear:hover,
+.ms-address-filter-clear:focus {
+    color: var(--ms-accent-hover);
+}
+
 /* --- Message rows --------------------------------------------------------- */
 /* .email-item (the grid, the hairline between rows, the unread edge and the
    hover) lives in mailshield-bootstrap.css. These are the cells inside it. */
@@ -3288,11 +3383,14 @@ a:hover {
    aa. Dashboard — pro.php (Redesign 24)
    ========================================================================== */
 
-/* The dashboard is the inbox plus a rail, not a stack of cards. One column
-   below 1100px with the inbox first; above it, the rail sits beside the inbox.
-   The rail is placed by the grid, never by `order`, so the source order stays
-   inbox-then-rail — a phone stacks them correctly with no override, and the
-   keyboard walk stays in the order things are read (§5.5). */
+/* The dashboard is the inbox plus a rail, not a stack of cards. The address
+   header and the message list are two boxes, so that a phone can put the
+   rail's address rows — the controls that filter the list — between them;
+   above 1100px the grid places the rail beside the inbox and draws the two
+   boxes as the single frame they have always been. The source order is the
+   desktop reading order (header, message list, rail) and the keyboard walk
+   stays in the order things are read (§5.5): only the rail is reordered, and
+   only below 1100px, where it is the filter it acts as. */
 
 .ms-dash {
     max-width: var(--ms-container);
@@ -3318,6 +3416,53 @@ a:hover {
     gap: var(--ms-space-6);
 }
 
+/* The message list and the statistics footnote, in a frame of their own below
+   1100px — see the `order` block further down for why. From 1100px it is the
+   lower half of the frame the address header opens. */
+.ms-dash__messages {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    box-shadow: var(--ms-shadow-sm);
+    /* Clips the first and last row to the radius, as .ms-inbox__frame does. */
+    overflow: hidden;
+}
+
+/* --- Phone: the address rows move up, between the header and the list -------
+   A rail row is a filter for the message list (see pro.php), so under the list
+   it is found only after everything it filters. Below 1100px the inbox and the
+   rail have no box of their own — `display: contents` hands their children to
+   the grid — which leaves four plain grid items and gives the two rail groups
+   an `order` of their own to sort around the message box. The DOM is untouched,
+   so the ≥1100px block below still finds both where it expects them, and the
+   two arrangements are never in play at once. */
+
+@media (max-width: 1099.98px) {
+    /* The child combinator carries weight here: it is what lets these two beat
+       the rail's own `display: flex`, declared further down the file, and it
+       says what they are — the grid's two original items, dissolved into the
+       four their contents make. */
+    .ms-dash__grid > .ms-dash__inbox,
+    .ms-dash__grid > .ms-dash__rail {
+        display: contents;
+    }
+
+    /* Addresses: the filter, above the list it filters. */
+    .ms-dash__rail > .ms-rail__group:first-child {
+        order: 2;
+    }
+
+    .ms-dash__messages {
+        order: 3;
+    }
+
+    /* Default lifetime applies to new addresses rather than filtering the
+       list, so it stays out of the header-to-list path. */
+    .ms-dash__rail > .ms-rail__group:last-child {
+        order: 4;
+    }
+}
+
 /* --- Two columns ----------------------------------------------------------
    Collapses at 1100px: below it the rail would squeeze the message rows
    (from-name, subject and time on one line) before it stopped being useful. */
@@ -3330,6 +3475,8 @@ a:hover {
         align-items: start;
     }
 
+    /* Both halves live in the second column, stacked flush by the plain block
+       flow inside it — exactly how the single frame they replace was laid out. */
     .ms-dash__inbox {
         grid-column: 2;
         grid-row: 1;
@@ -3339,10 +3486,27 @@ a:hover {
         grid-column: 1;
         grid-row: 1;
     }
+
+    /* One frame, not two: the upper box drops its lower edge, the lower box its
+       upper one, and the radius stays on the four outer corners. */
+    .ms-dash__inbox .ms-inbox__frame {
+        border-bottom: 0;
+        border-radius: var(--ms-radius-lg) var(--ms-radius-lg) 0 0;
+    }
+
+    .ms-dash__messages {
+        border-top: 0;
+        border-radius: 0 0 var(--ms-radius-lg) var(--ms-radius-lg);
+    }
 }
 
 /* --- Rail ----------------------------------------------------------------- */
 
+/* The rail's own column, and effectively the 1100px-and-up rule: below that the
+   `order` block above overrides it with `display: contents`, so its two groups
+   belong to the grid and the address rows can be placed between the address
+   header and the list. That override needs its child combinator to outrank this
+   rule, which comes later in the file. */
 .ms-dash__rail {
     display: flex;
     flex-direction: column;
@@ -3380,9 +3544,16 @@ a:hover {
     border-top: 0;
 }
 
+/* A button, not a link: clicking a row filters the inbox instead of leaving
+   the page. Reset to read as the same full-width text row it replaced. */
 .ms-rail__addr-link {
     display: block;
+    width: 100%;
     padding: var(--ms-space-2) 0;
+    border: 0;
+    background: none;
+    text-align: left;
+    cursor: pointer;
     font-family: var(--ms-font-mono);
     font-size: var(--ms-fs-xs);
     line-height: var(--ms-lh-xs);
@@ -3395,6 +3566,13 @@ a:hover {
 .ms-rail__addr-link:focus {
     color: var(--ms-accent);
     text-decoration: underline;
+}
+
+/* The row whose address the inbox is filtered on. Matched by
+   syncAddressFilterUI() in assets/js/app.js, which also sets aria-current. */
+.ms-rail__addr.is-active .ms-rail__addr-link {
+    color: var(--ms-accent);
+    font-weight: 600;
 }
 
 .ms-rail__empty,

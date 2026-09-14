@@ -174,7 +174,10 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                         </div>
                         <div class="mb-3">
                             <label for="pwPassword" class="form-label">Password</label>
-                            <input type="password" class="form-control" name="password" id="pwPassword" required>
+                            <div class="ms-password-field">
+                                <input type="password" class="form-control" name="password" id="pwPassword" required>
+                                <button type="button" class="ms-password-toggle" data-target="pwPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                            </div>
                         </div>
                         <button type="submit" class="btn btn-primary w-100">Sign in</button>
                     </form>
@@ -386,6 +389,43 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
             }, 'json').fail(function(){ $('#passwordLoginMsg').html('<div class="alert alert-danger">Network error</div>'); });
         });
     });
+    </script>
+
+    <script>
+    /**
+     * Show/hide toggles for password fields.
+     *
+     * Generic by design: each button names its input in `data-target`, so one
+     * binding covers every password field on the page and a further field
+     * needs markup only. The auth pages do not load the inbox script, so the
+     * binding is repeated here rather than shared; it is deliberately vanilla
+     * instead of jQuery so it does not queue behind the ready handler above.
+     *
+     * The button carries `type="button"` in the markup, without which it would
+     * submit the surrounding form.
+     */
+    (function () {
+        var buttons = document.querySelectorAll('.ms-password-toggle');
+
+        Array.prototype.forEach.call(buttons, function (btn) {
+            btn.addEventListener('click', function () {
+                var input = document.getElementById(btn.getAttribute('data-target'));
+                if (!input) return;
+
+                var masked = input.type === 'password';
+                input.type = masked ? 'text' : 'password';
+
+                var icon = btn.querySelector('i');
+                if (icon) {
+                    icon.classList.toggle('fa-eye', !masked);
+                    icon.classList.toggle('fa-eye-slash', masked);
+                }
+
+                btn.setAttribute('aria-pressed', String(masked));
+                btn.setAttribute('aria-label', masked ? 'Hide password' : 'Show password');
+            });
+        });
+    })();
     </script>
 </body>
 </html>

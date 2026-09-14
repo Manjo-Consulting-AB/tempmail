@@ -169,11 +169,13 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
             <h1 class="ms-dash__title">Your inbox</h1>
 
             <div class="ms-dash__grid">
-                <!-- The inbox is the page. It comes first in the source, so the
-                     single-column layout stacks it above the rail and nothing
-                     has to be reordered; above 1100px the grid places the rail
-                     beside it. The frame, its rows and the statistics footnote
-                     are the ones #117 built for inbox.php. -->
+                <!-- The inbox is the page, in two boxes: the address header up
+                     here and the message list below it. Kept apart so a phone
+                     can put the rail's address rows — which filter the list —
+                     between them instead of under every message; above 1100px
+                     they are drawn as the single frame they have always been
+                     and the rail sits beside them. The frame, its rows and the
+                     statistics footnote are the ones #117 built for inbox.php. -->
                 <div class="ms-dash__inbox">
                     <div class="ms-inbox__frame">
                         <?php if (!empty($pendingChanges)): ?>
@@ -255,7 +257,19 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
 
+                    <!-- The message list. A box of its own rather than the
+                         lower half of the frame above: the Addresses filter
+                         rows belong between the two on a phone, and above
+                         1100px the two boxes are drawn as the one frame they
+                         have always been. The second `email-container` is not a
+                         duplicate — the inbox script toggles both by class, so
+                         the head above and the list here appear and disappear
+                         together. -->
+                    <div class="ms-dash__messages">
+                        <div class="email-container d-none">
                             <div class="ms-inbox__listbar">
                                 <div class="ms-inbox__count">
                                     <span id="emailCount">0</span>
@@ -268,6 +282,17 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                                     <span class="status-indicator"><i class="fas fa-circle" aria-hidden="true"></i> Ready</span>
                                     <span class="ms-inbox__updated">Last updated: <span id="lastUpdate">Never</span></span>
                                 </div>
+                            </div>
+
+                            <!-- Aktivt adressfilter. Raden hålls dold tills
+                                 app.js visar den; adressen skrivs in som text i
+                                 #addressFilterLabel av syncAddressFilterUI(). -->
+                            <div class="ms-inbox__filter" id="addressFilterBar" hidden>
+                                <span class="ms-chip ms-inbox__filter-chip">
+                                    <i class="fas fa-filter" aria-hidden="true"></i>
+                                    <span>Filtered by: <strong id="addressFilterLabel"></strong></span>
+                                </span>
+                                <button type="button" class="ms-address-filter-clear">Clear filter</button>
                             </div>
 
                             <!-- E-postlista -->
@@ -298,8 +323,9 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                     </div>
                 </div>
 
-                <!-- The rail. Read-only: the personal-address controls stay on
-                     the profile page, and every address here links there. -->
+                <!-- The rail. Creating and deleting addresses stays on the
+                     profile page (the hint below links there); a row here
+                     filters the inbox on that address instead of navigating. -->
                 <div class="ms-dash__rail">
                     <section class="ms-rail__group" aria-labelledby="railAddressesTitle">
                         <h2 class="ms-eyebrow ms-rail__title" id="railAddressesTitle">Addresses</h2>
@@ -434,8 +460,9 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
 
     // The rail's address list. Reads the existing index.php `list_personal`
     // action — it already returns the account's personal addresses, so no new
-    // endpoint is needed. Read-only: each row links to the profile page, which
-    // stays the only place addresses are created or deleted.
+    // endpoint is needed. Each row filters the inbox on that address (handled
+    // by the delegated .ms-rail__addr-link handler in assets/js/app.js); the
+    // profile page stays the only place addresses are created or deleted.
     (function(){
         var list = document.getElementById('railAddressList');
         if (!list) return;
@@ -452,12 +479,22 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                 list.innerHTML = '<li class="ms-rail__empty">No personal addresses yet</li>';
                 return;
             }
+            var addresses = [];
             list.innerHTML = rows.map(function(a){
                 var full = a.full_address || a.address || '';
+                addresses.push(full);
                 return '<li class="ms-rail__addr">' +
-                       '<a class="ms-rail__addr-link" href="pro_profile_page.php">' + esc(full) + '</a>' +
+                       '<button type="button" class="ms-rail__addr-link" data-address="' + esc(full) + '"' +
+                       ' title="Show only mail sent to this address">' + esc(full) + '</button>' +
                        '</li>';
             }).join('');
+            // The inbox script needs the list to tell an address that belongs
+            // to this account from one that does not, before it applies a
+            // ?filter_address= from the URL. Passing it also applies that
+            // filter, now that the rows above exist to be marked active.
+            if (window.tempMailApp && typeof window.tempMailApp.setKnownPersonalAddresses === 'function') {
+                window.tempMailApp.setKnownPersonalAddresses(addresses);
+            }
         }, 'json').fail(function(){
             list.innerHTML = '<li class="ms-rail__empty">Could not load addresses</li>';
         });
