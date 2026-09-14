@@ -3383,11 +3383,14 @@ a:hover {
    aa. Dashboard — pro.php (Redesign 24)
    ========================================================================== */
 
-/* The dashboard is the inbox plus a rail, not a stack of cards. One column
-   below 1100px with the inbox first; above it, the rail sits beside the inbox.
-   The rail is placed by the grid, never by `order`, so the source order stays
-   inbox-then-rail — a phone stacks them correctly with no override, and the
-   keyboard walk stays in the order things are read (§5.5). */
+/* The dashboard is the inbox plus a rail, not a stack of cards. The address
+   header and the message list are two boxes, so that a phone can put the
+   rail's address rows — the controls that filter the list — between them;
+   above 1100px the grid places the rail beside the inbox and draws the two
+   boxes as the single frame they have always been. The source order is the
+   desktop reading order (header, message list, rail) and the keyboard walk
+   stays in the order things are read (§5.5): only the rail is reordered, and
+   only below 1100px, where it is the filter it acts as. */
 
 .ms-dash {
     max-width: var(--ms-container);
@@ -3413,6 +3416,53 @@ a:hover {
     gap: var(--ms-space-6);
 }
 
+/* The message list and the statistics footnote, in a frame of their own below
+   1100px — see the `order` block further down for why. From 1100px it is the
+   lower half of the frame the address header opens. */
+.ms-dash__messages {
+    background: var(--ms-bg-raised);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-lg);
+    box-shadow: var(--ms-shadow-sm);
+    /* Clips the first and last row to the radius, as .ms-inbox__frame does. */
+    overflow: hidden;
+}
+
+/* --- Phone: the address rows move up, between the header and the list -------
+   A rail row is a filter for the message list (see pro.php), so under the list
+   it is found only after everything it filters. Below 1100px the inbox and the
+   rail have no box of their own — `display: contents` hands their children to
+   the grid — which leaves four plain grid items and gives the two rail groups
+   an `order` of their own to sort around the message box. The DOM is untouched,
+   so the ≥1100px block below still finds both where it expects them, and the
+   two arrangements are never in play at once. */
+
+@media (max-width: 1099.98px) {
+    /* The child combinator carries weight here: it is what lets these two beat
+       the rail's own `display: flex`, declared further down the file, and it
+       says what they are — the grid's two original items, dissolved into the
+       four their contents make. */
+    .ms-dash__grid > .ms-dash__inbox,
+    .ms-dash__grid > .ms-dash__rail {
+        display: contents;
+    }
+
+    /* Addresses: the filter, above the list it filters. */
+    .ms-dash__rail > .ms-rail__group:first-child {
+        order: 2;
+    }
+
+    .ms-dash__messages {
+        order: 3;
+    }
+
+    /* Default lifetime applies to new addresses rather than filtering the
+       list, so it stays out of the header-to-list path. */
+    .ms-dash__rail > .ms-rail__group:last-child {
+        order: 4;
+    }
+}
+
 /* --- Two columns ----------------------------------------------------------
    Collapses at 1100px: below it the rail would squeeze the message rows
    (from-name, subject and time on one line) before it stopped being useful. */
@@ -3425,6 +3475,8 @@ a:hover {
         align-items: start;
     }
 
+    /* Both halves live in the second column, stacked flush by the plain block
+       flow inside it — exactly how the single frame they replace was laid out. */
     .ms-dash__inbox {
         grid-column: 2;
         grid-row: 1;
@@ -3434,10 +3486,27 @@ a:hover {
         grid-column: 1;
         grid-row: 1;
     }
+
+    /* One frame, not two: the upper box drops its lower edge, the lower box its
+       upper one, and the radius stays on the four outer corners. */
+    .ms-dash__inbox .ms-inbox__frame {
+        border-bottom: 0;
+        border-radius: var(--ms-radius-lg) var(--ms-radius-lg) 0 0;
+    }
+
+    .ms-dash__messages {
+        border-top: 0;
+        border-radius: 0 0 var(--ms-radius-lg) var(--ms-radius-lg);
+    }
 }
 
 /* --- Rail ----------------------------------------------------------------- */
 
+/* The rail's own column, and effectively the 1100px-and-up rule: below that the
+   `order` block above overrides it with `display: contents`, so its two groups
+   belong to the grid and the address rows can be placed between the address
+   header and the list. That override needs its child combinator to outrank this
+   rule, which comes later in the file. */
 .ms-dash__rail {
     display: flex;
     flex-direction: column;

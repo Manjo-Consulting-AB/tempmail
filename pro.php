@@ -169,11 +169,13 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
             <h1 class="ms-dash__title">Your inbox</h1>
 
             <div class="ms-dash__grid">
-                <!-- The inbox is the page. It comes first in the source, so the
-                     single-column layout stacks it above the rail and nothing
-                     has to be reordered; above 1100px the grid places the rail
-                     beside it. The frame, its rows and the statistics footnote
-                     are the ones #117 built for inbox.php. -->
+                <!-- The inbox is the page, in two boxes: the address header up
+                     here and the message list below it. Kept apart so a phone
+                     can put the rail's address rows — which filter the list —
+                     between them instead of under every message; above 1100px
+                     they are drawn as the single frame they have always been
+                     and the rail sits beside them. The frame, its rows and the
+                     statistics footnote are the ones #117 built for inbox.php. -->
                 <div class="ms-dash__inbox">
                     <div class="ms-inbox__frame">
                         <?php if (!empty($pendingChanges)): ?>
@@ -255,7 +257,19 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
 
+                    <!-- The message list. A box of its own rather than the
+                         lower half of the frame above: the Addresses filter
+                         rows belong between the two on a phone, and above
+                         1100px the two boxes are drawn as the one frame they
+                         have always been. The second `email-container` is not a
+                         duplicate — the inbox script toggles both by class, so
+                         the head above and the list here appear and disappear
+                         together. -->
+                    <div class="ms-dash__messages">
+                        <div class="email-container d-none">
                             <div class="ms-inbox__listbar">
                                 <div class="ms-inbox__count">
                                     <span id="emailCount">0</span>
