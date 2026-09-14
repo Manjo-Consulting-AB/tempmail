@@ -2,23 +2,6 @@
 
 This file gives Claude Code (and other AI assistants) the context needed to work effectively in this repository.
 
-> ## ⚠️ Active redesign — read before opening a pull request
->
-> A full visual/communicative redesign is in progress, tracked in issues **Redesign 00–27**
-> and specified in **`documentaion/REDESIGN_BRIEF.md`** (read it before touching any frontend file).
->
-> **Redesign pull requests target the `redesign/mail-shield` branch, never `main`.**
-> `.github/workflows/prod.yml` deploys to production on every push to `main`, so a redesign PR
-> merged into `main` goes live immediately and half-finished. Branch off `redesign/mail-shield`,
-> open the PR against it, and if you opened it against `main` by mistake, retarget it rather than
-> merging. Full rationale, go-live and rollback procedure: brief §15.
->
-> The product is called **Mail Shield** in all user-facing copy. The internal identifiers
-> `TEMPMAIL_APP`, `window.tempMailConfig`, `class TempMailApp`, the `TEMPMAIL_*` env vars, database
-> names and file names deliberately keep the old name — do not "finish" the rename in code.
->
-> This block is removed at go-live, when `redesign/mail-shield` is merged into `main` (brief §15.3).
-
 ## What this is
 
 **Mail Shield** is a *secondary email environment* — permanent personal addresses, temporary addresses, and automation — operated by Manjo Consulting AB on the domain `manjo.me`. It is written in plain PHP (no framework, no build step). A visitor can:
