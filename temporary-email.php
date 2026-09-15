@@ -10,7 +10,7 @@
  * What this page is: a long-form reading page, not a second landing page. It
  * answers six questions in order — what a temporary address is, how to get one,
  * how long it lasts, when to use it, when not to, and how it differs from a
- * permanent address — and hands the reader to sign-up twice.
+ * stable personal address — and hands the reader to sign-up twice.
  *
  * Three claims on this page are load-bearing and deliberately unflattering,
  * because §7 forbids claiming a feature the code does not have:
@@ -48,7 +48,7 @@ $domain = $config['email']['domain'] ?? '';
 
 $msPage = [
     'title'        => 'Temporary email addresses — free disposable email · Mail Shield',
-    'description'  => 'Create a temporary email address for signups, downloads and services you don\'t fully trust. Free disposable email that deletes itself after 24 hours, inside a real inbox.',
+    'description'  => 'A temporary email address for signups, downloads and services you only need for a while. Read the mail in your Mail Shield inbox, then let it be cleaned up automatically.',
     'path'         => '/temporary-email.php',
     'preload_font' => true,
 ];
@@ -103,7 +103,7 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
     <article class="ms-doc">
         <div class="ms-container--narrow">
             <h1 class="ms-doc__title">Temporary email addresses</h1>
-            <p class="ms-lede ms-doc__lede">Some signups aren't worth your real address. A temporary email address gives you a disposable one instead — read it in a proper web inbox, and let Mail Shield delete it for you.</p>
+            <p class="ms-lede ms-doc__lede">Some signups aren't worth your real address. A temporary email address gives you a disposable one instead — read it in a proper web inbox, then let Mail Shield clean it up for you.</p>
 
             <nav class="ms-doc__toc" aria-label="On this page">
                 <p class="ms-eyebrow">On this page</p>
@@ -113,7 +113,7 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
                     <li><a href="#lifetime">How long does a temporary address last?</a></li>
                     <li><a href="#when-to-use">When to use a temporary email address</a></li>
                     <li><a href="#when-not-to-use">When not to use one</a></li>
-                    <li><a href="#permanent">Temporary email, or a permanent address?</a></li>
+                    <li><a href="#permanent">Temporary email, or a stable personal address?</a></li>
                 </ul>
             </nav>
 
@@ -191,10 +191,10 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
             </section>
 
             <section class="ms-doc__section" id="permanent">
-                <h2 class="ms-h2">Temporary email, or a permanent address?</h2>
+                <h2 class="ms-h2">Temporary email, or a stable personal address?</h2>
                 <div class="ms-prose">
-                    <p>Temporary addresses are one half of the story. Mail Shield also gives Pro accounts up to 10 permanent personal addresses — <span class="ms-addr">shopping@<?php echo $msDocDomain; ?></span>, <span class="ms-addr">news@<?php echo $msDocDomain; ?></span>, <span class="ms-addr">projects@<?php echo $msDocDomain; ?></span> — for the senders you'll hear from again. They don't expire, and they arrive in the same inbox as everything else.</p>
-                    <p>If you want a disposable email you never think about again, a temporary address is the right choice. If you've been handing out your real address because there was nowhere else to put a newsletter, a permanent one is the better fix. <a href="/">The landing page has the full picture</a>.</p>
+                    <p>Temporary addresses are one half of the story. Mail Shield also gives Pro accounts up to 10 stable personal addresses — <span class="ms-addr">shopping@<?php echo $msDocDomain; ?></span>, <span class="ms-addr">news@<?php echo $msDocDomain; ?></span>, <span class="ms-addr">projects@<?php echo $msDocDomain; ?></span> — for the senders you'll hear from again. The addresses don't expire. You choose when to remove them, while the mail they receive is still cleaned up according to your retention settings.</p>
+                    <p>If you want a disposable email you never think about again, a temporary address is the right choice. If you've been handing out your real address because there was nowhere else to put a newsletter, a stable personal address is the better fix. <a href="/">The landing page has the full picture</a>.</p>
                 </div>
             </section>
 
