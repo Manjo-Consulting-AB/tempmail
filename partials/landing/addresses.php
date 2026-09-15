@@ -4,9 +4,11 @@
  * §3.2 (the "spine" model, used subtly), §2.1 (render the domain).
  *
  * The section that separates Mail Shield from a tempmail generator: several
- * permanent addresses feeding one inbox. That idea is carried by the diagram —
- * three thin connectors converging on a single inbox card, one of them tinted
- * to show the live path. No arrowheads, no glow, no sci-fi network (§3.2).
+ * stable addresses feeding one inbox. The addresses can remain in use while
+ * the mail they receive is still subject to the user's retention settings.
+ * That idea is carried by the diagram — three thin connectors converging on a
+ * single inbox card, one of them tinted to show the live path. No arrowheads,
+ * no glow, no sci-fi network (§3.2).
  *
  * id="features" is load-bearing: the nav's Features link targets it, so this is
  * where the feature run starts.
@@ -37,7 +39,7 @@ $msAddrDomain = htmlspecialchars(
             <div class="ms-addresses__copy">
                 <p class="ms-eyebrow">Personal addresses</p>
                 <h2 class="ms-h2">One account. Multiple addresses.</h2>
-                <p class="ms-addresses__body">Create up to 10 personal email addresses and manage them from one inbox.</p>
+                <p class="ms-addresses__body">Create up to 10 personal email addresses and manage them from one inbox. Keep the addresses you want to use, without turning this into another inbox you have to maintain.</p>
                 <p class="ms-addresses__kicker">Multiple identities. One inbox.</p>
                 <p class="ms-addresses__tier">Personal addresses are part of Pro.</p>
             </div>
