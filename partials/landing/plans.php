@@ -48,7 +48,7 @@ $msPlansSignedIn = !empty($_SESSION['pro_user_id']);
 <section class="ms-section" id="plans">
     <div class="ms-container">
         <h2 class="ms-h2">Free and Pro</h2>
-        <p class="ms-plans__body">A free account covers temporary email. Pro adds permanent addresses and automation.</p>
+        <p class="ms-plans__body">A free account gives you a temporary mailbox. Pro adds stable personal addresses and the tools to route and automate the mail they receive.</p>
 
         <div class="ms-plans__grid">
             <div class="ms-card ms-plans__card">
@@ -73,11 +73,12 @@ $msPlansSignedIn = !empty($_SESSION['pro_user_id']);
                 <p class="ms-plans__summary">Your second inbox, with the wiring.</p>
 
                 <ul class="ms-plans__list">
-                    <li>Up to 10 permanent personal addresses</li>
+                    <li>Up to 10 stable personal addresses</li>
                     <li>Temporary address lifetime configurable from 1 to 7 days</li>
+                    <li>Incoming mail is cleaned up automatically according to your retention settings</li>
                     <li>RSS, webhooks, Pushover and digest emails</li>
                     <li>External mailboxes and the Agent</li>
-                    <li>Personal addresses are private to your account</li>
+                    <li>Personal addresses belong to your account</li>
                     <li>Priority support</li>
                 </ul>
             </div>

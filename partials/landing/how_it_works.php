@@ -39,13 +39,13 @@ $msHowDomain = htmlspecialchars(
             </li>
             <li class="ms-card ms-step">
                 <span class="ms-step__num" aria-hidden="true">2</span>
-                <h3 class="ms-h3">Make an address</h3>
-                <p class="ms-step__body">A permanent one like <span class="ms-addr">shopping@<?php echo $msHowDomain; ?></span>, or a temporary one you throw away.</p>
+                <h3 class="ms-h3">Choose an address</h3>
+                <p class="ms-step__body">Use a stable address like <span class="ms-addr">shopping@<?php echo $msHowDomain; ?></span> when you want to hear from a service again, or create a temporary one for mail you only need for a while.</p>
             </li>
             <li class="ms-card ms-step">
                 <span class="ms-step__num" aria-hidden="true">3</span>
                 <h3 class="ms-h3">Everything lands in one place</h3>
-                <p class="ms-step__body">Read it on the web, or route it onward with RSS, webhooks or push.</p>
+                <p class="ms-step__body">Read it on the web. Mail is kept only as long as your retention settings allow, or route it onward with RSS, webhooks or push.</p>
             </li>
         </ol>
 

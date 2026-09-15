@@ -113,8 +113,8 @@ $msDesc     = 'Create a free Mail Shield account and get a separate inbox for th
                     </div>
                 </div>
 
-                <p class="ms-auth__hint" id="regHintFree">One temporary address at a time, deleted after 24 hours.</p>
-                <p class="ms-auth__hint" id="regHintPro" style="display:none;">Permanent addresses and automation. Requires a voucher code &mdash; online payment is on the way.</p>
+                <p class="ms-auth__hint" id="regHintFree">One temporary address at a time. The address and its messages are deleted after 24 hours.</p>
+                <p class="ms-auth__hint" id="regHintPro" style="display:none;">Stable personal addresses and automation. Incoming mail is still temporary and is cleaned up according to your retention settings. Requires a voucher code &mdash; online payment is on the way.</p>
 
                 <div id="registerBlock">
                     <form id="registerForm">
