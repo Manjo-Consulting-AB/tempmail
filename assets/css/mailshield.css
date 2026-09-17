@@ -3981,6 +3981,74 @@ a:hover {
     line-height: var(--ms-lh-xs);
 }
 
+/* --- A personal address row and its feed panel (#162) ----------------------
+   Each row is a Bootstrap `.list-group-item`, but it now carries a second
+   button and, under it, a panel that opens in place rather than a modal or a
+   page of its own.
+
+   The panel stacks its URL above its actions. That order is what keeps a phone
+   from scrolling sideways (§12.8): the feed URL is the one unbreakable string
+   on this page, and inside a full-width input it scrolls within the field
+   instead of setting the row's minimum width. The four buttons then wrap, so
+   they never need more than the column they are given. */
+
+.ms-address-row__main {
+    gap: var(--ms-space-3);
+}
+
+/* The address label is the flex item that gives way: without `min-width: 0` it
+   refuses to shrink below its own text and paints over the buttons at 375px,
+   where the address plus two controls no longer share one line. `overflow-wrap`
+   is then what lets the local part break instead of escaping the card. */
+.ms-address-row .personal-item {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.ms-address-row__actions {
+    flex-shrink: 0;
+    gap: var(--ms-space-2);
+}
+
+/* "RSS on" is a state, not a second call to action — the accent tint tells it
+   apart from the muted outline every other secondary button wears. */
+.ms-address-row__feed.is-on {
+    color: var(--ms-accent);
+    border-color: var(--ms-accent);
+    background: var(--ms-accent-soft);
+}
+
+.ms-address-row__feed.is-on:hover,
+.ms-address-row__feed.is-on:focus-visible {
+    color: var(--ms-accent-hover);
+    border-color: var(--ms-accent-hover);
+    background: var(--ms-accent-soft);
+}
+
+.ms-address-feed {
+    margin-top: var(--ms-space-3);
+    padding-top: var(--ms-space-3);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-address-feed__label {
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-address-feed__input {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+}
+
+.ms-address-feed__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2);
+    margin-top: var(--ms-space-2);
+}
+
 /* ==========================================================================
    cc. Client Agent — client_agent_manage.php (Redesign 26)
    ==========================================================================

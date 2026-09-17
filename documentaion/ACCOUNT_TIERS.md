@@ -126,6 +126,13 @@ kontot Regular trots betald eller inlöst Pro:
 Regular med flit: ett degraderat konto måste kunna se och ta bort sina adresser
 under grace-perioden (avsnitt 6.1). Endast *skapandet* kräver Pro.
 
+**Notera raden "RSS-feed".** Den täcker båda slagen av flöde: kontots flöde
+(`pro_users.feed_token`, alla adresser) och per-adress-flödena
+(`temp_emails.feed_token`, ett per personlig adress, #160). Båda är Pro-only och
+serveras av samma endpoint. Raden "Lista/radera egna personliga adresser" visar
+bara en boolean `feed_enabled`, aldrig själva token — därför kan ett degraderat
+konto se och radera adresser utan att komma åt en giltig flödes-URL.
+
 Enhetligt felsvar från gatade JSON-endpoints:
 
 ```php
