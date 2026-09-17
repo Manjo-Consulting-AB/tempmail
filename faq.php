@@ -183,7 +183,7 @@ HTML,
                 'a' => <<<HTML
 <p>Pro accounts can route mail onward in several ways:</p>
 <ul>
-<li>A private RSS feed, read in any feed reader, protected by a token.</li>
+<li>A private RSS feed, read in any feed reader, protected by a token — for your whole account, or for one personal address on its own.</li>
 <li>Webhooks that POST each incoming message as JSON to an endpoint you control.</li>
 <li>Pushover, for incoming mail as a notification on your phone.</li>
 <li>Digest emails, a periodic summary of what arrived.</li>

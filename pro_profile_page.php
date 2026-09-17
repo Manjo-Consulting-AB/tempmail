@@ -171,6 +171,7 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                                 </div>
                                 <div id="personalList" class="mt-3"></div>
                                 <div id="personalCreateProNote" class="form-text text-muted d-none">Creating personal addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
+                                <div id="personalFeedProNote" class="form-text text-muted d-none">A per-address RSS feed requires a Pro account. Deleting addresses stays available.</div>
                             </div>
                         </section>
 
@@ -247,7 +248,7 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
 
                             <div class="ms-card">
                                 <h3 class="ms-card__title">RSS feed</h3>
-                                <p class="ms-card__desc">You can subscribe to a private RSS feed of all emails for your pro account. Keep the token secret.</p>
+                                <p class="ms-card__desc">A private RSS feed covering <strong>all</strong> of your addresses, read in any feed reader. For a feed limited to one address, use the RSS button on that address under Personal addresses.</p>
                                 <div class="input-group">
                                     <input type="text" id="feedUrlInput" class="form-control" placeholder="(loading...)" readonly />
                                     <div class="btn-group btn-group-sm" role="group" aria-label="Feed actions">
@@ -411,6 +412,12 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                 $('#personalLocal').prop('disabled', true);
                 $('#createPersonalBtn').prop('disabled', true);
                 $('#personalCreateProNote').removeClass('d-none');
+
+                // Per-address RSS feeds (#162): Pro-only. Rows rendered before this
+                // ran are caught here; rows rendered after it read isProAccount.
+                // Deleting an address stays enabled either way.
+                $('.ms-address-row__feed').prop('disabled', true);
+                $('#personalFeedProNote').removeClass('d-none');
 
                 // Webhooks
                 $('#whName, #whKind, #whUrl, #whConfig, #whSecret, #whCreateBtn').prop('disabled', true);
@@ -925,7 +932,23 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                 }
                 var html = '<div class="list-group">';
                 items.forEach(function(it){
-                    html += '\n                                <div class="list-group-item d-flex justify-content-between align-items-center">\n                                    <div class="flex-grow-1 personal-item" style="cursor:pointer;" data-address="'+it.address+'">\n                                            <strong>'+it.full_address+'</strong>\n                                    </div>\n                                    <div>\n                                        <button class="btn btn-sm btn-danger personal-delete" data-id="'+it.id+'" title="Delete">\n                                            <i class="fas fa-trash"></i>\n                                        </button>\n                                    </div>\n                                </div>';
+                    var feedOn = !!it.feed_enabled;
+                    html += '\n                                <div class="list-group-item ms-address-row" data-id="'+escapeHtml(it.id)+'">\n'
+                        + '                                    <div class="d-flex justify-content-between align-items-center ms-address-row__main">\n'
+                        + '                                        <div class="flex-grow-1 personal-item" style="cursor:pointer;" data-address="'+escapeHtml(it.address)+'">\n'
+                        + '                                            <strong>'+escapeHtml(it.full_address)+'</strong>\n'
+                        + '                                        </div>\n'
+                        + '                                        <div class="d-flex align-items-center ms-address-row__actions">\n'
+                        + '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__feed'+(feedOn ? ' is-on' : '')+'" aria-expanded="false" aria-controls="addressFeedPanel'+escapeHtml(it.id)+'" title="RSS feed for this address"'+(isProAccount ? '' : ' disabled')+'>\n'
+                        + '                                                <i class="fas fa-rss" aria-hidden="true"></i> <span class="ms-address-row__feed-state">'+(feedOn ? 'RSS on' : 'RSS')+'</span>\n'
+                        + '                                            </button>\n'
+                        + '                                            <button class="btn btn-sm btn-danger personal-delete" data-id="'+escapeHtml(it.id)+'" title="Delete">\n'
+                        + '                                                <i class="fas fa-trash"></i>\n'
+                        + '                                            </button>\n'
+                        + '                                        </div>\n'
+                        + '                                    </div>\n'
+                        + '                                    <div id="addressFeedPanel'+escapeHtml(it.id)+'" class="ms-address-feed d-none"></div>\n'
+                        + '                                </div>';
                 });
                 html += '\n</div>';
                 $container.html(html);
@@ -953,6 +976,109 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                     }
                 }, 'json').fail(function(){ $('#personalList').html('<p class="text-danger">Request failed</p>'); });
             }
+
+            // --- Per-address feeds (#162). The token is fetched lazily on the
+            // first expand of a row, never rendered up front for all addresses. ---
+            function setAddressFeedState($row, on) {
+                $row.find('.ms-address-row__feed')
+                    .toggleClass('is-on', !!on)
+                    .find('.ms-address-row__feed-state').text(on ? 'RSS on' : 'RSS');
+            }
+
+            function renderAddressFeedPanel($panel, addressId, token) {
+                var inputId = 'addressFeedUrl' + addressId;
+                $panel.html(
+                    '<div class="ms-address-feed__url">'
+                  +     '<label class="form-label ms-address-feed__label" for="' + escapeHtml(inputId) + '">Feed URL for this address</label>'
+                  +     '<input type="text" id="' + escapeHtml(inputId) + '" class="form-control form-control-sm ms-address-feed__input" value="' + escapeHtml(buildFeedUrl(token)) + '" readonly>'
+                  + '</div>'
+                  + '<div class="ms-address-feed__actions">'
+                  +     '<button type="button" class="btn btn-sm btn-outline-secondary ms-address-feed__copy">Copy</button>'
+                  +     '<button type="button" class="btn btn-sm btn-outline-secondary ms-address-feed__open">Open</button>'
+                  +     '<button type="button" class="btn btn-sm btn-danger ms-address-feed__regen">Regenerate</button>'
+                  +     '<button type="button" class="btn btn-sm btn-outline-danger ms-address-feed__off">Turn off</button>'
+                  + '</div>'
+                );
+            }
+
+            function collapseAddressFeedPanel($row) {
+                $row.find('.ms-address-feed').addClass('d-none').empty().removeData('loaded');
+                $row.find('.ms-address-row__feed').attr('aria-expanded', 'false');
+            }
+
+            $(document).on('click', '.ms-address-row__feed', function(e){
+                e.stopPropagation();
+                var $btn = $(this);
+                if ($btn.prop('disabled')) return;
+                var $row = $btn.closest('.ms-address-row');
+                var $panel = $row.find('.ms-address-feed');
+                if (!$panel.hasClass('d-none')) {
+                    collapseAddressFeedPanel($row);
+                    return;
+                }
+                $btn.attr('aria-expanded', 'true');
+                $panel.removeClass('d-none');
+                if ($panel.data('loaded')) return;
+                $panel.html('<p class="form-text text-muted mb-0">Loading feed URL...</p>');
+                $.post('pro_profile.php', { action: 'address_feed_get_token', id: $row.data('id') }, function(res){
+                    if (res && res.success) {
+                        renderAddressFeedPanel($panel, $row.data('id'), res.token);
+                        $panel.data('loaded', true);
+                        // get_token mints a token when the address had none, so
+                        // the row can now show the feed as on.
+                        setAddressFeedState($row, true);
+                    } else {
+                        $panel.html('<p class="text-danger small mb-0">' + escapeHtml((res && res.error) ? res.error : 'Could not load the feed URL') + '</p>');
+                    }
+                }, 'json').fail(function(){
+                    $panel.html('<p class="text-danger small mb-0">Request failed</p>');
+                });
+            });
+
+            $(document).on('click', '.ms-address-feed__copy', function(e){
+                e.stopPropagation();
+                var $panel = $(this).closest('.ms-address-feed');
+                copyFeedUrl($panel.find('.ms-address-feed__input').val() || '', $panel.find('.ms-address-feed__url'));
+            });
+
+            $(document).on('click', '.ms-address-feed__open', function(e){
+                e.stopPropagation();
+                openFeedUrl($(this).closest('.ms-address-feed').find('.ms-address-feed__input').val() || '');
+            });
+
+            $(document).on('click', '.ms-address-feed__regen', function(e){
+                e.stopPropagation();
+                if (!confirm('Regenerating this feed token will invalidate existing subscriptions. Continue?')) return;
+                var $btn = $(this).prop('disabled', true);
+                var $row = $btn.closest('.ms-address-row');
+                $.post('pro_profile.php', { action: 'address_feed_regenerate', id: $row.data('id') }, function(res){
+                    $btn.prop('disabled', false);
+                    if (res && res.success) {
+                        $row.find('.ms-address-feed__input').val(buildFeedUrl(res.token));
+                        setAddressFeedState($row, true);
+                    } else {
+                        alert((res && res.error) ? res.error : 'Failed to regenerate token');
+                    }
+                }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+            });
+
+            $(document).on('click', '.ms-address-feed__off', function(e){
+                e.stopPropagation();
+                if (!confirm('Turning off this feed will invalidate existing subscriptions. Continue?')) return;
+                var $btn = $(this).prop('disabled', true);
+                var $row = $btn.closest('.ms-address-row');
+                $.post('pro_profile.php', { action: 'address_feed_disable', id: $row.data('id') }, function(res){
+                    $btn.prop('disabled', false);
+                    if (res && res.success) {
+                        // Clear the panel: the credential no longer exists, so
+                        // nothing may stay in the DOM. The next expand refetches.
+                        collapseAddressFeedPanel($row);
+                        setAddressFeedState($row, false);
+                    } else {
+                        alert((res && res.error) ? res.error : 'Failed to turn off feed');
+                    }
+                }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+            });
 
             // Create personal
             $('#createPersonalBtn').on('click', function(){
@@ -1235,12 +1361,51 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
             // Apply placeholder presets based on current selection on page load
             $('#whKind').trigger('change');
 
+            // --- Feed URL helpers, shared by the account-wide feed below and the
+            // per-address feeds in the Personal addresses card (#162). ---
+            function buildFeedUrl(token) {
+                var base = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
+                return base + '/pro_feed.php?token=' + encodeURIComponent(token || '');
+            }
+
+            // Flash a short-lived "Copied" note directly after $anchor.
+            function flashCopied($anchor) {
+                $anchor.parent().find('.feed-copied').remove();
+                var $msg = $('<div class="feed-copied text-success small ms-2">Copied</div>');
+                $anchor.after($msg);
+                setTimeout(function(){ $msg.fadeOut(300, function(){ $(this).remove(); }); }, 1500);
+            }
+
+            function copyFeedUrl(url, $anchor) {
+                if (!url) return;
+                if (!navigator.clipboard) { alert('Could not copy to clipboard'); return; }
+                navigator.clipboard.writeText(url).then(function(){
+                    flashCopied($anchor);
+                }).catch(function(){ alert('Could not copy to clipboard'); });
+            }
+
+            function openFeedUrl(url) {
+                if (!url) return;
+                window.open(url, '_blank');
+            }
+
+            // Every value interpolated into row HTML goes through this — the
+            // address local part is validated server-side, but row markup is
+            // built as a string and must not trust it.
+            function escapeHtml(value) {
+                return String(value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
             // Load or create feed token and wire UI (display full URL in the input)
             function loadFeedToken() {
                 $.getJSON('pro_profile.php?action=feed_get_token', function(res) {
                     if (res && res.success) {
-                        var base = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
-                        var feedUrl = base + '/pro_feed.php?token=' + encodeURIComponent(res.token || '');
+                        var feedUrl = buildFeedUrl(res.token);
                         $('#feedUrlInput').val(feedUrl);
                         $('#openFeedBtn').attr('data-feed', feedUrl);
                     } else {
@@ -1251,19 +1416,11 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
             }
 
             $('#copyFeedToken').on('click', function(){
-                var val = $('#feedUrlInput').val() || '';
-                if (!val) return;
-                navigator.clipboard && navigator.clipboard.writeText(val).then(function(){
-                    $('#feedMsg').remove();
-                    $('#feedUrlInput').after('<div id="feedMsg" class="text-success small ms-2">Copied</div>');
-                    setTimeout(function(){ $('#feedMsg').fadeOut(300, function(){ $(this).remove(); }); }, 1500);
-                }).catch(function(){ alert('Could not copy to clipboard'); });
+                copyFeedUrl($('#feedUrlInput').val() || '', $('#feedUrlInput'));
             });
 
             $('#openFeedBtn').on('click', function(){
-                var url = $(this).attr('data-feed') || $('#feedUrlInput').val() || '';
-                if (!url) return;
-                window.open(url, '_blank');
+                openFeedUrl($(this).attr('data-feed') || $('#feedUrlInput').val() || '');
             });
 
             $('#regenFeedToken').on('click', function(){
@@ -1272,8 +1429,7 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                 $.post('pro_profile.php', { action: 'feed_regenerate' }, function(r){
                     $btn.prop('disabled', false);
                     if (r && r.success) {
-                        var base = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
-                        var feedUrl = base + '/pro_feed.php?token=' + encodeURIComponent(r.token || '');
+                        var feedUrl = buildFeedUrl(r.token);
                         $('#feedUrlInput').val(feedUrl);
                         $('#openFeedBtn').attr('data-feed', feedUrl);
                     } else {
