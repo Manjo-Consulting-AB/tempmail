@@ -275,6 +275,10 @@ function cleanupExpiredTrustedDevices() {
  *   account_type='regular', digest_enabled=0, address_ttl_days=1,
  *   feed_token=NULL, och pro_webhooks pausas (filter_mode='paused')
  *   i stället för att raderas - de fungerar igen vid en ny uppgradering.
+ *   Även de per-adress-flödena (#160) nollas: temp_emails.feed_token sätts
+ *   till NULL för användarens personliga adresser, så en degraderad kontos
+ *   gamla flödes-URL:er slutar fungera. Antalet nollade rader loggas som
+ *   address_feed_tokens_cleared.
  *   password_hash rörs inte längre: kontot lever vidare som Regular och
  *   måste kunna logga in med lösenord.
  *
@@ -324,11 +328,21 @@ function cleanupExpiredProUsers() {
             $wstmt->execute([$userId]);
             $pausedWebhooks = $wstmt->rowCount();
 
+            // Nolla även per-adress-flödena (#160). Guarded: kolumnen finns inte
+            // förrän migrate_address_feed_tokens.php har körts.
+            $feedTokensCleared = 0;
+            if (tableHasColumn('temp_emails', 'feed_token')) {
+                $fstmt = $pdo->prepare("UPDATE temp_emails SET feed_token = NULL WHERE pro_user_id = ? AND feed_token IS NOT NULL");
+                $fstmt->execute([$userId]);
+                $feedTokensCleared = $fstmt->rowCount();
+            }
+
             logMessage('INFO', 'Expired pro user degraded to regular', [
                 'user_id' => $userId,
                 'email' => $email,
                 'pro_expires_at' => $u['pro_expires_at'],
-                'webhooks_paused' => $pausedWebhooks
+                'webhooks_paused' => $pausedWebhooks,
+                'address_feed_tokens_cleared' => $feedTokensCleared
             ]);
 
             $processed++;

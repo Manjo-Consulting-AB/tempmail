@@ -48,6 +48,8 @@ php check_signing_keys.php       # manual CLI diagnostics: client-agent signing 
 php parse.php < message.eml       # manually feed a raw RFC822 message through the DirectAdmin pipe intake (see parse.php entry below); set LOCAL_PART=<alias> in the environment since there's no real MTA supplying it
 php migrate_account_types.php    # one-time/idempotent migration: adds account_type/email_verified_at/last_login_at/inactivity_warned_at to pro_users and backfills existing rows to 'pro' (see Pro tier entry below)
 php check_account_tiers.php      # manual CLI diagnostics: reports account_type migration/column status and exercises proUserIsPro()/proUserAccountType()
+php migrate_address_feed_tokens.php # one-time/idempotent migration: adds temp_emails.feed_token + its unique key, the per-address RSS feeds (#160)
+php check_address_feeds.php      # manual CLI diagnostics: reports temp_emails.feed_token column/unique-key status and how many personal addresses have a feed enabled
 ```
 
 `php -S 127.0.0.1:8085` is the local preview the redesign work was done against: when there is no `.env` override, `config.php` defaults `$config['email']['base_url']` to `http://localhost:8085/` outside production, so the port is not arbitrary. Check your work in a browser at that origin before calling a frontend change done — and at 375 / 768 / 1024 / 1440px (see Frontend conventions). `php -l <file>` must pass on every PHP file you touch (brief §12.7); there is no linter config to run instead.
