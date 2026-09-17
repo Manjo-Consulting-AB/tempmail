@@ -899,6 +899,94 @@ try {
             }
             break;
 
+        // Per-address feeds (#160). Pro-only, exactly like the account-wide
+        // feed above, and only ever for personal addresses: an id is looked up
+        // with ownership AND is_personal = 1 in the same query, so another
+        // user's address or a temporary one is rejected without a token being
+        // minted. Mirrors index.php's delete_personal lookup.
+        case 'address_feed_get_token':
+            require_pro($userId);
+            try {
+                if (!tableHasColumn('temp_emails', 'feed_token')) {
+                    // Migration not run: no per-address feeds exist yet.
+                    send_json(['success' => false, 'error' => 'Could not retrieve feed token']);
+                }
+                $addressId = (int)($_POST['id'] ?? 0);
+                if (!$addressId) {
+                    send_json(['success' => false, 'error' => 'Invalid address']);
+                }
+                $s = $pdo->prepare("SELECT feed_token FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                $s->execute([$addressId, $userId]);
+                $row = $s->fetch(PDO::FETCH_ASSOC);
+                if (!$row) {
+                    send_json(['success' => false, 'error' => 'Address not found']);
+                }
+                $token = $row['feed_token'] ?? null;
+                if (empty($token)) {
+                    // Generate a new token and persist
+                    $token = bin2hex(random_bytes(32));
+                    $u = $pdo->prepare("UPDATE temp_emails SET feed_token = ? WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
+                    $u->execute([$token, $addressId, $userId]);
+                    logMessage('INFO', 'Generated new per-address feed token', ['user_id' => $userId, 'address_id' => $addressId]);
+                }
+                send_json(['success' => true, 'token' => $token]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed fetching/creating per-address feed token', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'Could not retrieve feed token']);
+            }
+            break;
+
+        case 'address_feed_regenerate':
+            require_pro($userId);
+            try {
+                if (!tableHasColumn('temp_emails', 'feed_token')) {
+                    send_json(['success' => false, 'error' => 'Could not regenerate token']);
+                }
+                $addressId = (int)($_POST['id'] ?? 0);
+                if (!$addressId) {
+                    send_json(['success' => false, 'error' => 'Invalid address']);
+                }
+                $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                $s->execute([$addressId, $userId]);
+                if (!$s->fetch(PDO::FETCH_ASSOC)) {
+                    send_json(['success' => false, 'error' => 'Address not found']);
+                }
+                $new = bin2hex(random_bytes(32));
+                $u = $pdo->prepare("UPDATE temp_emails SET feed_token = ? WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
+                $u->execute([$new, $addressId, $userId]);
+                logMessage('INFO', 'Regenerated per-address feed token', ['user_id' => $userId, 'address_id' => $addressId]);
+                send_json(['success' => true, 'token' => $new]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed regenerating per-address feed token', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'Could not regenerate token']);
+            }
+            break;
+
+        case 'address_feed_disable':
+            require_pro($userId);
+            try {
+                if (!tableHasColumn('temp_emails', 'feed_token')) {
+                    send_json(['success' => false, 'error' => 'Could not disable feed']);
+                }
+                $addressId = (int)($_POST['id'] ?? 0);
+                if (!$addressId) {
+                    send_json(['success' => false, 'error' => 'Invalid address']);
+                }
+                $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                $s->execute([$addressId, $userId]);
+                if (!$s->fetch(PDO::FETCH_ASSOC)) {
+                    send_json(['success' => false, 'error' => 'Address not found']);
+                }
+                $u = $pdo->prepare("UPDATE temp_emails SET feed_token = NULL WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
+                $u->execute([$addressId, $userId]);
+                logMessage('INFO', 'Disabled per-address feed', ['user_id' => $userId, 'address_id' => $addressId]);
+                send_json(['success' => true]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed disabling per-address feed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'Could not disable feed']);
+            }
+            break;
+
         case 'webhook_create':
             require_pro($userId);
             // Expects: name, url, kind (generic|pushover), config (JSON), secret (optional)

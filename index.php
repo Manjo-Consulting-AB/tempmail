@@ -194,7 +194,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     break;
                 }
                 try {
-                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
+                    // feed_enabled exposed (#160) so the UI can show feed state
+                    // without handing out the credential itself: this action is
+                    // deliberately not Pro-gated, and a degraded account must not
+                    // be able to read live credentials from it. The credential is
+                    // only ever returned by the Pro-gated address_feed_* actions
+                    // in pro_profile.php.
+                    $feedEnabledCol = tableHasColumn('temp_emails', 'feed_token') ? ", (feed_token IS NOT NULL) AS feed_enabled" : "";
+                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
                     $stmt->execute([$_SESSION['pro_user_id']]);
                     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $list = [];
@@ -203,7 +210,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'id' => $r['id'],
                             'address' => $r['address'],
                             'full_address' => $r['address'] . '@' . $config['email']['domain'],
-                            'expires_at' => $r['expires_at']
+                            'expires_at' => $r['expires_at'],
+                            'feed_enabled' => !empty($r['feed_enabled'])
                         ];
                     }
                     echo json_encode(['success' => true, 'personal' => $list]);

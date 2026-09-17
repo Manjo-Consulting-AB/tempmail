@@ -213,7 +213,10 @@ sju dagars grace. Med en Regular-nivå är rätt beteende att degradera:
 
 1. Vid `pro_expires_at < NOW()`: sätt `account_type = 'regular'`,
    `digest_enabled = 0`, `address_ttl_days = 1`, `feed_token = NULL`, och
-   pausa eller ta bort webhooks.
+   pausa eller ta bort webhooks. Även kontots per-adress-flöden (#160) nollas
+   i samma steg: `temp_emails.feed_token = NULL` för användarens personliga
+   adresser, så gamla flödes-URL:er slutar fungera. Antalet nollade rader
+   loggas som `address_feed_tokens_cleared`.
 2. **`password_hash` nollställs inte längre.** Dagens kod gör det, vilket skulle
    låsa ut en Regular-användare från lösenordsinloggning.
 3. **Kontot raderas aldrig.**
