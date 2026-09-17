@@ -58,93 +58,25 @@ function purifyEmailHtml(string $html): ?string {
     return $purifier->purify($html);
 }
 
-$rawToken = $_GET['token'] ?? '';
-$limit = sanitizeInt($_GET['limit'] ?? null, 1, 200, 50);
-
-// Validate token format first: hex string, 32-128 chars
-// This must come BEFORE detectSuspiciousPatterns() because valid hex tokens
-// trigger a false positive on the base64_payload pattern (64 hex chars look like base64)
-$token = sanitizeHexToken($rawToken, 32, 128);
-if (!$token) {
-    // Only check for suspicious patterns if it's not a valid hex token
-    // This catches actual attacks while allowing legitimate tokens through
-    $suspicious = detectSuspiciousPatterns((string)$rawToken);
-    if (!empty($suspicious)) {
-        logMessage('WARNING', 'Suspicious feed token attempt', ['patterns' => $suspicious, 'ip' => getVisitorIp()]);
-        // Flagga IP för blockering
-        flagMaliciousActivity(getVisitorIp(), 'Suspicious feed token: ' . implode(', ', $suspicious));
-        http_response_code(403);
-        header('Content-Type: text/plain; charset=utf-8');
-        echo "Invalid request";
-        exit;
-    }
-    
+/**
+ * Reject a feed request. Every token failure - unknown token, degraded
+ * account, address that is not personal - goes through this one path so the
+ * responses stay byte-identical and the endpoint can't be used as an oracle
+ * that distinguishes "valid but degraded" from "unknown".
+ */
+function feedDenyInvalidToken(): void {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
-    echo "Missing or invalid token";
+    echo "Invalid token";
     exit;
 }
 
-try {
-    // Find pro_user by token
-    $stmt = $pdo->prepare("SELECT id, email, pro_expires_at FROM pro_users WHERE feed_token = ? LIMIT 1");
-    $stmt->execute([$token]);
-    $user = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$user) {
-        http_response_code(403);
-        header('Content-Type: text/plain; charset=utf-8');
-        echo "Invalid token";
-        exit;
-    }
-    $userId = (int)$user['id'];
-
-    // Regular accounts don't get the RSS feed. Respond with the exact same
-    // "Invalid token" text as an unknown token so this endpoint can't be used
-    // as an oracle that reveals a token is valid but the account is degraded.
-    if (!proUserIsPro($userId)) {
-        http_response_code(403);
-        header('Content-Type: text/plain; charset=utf-8');
-        echo "Invalid token";
-        exit;
-    }
-
-    // Fetch recent stored_emails for this user's temp addresses
-    $q = $pdo->prepare(
-        "SELECT se.id, se.from_address, se.subject, se.body_html, se.body_text, se.received_at
-         FROM stored_emails se
-         JOIN temp_emails te ON se.temp_email_id = te.id
-         WHERE te.pro_user_id = ?
-         ORDER BY se.received_at DESC
-         LIMIT ?"
-    );
-    $q->bindValue(1, $userId, PDO::PARAM_INT);
-    $q->bindValue(2, $limit, PDO::PARAM_INT);
-    $q->execute();
-    $emails = $q->fetchAll(PDO::FETCH_ASSOC);
-
-    // Build RSS 2.0
-    $base = rtrim($config['email']['base_url'] ?? '', '/');
-    // Cache: short private cache to allow CDNs to respect privacy
-    header('Cache-Control: private, max-age=60, s-maxage=60');
-    header('Content-Type: application/rss+xml; charset=utf-8');
-
-    // Use a single timestamp for all attachment signatures in this feed
-    $signatureTime = time();
-
-    // Determine last build date from newest email if available
-    $lastBuildTs = $signatureTime;
-    if (!empty($emails) && !empty($emails[0]['received_at'])) {
-        $t = strtotime($emails[0]['received_at']);
-        if ($t !== false) $lastBuildTs = $t;
-    }
-    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    echo "<rss version=\"2.0\">\n<channel>\n";
-    echo "<title>{$user['email']} · Inbox · Mail Shield</title>\n";
-    echo "<link>" . htmlspecialchars($base ?: '') . "/pro.php</link>\n";
-    echo "<description>Recent messages for your Mail Shield account</description>\n";
-    echo "<language>en</language>\n";
-    echo "<lastBuildDate>" . date(DATE_RSS, $lastBuildTs) . "</lastBuildDate>\n";
-
+/**
+ * Emit the <item> elements for a feed. Shared by the account-wide and the
+ * per-address branch so purification, attachment enclosures and escaping
+ * cannot drift apart between the two.
+ */
+function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo, int $signatureTime): void {
     foreach ($emails as $e) {
         $eid = (int)$e['id'];
         $title = htmlspecialchars($e['subject'] ?: '(no subject)');
@@ -185,8 +117,8 @@ try {
 
         echo "<item>\n";
         echo "<title>" . $title . "</title>\n";
-        // Link points to pro UI; full email content is in description
-        echo "<link>" . htmlspecialchars($base . '/pro.php') . "</link>\n";
+        // Link points to the reader for this feed; full email content is in description
+        echo "<link>" . htmlspecialchars($itemLink) . "</link>\n";
         echo "<description><![CDATA[<div><strong>From:</strong> {$from}</div>" . $content . "]]></description>\n";
         echo "<pubDate>" . $pub . "</pubDate>\n";
         echo "<guid isPermaLink=\"false\">email-" . $eid . "</guid>\n";
@@ -202,6 +134,144 @@ try {
 
         echo "</item>\n";
     }
+}
+
+$rawToken = $_GET['token'] ?? '';
+$limit = sanitizeInt($_GET['limit'] ?? null, 1, 200, 50);
+
+// Validate token format first: hex string, 32-128 chars
+// This must come BEFORE detectSuspiciousPatterns() because valid hex tokens
+// trigger a false positive on the base64_payload pattern (64 hex chars look like base64)
+$token = sanitizeHexToken($rawToken, 32, 128);
+if (!$token) {
+    // Only check for suspicious patterns if it's not a valid hex token
+    // This catches actual attacks while allowing legitimate tokens through
+    $suspicious = detectSuspiciousPatterns((string)$rawToken);
+    if (!empty($suspicious)) {
+        logMessage('WARNING', 'Suspicious feed token attempt', ['patterns' => $suspicious, 'ip' => getVisitorIp()]);
+        // Flagga IP för blockering
+        flagMaliciousActivity(getVisitorIp(), 'Suspicious feed token: ' . implode(', ', $suspicious));
+        http_response_code(403);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo "Invalid request";
+        exit;
+    }
+    
+    http_response_code(403);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "Missing or invalid token";
+    exit;
+}
+
+try {
+    $base = rtrim($config['email']['base_url'] ?? '', '/');
+
+    // Two token kinds share this endpoint and URL shape: pro_users.feed_token
+    // (account-wide, the original and unchanged behaviour) and
+    // temp_emails.feed_token (one personal address, #160). The account-wide
+    // lookup runs first so existing subscriptions resolve exactly as before.
+    $stmt = $pdo->prepare("SELECT id, email, pro_expires_at FROM pro_users WHERE feed_token = ? LIMIT 1");
+    $stmt->execute([$token]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($user) {
+        $userId = (int)$user['id'];
+
+        // Regular accounts don't get the RSS feed. Respond with the exact same
+        // "Invalid token" text as an unknown token so this endpoint can't be used
+        // as an oracle that reveals a token is valid but the account is degraded.
+        if (!proUserIsPro($userId)) {
+            feedDenyInvalidToken();
+        }
+
+        logMessage('DEBUG', 'Feed served', ['branch' => 'account', 'user_id' => $userId]);
+
+        // Fetch recent stored_emails for this user's temp addresses
+        $q = $pdo->prepare(
+            "SELECT se.id, se.from_address, se.subject, se.body_html, se.body_text, se.received_at
+             FROM stored_emails se
+             JOIN temp_emails te ON se.temp_email_id = te.id
+             WHERE te.pro_user_id = ?
+             ORDER BY se.received_at DESC
+             LIMIT ?"
+        );
+        $q->bindValue(1, $userId, PDO::PARAM_INT);
+        $q->bindValue(2, $limit, PDO::PARAM_INT);
+        $q->execute();
+        $emails = $q->fetchAll(PDO::FETCH_ASSOC);
+
+        $channelTitle = htmlspecialchars((string)($user['email'] ?? ''), ENT_XML1 | ENT_QUOTES, 'UTF-8') . ' · Inbox · Mail Shield';
+        $channelLink = $base . '/pro.php';
+        $channelDescription = 'Recent messages for your Mail Shield account';
+        $itemLink = $base . '/pro.php';
+    } elseif (tableHasColumn('temp_emails', 'feed_token')) {
+        // Per-address feed. is_personal = 1 belongs in the SQL and not just in a
+        // PHP check: it is the second line of defence behind the token issuance
+        // rules, so an address that stops being personal stops serving even if it
+        // somehow kept a token. Guarded by tableHasColumn() so the endpoint
+        // behaves exactly as before the migration has run.
+        $q = $pdo->prepare("SELECT id, unique_address, pro_user_id FROM temp_emails WHERE feed_token = ? AND is_personal = 1 LIMIT 1");
+        $q->execute([$token]);
+        $addr = $q->fetch(PDO::FETCH_ASSOC);
+
+        // A deleted address, a temporary one, or one whose owner has since been
+        // degraded all collapse into the same opaque failure as an unknown token.
+        if (!$addr || !proUserIsPro((int)$addr['pro_user_id'])) {
+            feedDenyInvalidToken();
+        }
+
+        $addressId = (int)$addr['id'];
+        $address = (string)$addr['unique_address'];
+        $ownerId = (int)$addr['pro_user_id'];
+
+        logMessage('DEBUG', 'Feed served', ['branch' => 'address', 'user_id' => $ownerId, 'address' => $address]);
+
+        $q = $pdo->prepare(
+            "SELECT se.id, se.from_address, se.subject, se.body_html, se.body_text, se.received_at
+             FROM stored_emails se
+             WHERE se.temp_email_id = ?
+             ORDER BY se.received_at DESC
+             LIMIT ?"
+        );
+        $q->bindValue(1, $addressId, PDO::PARAM_INT);
+        $q->bindValue(2, $limit, PDO::PARAM_INT);
+        $q->execute();
+        $emails = $q->fetchAll(PDO::FETCH_ASSOC);
+
+        $domain = (string)($config['email']['domain'] ?? '');
+        $fullAddress = htmlspecialchars($address . '@' . $domain, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+        $channelTitle = $fullAddress . ' · Mail Shield';
+        // A reader click lands on the inbox for this address, not the account UI.
+        $itemLink = $base . '/inbox.php?address=' . rawurlencode($address);
+        $channelLink = $itemLink;
+        $channelDescription = 'Messages received at ' . $fullAddress;
+    } else {
+        feedDenyInvalidToken();
+    }
+
+    // Build RSS 2.0
+    // Cache: short private cache to allow CDNs to respect privacy
+    header('Cache-Control: private, max-age=60, s-maxage=60');
+    header('Content-Type: application/rss+xml; charset=utf-8');
+
+    // Use a single timestamp for all attachment signatures in this feed
+    $signatureTime = time();
+
+    // Determine last build date from newest email if available
+    $lastBuildTs = $signatureTime;
+    if (!empty($emails) && !empty($emails[0]['received_at'])) {
+        $t = strtotime($emails[0]['received_at']);
+        if ($t !== false) $lastBuildTs = $t;
+    }
+    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    echo "<rss version=\"2.0\">\n<channel>\n";
+    echo "<title>" . $channelTitle . "</title>\n";
+    echo "<link>" . htmlspecialchars($channelLink) . "</link>\n";
+    echo "<description>" . $channelDescription . "</description>\n";
+    echo "<language>en</language>\n";
+    echo "<lastBuildDate>" . date(DATE_RSS, $lastBuildTs) . "</lastBuildDate>\n";
+
+    renderFeedItems($emails, $itemLink, $base, $pdo, $signatureTime);
 
     echo "</channel>\n</rss>\n";
 
