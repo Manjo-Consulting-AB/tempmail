@@ -58,7 +58,7 @@ CI (`.github/workflows/main.yml`, "Säkerhetsscanning", daily + on-demand) runs:
 - `semgrep scan --config p/php --config p/security-audit --error` — treat semgrep findings as build-breaking; check `.semgrepignore` before assuming a file is covered (it currently excludes `client/backend/api.php` and `client/agent/agent.php`).
 - `composer audit --locked`
 
-Because a PR against `redesign/mail-shield` gets no scan from `main.yml` (weekly) or `prod.yml` (push to `main`), `.github/workflows/redesign-pr.yml` runs Semgrep and `composer audit` on every PR targeting that branch and every push to it. A finding there blocks the same as on `main`.
+Because a PR against `main` gets no scan from `main.yml` (weekly) or `prod.yml` (push to `main`), `.github/workflows/redesign-pr.yml` runs Semgrep, `composer audit` and `php -l` on every file on every PR targeting `main`. A finding there blocks the same as on `main`. (It originally targeted `redesign/mail-shield`, the staging branch the site redesign's ~27 PRs merged into before go-live; that branch was merged to `main` and deleted after #158, so the workflow now targets `main` directly — including the `build/*` branches `.github/scripts/deepseek_watcher.sh` opens.)
 
 There is no linter/formatter config (no `.eslintrc`, `.prettierrc`, `tsconfig`, `phpcs.xml`) — match existing style by hand.
 

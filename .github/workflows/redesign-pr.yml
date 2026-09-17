@@ -1,22 +1,19 @@
-name: Redesign PR-kontroll (Semgrep + Composer)
+name: PR-kontroll (Semgrep + Composer)
 
 # main.yml kör Semgrep en gång i veckan, och prod.yml kör den på push till main
-# (där den grindar deployen). En PR scannas alltså inte alls som standard.
+# (där den grindar deployen). En PR mot main scannas alltså inte alls förrän
+# den redan är mergad, om inte det här jobbet gör det - vilket är i det
+# ögonblick ett fynd är dyrast att hitta.
 #
-# Under redesignen mergas ~27 PR:er till redesign/mail-shield innan något går
-# live. Utan den här workflowen skulle första scanningen ske vid go-live-mergen
-# till main - alltså i det ögonblick ett fynd är dyrast att hitta. Det här
-# jobbet flyttar samma kontroller till varje PR i stället.
-#
-# Kan tas bort när redesign/mail-shield är mergad och borttagen.
+# Ursprungligen kördes detta bara mot redesign/mail-shield, dit redesignens
+# ~27 PR:er mergades innan go-live. Den grenen är sedan #158 mergad till main
+# och borttagen, så triggern pekar nu mot main direkt - samma gap finns för
+# varje PR dit (t.ex. build/$n-grenarna från deepseek_watcher.sh).
 
 on:
   pull_request:
     branches:
-      - redesign/mail-shield
-  push:
-    branches:
-      - redesign/mail-shield
+      - main
   workflow_dispatch:
 
 permissions:
