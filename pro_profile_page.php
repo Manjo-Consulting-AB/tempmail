@@ -406,7 +406,9 @@ try {
             // Whether the account has a Pushover webhook at all (#173), rendered
             // server-side. This is the existence check, not the paused state, and
             // it is not the address's own on/off state — that comes per row from
-            // list_personal.
+            // list_personal. It is kept in step with the webhook list afterwards
+            // (#175), so creating or deleting the account's Pushover webhook on
+            // this page shows or hides the address controls without a reload.
             var hasPushoverWebhook = <?php echo $hasPushoverWebhook ? 'true' : 'false'; ?>;
 
             // Gray out the Pro-only sections for Regular accounts. Called once, from the
@@ -1120,6 +1122,21 @@ try {
             // when the account has a Pushover webhook, and toggling it writes the
             // address's own pushover_enabled flag through the Pro-gated actions —
             // the webhook's URL, config and paused state are never touched. ---
+
+            // Follow the account's Pushover configuration (#175). Called after the
+            // webhook list loads, so deleting the last Pushover webhook takes the
+            // address controls away on this page and creating one brings them back.
+            // Nothing is written to the addresses here: the rows are re-rendered
+            // from list_personal, which still reports each address's stored flag,
+            // so an address enabled before the webhook was deleted returns as
+            // enabled. Pausing a webhook is not a configuration change for this
+            // purpose — the webhook row still exists — so the controls stay.
+            function syncAddressPushoverControl(hasPushover) {
+                if (hasPushover === hasPushoverWebhook) return;
+                hasPushoverWebhook = hasPushover;
+                if ($('#personalList').length) loadPersonalList();
+            }
+
             function addressPushoverTitle(on) {
                 return on
                     ? 'Pushover notifications are on for this address. Click to turn them off.'
@@ -1297,7 +1314,11 @@ try {
             function loadWebhooks() {
                 $.getJSON('pro_profile.php?action=webhooks_list', function(res){
                     if (res && res.success) {
-                        renderWebhooks(res.webhooks || []);
+                        var hooks = res.webhooks || [];
+                        renderWebhooks(hooks);
+                        // Only the kind is read here — never the config, which holds
+                        // the Pushover token and user key.
+                        syncAddressPushoverControl(hooks.some(function(w){ return w.kind === 'pushover'; }));
                     } else {
                         $('#webhookList').html('<p class="text-danger">Could not load webhooks</p>');
                     }
