@@ -52,6 +52,7 @@ php migrate_address_feed_tokens.php # one-time/idempotent migration: adds temp_e
 php check_address_feeds.php      # manual CLI diagnostics: reports temp_emails.feed_token column/unique-key status and how many personal addresses have a feed enabled
 php migrate_address_pushover_state.php # one-time/idempotent migration: adds temp_emails.pushover_enabled, the per-address Pushover opt-in (#170)
 php check_address_pushover.php   # manual CLI diagnostics: reports temp_emails.pushover_enabled column status and how many personal addresses have Pushover enabled
+php tests/pushover_routing_test.php # CLI regression suite for the per-address Pushover routing (#176) — unlike the check_*.php scripts it needs no database: it builds a SQLite schema and a throwaway docroot holding the real pages plus a stub config.php, and exits non-zero on any failed check
 ```
 
 `php -S 127.0.0.1:8085` is the local preview the redesign work was done against: when there is no `.env` override, `config.php` defaults `$config['email']['base_url']` to `http://localhost:8085/` outside production, so the port is not arbitrary. Check your work in a browser at that origin before calling a frontend change done — and at 375 / 768 / 1024 / 1440px (see Frontend conventions). `php -l <file>` must pass on every PHP file you touch (brief §12.7); there is no linter config to run instead.
