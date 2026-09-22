@@ -8,6 +8,7 @@ class ImapProcessor
     private bool $debugMode = false;
     private bool $dryRun = false;
     private ?bool $tempEmailsHasPushoverColumn = null;
+    private ?EmailStorage $emailStorage = null;
 
     public function __construct(array $config, PDO $pdo, bool $debugMode = false)
     {
@@ -206,7 +207,8 @@ class ImapProcessor
             }
 
             $subject = isset($header->subject) ? $this->decodeMimeHeader($header->subject) : '(no subject)';
-            $receivedDate = date('Y-m-d H:i:s', $header->udate ?? time());
+            // The IMAP server's internal date, not the Date: header - unchanged.
+            $receivedAt = (new DateTimeImmutable())->setTimestamp((int)($header->udate ?? time()));
             $bodyClean = $this->sanitizeSavedBody($body);
 
             // Determine if body is HTML and split into body_html / body_text
@@ -224,96 +226,176 @@ class ImapProcessor
                 $bodyText = $bodyClean;
             }
 
-            $expiresAt = null;
-            $proUserId = null;
-            $tempEmailId = null;
+            [$tempEmailId, $proUserId, $expiresAt] = $this->resolveOwnershipContext($toAddress);
 
-            try {
-                $local = explode('@', strtolower($toAddress))[0] ?? null;
-                if ($local) {
-                    $lookup = $this->pdo->prepare('SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1');
-                    $lookup->execute([$local]);
-                    $r = $lookup->fetch(PDO::FETCH_ASSOC);
-                    if ($r) {
-                        $tempEmailId = $r['id'] ?? null;
-                        $proUserId = $r['pro_user_id'] ?? null;
-                        if (!empty($r['pro_user_id'])) {
-                            $pstmt = $this->pdo->prepare('SELECT COALESCE(address_ttl_days, 1) AS ttl_days FROM pro_users WHERE id = ? LIMIT 1');
-                            $pstmt->execute([(int)$r['pro_user_id']]);
-                            $prow = $pstmt->fetch(PDO::FETCH_ASSOC);
-                            if ($prow && isset($prow['ttl_days'])) {
-                                $ttl = max(1, min(365 * 50, (int)$prow['ttl_days']));
-                                $expiresAt = date('Y-m-d H:i:s', strtotime("+{$ttl} days", strtotime($receivedDate) ?: time()));
-                            }
-                        }
-                        if (empty($expiresAt) && !empty($r['expires_at'])) $expiresAt = $r['expires_at'];
-                    }
-                }
-            } catch (Exception $e) {
-                $this->log('WARNING', 'Lookup temp_emails failed: ' . $e->getMessage());
-            }
+            // MailParser attachments travel inside the DTO and are persisted by
+            // the storage service with the email. LegacyImapFallback needs the
+            // live IMAP connection, so it keeps its own call after the store
+            // (#195 retires it).
+            //
+            // The stored body keeps its `cid:` references either way: index.php
+            // rewrites them to freshly signed URLs at display time from these
+            // same attachment rows, which is what keeps the inline image and the
+            // attachment list on one signature timestamp.
+            $attachments = ($imapConnection && $messageNumber)
+                ? $this->parseAttachmentsFromMessage($imapConnection, $messageNumber)
+                : [];
 
-            $sql = 'INSERT INTO stored_emails (to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-            $stmt = $this->pdo->prepare($sql);
-            $ok = $stmt->execute([$toAddress, $fromAddress, $subject, $bodyText, $bodyHtml, $receivedDate, $expiresAt, $tempEmailId]);
-            
-            // IMPORTANT: Get lastInsertId IMMEDIATELY after INSERT, BEFORE any other DB operations
-            $emailId = $ok ? (int)$this->pdo->lastInsertId() : 0;
-            
-            // Debug: log INSERT result and any errors
-            $insertError = $ok ? 'none' : implode(',', $stmt->errorInfo());
+            $emailStorage = $this->emailStorage();
+            $result = $emailStorage->store(new IncomingEmail(
+                toAddress: $toAddress,
+                receivedAt: $receivedAt,
+                fromAddress: $fromAddress,
+                subject: $subject,
+                bodyText: $bodyText,
+                bodyHtml: $bodyHtml,
+                tempEmailId: $tempEmailId,
+                proUserId: $proUserId,
+                expiresAt: $expiresAt,
+                attachments: $attachments
+            ));
+
             if (function_exists('safeDebugLog')) {
-                safeDebugLog('DEBUG', 'stored_emails INSERT', [
-                    'ok' => $ok,
-                    'error' => $insertError,
-                    'emailId' => $emailId,
+                safeDebugLog('DEBUG', 'stored_emails store result', [
+                    'status' => $result->status,
+                    'message' => $result->message,
+                    'storedEmailId' => $result->storedEmailId,
                     'subject' => substr($subject, 0, 30)
                 ]);
             }
-            
-            $this->updateStat('emails_processed', 1);
 
-            // Save attachments for ALL emails (not just PRO users)
-            if ($ok && $emailId > 0) {
-                
-                // Debug: log lastInsertId immediately after stored_emails INSERT
-                if (function_exists('safeDebugLog')) {
-                    safeDebugLog('DEBUG', 'saveEmail lastInsertId', [
-                        'emailId' => $emailId,
-                        'to' => $toAddress,
-                        'subject' => substr($subject, 0, 30)
-                    ]);
+            if (!$result->isStored()) {
+                // `stored`, and `duplicate` if it is ever returned, mean the
+                // message is accounted for; `failed`/`rejected` do not, and only
+                // those are reported as "not saved" to the caller.
+                if ($result->status === StorageResult::STATUS_DUPLICATE) {
+                    // Nothing was written, so no attachment and no webhook can
+                    // follow. Unreachable today: this path passes no options, so
+                    // duplicate detection stays off.
+                    return true;
                 }
-                
-                if ($imapConnection && $messageNumber) {
-                    try {
-                        $this->log('DEBUG', 'Calling saveAttachmentsFromMessage: ' . json_encode(['message_number' => $messageNumber, 'email_id' => $emailId, 'temp_email_id' => $tempEmailId]));
-                        $attachResult = $this->saveAttachmentsFromMessage($imapConnection, $messageNumber, $emailId);
-                        $attachMapping = is_array($attachResult) ? ($attachResult['mapping'] ?? []) : [];
-                        $this->log('DEBUG', 'saveAttachmentsFromMessage result: ' . json_encode(['saved' => $attachResult['saved'] ?? 0, 'mapping' => $attachMapping]));
-                        // NOTE: We intentionally do NOT replace cid: references here.
-                        // The cid: references are preserved in the database and replaced with
-                        // freshly signed URLs at display time in index.php. This ensures that
-                        // both inline images and attachment list use the same signature timestamp,
-                        // avoiding the issue where inline images and attachment downloads had
-                        // different (and potentially invalid) signatures.
-                    } catch (Exception $e) {
-                        $this->log('WARNING', 'Saving attachments failed: ' . $e->getMessage());
+
+                // The service has already logged the reason.
+                $this->log('WARNING', 'Email was not stored', [
+                    'status' => $result->status,
+                    'to' => $toAddress,
+                    'message' => $result->message
+                ]);
+                return false;
+            }
+
+            $emailId = (int)$result->storedEmailId;
+
+            // The service stored what the DTO carried; whenever that was
+            // nothing, the legacy fallback is reached - the condition this path
+            // has always used (`!$usedMailParser || $saved === 0`).
+            $savedByMailParser = count($attachments) - count($result->attachmentWarnings);
+            if ($savedByMailParser === 0 && $imapConnection && $messageNumber && $emailId > 0) {
+                try {
+                    $this->log('DEBUG', 'Using LegacyImapFallback for email', ['email_id' => $emailId]);
+                    $cidMap = [];
+                    $legacySaved = $this->saveLegacyAttachmentsFromMessage($imapConnection, $messageNumber, $emailId, $cidMap);
+                    $this->log('DEBUG', 'LegacyImapFallback saved attachments', ['email_id' => $emailId, 'saved' => $legacySaved]);
+                    if ($legacySaved > 0) {
+                        // The service already counted its own share of this
+                        // counter; this is the legacy branch's.
+                        try {
+                            if (function_exists('updateStat')) updateStat('attachments_processed', $legacySaved);
+                        } catch (\Throwable $_) {
+                            // Don't let stats failures break processing
+                        }
                     }
-                }
-
-                // Webhooks remain PRO-only (entitlement is checked inside dispatchWebhooks())
-                if (!empty($proUserId)) {
-                    $payload = ['to' => $toAddress, 'from' => $fromAddress, 'subject' => $subject, 'body' => ($bodyHtml ?? $bodyText), 'received_at' => $receivedDate, 'temp_email_id' => $tempEmailId];
-                    $this->dispatchWebhooks((int)$proUserId, $payload);
+                } catch (Exception $e) {
+                    $this->log('WARNING', 'Saving attachments failed: ' . $e->getMessage());
                 }
             }
 
-            return (bool)$ok;
+            // Webhooks run only after the service reported a stored email, and
+            // outside its transaction. They stay here until #196 centralizes
+            // them. Entitlement is checked inside dispatchWebhooks().
+            if ($proUserId !== null) {
+                $payload = [
+                    'to' => $toAddress,
+                    'from' => $fromAddress,
+                    'subject' => $subject,
+                    'body' => ($bodyHtml ?? $bodyText),
+                    'received_at' => $receivedAt->format('Y-m-d H:i:s'),
+                    'temp_email_id' => $tempEmailId
+                ];
+                $this->dispatchWebhooks($proUserId, $payload);
+            }
+
+            return true;
         } catch (Exception $e) {
             $this->log('ERROR', 'Save email failed: ' . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * The Email Storage service (epic #169, #191), built once per processor.
+     *
+     * It owns the `temp_emails` ownership lookup, the retention calculation,
+     * the transactional `stored_emails` insert, attachment persistence and the
+     * `emails_processed`/`attachments_processed` counters.
+     */
+    private function emailStorage(): EmailStorage
+    {
+        if ($this->emailStorage === null) {
+            require_once __DIR__ . '/EmailStorage/IncomingEmail.php';
+            require_once __DIR__ . '/EmailStorage/StorageResult.php';
+            require_once __DIR__ . '/EmailStorage/EmailStorage.php';
+            $this->emailStorage = new EmailStorage($this->pdo, $this->debugMode);
+        }
+
+        return $this->emailStorage;
+    }
+
+    /**
+     * Ownership context for a recipient address: `temp_emails.id`,
+     * `temp_emails.pro_user_id` and the address' own expiry.
+     *
+     * The storage service resolves this same row itself and its freshly read
+     * copy is authoritative for the row it writes; what is read here is handed
+     * to the DTO as the documented fallback and, for `pro_user_id`, decides
+     * whether webhooks are dispatched at all.
+     *
+     * A lookup that finds no row leaves all three null and the email is stored
+     * anyway, as before. A lookup that *throws* is logged here, and then fails
+     * the store inside the service, which does not swallow the same error
+     * (documentaion/EMAIL_STORAGE_API.md §7.3, §7.5).
+     *
+     * @return array{0: ?int, 1: ?int, 2: ?DateTimeImmutable}
+     */
+    private function resolveOwnershipContext(string $toAddress): array
+    {
+        $tempEmailId = null;
+        $proUserId = null;
+        $expiresAt = null;
+
+        try {
+            $local = explode('@', strtolower($toAddress))[0] ?? null;
+            if ($local) {
+                $lookup = $this->pdo->prepare('SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1');
+                $lookup->execute([$local]);
+                $r = $lookup->fetch(PDO::FETCH_ASSOC);
+                if ($r) {
+                    $tempEmailId = isset($r['id']) ? (int)$r['id'] : null;
+                    $proUserId = !empty($r['pro_user_id']) ? (int)$r['pro_user_id'] : null;
+                    if (!empty($r['expires_at'])) {
+                        try {
+                            $expiresAt = new DateTimeImmutable((string)$r['expires_at']);
+                        } catch (\Throwable $_) {
+                            // Unreadable expiry: the service falls back the same way.
+                        }
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            $this->log('WARNING', 'Lookup temp_emails failed: ' . $e->getMessage());
+        }
+
+        return [$tempEmailId, $proUserId, $expiresAt];
     }
 
     private function updateStat($statName, $increment = 1): bool
@@ -536,67 +618,80 @@ class ImapProcessor
         return $plain === false ? $encoded : $plain;
     }
 
-    private function saveAttachmentsFromMessage($imapConnection, $messageNumber, $emailId): array
+    /**
+     * The MailParser (ZBateson) attachments of one message, normalized for the
+     * storage DTO. Parsing only: no file and no row is written here, the service
+     * persists what the DTO carries.
+     *
+     * A parse failure is non-fatal - it yields no attachments, which is what
+     * lets the legacy fallback below take over, as before.
+     *
+     * @return list<EmailAttachment>
+     */
+    private function parseAttachmentsFromMessage($imapConnection, $messageNumber): array
     {
-        $rawHeaders = @imap_fetchheader($imapConnection, $messageNumber);
-        $rawBody = @imap_body($imapConnection, $messageNumber);
-        $raw = ($rawHeaders ?: '') . "\r\n" . ($rawBody ?: '');
+        if (!file_exists(__DIR__ . '/MailParser.php')) {
+            return [];
+        }
+
+        require_once __DIR__ . '/MailParser.php';
+        require_once __DIR__ . '/EmailStorage/EmailAttachment.php';
+
+        try {
+            $rawHeaders = @imap_fetchheader($imapConnection, $messageNumber);
+            $rawBody = @imap_body($imapConnection, $messageNumber);
+            $raw = ($rawHeaders ?: '') . "\r\n" . ($rawBody ?: '');
+
+            $parser = new MailParser($this->pdo, $this->config, $this->debugMode);
+            $parsed = $parser->parseRawMessage($raw);
+        } catch (\Throwable $e) {
+            $this->log('WARNING', 'MailParser failed: ' . $e->getMessage());
+            return [];
+        }
+
+        $attachments = [];
+        foreach ($parsed['attachments'] ?? [] as $part) {
+            if (is_array($part)) {
+                $attachments[] = EmailAttachment::fromArray($part);
+            }
+        }
+
+        $this->log('DEBUG', 'MailParser parsed attachments from message', [
+            'message_number' => $messageNumber,
+            'parsed' => count($attachments)
+        ]);
+
+        return $attachments;
+    }
+
+    /**
+     * Save the message's parts with LegacyImapFallback, which fetches each part
+     * over the live IMAP connection - the reason it is not part of the storage
+     * DTO and still has a call of its own here (#195 retires it).
+     *
+     * @param array<string, int> $cidMap Content-ID to attachment id mapping, extended in place.
+     * @return int attachments saved
+     */
+    private function saveLegacyAttachmentsFromMessage($imapConnection, $messageNumber, int $emailId, array &$cidMap): int
+    {
+        if (!file_exists(__DIR__ . '/LegacyImapFallback.php')) {
+            return 0;
+        }
+        require_once __DIR__ . '/LegacyImapFallback.php';
+
+        $structure = @imap_fetchstructure($imapConnection, $messageNumber);
+        $parts = $structure ? ($structure->parts ?? []) : [];
+        if (empty($parts)) {
+            return 0;
+        }
 
         $attachmentsDir = __DIR__ . '/attachments';
         if (!is_dir($attachmentsDir)) @mkdir($attachmentsDir, 0755, true);
 
-        $cidMap = [];
         $saved = 0;
-        $usedMailParser = false;
+        LegacyImapFallback::savePartsRecursive($this->pdo, $imapConnection, $messageNumber, $parts, '', $emailId, $attachmentsDir, $saved, $cidMap);
 
-        // Try MailParser first (requires ZBateson library)
-        if (file_exists(__DIR__ . '/MailParser.php')) {
-            require_once __DIR__ . '/MailParser.php';
-            try {
-                $parser = new MailParser($this->pdo, $this->config, $this->debugMode);
-                $parsed = $parser->parseRawMessage($raw);
-                if (!empty($parsed['attachments'])) {
-                    $ps = $parser->saveAttachments($parsed['attachments'], (int)$emailId);
-                    if (is_array($ps)) {
-                        $cidMap = $ps['mapping'] ?? [];
-                        $saved = (int)($ps['count'] ?? 0);
-                        $usedMailParser = true;
-                        $this->log('DEBUG', "MailParser saved {$saved} attachments for email_id={$emailId}");
-                    }
-                }
-            } catch (Exception $e) {
-                $this->log('WARNING', 'MailParser failed: ' . $e->getMessage());
-            }
-        }
-
-        // Always fall back to LegacyImapFallback if MailParser didn't save any attachments
-        if (!$usedMailParser || $saved === 0) {
-            $this->log('DEBUG', "Using LegacyImapFallback for email_id={$emailId}");
-            if (file_exists(__DIR__ . '/LegacyImapFallback.php')) {
-                require_once __DIR__ . '/LegacyImapFallback.php';
-            }
-            $structure = @imap_fetchstructure($imapConnection, $messageNumber);
-            if ($structure) {
-                $parts = $structure->parts ?? [];
-                if (!empty($parts)) {
-                    $legacySaved = 0;
-                    LegacyImapFallback::savePartsRecursive($this->pdo, $imapConnection, $messageNumber, $parts, '', $emailId, $attachmentsDir, $legacySaved, $cidMap);
-                    $saved += $legacySaved;
-                    $this->log('DEBUG', "LegacyImapFallback saved {$legacySaved} attachments for email_id={$emailId}");
-                }
-            }
-        }
-
-        // Update global stats for attachments processed
-        try {
-            if ($saved && function_exists('updateStat')) {
-                updateStat('attachments_processed', (int)$saved);
-            }
-        } catch (\Throwable $_) {
-            // Don't let stats failures break processing
-        }
-
-        return ['saved' => $saved, 'mapping' => $cidMap];
+        return $saved;
     }
 
     public function dispatchDelivery(int $deliveryId): bool
