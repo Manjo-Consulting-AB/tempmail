@@ -279,12 +279,27 @@ if (!empty($parsed['attachments'])) {
     }
 }
 
-// NOTE: Pro webhook dispatch (ImapProcessor::dispatchWebhooks()) is not
-// ported to this path yet — out of scope for #34, which only covers saving
-// to stored_emails/email_attachments. Not a live regression today since
-// $config['directadmin']['forwarder_enabled'] defaults to off everywhere
-// (see the DirectAdminClient.php entry in CLAUDE.md), but needs porting
-// before this path fully replaces IMAP polling for Pro users.
+// Pro webhook dispatch, ported from ImapProcessor::saveEmail() (#34 only
+// covered saving to stored_emails/email_attachments; this path went live
+// with DA_FORWARDER_ENABLED=true without it, so no Pro webhook — Pushover
+// included — fired for any address whose forwarder had switched over).
+if (!empty($proUserId)) {
+    require_once __DIR__ . '/php_imap_processor.php';
+    try {
+        $processor = new ImapProcessor($config, $pdo, !empty($config['app']['debug_mode']));
+        $payload = [
+            'to' => $toAddress,
+            'from' => $fromAddress,
+            'subject' => $subject,
+            'body' => ($bodyHtml ?? $bodyText),
+            'received_at' => $receivedAt,
+            'temp_email_id' => $tempEmail['id'],
+        ];
+        $processor->dispatchWebhooks((int)$proUserId, $payload);
+    } catch (Throwable $e) {
+        logMessage('WARNING', 'parse.php: dispatchWebhooks threw', ['error' => $e->getMessage(), 'to' => $toAddress]);
+    }
+}
 
 logMessage('INFO', 'parse.php: saved incoming email', [
     'email_id' => $emailId,

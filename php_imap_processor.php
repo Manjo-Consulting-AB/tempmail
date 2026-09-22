@@ -339,7 +339,7 @@ class ImapProcessor
         return $text;
     }
 
-    private function dispatchWebhooks(int $proUserId, array $payload): void
+    public function dispatchWebhooks(int $proUserId, array $payload): void
     {
         try {
             // Entitlement check lives here (not in the caller) so every current and future
