@@ -290,7 +290,7 @@ $environmentConfigs = [
             'socket' => $_ENV['DB_SOCKET'] ?? null,
             'name' => $_ENV['DB_NAME'] ?? 'tempmail',
             'user' => $_ENV['DB_USER'] ?? 'tempmail_user',
-            'password' => $_ENV['DB_PASSWORD'] ?? 'SecurePassword123!',
+            'password' => $_ENV['DB_PASSWORD'] ?? '',
             'charset' => 'utf8mb4'
         ],
         'imap' => [
