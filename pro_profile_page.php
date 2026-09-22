@@ -967,7 +967,7 @@ try {
                     var poButton = '';
                     if (hasPushoverWebhook) {
                         poButton = '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__po'+(poOn ? ' is-on' : '')+'" aria-pressed="'+(poOn ? 'true' : 'false')+'" aria-label="PO — Pushover notifications for this address" title="'+escapeHtml(addressPushoverTitle(poOn))+'"'+(isProAccount ? '' : ' disabled')+'>\n'
-                        + '                                                <i class="fas fa-bell" aria-hidden="true"></i> <span class="ms-address-row__po-state">'+(poOn ? 'PO on' : 'PO')+'</span>\n'
+                        + '                                                <i class="fas fa-bell" aria-hidden="true"></i> <span class="ms-address-row__po-state">'+(poOn ? 'Hook on' : 'Hook')+'</span>\n'
                         + '                                            </button>\n';
                     }
                     html += '\n                                <div class="list-group-item ms-address-row" data-id="'+escapeHtml(it.id)+'">\n'
@@ -1149,7 +1149,7 @@ try {
                     .toggleClass('is-on', state)
                     .attr('aria-pressed', state ? 'true' : 'false')
                     .attr('title', addressPushoverTitle(state))
-                    .find('.ms-address-row__po-state').text(state ? 'PO on' : 'PO');
+                    .find('.ms-address-row__po-state').text(state ? 'Hook on' : 'Hook');
             }
 
             $(document).on('click', '.ms-address-row__po', function(e){
