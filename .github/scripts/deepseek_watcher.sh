@@ -8,8 +8,12 @@
 # prod matchar), så BASE_BRANCH pekar nu mot main - att fortsätta peka mot en
 # borttagen gren fick git-fetchen nedan att misslyckas under set -euo
 # pipefail, innan skriptet ens hann lista issues, vilket är varför inget
-# Build-märkt issue plockades upp. Öppnar en PR mot BASE_BRANCH och rör
-# aldrig merge-knappen; en människa granskar och mergar.
+# Build-märkt issue plockades upp. Öppnar en PR mot BASE_BRANCH.
+#
+# En build/*-PR mergas automatiskt av en senare körning när den är grön och
+# inte väntar på användaren (se auto_merge_green_build_prs nedan). Allt annat
+# lämnas åt en människa. Obs: en merge till main deployar till produktion via
+# prod.yml, som kör om Semgrep innan deployen.
 #
 # Väntar med att plocka nästa issue tills en eventuell öppen build/*-PR är
 # mergad eller stängd, för att undvika att senare steg bygger på grenar som
@@ -22,6 +26,9 @@ LOCK_PATH="$REPO_ROOT/.claude/deepseek-watcher.lock"
 LOG_DIR="$REPO_ROOT/.claude/logs"
 GH_REPO="Manjo-Consulting-AB/tempmail"
 BASE_BRANCH="main"
+# Etikett som betyder "väntar på input från användaren" - en PR med den
+# mergas aldrig automatiskt. Sätts av subagenten (se task.md) eller för hand.
+NEEDS_INPUT_LABEL="needs-input"
 
 mkdir -p "$WORKTREE_BASE" "$LOG_DIR" "$(dirname "$LOCK_PATH")"
 
@@ -40,6 +47,51 @@ if [ "$now_dow" -le 5 ]; then
 fi
 
 cd "$REPO_ROOT"
+
+# Mergar varje öppen build/*-PR som är grön och inte kräver mer input:
+# - inte draft, och utan etiketten $NEEDS_INPUT_LABEL;
+# - ingen granskning som begär ändringar (reviewDecision CHANGES_REQUESTED);
+# - minst en check, och varje check avslutad som SUCCESS/NEUTRAL/SKIPPED
+#   (en check som fortfarande kör räknas inte som grön - nästa körning tar den);
+# - mergebar mot BASE_BRANCH (ingen konflikt, inga ouppfyllda skyddsregler).
+# Grenen raderas inte: ls-remote-kollen nedan använder den för att inte plocka
+# upp samma issue igen.
+auto_merge_green_build_prs() {
+  local prs n
+  prs=$(gh pr list --repo "$GH_REPO" --state open --base "$BASE_BRANCH" --json number,headRefName \
+    -q '.[] | select(.headRefName | startswith("build/")) | .number')
+  for n in $prs; do
+    local ready
+    ready=$(gh pr view "$n" --repo "$GH_REPO" \
+      --json isDraft,labels,reviewDecision,mergeable,mergeStateStatus,statusCheckRollup \
+      -q '
+        (.statusCheckRollup // []) as $c
+        | (.isDraft | not)
+          and ([.labels[].name] | index("'"$NEEDS_INPUT_LABEL"'") | not)
+          and (.reviewDecision != "CHANGES_REQUESTED")
+          and (.mergeable == "MERGEABLE")
+          and (.mergeStateStatus == "CLEAN" or .mergeStateStatus == "HAS_HOOKS")
+          and ($c | length) > 0
+          and all($c[]; (.conclusion // .state) as $s
+                        | $s == "SUCCESS" or $s == "NEUTRAL" or $s == "SKIPPED")' 2>/dev/null || echo false)
+    if [ "$ready" != "true" ]; then
+      echo "PR #$n är inte redo för automerge (ej grön, väntar på input eller ej mergebar)."
+      continue
+    fi
+    local pr_url head
+    pr_url=$(gh pr view "$n" --repo "$GH_REPO" --json url -q .url)
+    head=$(gh pr view "$n" --repo "$GH_REPO" --json headRefName -q .headRefName)
+    if gh pr merge "$n" --repo "$GH_REPO" --merge; then
+      echo "Automergade PR #$n ($head)."
+      git worktree remove --force "$WORKTREE_BASE/$head" 2>/dev/null || true
+      ~/.local/bin/notify-tony "PR #$n automergad (grön, ingen input krävdes): $pr_url" "Tempmail build" 2>/dev/null || true
+    else
+      ~/.local/bin/notify-tony "PR #$n var grön men automerge misslyckades: $pr_url" "Tempmail build - fel" 2>/dev/null || true
+    fi
+  done
+}
+auto_merge_green_build_prs
+
 git fetch origin "$BASE_BRANCH" --quiet
 
 open_build_pr=$(gh pr list --repo "$GH_REPO" --state open --json headRefName -q '[.[] | select(.headRefName | startswith("build/"))] | length')
@@ -93,7 +145,14 @@ Bygg exakt det scope-avsnittet nedan beskriver, inget mer. När du är klar:
 1. Committa dina ändringar med ett beskrivande meddelande.
 2. Pusha grenen: git push -u origin $branch
 3. Öppna en PR mot \`$BASE_BRANCH\` med "gh pr create --base $BASE_BRANCH", med "Closes #$issue_num" i PR-kroppen.
-4. Mergea INTE PR:en själv - en människa granskar och mergar.
+4. Mergea INTE PR:en själv. En grön PR mergas automatiskt av watchern.
+5. Om du behöver ett beslut eller svar från användaren innan PR:en kan
+   mergas (oklart scope, en avvägning du inte kan avgöra, något du inte
+   kunde verifiera): skriv frågan i PR-kroppen och sätt etiketten
+   "$NEEDS_INPUT_LABEL" med
+   "gh pr edit --add-label $NEEDS_INPUT_LABEL" (skapa den först med
+   "gh label create $NEEDS_INPUT_LABEL --force" om den saknas). Då mergas den
+   inte automatiskt.
 
 ## $issue_title
 
