@@ -230,7 +230,7 @@ $baseConfig = [
         'address_length' => 12,
         'max_emails_per_address' => 50,
         // Displayed in the site footer. Bump this on release.
-        'version' => '2.23'
+        'version' => '2.3'
     ],
     'cleanup' => [
         // Default retention; can be overridden with environment variable LOG_RETENTION_DAYS
