@@ -987,6 +987,70 @@ try {
             }
             break;
 
+        // Per-address Pushover opt-in (#171). The column is a preference, never
+        // a credential: the Pushover token and user key stay in
+        // pro_webhooks.config and are neither read nor returned here. Ownership
+        // is resolved with id + pro_user_id + is_personal = 1 in the same
+        // query, so another user's address and a temporary one are both simply
+        // "not found". Reading the state is deliberately not Pro-gated (a
+        // degraded account must still see its own addresses, cf. list_personal
+        // in index.php); changing it is.
+        case 'address_pushover_status':
+            try {
+                if (!tableHasColumn('temp_emails', 'pushover_enabled')) {
+                    // Migration not run: no address can have the opt-in yet.
+                    send_json(['success' => false, 'error' => 'Could not read Pushover settings']);
+                }
+                $addressId = (int)($_POST['id'] ?? 0);
+                if (!$addressId) {
+                    send_json(['success' => false, 'error' => 'Invalid address']);
+                }
+                $s = $pdo->prepare("SELECT pushover_enabled FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                $s->execute([$addressId, $userId]);
+                $row = $s->fetch(PDO::FETCH_ASSOC);
+                if (!$row) {
+                    send_json(['success' => false, 'error' => 'Address not found']);
+                }
+                send_json(['success' => true, 'pushover_enabled' => (int)$row['pushover_enabled'] === 1]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed reading per-address Pushover state', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'Could not read Pushover settings']);
+            }
+            break;
+
+        case 'address_pushover_enable':
+        case 'address_pushover_disable':
+            // Not a credential, but still a state change on the account, so it
+            // carries the same origin check as the other mutating actions here.
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin per-address Pushover change', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            require_pro($userId);
+            $enable = ($action === 'address_pushover_enable');
+            try {
+                if (!tableHasColumn('temp_emails', 'pushover_enabled')) {
+                    send_json(['success' => false, 'error' => 'Could not update Pushover settings']);
+                }
+                $addressId = (int)($_POST['id'] ?? 0);
+                if (!$addressId) {
+                    send_json(['success' => false, 'error' => 'Invalid address']);
+                }
+                $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                $s->execute([$addressId, $userId]);
+                if (!$s->fetch(PDO::FETCH_ASSOC)) {
+                    send_json(['success' => false, 'error' => 'Address not found']);
+                }
+                $u = $pdo->prepare("UPDATE temp_emails SET pushover_enabled = ? WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
+                $u->execute([$enable ? 1 : 0, $addressId, $userId]);
+                logMessage('INFO', $enable ? 'Enabled per-address Pushover' : 'Disabled per-address Pushover', ['user_id' => $userId, 'address_id' => $addressId]);
+                send_json(['success' => true, 'pushover_enabled' => $enable]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed updating per-address Pushover state', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'Could not update Pushover settings']);
+            }
+            break;
+
         case 'webhook_create':
             require_pro($userId);
             // Expects: name, url, kind (generic|pushover), config (JSON), secret (optional)
