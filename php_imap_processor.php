@@ -7,6 +7,7 @@ class ImapProcessor
     private PDO $pdo;
     private bool $debugMode = false;
     private bool $dryRun = false;
+    private ?bool $tempEmailsHasPushoverColumn = null;
 
     public function __construct(array $config, PDO $pdo, bool $debugMode = false)
     {
@@ -358,7 +359,26 @@ class ImapProcessor
 
             $ins = $this->pdo->prepare('INSERT INTO pro_webhook_deliveries (webhook_id, user_id, payload, attempts, status, next_attempt_at, created_at) VALUES (?, ?, ?, 0, \'pending\', ?, NOW())');
             $now = date('Y-m-d H:i:s');
+            // Pushover is opt-in per destination address (#174). Resolved on the
+            // first Pushover hook and memoised in the loop, so a user without any
+            // Pushover webhook pays no extra query per message.
+            $pushoverEligible = null;
             foreach ($hooks as $h) {
+                if (($h['kind'] ?? 'generic') === 'pushover') {
+                    if ($pushoverEligible === null) {
+                        $pushoverEligible = $this->pushoverEnabledForAddress($proUserId, $payload['to'] ?? null);
+                    }
+                    if (!$pushoverEligible) {
+                        // Expected, routine state: Pushover is off for this address
+                        // (the default). Generic webhooks are unaffected.
+                        $this->log('DEBUG', 'Skipping Pushover webhook: destination address has Pushover disabled', [
+                            'webhook_id' => $h['id'],
+                            'user_id' => $proUserId,
+                            'to' => $payload['to'] ?? null
+                        ]);
+                        continue;
+                    }
+                }
                 try {
                     $ins->execute([$h['id'], $proUserId, json_encode($payload, JSON_UNESCAPED_UNICODE), $now]);
                     $this->log('INFO', 'Webhook queued', [
@@ -374,6 +394,55 @@ class ImapProcessor
             }
         } catch (Exception $e) {
             $this->log('ERROR', 'Dispatch webhooks error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Is Pushover enabled for the address this message was delivered to? (#174)
+     *
+     * `$toAddress` is the recipient the intake resolved from the message headers
+     * and stored on stored_emails.to_address, so this is the same address the
+     * message is filed under - a temporary address (is_personal = 0) can never
+     * inherit a personal address' opt-in, because the flag is read off that
+     * address' own row.
+     *
+     * The lookup is scoped to $proUserId as well, so a destination that somehow
+     * does not belong to the user being dispatched for reads as "off" rather
+     * than borrowing another account's preference.
+     *
+     * One enabled address enables every active Pushover webhook of the user:
+     * the Pushover token and user key live on the webhook (pro_webhooks.config),
+     * never on the address, so there is no per-address selection of individual
+     * Pushover configurations. Paused webhooks stay excluded by the
+     * filter_mode = 'all' filter on the webhook query, not here.
+     *
+     * Anything we cannot prove is enabled reads as disabled: a missing row, a
+     * missing column (migration not run - no address can have opted in yet) and
+     * a missing tableHasColumn() helper (entrypoint without config.php) all mean
+     * "no push", never "push anyway".
+     */
+    private function pushoverEnabledForAddress(int $proUserId, $toAddress): bool
+    {
+        if (empty($toAddress) || !is_string($toAddress)) return false;
+        $local = explode('@', strtolower(trim($toAddress)))[0];
+        if ($local === '') return false;
+
+        try {
+            if ($this->tempEmailsHasPushoverColumn === null) {
+                $this->tempEmailsHasPushoverColumn = function_exists('tableHasColumn')
+                    && tableHasColumn('temp_emails', 'pushover_enabled');
+            }
+            if (!$this->tempEmailsHasPushoverColumn) return false;
+
+            $stmt = $this->pdo->prepare('SELECT pushover_enabled FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1');
+            $stmt->execute([$local, $proUserId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $row !== false && (int)$row['pushover_enabled'] === 1;
+        } catch (Exception $e) {
+            $this->log('WARNING', 'Pushover destination lookup failed: ' . $e->getMessage(), [
+                'user_id' => $proUserId
+            ]);
+            return false;
         }
     }
 
