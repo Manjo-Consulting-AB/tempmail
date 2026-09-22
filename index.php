@@ -201,7 +201,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // only ever returned by the Pro-gated address_feed_* actions
                     // in pro_profile.php.
                     $feedEnabledCol = tableHasColumn('temp_emails', 'feed_token') ? ", (feed_token IS NOT NULL) AS feed_enabled" : "";
-                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
+                    // pushover_enabled exposed (#172) for the same reason, and it
+                    // is even less sensitive: unlike feed_token this is a plain
+                    // preference with no credential behind it — the Pushover token
+                    // and user key stay in pro_webhooks.config and are never read
+                    // or returned here.
+                    $pushoverCol = tableHasColumn('temp_emails', 'pushover_enabled') ? ", (pushover_enabled = 1) AS pushover_enabled" : "";
+                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$pushoverCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
                     $stmt->execute([$_SESSION['pro_user_id']]);
                     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $list = [];
@@ -211,7 +217,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'address' => $r['address'],
                             'full_address' => $r['address'] . '@' . $config['email']['domain'],
                             'expires_at' => $r['expires_at'],
-                            'feed_enabled' => !empty($r['feed_enabled'])
+                            'feed_enabled' => !empty($r['feed_enabled']),
+                            // Absent when the migration hasn't run, and empty()
+                            // reads an undefined key as false, i.e. disabled.
+                            'pushover_enabled' => !empty($r['pushover_enabled'])
                         ];
                     }
                     echo json_encode(['success' => true, 'personal' => $list]);
