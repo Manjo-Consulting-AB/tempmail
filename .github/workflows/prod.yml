@@ -25,7 +25,7 @@ jobs:
       image: semgrep/semgrep
     steps:
       - name: Hämta källkod
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Kör Semgrep Säkerhetsscan
         run: semgrep scan --config p/php --config p/security-audit --error ./
   # JOBB 2: Kolla om externa Composer-bibliotek har kända säkerhetshål
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Hämta källkod
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Kontrollera sårbarheter i Composer-paket
         working-directory: ./
         run: composer audit --locked
@@ -55,7 +55,7 @@ jobs:
       REMOTE_DIR: ${{ secrets.REMOTE_DIR || 'domains/manjo.me/public_html' }}
     steps:
       - name: Hämta källkod
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Installera Composer-beroenden (produktion)
         # vendor/ är gitignorad och byggs här i CI, sedan laddas den upp med
         # rsync nedan. Utan detta steg finns t.ex. HTMLPurifier aldrig i produktion.

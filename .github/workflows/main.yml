@@ -13,7 +13,7 @@ jobs:
       image: semgrep/semgrep
     steps:
       - name: Hämta källkod
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Kör Semgrep Säkerhetsscan
         run: semgrep scan --config p/php --config p/security-audit --error
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Hämta källkod
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Kontrollera sårbarheter i Composer-paket
         run: composer audit --locked
