@@ -14,6 +14,21 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
 // lookup error states the free plan rather than claiming Pro.
 $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
 
+// Whether the account owns any Pushover webhook at all — the existence check
+// behind the per-address PO control (#173). filter_mode is deliberately not
+// consulted: a paused webhook is still a configured one, so the control stays
+// visible. Only the existence of the row is read here, never its config: the
+// token and user key are not touched.
+$hasPushoverWebhook = false;
+try {
+    $stmt = $pdo->prepare("SELECT 1 FROM pro_webhooks WHERE user_id = ? AND kind = 'pushover' LIMIT 1");
+    $stmt->execute([(int) $_SESSION['pro_user_id']]);
+    $hasPushoverWebhook = (bool) $stmt->fetchColumn();
+} catch (Exception $e) {
+    // Fail closed: better no control than one whose toggle cannot work.
+    logMessage('ERROR', 'Failed checking for Pushover webhooks', ['user_id' => (int) $_SESSION['pro_user_id'], 'error' => $e->getMessage()]);
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -388,6 +403,12 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
             // and matches today's reality where existing accounts are Pro).
             var isProAccount = true;
 
+            // Whether the account has a Pushover webhook at all (#173), rendered
+            // server-side. This is the existence check, not the paused state, and
+            // it is not the address's own on/off state — that comes per row from
+            // list_personal.
+            var hasPushoverWebhook = <?php echo $hasPushoverWebhook ? 'true' : 'false'; ?>;
+
             // Gray out the Pro-only sections for Regular accounts. Called once, from the
             // get_profile callback below, before anything else on the page runs its own
             // (independent) load calls.
@@ -418,6 +439,11 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                 // Deleting an address stays enabled either way.
                 $('.ms-address-row__feed').prop('disabled', true);
                 $('#personalFeedProNote').removeClass('d-none');
+
+                // Per-address Pushover opt-in (#173): same Pro-only rule, same
+                // two paths — rows already in the DOM are caught here, later
+                // ones read isProAccount.
+                $('.ms-address-row__po').prop('disabled', true);
 
                 // Webhooks
                 $('#whName, #whKind, #whUrl, #whConfig, #whSecret, #whCreateBtn').prop('disabled', true);
@@ -933,6 +959,15 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                 var html = '<div class="list-group">';
                 items.forEach(function(it){
                     var feedOn = !!it.feed_enabled;
+                    var poOn = !!it.pushover_enabled;
+                    // The PO control exists only when the account has a Pushover
+                    // webhook; its own on/off state is the address's preference.
+                    var poButton = '';
+                    if (hasPushoverWebhook) {
+                        poButton = '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__po'+(poOn ? ' is-on' : '')+'" aria-pressed="'+(poOn ? 'true' : 'false')+'" aria-label="PO — Pushover notifications for this address" title="'+escapeHtml(addressPushoverTitle(poOn))+'"'+(isProAccount ? '' : ' disabled')+'>\n'
+                        + '                                                <i class="fas fa-bell" aria-hidden="true"></i> <span class="ms-address-row__po-state">'+(poOn ? 'PO on' : 'PO')+'</span>\n'
+                        + '                                            </button>\n';
+                    }
                     html += '\n                                <div class="list-group-item ms-address-row" data-id="'+escapeHtml(it.id)+'">\n'
                         + '                                    <div class="d-flex justify-content-between align-items-center ms-address-row__main">\n'
                         + '                                        <div class="flex-grow-1 personal-item" style="cursor:pointer;" data-address="'+escapeHtml(it.address)+'">\n'
@@ -942,6 +977,7 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                         + '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__feed'+(feedOn ? ' is-on' : '')+'" aria-expanded="false" aria-controls="addressFeedPanel'+escapeHtml(it.id)+'" title="RSS feed for this address"'+(isProAccount ? '' : ' disabled')+'>\n'
                         + '                                                <i class="fas fa-rss" aria-hidden="true"></i> <span class="ms-address-row__feed-state">'+(feedOn ? 'RSS on' : 'RSS')+'</span>\n'
                         + '                                            </button>\n'
+                        + poButton
                         + '                                            <button class="btn btn-sm btn-danger personal-delete" data-id="'+escapeHtml(it.id)+'" title="Delete">\n'
                         + '                                                <i class="fas fa-trash"></i>\n'
                         + '                                            </button>\n'
@@ -1078,6 +1114,53 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
                         alert((res && res.error) ? res.error : 'Failed to turn off feed');
                     }
                 }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+            });
+
+            // --- Per-address Pushover opt-in (#173). The control is only rendered
+            // when the account has a Pushover webhook, and toggling it writes the
+            // address's own pushover_enabled flag through the Pro-gated actions —
+            // the webhook's URL, config and paused state are never touched. ---
+            function addressPushoverTitle(on) {
+                return on
+                    ? 'Pushover notifications are on for this address. Click to turn them off.'
+                    : 'Pushover notifications are off for this address. Click to turn them on.';
+            }
+
+            function setAddressPushoverState($row, on) {
+                var state = !!on;
+                $row.find('.ms-address-row__po')
+                    .toggleClass('is-on', state)
+                    .attr('aria-pressed', state ? 'true' : 'false')
+                    .attr('title', addressPushoverTitle(state))
+                    .find('.ms-address-row__po-state').text(state ? 'PO on' : 'PO');
+            }
+
+            $(document).on('click', '.ms-address-row__po', function(e){
+                e.stopPropagation();
+                var $btn = $(this);
+                if ($btn.prop('disabled')) return;
+                var $row = $btn.closest('.ms-address-row');
+                var wasOn = $btn.hasClass('is-on');
+                // Flip on the click so the state reads immediately, then let the
+                // response confirm it or put it back.
+                setAddressPushoverState($row, !wasOn);
+                $btn.prop('disabled', true);
+                $.post('pro_profile.php', {
+                    action: wasOn ? 'address_pushover_disable' : 'address_pushover_enable',
+                    id: $row.data('id')
+                }, function(res){
+                    $btn.prop('disabled', false);
+                    if (res && res.success) {
+                        setAddressPushoverState($row, res.pushover_enabled);
+                    } else {
+                        setAddressPushoverState($row, wasOn);
+                        alert((res && res.error) ? res.error : 'Could not update Pushover settings');
+                    }
+                }, 'json').fail(function(){
+                    $btn.prop('disabled', false);
+                    setAddressPushoverState($row, wasOn);
+                    alert('Request failed');
+                });
             });
 
             // Create personal

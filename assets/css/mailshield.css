@@ -3981,10 +3981,12 @@ a:hover {
     line-height: var(--ms-lh-xs);
 }
 
-/* --- A personal address row and its feed panel (#162) ----------------------
-   Each row is a Bootstrap `.list-group-item`, but it now carries a second
-   button and, under it, a panel that opens in place rather than a modal or a
-   page of its own.
+/* --- A personal address row, its feed panel (#162) and its Pushover
+   control (#173) ------------------------------------------------------------
+   Each row is a Bootstrap `.list-group-item`, but it now carries two more
+   buttons — the feed's, and the per-address Pushover one when the account has
+   a Pushover webhook — and, under it, a panel that opens in place rather than
+   a modal or a page of its own.
 
    The panel stacks its URL above its actions. That order is what keeps a phone
    from scrolling sideways (§12.8): the feed URL is the one unbreakable string
@@ -3996,9 +3998,29 @@ a:hover {
     gap: var(--ms-space-3);
 }
 
+/* A row that carries the per-address Pushover control (#173) has three buttons
+   where this block's layout was measured for two: at 375px the address column
+   is already down to ~90px, and the third control takes the rest, leaving the
+   local part a one-character-wide column hundreds of pixels tall.
+
+   So on those rows the controls take a line of their own and the address keeps
+   the full width above them. The rule is scoped with `:has()` to the row that
+   actually has the extra control — without one, a row lays out exactly as it
+   did before — and it only fires once the two no longer fit together, so wide
+   viewports are unchanged. `flex-wrap` on the controls is the floor for the
+   narrowest phones (320px), where the three no longer fit even alone. */
+.ms-address-row__main:has(.ms-address-row__po) {
+    flex-wrap: wrap;
+}
+
+.ms-address-row__main:has(.ms-address-row__po) .ms-address-row__actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 /* The address label is the flex item that gives way: without `min-width: 0` it
    refuses to shrink below its own text and paints over the buttons at 375px,
-   where the address plus two controls no longer share one line. `overflow-wrap`
+   where the address and its controls no longer share one line. `overflow-wrap`
    is then what lets the local part break instead of escaping the card. */
 .ms-address-row .personal-item {
     min-width: 0;
@@ -4010,16 +4032,19 @@ a:hover {
     gap: var(--ms-space-2);
 }
 
-/* "RSS on" is a state, not a second call to action — the accent tint tells it
-   apart from the muted outline every other secondary button wears. */
-.ms-address-row__feed.is-on {
+/* "RSS on" and "PO on" are states, not second calls to action — the accent tint
+   tells them apart from the muted outline every other secondary button wears. */
+.ms-address-row__feed.is-on,
+.ms-address-row__po.is-on {
     color: var(--ms-accent);
     border-color: var(--ms-accent);
     background: var(--ms-accent-soft);
 }
 
 .ms-address-row__feed.is-on:hover,
-.ms-address-row__feed.is-on:focus-visible {
+.ms-address-row__feed.is-on:focus-visible,
+.ms-address-row__po.is-on:hover,
+.ms-address-row__po.is-on:focus-visible {
     color: var(--ms-accent-hover);
     border-color: var(--ms-accent-hover);
     background: var(--ms-accent-soft);
