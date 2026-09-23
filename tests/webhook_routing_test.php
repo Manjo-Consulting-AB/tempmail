@@ -25,8 +25,12 @@ declare(strict_types=1);
  * 9 on they also drive the real pro_profile.php / index.php actions over a real
  * request — the same technique as tests/pushover_routing_test.php — so the
  * origin check, the Pro gate, the ownership queries and the transaction under
- * test are the pages' own code. The UI that renders the links is #251 step 5
- * and is not covered by either suite.
+ * test are the pages' own code. Scenario 16 renders the real
+ * pro_profile_page.php and asserts the PHP→JS contract the routing UI is built
+ * from (#251 step 5): the "has any webhook" and "routing available" flags, and
+ * that the retired per-address Pushover control left nothing behind. The UI
+ * itself is assembled in the browser and this suite has no JS engine, so the
+ * rendered flags are as far as it can honestly go.
  */
 
 $msRepoRoot = dirname(__DIR__);
@@ -615,6 +619,61 @@ ms_test_check(
     '15p. the addresses themselves survive their hook',
     ms_test_address_exists($pdo, $apAddr1) && ms_test_address_exists($pdo, $apAddr2),
     'deleting a hook took an address with it'
+);
+
+// ---------------------------------------------------------------------
+// 16. pro_profile_page.php renders the routing UI
+// ---------------------------------------------------------------------
+
+ms_test_section('16. pro_profile_page.php renders the routing UI');
+
+// The page's PHP→JS contract, as the two removed scenarios of
+// tests/pushover_routing_test.php asserted it before the per-address Pushover
+// control was replaced by the routing UI (#251 step 5). The page's control is
+// assembled in the browser and this suite has no JS engine, so what is asserted
+// is the rendered flag the script consumes, not a DOM node.
+//
+// A separate user, because "no webhooks" has to be provable and every fixture
+// above already owns one.
+$renderUser = ms_test_seed_user($pdo, 'greta@example.com', 'pro');
+
+$render = $msRun(['page' => 'pro_profile_page.php', 'method' => 'GET', 'user_id' => $renderUser, 'user_email' => 'greta@example.com']);
+ms_test_no_php_errors('16a. pro_profile_page.php renders without PHP errors', $render);
+ms_test_check(
+    '16b. hasAnyWebhook is false with no webhooks at all',
+    str_contains($render['stdout'], 'var hasAnyWebhook = false;'),
+    'rendered flag not found'
+);
+ms_test_check(
+    '16c. hookRoutingAvailable is true now that the schema is in place',
+    str_contains($render['stdout'], 'var hookRoutingAvailable = true;'),
+    'the page did not see the routing schema this suite applied'
+);
+
+// Configured but paused, and generic rather than Pushover: the gate is "has any
+// webhook", so neither the paused state nor the kind may be consulted.
+ms_test_seed_webhook($pdo, $renderUser, 'generic', 'paused', 'Paused generic only');
+
+$render = $msRun(['page' => 'pro_profile_page.php', 'method' => 'GET', 'user_id' => $renderUser, 'user_email' => 'greta@example.com']);
+ms_test_no_php_errors('16d. pro_profile_page.php still renders cleanly', $render);
+ms_test_check(
+    '16e. a single paused generic webhook is enough for hasAnyWebhook to be true',
+    str_contains($render['stdout'], 'var hasAnyWebhook = true;'),
+    'a paused generic webhook did not make the address control available'
+);
+
+// The retired per-address Pushover control and its server-side flag must be
+// gone from the page entirely, not merely hidden.
+$leaked = [];
+foreach (['hasPushoverWebhook', 'address_pushover_'] as $needle) {
+    if (str_contains($render['stdout'], $needle)) {
+        $leaked[] = $needle;
+    }
+}
+ms_test_check(
+    '16f. the page carries neither the removed flag nor the removed actions',
+    $leaked === [],
+    'still present: ' . implode(', ', $leaked)
 );
 
 // ---------------------------------------------------------------------
