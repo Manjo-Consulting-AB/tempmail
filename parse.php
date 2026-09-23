@@ -148,9 +148,30 @@ function parseEnvOrServer(string $key): ?string
 
 // --- 1. Read the raw RFC822 message from stdin ------------------------------
 
-$raw = stream_get_contents(STDIN);
+// A message larger than the configured limit is a permanent rejection, decided
+// here — on the raw message as delivered, before the recipient is even derived
+// and before any database lookup. Read one byte past the limit so an oversize
+// message is detected without ever holding the whole of it in memory.
+$maxBytes = (int)($config['email']['max_message_bytes'] ?? 10485760);
+if ($maxBytes <= 0) {
+    $maxBytes = 10485760;
+}
+
+$raw = stream_get_contents(STDIN, $maxBytes + 1);
 if ($raw === false || $raw === '') {
     parseReject('Empty or unreadable message on stdin');
+}
+
+if (strlen($raw) > $maxBytes) {
+    // Drain the rest without keeping it: the pipe's writer must not see a
+    // broken pipe, or Exim reports the delivery differently than this exit
+    // code says.
+    while (!feof(STDIN)) {
+        if (fread(STDIN, 65536) === false) {
+            break;
+        }
+    }
+    parseReject('Message exceeds the maximum size of ' . $maxBytes . ' bytes', ['to_source' => 'stdin']);
 }
 
 // --- 2. Derive the recipient local part --------------------------------------
