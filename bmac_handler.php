@@ -9,6 +9,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/pro_trial.php';
 
 // Only accept POST requests
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -136,6 +137,7 @@ try {
 
     $now = time();
     $userId = null;
+    $created = false;
     $oldExpires = null;
     $newExpires = null;
 
@@ -187,6 +189,7 @@ try {
         }
         $insertStmt->execute([$email, $newExpires, $defaultTtl]);
         $userId = $pdo->lastInsertId();
+        $created = true;
 
         logMessage('INFO', 'BMAC created new PRO user', ['email' => $email, 'user_id' => $userId]);
     }
@@ -205,6 +208,11 @@ try {
     ]);
 
     $pdo->commit();
+
+    if ($created) {
+        // #267: a BMAC-created account is verified on creation - record the address.
+        proTrialRecordClaim($pdo, $email, (string)($config['trial']['hash_key'] ?? ''));
+    }
 
     http_response_code(200);
     echo json_encode([

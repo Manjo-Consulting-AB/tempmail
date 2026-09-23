@@ -274,5 +274,25 @@ $second = proTrialRecordClaim($ms_trial_test_pdo, 'twice@example.com', $ms_trial
 check('T9. proTrialRecordClaim() called twice returns the same first_seen_at',
     $first !== null && $first === $second, var_export([$first, $second], true));
 
+// ---------------------------------------------------------------------------
+// Static scan: the other recording paths (epic #267, step 3/4). These only
+// record the address and must never grant a trial.
+// ---------------------------------------------------------------------------
+
+$proAuthSrc = file_get_contents(__DIR__ . '/../pro_auth.php');
+$bmacSrc = file_get_contents(__DIR__ . '/../bmac_handler.php');
+
+same('S1. pro_auth.php calls proTrialRecordClaim() exactly twice',
+    2, substr_count((string) $proAuthSrc, 'proTrialRecordClaim('));
+
+same('S2. bmac_handler.php calls proTrialRecordClaim() exactly once',
+    1, substr_count((string) $bmacSrc, 'proTrialRecordClaim('));
+
+check('S3. pro_auth.php never calls proTrialGrantOnVerification()',
+    strpos((string) $proAuthSrc, 'proTrialGrantOnVerification(') === false);
+
+check('S4. bmac_handler.php never calls proTrialGrantOnVerification()',
+    strpos((string) $bmacSrc, 'proTrialGrantOnVerification(') === false);
+
 echo "\n" . ($passed + $failed) . " checks run, {$passed} passed, {$failed} failed.\n";
 exit($failed === 0 ? 0 : 1);
