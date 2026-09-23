@@ -15,7 +15,6 @@ Allow: /
 
 Disallow: /inbox.php
 Disallow: /files.php
-Disallow: /download_attachment.php
 Disallow: /pro.php
 Disallow: /pro_profile_page.php
 Disallow: /pro_profile.php

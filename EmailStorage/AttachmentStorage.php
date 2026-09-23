@@ -28,7 +28,7 @@ if (!defined('TEMPMAIL_APP')) {
  *
  * It reuses the existing on-disk scheme unchanged: the same generated
  * `<unixtime>_<8 hex>_<sanitized filename>` name, the same `attachments/...`
- * relative path in `file_path` (what files.php / download_attachment.php /
+ * relative path in `file_path` (what files.php /
  * cron/cleanup.php resolve against). No schema change and no layout change.
  */
 final class AttachmentStorage
