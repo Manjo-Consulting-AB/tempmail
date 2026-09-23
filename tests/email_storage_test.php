@@ -674,6 +674,45 @@ if (ms_test_has_mime_parser()) {
     ms_test_skip('9r–9t. an attachment survives the pipe end to end', 'run composer install so MailParser can decode the part');
 }
 
+// An inline image that carries no filename at all still survives, because the
+// HTML body references it by Content-ID: dropping it would leave the <img
+// src="cid:…"> in the stored body with nothing to resolve to (#217).
+if (ms_test_has_mime_parser()) {
+    $msEmlWithInlineImage = implode("\r\n", [
+        'From: Sender Name <sender@example.com>',
+        'To: <' . $msAddress($msPipeLocal) . '>',
+        'Subject: Pipe inline image fixture',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/related; boundary="PROBE-INLINE-BOUNDARY"',
+        '',
+        '--PROBE-INLINE-BOUNDARY',
+        'Content-Type: text/html; charset=utf-8',
+        '',
+        '<p>Body with an inline image <img src="cid:logo123"></p>',
+        '',
+        '--PROBE-INLINE-BOUNDARY',
+        'Content-Type: image/png',
+        'Content-ID: <logo123>',
+        'Content-Disposition: inline',
+        'Content-Transfer-Encoding: base64',
+        '',
+        base64_encode('inline image bytes'),
+        '',
+        '--PROBE-INLINE-BOUNDARY--',
+        '',
+    ]);
+    $msRun = ms_test_cli_php($msProbe, 'parse.php', $msEmlWithInlineImage, $msEnv + ['LOCAL_PART' => $msPipeLocal]);
+    ms_test_same('9v. a message with a nameless inline image exits 0', 0, $msRun['exit']);
+    $msInlineEmailId = (int) $pdo->query('SELECT id FROM stored_emails ORDER BY id DESC LIMIT 1')->fetchColumn();
+    $msInlineAttachments = ms_test_attachment_rows($pdo, $msInlineEmailId);
+    ms_test_same('9w. the inline image is stored as one attachment', 1, count($msInlineAttachments));
+    ms_test_same('9x. it keeps the Content-ID the body refers to', 'logo123', (string) ($msInlineAttachments[0]['content_id'] ?? ''));
+    ms_test_same('9y. it is named after its MIME type', 'inline-image.png', (string) ($msInlineAttachments[0]['filename'] ?? ''));
+    ms_test_same('9z. and its MIME type is unchanged', 'image/png', (string) ($msInlineAttachments[0]['mime_type'] ?? ''));
+} else {
+    ms_test_skip('9v–9z. a nameless inline image survives the pipe end to end', 'run composer install so MailParser can decode the part');
+}
+
 // A *temporary* failure must defer, not bounce: the pipe exits 75 (EX_TEMPFAIL)
 // and still prints nothing at all, so the DirectAdmin/Exim pipe transport —
 // which bounces on any output, whatever the exit code — retries the delivery
