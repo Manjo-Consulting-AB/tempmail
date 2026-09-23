@@ -2,43 +2,32 @@
 """
 TempMail Python IMAP Fallback
 Hämtar e-post via IMAP för Docker-miljö utan PHP IMAP-tillägg
+
+Den här processen gör bara IMAP-arbetet. Den öppnar ingen databasanslutning och
+kör ingen SQL själv: varje normaliserat meddelande skickas som JSON på stdin
+till PHP-bryggan (python_imap_bridge.php, epic #169), som bygger IncomingEmail
+och anropar EmailStorage::store(). All lagring för den här vägen ligger därmed i
+tjänsten, på ett ställe, i stället för att dupliceras i Python.
 """
 
 import sys
 import os
 import json
+import subprocess
 import imaplib
 import email
-import mysql.connector
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 import re
+
+# Statusar bryggan kan svara med (samma värden som StorageResult::STATUS_*).
+BRIDGE_STATUSES = ('stored', 'duplicate', 'rejected', 'failed')
+
 
 def log_message(level, message):
     """Logga meddelanden"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] [{level}] Python IMAP: {message}", file=sys.stderr)
-
-def connect_to_database():
-    """Anslut till MySQL-databasen.
-
-    Credentials come from environment variables only - this script is invoked
-    via PHP's shell_exec(), which inherits the parent process's environment
-    (populated by config.php's loadEnvironmentVariables()/putenv() from the
-    .env file), so no secrets need to be hardcoded or passed as arguments.
-    """
-    try:
-        conn = mysql.connector.connect(
-            host=os.environ.get('DB_HOST', 'localhost'),
-            port=int(os.environ.get('DB_PORT') or 3306),
-            database=os.environ.get('DB_NAME', 'tempmail'),
-            user=os.environ.get('DB_USER', ''),
-            password=os.environ.get('DB_PASSWORD', '')
-        )
-        return conn
-    except mysql.connector.Error as e:
-        log_message('ERROR', f'Databasanslutning misslyckades: {e}')
-        return None
 
 def parse_imap_server(server_str):
     """Parse config.php's PHP-imap-style '{host:port/imap/ssl}MAILBOX' into (host, port)."""
@@ -50,7 +39,8 @@ def parse_imap_server(server_str):
     return host, port
 
 def connect_to_imap():
-    """Anslut till IMAP-server (credentials from environment variables - see connect_to_database)."""
+    """Anslut till IMAP-server (IMAP-uppgifterna kommer från miljövariabler,
+    som PHP:s shell_exec() ärver från config.php - inga credentials i argv)."""
     try:
         host, port = parse_imap_server(os.environ.get('IMAP_SERVER', ''))
         user = os.environ.get('IMAP_USER', '')
@@ -121,143 +111,67 @@ def get_email_content(email_msg):
     
     return body_text, body_html
 
-def email_exists_in_database(db_conn, from_address, to_address, subject, received_at):
-    """Kontrollera om e-post redan finns i databasen"""
+def store_email_via_bridge(email_data):
+    """Lämna ett normaliserat meddelande till PHP-bryggan (epic #169).
+
+    Returnerar bryggans status ('stored', 'duplicate', 'rejected', 'failed')
+    eller None när bryggan inte kunde nås eller inte svarade med JSON. Anroparen
+    behandlar None precis som 'failed': inget sparades, så meddelandet lämnas
+    kvar på servern.
+
+    Ingen shell-sträng och inga credentials i argv: bryggan skickas som en lista
+    av argument till subprocess.run(), får sin databasanslutning från config.php
+    och hittas via miljövariabler som php_imap_processor.php sätter
+    (TEMPMAIL_PHP_BIN / TEMPMAIL_PYTHON_BRIDGE).
+    """
+    php_bin = os.environ.get('TEMPMAIL_PHP_BIN') or 'php'
+    bridge_path = os.environ.get('TEMPMAIL_PYTHON_BRIDGE') or ''
+
+    if not bridge_path:
+        log_message('ERROR', 'Storage-bryggan är inte konfigurerad (TEMPMAIL_PYTHON_BRIDGE saknas)')
+        return None
+    if not os.path.isfile(bridge_path):
+        log_message('ERROR', f'Storage-bryggan saknas: {bridge_path}')
+        return None
+
     try:
-        cursor = db_conn.cursor()
-        
-        query = """
-        SELECT COUNT(*) FROM stored_emails 
-        WHERE from_address = %s AND to_address = %s AND subject = %s 
-        AND ABS(TIMESTAMPDIFF(MINUTE, received_at, %s)) < 5
-        """
-        
-        cursor.execute(query, (from_address, to_address, subject, received_at))
-        count = cursor.fetchone()[0]
-        cursor.close()
-        
-        return count > 0
-        
-    except mysql.connector.Error as e:
-        log_message('ERROR', f'Kunde inte kontrollera e-post: {e}')
-        return False
+        proc = subprocess.run(
+            [php_bin, bridge_path],
+            input=json.dumps(email_data),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as e:
+        log_message('ERROR', f'Kunde inte starta storage-bryggan: {e}')
+        return None
 
-def save_email_to_database(db_conn, email_data):
-    """Spara e-post till databasen"""
+    stdout = (proc.stdout or '').strip()
     try:
-        # Kontrollera om e-posten redan finns
-        if email_exists_in_database(db_conn, 
-                                   email_data['from_address'],
-                                   email_data['to_address'], 
-                                   email_data['subject'],
-                                   email_data['received_at']):
-            log_message('DEBUG', f'E-post redan finns i databasen, hoppar över')
-            return False
-        
-        cursor = db_conn.cursor()
+        result = json.loads(stdout)
+    except ValueError:
+        stderr = (proc.stderr or '').strip()
+        log_message('ERROR', f'Storage-bryggan svarade inte med JSON (exit {proc.returncode}): {stderr or stdout}')
+        return None
 
-        # Determine expires_at by looking up temp_emails for the local part (if available)
-        # If this is a personal address (pro_user_id), compute expires based on pro_users.address_ttl_days
-        expires_at = None
-        try:
-            local = email_data['to_address'].split('@')[0].lower()
-            lookup_q = "SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = %s LIMIT 1"
-            cursor.execute(lookup_q, (local,))
-            row = cursor.fetchone()
-            if row:
-                # row now: id, expires_at, pro_user_id
-                temp_email_id = row[0]
-                pro_user_id = row[2]
-                if pro_user_id:
-                    try:
-                        # Fetch pro user's TTL
-                        ttl_q = "SELECT COALESCE(address_ttl_days, 1) FROM pro_users WHERE id = %s LIMIT 1"
-                        cursor.execute(ttl_q, (pro_user_id,))
-                        ttl_row = cursor.fetchone()
-                        if ttl_row and ttl_row[0] is not None:
-                            ttl_days = int(ttl_row[0])
-                            if ttl_days < 1:
-                                ttl_days = 1
-                            # Use received_at as base
-                            try:
-                                base_dt = datetime.strptime(email_data['received_at'], '%Y-%m-%d %H:%M:%S')
-                            except Exception:
-                                base_dt = datetime.now()
-                            expires_at = (base_dt + timedelta(days=ttl_days)).strftime('%Y-%m-%d %H:%M:%S')
-                    except Exception as e:
-                        log_message('WARNING', f'Could not fetch pro user TTL for {pro_user_id}: {e}')
-                # Fallback to temp_emails.expires_at when not personal or TTL fetch failed
-                if not expires_at and row[0]:
-                    expires_at = row[0]
-        except Exception as e:
-            log_message('WARNING', f'Could not lookup expires_at/pro_user for {email_data["to_address"]}: {e}')
+    if not isinstance(result, dict):
+        log_message('ERROR', f'Storage-bryggan svarade med oväntat format: {stdout[:200]}')
+        return None
 
-        # Include temp_email_id when known so DB FK cascade can remove messages when addresses are deleted
-        query = """
-        INSERT INTO stored_emails (from_address, to_address, subject, body_text, body_html, received_at, expires_at, temp_email_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
+    status = result.get('status')
+    if status not in BRIDGE_STATUSES:
+        log_message('ERROR', f'Storage-bryggan svarade med okänd status: {status!r}')
+        return None
 
-        cursor.execute(query, (
-            email_data['from_address'],
-            email_data['to_address'],
-            email_data['subject'],
-            email_data['body_text'],
-            email_data['body_html'],
-            email_data['received_at'],
-            expires_at,
-            locals().get('temp_email_id', None)
-        ))
-        
-        db_conn.commit()
-        cursor.close()
-        
-        # Uppdatera statistik
-        update_stat(db_conn, 'emails_processed', 1)
-        
-        return True
-        
-    except mysql.connector.Error as e:
-        log_message('ERROR', f'Kunde inte spara e-post: {e}')
-        return False
-
-def update_stat(db_conn, stat_name, increment=1):
-    """Uppdatera statistik i databasen"""
-    try:
-        cursor = db_conn.cursor()
-        
-        query = """
-        INSERT INTO email_stats (stat_name, stat_value) 
-        VALUES (%s, %s) 
-        ON DUPLICATE KEY UPDATE 
-        stat_value = stat_value + VALUES(stat_value),
-        last_updated = CURRENT_TIMESTAMP
-        """
-        
-        cursor.execute(query, (stat_name, increment))
-        db_conn.commit()
-        cursor.close()
-        
-        log_message('DEBUG', f'Statistik uppdaterad: {stat_name} +{increment}')
-        return True
-        
-    except mysql.connector.Error as e:
-        log_message('ERROR', f'Kunde inte uppdatera statistik: {e}')
-        return False
+    return status
 
 def process_emails(addresses):
     """Huvudfunktion för att processa e-post"""
     new_emails_count = 0
-    
-    # Anslut till databas
-    db_conn = connect_to_database()
-    if not db_conn:
-        return 0
-    
+
     # Anslut till IMAP
     imap = connect_to_imap()
     if not imap:
-        db_conn.close()
         return 0
     
     try:
@@ -325,7 +239,7 @@ def process_emails(addresses):
                 
                 body_text, body_html = get_email_content(email_msg)
                 
-                # Förbered data för databas
+                # Normaliserad e-post till lagringstjänsten
                 email_data = {
                     'from_address': from_address,
                     'to_address': f'{recipient_address}@manjo.me',
@@ -335,14 +249,22 @@ def process_emails(addresses):
                     'received_at': received_at
                 }
                 
-                # Spara till databas
-                if save_email_to_database(db_conn, email_data):
+                # Spara via PHP-bryggan (EmailStorage::store())
+                status_result = store_email_via_bridge(email_data)
+
+                if status_result == 'stored':
                     new_emails_count += 1
                     log_message('INFO', f'E-post sparad för {recipient_address}')
                     
                     # Markera som raderad från servern
                     imap.store(msg_id, '+FLAGS', '\\Deleted')
                     log_message('DEBUG', f'Meddelande {msg_id} markerat för radering')
+                elif status_result == 'duplicate':
+                    log_message('DEBUG', 'E-post redan finns i databasen, hoppar över')
+                else:
+                    # 'failed', 'rejected' eller None: inget sparades, så
+                    # meddelandet ligger kvar på servern för ett nytt försök.
+                    log_message('WARNING', f'E-post kunde inte sparas (status={status_result or "unavailable"}), meddelandet behålls på servern')
                 
             except Exception as e:
                 log_message('ERROR', f'Fel vid bearbetning av meddelande {msg_id}: {e}')
@@ -356,7 +278,6 @@ def process_emails(addresses):
     finally:
         imap.close()
         imap.logout()
-        db_conn.close()
     
     return new_emails_count
 
