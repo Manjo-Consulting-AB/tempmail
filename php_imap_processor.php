@@ -230,8 +230,8 @@ class ImapProcessor
 
             // MailParser attachments travel inside the DTO and are persisted by
             // the storage service with the email. LegacyImapFallback needs the
-            // live IMAP connection, so it keeps its own call after the store
-            // (#195 retires it).
+            // live IMAP connection, so it runs afterwards and hands what it
+            // extracted to the same attachment persistence.
             //
             // The stored body keeps its `cid:` references either way: index.php
             // rewrites them to freshly signed URLs at display time from these
@@ -293,18 +293,8 @@ class ImapProcessor
             if ($savedByMailParser === 0 && $imapConnection && $messageNumber && $emailId > 0) {
                 try {
                     $this->log('DEBUG', 'Using LegacyImapFallback for email', ['email_id' => $emailId]);
-                    $cidMap = [];
-                    $legacySaved = $this->saveLegacyAttachmentsFromMessage($imapConnection, $messageNumber, $emailId, $cidMap);
+                    $legacySaved = $this->saveLegacyAttachmentsFromMessage($imapConnection, $messageNumber, $emailId);
                     $this->log('DEBUG', 'LegacyImapFallback saved attachments', ['email_id' => $emailId, 'saved' => $legacySaved]);
-                    if ($legacySaved > 0) {
-                        // The service already counted its own share of this
-                        // counter; this is the legacy branch's.
-                        try {
-                            if (function_exists('updateStat')) updateStat('attachments_processed', $legacySaved);
-                        } catch (\Throwable $_) {
-                            // Don't let stats failures break processing
-                        }
-                    }
                 } catch (Exception $e) {
                     $this->log('WARNING', 'Saving attachments failed: ' . $e->getMessage());
                 }
@@ -665,14 +655,15 @@ class ImapProcessor
     }
 
     /**
-     * Save the message's parts with LegacyImapFallback, which fetches each part
-     * over the live IMAP connection - the reason it is not part of the storage
-     * DTO and still has a call of its own here (#195 retires it).
+     * Extract the message's parts with LegacyImapFallback, which fetches each
+     * part over the live IMAP connection - the reason it cannot travel in the
+     * storage DTO and needs a call of its own here - and hand what it returns to
+     * the storage service's attachment persistence, the same path the DTO's
+     * MailParser attachments take.
      *
-     * @param array<string, int> $cidMap Content-ID to attachment id mapping, extended in place.
      * @return int attachments saved
      */
-    private function saveLegacyAttachmentsFromMessage($imapConnection, $messageNumber, int $emailId, array &$cidMap): int
+    private function saveLegacyAttachmentsFromMessage($imapConnection, $messageNumber, int $emailId): int
     {
         if (!file_exists(__DIR__ . '/LegacyImapFallback.php')) {
             return 0;
@@ -685,11 +676,14 @@ class ImapProcessor
             return 0;
         }
 
-        $attachmentsDir = __DIR__ . '/attachments';
-        if (!is_dir($attachmentsDir)) @mkdir($attachmentsDir, 0755, true);
+        $attachments = LegacyImapFallback::extractAttachments($imapConnection, $messageNumber, $parts);
+        if ($attachments === []) {
+            return 0;
+        }
 
-        $saved = 0;
-        LegacyImapFallback::savePartsRecursive($this->pdo, $imapConnection, $messageNumber, $parts, '', $emailId, $attachmentsDir, $saved, $cidMap);
+        // Warnings are logged per attachment by the service; the count is what
+        // this path reports and what the counter has already been bumped for.
+        [, $saved] = $this->emailStorage()->persistAttachments($emailId, $attachments);
 
         return $saved;
     }
