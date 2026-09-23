@@ -674,6 +674,27 @@ if (ms_test_has_mime_parser()) {
     ms_test_skip('9r–9t. an attachment survives the pipe end to end', 'run composer install so MailParser can decode the part');
 }
 
+// A *temporary* failure must defer, not bounce: the pipe exits 75 (EX_TEMPFAIL)
+// and still prints nothing at all, so the DirectAdmin/Exim pipe transport —
+// which bounces on any output, whatever the exit code — retries the delivery
+// later instead. Hiding the table the service writes to is how an outage looks
+// from inside the script: the lookup in step 3 still resolves, the store fails.
+$pdo->exec('ALTER TABLE stored_emails RENAME TO stored_emails_hidden');
+try {
+    $msRun = ms_test_cli_php(
+        $msProbe,
+        'parse.php',
+        $msEml($msAddress($msPipeLocal), 'Pipe store failure fixture', 'Body.'),
+        $msEnv + ['LOCAL_PART' => $msPipeLocal]
+    );
+} finally {
+    // Put it back before any later check runs, even if the assertions fail.
+    $pdo->exec('ALTER TABLE stored_emails_hidden RENAME TO stored_emails');
+}
+ms_test_same('9u. a store failure exits 75 so Exim defers the delivery', 75, $msRun['exit']);
+ms_test_same('9u. (a deferred run prints nothing on stdout)', '', $msRun['stdout']);
+ms_test_same('9u. (a deferred run prints nothing on stderr)', '', $msRun['stderr']);
+
 // ---------------------------------------------------------------------
 // 10. Python fallback handoff (python_imap_bridge.php)
 // ---------------------------------------------------------------------
