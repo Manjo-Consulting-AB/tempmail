@@ -123,6 +123,9 @@ try {
     $ctype = $row['content_type'] ?: 'application/octet-stream';
     $downloadName = basename($row['filename']);
     $downloadName = preg_replace('/[\r\n\\\"\']+/', '_', $downloadName);
+    // The ASCII fallback for clients that ignore RFC 5987, and the only form a
+    // header can safely carry unencoded; the real name rides in filename*.
+    $asciiName = preg_replace('/[^A-Za-z0-9._-]/', '_', $downloadName) ?: 'attachment';
 
     // Support X-Sendfile/X-Accel if enabled via env var USE_X_SENDFILE=1 (requires server config)
     $useXSend = getenv('USE_X_SENDFILE') === '1';
@@ -131,13 +134,13 @@ try {
         if ($xAccel) {
             header('X-Content-Type-Options: nosniff');
             header('Content-Type: ' . $ctype);
-            header('Content-Disposition: attachment; filename="' . $downloadName . '"');
+            header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
             header('X-Accel-Redirect: ' . rtrim($xAccel, '/') . '/' . $fileBasename);
             exit;
         }
         header('X-Content-Type-Options: nosniff');
         header('Content-Type: ' . $ctype);
-        header('Content-Disposition: attachment; filename="' . $downloadName . '"');
+        header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
         header('X-Sendfile: ' . $real);
         exit;
     }
@@ -165,7 +168,7 @@ try {
     if ($statusCode === 206) http_response_code(206);
     header('X-Content-Type-Options: nosniff');
     header('Content-Type: ' . $ctype);
-    header('Content-Disposition: attachment; filename="' . $downloadName . '"');
+    header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
     header('Accept-Ranges: bytes');
     if ($statusCode === 206) {
         $end = $start + $length - 1;
