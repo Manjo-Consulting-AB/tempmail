@@ -6,7 +6,8 @@ defined('TEMPMAIL_APP') or define('TEMPMAIL_APP', true);
  *
  * The name is historical: this class was the IMAP intake, and the IMAP intake
  * it is named after was removed in #212. What is left is Pro webhook dispatch
- * only - dispatchWebhooks() queues deliveries, dispatchDelivery() sends them.
+ * only - dispatchWebhooks() queues deliveries, dispatchDelivery() sends them,
+ * deliverNow() sends fresh ones straight away from the intake.
  * Mail arrives only through parse.php and the Email Storage service.
  */
 class ImapProcessor
@@ -23,22 +24,29 @@ class ImapProcessor
         $this->debugMode = $debugMode;
     }
 
-    public function dispatchWebhooks(int $proUserId, array $payload): void
+    /**
+     * Queue one delivery per active webhook of the user.
+     *
+     * @return int[] ids of the pro_webhook_deliveries rows queued, so a caller
+     *               can attempt them right away (see deliverNow()).
+     */
+    public function dispatchWebhooks(int $proUserId, array $payload): array
     {
+        $queued = [];
         try {
             // Entitlement check lives here (not in the caller) so every current and future
             // caller of dispatchWebhooks() is covered. function_exists() guards against a caller
             // that constructs this class without loading config.php.
             if (function_exists('proUserIsPro') && !proUserIsPro($proUserId)) {
                 $this->log('DEBUG', 'Skipping webhook dispatch for non-pro account', ['user_id' => $proUserId]);
-                return;
+                return $queued;
             }
 
             // Only select webhooks that are not paused
             $stmt = $this->pdo->prepare('SELECT id, name, url, kind, config, secret, filter_mode FROM pro_webhooks WHERE user_id = ? AND filter_mode = \'all\'');
             $stmt->execute([$proUserId]);
             $hooks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            if (empty($hooks)) return;
+            if (empty($hooks)) return $queued;
 
             $ins = $this->pdo->prepare('INSERT INTO pro_webhook_deliveries (webhook_id, user_id, payload, attempts, status, next_attempt_at, created_at) VALUES (?, ?, ?, 0, \'pending\', ?, NOW())');
             $now = date('Y-m-d H:i:s');
@@ -64,6 +72,7 @@ class ImapProcessor
                 }
                 try {
                     $ins->execute([$h['id'], $proUserId, json_encode($payload, JSON_UNESCAPED_UNICODE), $now]);
+                    $queued[] = (int)$this->pdo->lastInsertId();
                     $this->log('INFO', 'Webhook queued', [
                         'webhook_id' => $h['id'],
                         'webhook_name' => $h['name'] ?? null,
@@ -77,6 +86,30 @@ class ImapProcessor
             }
         } catch (Exception $e) {
             $this->log('ERROR', 'Dispatch webhooks error: ' . $e->getMessage());
+        }
+        return $queued;
+    }
+
+    /**
+     * Attempt freshly queued deliveries immediately, instead of leaving them
+     * for the next run of cron/process-webhook-deliveries.php.
+     *
+     * Best effort only: every delivery is already durable in the queue, so a
+     * failure here just leaves it for the cron worker's retry/backoff. At most
+     * $limit deliveries are attempted, which bounds how long the caller (the
+     * parse.php pipe, with Exim waiting on it) can be held up by slow targets.
+     * Never throws.
+     */
+    public function deliverNow(array $deliveryIds, int $limit = 5): void
+    {
+        foreach (array_slice($deliveryIds, 0, max(0, $limit)) as $id) {
+            try {
+                $this->dispatchDelivery((int)$id);
+            } catch (Throwable $e) {
+                $this->log('WARNING', 'Immediate webhook delivery failed, left for the worker: ' . $e->getMessage(), [
+                    'delivery_id' => (int)$id
+                ]);
+            }
         }
     }
 
@@ -219,31 +252,53 @@ class ImapProcessor
         return $plain === false ? $encoded : $plain;
     }
 
+    /**
+     * How long a claimed delivery is hidden from other workers while it is
+     * being sent. Longer than any request timeout in sendWebhookRequest(); if
+     * the process dies mid-send, the delivery becomes due again afterwards.
+     */
+    private const DELIVERY_LEASE_SECONDS = 120;
+
     public function dispatchDelivery(int $deliveryId): bool
     {
         try {
-            $this->pdo->beginTransaction();
-            $s = $this->pdo->prepare('SELECT * FROM pro_webhook_deliveries WHERE id = ? FOR UPDATE');
+            $s = $this->pdo->prepare('SELECT * FROM pro_webhook_deliveries WHERE id = ?');
             $s->execute([$deliveryId]);
             $d = $s->fetch(PDO::FETCH_ASSOC);
-            if (!$d) { $this->pdo->commit(); return false; }
-            if ($d['status'] !== 'pending') { $this->pdo->commit(); return false; }
-            if (!empty($d['next_attempt_at']) && strtotime($d['next_attempt_at']) > time()) { $this->pdo->commit(); return false; }
+            if (!$d) return false;
+            if ($d['status'] !== 'pending') return false;
+            if (!empty($d['next_attempt_at']) && strtotime($d['next_attempt_at']) > time()) return false;
+
+            // Claim the delivery before sending it. parse.php (immediate
+            // delivery) and the cron worker can reach the same pending row at
+            // the same time; only the process whose UPDATE moves next_attempt_at
+            // past now may send, so a delivery is never sent twice. The lease
+            // needs no schema change and expires by itself if we die mid-send.
+            $now = date('Y-m-d H:i:s');
+            $lease = date('Y-m-d H:i:s', time() + self::DELIVERY_LEASE_SECONDS);
+            $claim = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET next_attempt_at = ? WHERE id = ? AND status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)");
+            $claim->execute([$lease, $deliveryId, $now]);
+            if ($claim->rowCount() !== 1) return false;
+
             $hs = $this->pdo->prepare('SELECT * FROM pro_webhooks WHERE id = ? LIMIT 1');
             $hs->execute([$d['webhook_id']]);
             $hook = $hs->fetch(PDO::FETCH_ASSOC);
-            if (!$hook) { $u = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET status='failed', last_error=?, updated_at=NOW() WHERE id=?"); $u->execute(['Webhook not found', $deliveryId]); $this->pdo->commit(); return false; }
+            if (!$hook) { $u = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET status='failed', last_error=?, updated_at=NOW() WHERE id=?"); $u->execute(['Webhook not found', $deliveryId]); return false; }
             $payload = json_decode($d['payload'], true) ?: [];
-            $this->pdo->commit();
 
-            $res = $this->sendWebhookRequest($hook, $payload);
+            try {
+                $res = $this->sendWebhookRequest($hook, $payload);
+            } catch (Exception $e) {
+                // A broken hook config (e.g. missing Pushover keys) is a failed
+                // attempt like any other, so it backs off and ends as 'failed'
+                // instead of staying pending forever.
+                $res = ['code' => 0, 'body' => $e->getMessage()];
+            }
             $code = (int)($res['code'] ?? 0);
             $body = $res['body'] ?? null;
             if ($code >= 200 && $code < 300) {
-                $this->pdo->beginTransaction();
                 $u = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET status='succeeded', attempts=attempts+1, last_error=NULL, response_code=?, response_body=?, updated_at=NOW() WHERE id=?");
                 $u->execute([$code, $body, $deliveryId]);
-                $this->pdo->commit();
                 $this->log('INFO', 'Webhook delivered successfully', [
                     'delivery_id' => $deliveryId,
                     'webhook_id' => $hook['id'],
@@ -254,7 +309,6 @@ class ImapProcessor
                 return true;
             }
 
-            $this->pdo->beginTransaction();
             $attempts = (int)$d['attempts'] + 1;
             $max = 5;
             $backoff = min(86400, 60 * pow(2, max(0, $attempts - 1)));
@@ -264,7 +318,6 @@ class ImapProcessor
             if ($body) $lastError .= ' ' . (is_string($body) ? substr($body, 0, 2000) : '');
             $u = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET attempts=?, last_error=?, next_attempt_at=?, status=?, response_code=?, response_body=?, updated_at=NOW() WHERE id=?");
             $u->execute([$attempts, $lastError, $next, $status, $code, $body, $deliveryId]);
-            $this->pdo->commit();
             $this->log('WARNING', 'Webhook delivery failed', [
                 'delivery_id' => $deliveryId,
                 'webhook_id' => $hook['id'],
@@ -277,7 +330,6 @@ class ImapProcessor
             ]);
             return false;
         } catch (Exception $e) {
-            try { $this->pdo->rollBack(); } catch (Exception $_) {}
             $this->log('ERROR', 'dispatchDelivery exception: ' . $e->getMessage());
             return false;
         }

@@ -269,7 +269,7 @@ only `parse.php` defines, by exiting 75 silently on a DB connection failure.
 | Attachment byte write to `attachments/` + `INSERT INTO email_attachments` | **persistence**, in the service |
 | `content_id` column self-heal `ALTER TABLE` | persistence, schema side effect, in the service |
 | `INSERT INTO email_stats` (`emails_processed`, `emails_total`, `attachments_processed`) | downstream, non-blocking. `emails_processed` and `attachments_processed` are written by the service; `emails_total` is written by nothing now that the IMAP path is gone |
-| `INSERT INTO pro_webhook_deliveries` (the listener's `dispatchWebhooks()` call) | downstream, non-blocking, outside the storage transaction (queues only; delivery is `cron/process-webhook-deliveries.php`) |
+| `INSERT INTO pro_webhook_deliveries` (the listener's `dispatchWebhooks()` call) | downstream, non-blocking, outside the storage transaction (queues, then `deliverNow()` sends immediately after the commit; failures are retried by `cron/process-webhook-deliveries.php`) |
 | `digest_included_at`, RSS reads, `stored_emails` expiry deletes | downstream consumers, outside this lifecycle |
 
 ---

@@ -31,6 +31,11 @@ if (!defined('TEMPMAIL_APP')) {
  * `subject`, `body` (HTML when there is one, otherwise text), `received_at` and
  * `temp_email_id`. Entitlement and the Pushover per-address filtering (#174)
  * stay inside dispatchWebhooks(), untouched.
+ *
+ * Queued deliveries are then attempted immediately when
+ * $config['webhooks']['deliver_immediately'] is on (WEBHOOK_DELIVER_IMMEDIATELY,
+ * default on). cron/process-webhook-deliveries.php is still needed: it retries
+ * whatever failed here, with the usual backoff.
  */
 final class PostStorageWebhooks
 {
@@ -56,7 +61,7 @@ final class PostStorageWebhooks
             require_once __DIR__ . '/../php_imap_processor.php';
 
             $processor = new ImapProcessor($config, $pdo, $debug);
-            $processor->dispatchWebhooks((int)$proUserId, [
+            $queued = $processor->dispatchWebhooks((int)$proUserId, [
                 'to' => $stored['to_address'],
                 'from' => $stored['from_address'],
                 'subject' => $stored['subject'],
@@ -64,6 +69,14 @@ final class PostStorageWebhooks
                 'received_at' => $stored['received_at'],
                 'temp_email_id' => $stored['temp_email_id'],
             ]);
+
+            // Send right away rather than waiting up to a minute for the cron
+            // worker, which stays as the retry path for whatever fails here.
+            // Off unless the config says so, so a stub config (tests) never
+            // makes network calls.
+            if ($queued !== [] && !empty($config['webhooks']['deliver_immediately'])) {
+                $processor->deliverNow($queued, (int)($config['webhooks']['immediate_limit'] ?? 5));
+            }
         });
     }
 }
