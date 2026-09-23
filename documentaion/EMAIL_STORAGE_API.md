@@ -6,7 +6,8 @@
 incoming email it accepts and the result it returns, §3–§6) and the service itself (`EmailStorage`,
 §7, plus the post-storage listeners in §7.8).
 **Epic:** #169 (email persistence consolidation), steps 2/10 (#190, the contract), 3/10 (#191,
-the service) and 8/10 (#196, post-storage processing).
+the service), 8/10 (#196, post-storage processing) and 10/10 (#199, which corrected §1 to the
+post-migration tense and §7.1/§7.5 to the removed parser helper).
 
 This document describes types and a service that exist and are loadable today. All three ingestion
 paths now go through the service (#192–#195 migrated the callers, #196 moved their downstream
@@ -17,10 +18,10 @@ processing onto it). The current state of all three ingestion paths is in
 
 ## 1. What this is for
 
-Today each of the three ingestion paths (IMAP polling, the DirectAdmin pipe, the Python fallback)
-builds its own `stored_emails` row inline, with its own parsing, its own retention lookup and its
-own divergences — the architecture document inventories those differences. Epic #169 replaces that
-with one persistence entrypoint.
+Each of the three ingestion paths (IMAP polling, the DirectAdmin pipe, the Python fallback) used to
+build its own `stored_emails` row inline, with its own parsing, its own retention lookup and its
+own divergences — the architecture document inventories those differences. Epic #169 replaced that
+with one persistence entrypoint, and all three now call it.
 
 A single entrypoint needs a single input shape and a single output shape. That is all this issue
 defines: `IncomingEmail` (plus `EmailAttachment`) going in, `StorageResult` coming back. Defining
@@ -109,7 +110,7 @@ shapes so an adapter can map 1:1 without renaming:
 
 | Property | Type | MailParser key | Null? | Meaning |
 |---|---|---|---|---|
-| `filename` | `string` | `filename` | no | Falls back to `'attachment.bin'`, the same default `MailParser::saveAttachments()` applies. |
+| `filename` | `string` | `filename` | no | Falls back to `'attachment.bin'`, the default this codebase has always applied to a nameless part. |
 | `data` | `string` | `data` | no | The decoded binary content. |
 | `mimeType` | `?string` | `mime_type` | yes | The part's content type. The `'application/octet-stream'` default lives in the persistence code, not here. |
 | `contentId` | `?string` | `content_id` | yes | The `cid:` value for inline parts, brackets already trimmed by `MailParser`. |
@@ -180,6 +181,13 @@ $result = $emailStorage->store($email);            // $email is an IncomingEmail
 
 `AttachmentStorage` is constructed inside `EmailStorage` (writing to `attachments/` with the
 `attachments/...` relative path `file_path` already uses) and is not part of the caller-facing API.
+
+`store()` is not quite the only caller-facing method: `persistAttachments(int $emailId, array
+$attachments)` is public too, added by #195 for the one adapter whose attachments cannot travel in
+the DTO — `LegacyImapFallback` extracts them over a live IMAP connection, which needs the email row
+to exist first. It is the same persistence `store()` uses for the DTO's attachments, so an
+attachment reaches `email_attachments` by one route whichever caller hands it over (§7.6); a caller
+that is not `store()` itself is expected to be an ingestion adapter that has just stored its email.
 
 ### 7.1 What it owns, and the guard
 
@@ -282,11 +290,13 @@ transaction, and each attachment takes a savepoint inside it. A caller that wrap
 own transaction therefore still gets per-attachment rollback, but the email row's fate is its own.
 
 Attachment persistence itself — file naming, the `attachments/...` relative path, the
-`content_id` column self-heal, the explicit binds — is reused from `MailParser::saveAttachments()`
-unchanged in a narrow helper (`AttachmentStorage`), because that method takes the whole array at
-once and cannot report which element failed, so its DB-failure path leaves the file it just wrote
-behind on disk. `MailParser::saveAttachments()` is untouched and still serves the paths that have
-not migrated yet; #192–#195 retire the overlap.
+`content_id` column self-heal, the explicit binds — is reused unchanged from the parser's previous
+array-in-one-call helper in a narrow class (`AttachmentStorage`), because that helper could not
+report which element failed, so its DB-failure path left the file it had just written behind on
+disk. That helper (`MailParser::saveAttachments()`) had no caller left once #192–#195 had migrated
+the three paths and was removed by the #199 storage-boundary audit, so nothing outside
+`AttachmentStorage` writes an `email_attachments` row any more
+(`documentaion/EMAIL_STORAGE_ARCHITECTURE.md` §3, §4).
 
 ### 7.6 Statistics
 
@@ -360,7 +370,8 @@ intake.
 
 ## Files inspected / written
 
-- `MailParser.php` (`parseRawMessage()`, `saveAttachments()`, `normalizeCid()`)
+- `MailParser.php` (`parseRawMessage()`; the `saveAttachments()`/`normalizeCid()` pair was removed by
+  #199, see §7.5)
 - `php_imap_processor.php` (`saveEmail()`, `sanitizeSavedBody()`)
 - `parse.php` (steps 4–6)
 - `python_imap_fallback.py` (`email_exists_in_database()` — the duplicate rule in §7.4)

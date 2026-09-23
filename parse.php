@@ -209,7 +209,7 @@ $toAddress = $localPart . '@' . $domain;
 // --- 4. Parse the MIME message (reuses MailParser, same as ImapProcessor) ---
 
 try {
-    $parser = new MailParser($pdo, $config, !empty($config['app']['debug_mode']));
+    $parser = new MailParser($config, !empty($config['app']['debug_mode']));
     $parsed = $parser->parseRawMessage($raw);
 } catch (Throwable $e) {
     parseFail('MailParser threw while parsing message', ['error' => $e->getMessage(), 'to' => $toAddress]);

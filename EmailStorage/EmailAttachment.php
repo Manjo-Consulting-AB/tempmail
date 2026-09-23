@@ -28,11 +28,12 @@ final class EmailAttachment
     /**
      * Build from one entry of the `attachments` array MailParser returns.
      *
-     * Missing filename/data fall back to the same values
-     * MailParser::saveAttachments() itself uses, so a malformed part round-trips
-     * to the same persistence result it produces today. An empty mime_type or
-     * content_id is normalized to null ("absent"), which keeps the field
-     * nullable rather than empty-stringly.
+     * Missing filename/data fall back to the defaults this codebase has always
+     * applied to a malformed part (`'attachment.bin'` / `''`), so an adapter
+     * that maps MailParser's `attachments` entries 1:1 gets the persistence
+     * result it always did. An empty mime_type or content_id is normalized to
+     * null ("absent"), which keeps the field nullable rather than
+     * empty-stringly.
      *
      * @param array{filename?: mixed, data?: mixed, mime_type?: mixed, content_id?: mixed} $attachment
      */
@@ -52,7 +53,7 @@ final class EmailAttachment
     }
 
     /**
-     * The shape MailParser::saveAttachments() accepts, unchanged.
+     * The flat array shape, the inverse of fromArray().
      *
      * @return array{filename: string, data: string, mime_type: ?string, content_id: ?string}
      */

@@ -15,17 +15,21 @@ if (!defined('TEMPMAIL_APP')) {
  * `email_attachments` row, as a single all-or-nothing step.
  *
  * Part of the Email Storage service (epic #169, step 3/10, #191). It exists
- * because MailParser::saveAttachments() takes the whole attachment array in one
- * call and cannot report which entry failed, so a DB failure there leaves the
- * file it just wrote orphaned on disk — which the storage contract forbids
- * ("a failure leaves no DB row and no file for that attachment"). This helper
- * therefore owns write + insert for one attachment and cleans up after itself.
+ * because the parser's previous array-in-one-call helper could not report which
+ * entry failed, so a DB failure there left the file it had just written
+ * orphaned on disk — which the storage contract forbids ("a failure leaves no
+ * DB row and no file for that attachment"). This helper therefore owns write +
+ * insert for one attachment and cleans up after itself.
+ *
+ * Since #199 it is the only writer of `email_attachments`: the parser's helper
+ * had no caller left after #192-#195 and was removed by the storage-boundary
+ * audit, so the `content_id` self-heal below is also the only place that can
+ * add that column.
  *
  * It reuses the existing on-disk scheme unchanged: the same generated
  * `<unixtime>_<8 hex>_<sanitized filename>` name, the same `attachments/...`
  * relative path in `file_path` (what files.php / download_attachment.php /
- * cron/cleanup.php resolve against), and the same `content_id` column self-heal
- * MailParser performs. No schema change and no layout change.
+ * cron/cleanup.php resolve against). No schema change and no layout change.
  */
 final class AttachmentStorage
 {
@@ -117,8 +121,8 @@ final class AttachmentStorage
             }
 
             $stmt = $this->pdo->prepare($sql);
-            // Explicit binds, exactly as MailParser::saveAttachments() does: a
-            // NULL content_id bound through execute() has bitten this codebase
+            // Explicit binds, as the parser's removed helper did: a NULL
+            // content_id bound through execute() has bitten this codebase
             // before, and the column list differs between the two variants.
             $stmt->bindValue(1, $emailId, PDO::PARAM_INT);
             $stmt->bindValue(2, $filename, PDO::PARAM_STR);
@@ -163,10 +167,9 @@ final class AttachmentStorage
     /**
      * Whether `email_attachments.content_id` exists, adding it if it does not.
      *
-     * The same self-heal MailParser::saveAttachments() performs, kept here
-     * because this helper is now what writes attachment rows for the storage
-     * path: without the column, inline `cid:` images lose their link to the
-     * attachment they reference.
+     * The self-heal the parser's removed helper used to perform, and since #199
+     * the only implementation left: without the column, inline `cid:` images
+     * lose their link to the attachment they reference.
      */
     private function ensureContentIdColumn(): bool
     {
@@ -200,7 +203,7 @@ final class AttachmentStorage
         try {
             // Not "SHOW COLUMNS ... LIKE ?": MariaDB rejects a bound placeholder
             // there with a hard syntax error, which a catch would turn into a
-            // permanent false negative (confirmed live, see MailParser.php).
+            // permanent false negative (confirmed live against production).
             $stmt = $this->pdo->prepare(
                 'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
             );

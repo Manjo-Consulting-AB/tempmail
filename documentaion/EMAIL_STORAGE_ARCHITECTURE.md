@@ -1,33 +1,55 @@
 # Email storage architecture
 
-**Status:** current-state documentation, verified against the code on 2026-09-22.
+**Status:** current-state documentation of the *final* flow, verified against the code on 2026-09-23,
+at the end of epic #169 (steps 1/10–10/10, #199 the last code step).
 **Scope:** the lifecycle of *incoming* mail from the moment it is fetched/piped in until the
 `stored_emails` and `email_attachments` rows exist and downstream work (attachments, stats,
 webhooks) has run.
-**Epic:** #169 (email persistence consolidation), step 1/10.
+**Epic:** #169 (email persistence consolidation).
 
-This document describes what the code does today. It proposes no runtime, schema or behaviour
-changes; the "Migration dependency/order" section at the end only orders the later steps of #169
-by their dependencies.
+This document describes what the code does today, after the consolidation. §2 is the one
+historical section — the pre-migration inventory of #189, kept because it records *why* the
+service looks the way it does. Everything else describes the code as it stands.
 
-Nothing here is enforced by tests — the three ingestion paths have no automated coverage, so every
-statement below is derived from reading the files listed at the bottom.
+Almost nothing here is enforced by tests. `tests/email_storage_test.php` drives the service and the
+three adapters (with SQLite standing in for MySQL, and MailParser's attachments skipped when
+Composer's packages are absent), and `tests/pushover_routing_test.php` covers the per-address
+Pushover routing; the IMAP fetch walk, the Exim pipe and a real MySQL schema are *not* covered, and
+every statement about them below is derived from reading the files listed at the bottom. #198 is
+the human production check.
 
 ---
 
-## 1. Current ingestion paths
+## 1. Final flow
 
-There are three supported ways an incoming message becomes a row in `stored_emails`. They are not
-three equal peers: two of them are the *intake* paths (IMAP polling and the DirectAdmin pipe) and the
-third is a degraded substitute for the first when the PHP `imap` extension is missing.
+One service stores incoming mail. Three adapters do the intake — reading the message, deciding which
+address it belongs to, parsing MIME and sanitizing bodies — and hand the service a normalized
+`IncomingEmail`. The service is the only thing that writes `stored_emails`, the only thing that
+writes `email_attachments` + the file in `attachments/`, and the only place downstream processing is
+triggered from.
 
-| # | Path | Entrypoint | Trigger | Parser | Attachments | Webhooks |
-|---|------|-----------|---------|--------|-------------|----------|
-| A | PHP IMAP polling | `cron/run_imap_once.php`, `run_imap_processor.php` → `ImapProcessor::processEmails()` | cron / manual | `ext/imap` headers + `ImapProcessor::getMessageBody()`, then `MailParser` for attachments | `MailParser`, falling back to `LegacyImapFallback` | yes — the service's post-storage hook (#196) |
-| B | DirectAdmin pipe | `parse.php` (invoked by Exim with the raw message on stdin) | per-message, MTA-driven | `MailParser::parseRawMessage()` for everything | `MailParser` only | yes — the same hook (#196; ported to this path in #188) |
-| C | Python IMAP fallback | `ImapProcessor::processEmailsWithCurl()` → `runPythonImapScript()` → `python_imap_fallback.py` | only when `!extension_loaded('imap')` | Python `email` module | **none** | yes since #196 — **none** before it |
+```
+                       intake (adapter)                      persistence (service)        downstream
+  ┌───────────────────────────────────────────────┐   ┌──────────────────────────┐   ┌──────────────────┐
+A │ ImapProcessor::processEmails()                │   │                          │   │ PostStorageHook  │
+  │  ext/imap headers + getMessageBody()          │──▶│                          │──▶│  → dispatch      │
+  │  + MailParser for attachments                 │   │  EmailStorage::store()   │   │    Webhooks()    │
+B │ parse.php (Exim pipe, raw message on stdin)   │──▶│   · recipient validation │   │  (Pro webhooks)  │
+  │  MailParser::parseRawMessage()                │   │   · ownership + TTL      │   └──────────────────┘
+C │ python_imap_fallback.py                       │   │   · opt-in duplicate     │              │
+  │  → python_imap_bridge.php (CLI, JSON stdin)   │──▶│   · stored_emails INSERT │              ▼
+  └───────────────────────────────────────────────┘   │   · attachments          │   cron/process-webhook-
+                                                      │   · emails_processed     │   deliveries.php
+                                                      └──────────────────────────┘
+```
 
-Selection between A and C is a single branch at `php_imap_processor.php:37-39`:
+| # | Path | Entrypoint | Trigger | Parser | Attachments | Webhooks | HTTP-reachable? |
+|---|------|-----------|---------|--------|-------------|----------|-----------------|
+| A | PHP IMAP polling | `cron/run_imap_once.php`, `run_imap_processor.php` → `ImapProcessor::processEmails()` | cron / manual | `ext/imap` headers + `ImapProcessor::getMessageBody()`, then `MailParser` for attachments | `MailParser`, falling back to `LegacyImapFallback` | yes — service post-storage listener | yes, `CRON_HTTP_SECRET` / localhost gated |
+| B | DirectAdmin pipe | `parse.php` (Exim pipes the raw message to stdin) | per-message, MTA-driven | `MailParser::parseRawMessage()` | `MailParser` only | yes — the same listener | no — refuses non-CLI SAPI |
+| C | Python IMAP fallback | `ImapProcessor::processEmailsWithCurl()` → `runPythonImapScript()` → `python_imap_fallback.py` → `python_imap_bridge.php` | only when `!extension_loaded('imap')` | Python `email` module | **none** | yes — the same listener | no — the bridge refuses non-CLI SAPI |
+
+`ImapProcessor::processEmails()` selects A or C with a single branch (`php_imap_processor.php:38-40`):
 
 ```php
 if (!extension_loaded('imap')) {
@@ -35,387 +57,294 @@ if (!extension_loaded('imap')) {
 }
 ```
 
-B is independent of A/C: it is selected per-address by whether that address's DirectAdmin forwarder
-points at `parse.php` (`DA_FORWARDER_ENABLED` + the forwarder destination in
-`$config['directadmin']`). A and B are intended to run in parallel until #35 verifies B end-to-end;
-the same message can therefore be picked up by both if a forwarder is switched over while the
-catch-all inbox still receives it (see §4, duplicate handling).
+B is independent of A/C and selected per-address by whether that address' DirectAdmin forwarder points
+at `parse.php` (`DA_FORWARDER_ENABLED` + the forwarder destination in `$config['directadmin']`). A and
+B are intended to run in parallel until #35 verifies B end-to-end, so the same message can be picked
+up by both if a forwarder is switched over while the catch-all inbox still receives it (§5).
 
-### Entrypoints and access control
+### 1.1 The service boundary
 
-- `cron/run_imap_once.php` — real runs (`setDryRun(false)`), CLI or HTTP gated by `CRON_HTTP_SECRET`
-  / localhost.
-- `run_imap_processor.php` — a verbose debug script. It also runs for real: `setDryRun(true)` only
-  suppresses `imap_delete`/`imap_expunge` (`php_imap_processor.php:129,133,140`), **not** the DB
-  writes. Same access control as above.
-- `parse.php` — refuses to run outside the CLI SAPI (`parse.php:88-95`), so an HTTP POST body cannot
-  be injected as forged incoming mail.
+`EmailStorage::store(IncomingEmail $email, array $options = [])`
+(`EmailStorage/EmailStorage.php:126`) owns:
 
----
+- recipient validation — the recipient must be a full `local@domain` with a local part
+  `sanitizeLocalPart()` would accept, else `rejected`;
+- the `temp_emails` ownership lookup (`id`, `expires_at`, `pro_user_id`) and the
+  `pro_users.address_ttl_days` retention calculation, clamped to 1…18250 days;
+- the opt-in duplicate rule (§5);
+- the transactional `stored_emails` INSERT and the `lastInsertId()` for it;
+- attachment persistence through `AttachmentStorage` — file plus row, per attachment, all-or-nothing;
+- the `emails_processed` / `attachments_processed` counters;
+- the `StorageResult` (`stored` / `duplicate` / `rejected` / `failed`);
+- the post-storage listeners (below).
 
-## 2. Path detail
+It performs no MIME parsing, no body sanitizing, no mailbox housekeeping and no network call of any
+kind. Both service files are guarded with `TEMPMAIL_APP` and answer a direct HTTP request with an
+empty `403`.
 
-The per-path sections below inventory the three paths as they stood when this document was written
-(#189), which is what makes the divergences between them visible. Persistence has since moved into
-the shared service (#192–#195) and downstream processing onto its post-storage hook (#196), so read
-the "stored_emails write", "attachment handling", "statistics" and "downstream processing"
-paragraphs as the behaviour the service now reproduces once — `documentaion/EMAIL_STORAGE_API.md`
-§7 is authoritative for those.
+### 1.2 Post-storage processing
 
-### 2.1 Path A — IMAP polling (`ImapProcessor`)
+A stored email has exactly one integration point: `EmailStorage::onStored()`
+(`EmailStorage/EmailStorage.php:114`) takes plain callables, and `store()` runs them once per
+`stored` result — after the email row and each attachment are committed, outside every transaction
+the service opened, each in its own `try/catch`, and only when the caller has no transaction open.
 
-**Address set.** `ImapProcessor::getValidAddresses()` (`php_imap_processor.php:71-79`) selects
-`unique_address FROM temp_emails WHERE expires_at > NOW()` and builds the full addresses itself:
+The one consumer is `PostStorageWebhooks::attach()` (`EmailStorage/PostStorageWebhooks.php`), the Pro
+webhook consumer. It builds the payload (`to`, `from`, `subject`, `body` = HTML or text,
+`received_at`, `temp_email_id`) and calls `ImapProcessor::dispatchWebhooks()`, which only *queues*;
+entitlement (`proUserIsPro()`) and the Pushover per-address filter (`pushoverEnabledForAddress()`,
+#174) live inside it, and delivery happens later from `cron/process-webhook-deliveries.php`. Because
+every adapter attaches the same consumer, all three paths dispatch identically — before #196 the
+Python path dispatched nothing.
 
-```php
-$full = array_map(fn($u) => $u . '@manjo.me', $unique);   // line 77
-```
+### 1.3 What the adapters keep
 
-Note this hardcodes `@manjo.me` rather than reading `$config['email']['domain']` — unlike
-`parse.php:197`, which does read the config. The `@manjo.me` literal recurs in
-`fetchEmailsFromServer()`, `findRealDestinationFromHeaders()` and `python_imap_fallback.py`.
-
-**Fetch and match.** `fetchEmailsFromServer()` (`:109-142`) runs `imap_search(..., 'ALL')` on INBOX,
-lowercases each `To:` header into `local@host` form and intersects it with the address set. The first
-match wins (`$matching[0]`) — a message addressed to several known addresses is filed under exactly
-one of them.
-
-**Metadata calculation.** For a match, `getMessageBody()` (`:144-197`) walks the MIME structure
-recursively, decoding base64 (`encoding == 3`) and quoted-printable (`encoding == 4`), prefers the
-HTML part over the plain-text part, and returns a single string. It does **not** use `MailParser` for
-headers or body — only for attachments.
-
-`saveEmail()` (`:199-317`) then builds the row:
-
-| Column | Source |
-|---|---|
-| `from_address` | `$header->from[0]->mailbox . '@' . $header->from[0]->host`; `''` when absent |
-| `subject` | `decodeMimeHeader($header->subject)`, or `'(no subject)'` |
-| `received_at` | `date('Y-m-d H:i:s', $header->udate ?? time())` — the IMAP server's internal date, not the `Date:` header |
-| body | `sanitizeSavedBody($body)`, then split: if `preg_match('/<[^>]+>/')` matches, the whole string goes to `body_html` and a `strip_tags()`/`html_entity_decode()` reduction to `body_text`; otherwise the string is `body_text` and `body_html` stays `NULL` |
-| `to_address` | the matched `$matching[0]` |
-| `expires_at`, `temp_email_id` | see below |
-
-**Address lookup and metadata calculation from `temp_emails`.** Immediately before the insert
-(`:231-254`) the local part of `to_address` is looked up:
-
-```sql
-SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1
-```
-
-- `temp_email_id` ← `id`
-- `expires_at` ← recomputed from `pro_users.address_ttl_days` when `pro_user_id` is set
-  (`SELECT COALESCE(address_ttl_days, 1) ... ; $ttl = max(1, min(365*50, $ttl))`,
-  base = `received_at`), otherwise the address's own `temp_emails.expires_at` is used.
-- The whole lookup is inside `try/catch` and logs `WARNING` on failure, leaving `expires_at` and
-  `temp_email_id` `NULL` — the email is still saved.
-
-**`stored_emails` write.** `INSERT INTO stored_emails (to_address, from_address, subject, body_text,
-body_html, received_at, expires_at, temp_email_id) VALUES (?,?,?,?,?,?,?,?)` at `:256-258`.
-`lastInsertId()` is captured immediately after the insert and before anything else (`:260-261`),
-because attachment inserts would otherwise change it.
-
-**Attachment handling.** `saveAttachmentsFromMessage()` (`:539-600`) is called only when the insert
-succeeded and both `$imapConnection` and `$messageNumber` are non-null (`:288`). It re-reads the raw
-message (`imap_fetchheader()` + `imap_body()`), then:
-
-1. `MailParser::parseRawMessage()` + `MailParser::saveAttachments()` — used when the ZBateson library
-   is present *and* it actually extracted attachments.
-2. `LegacyImapFallback::savePartsRecursive()` — called whenever MailParser saved **0** attachments
-   (`if (!$usedMailParser || $saved === 0)`, `:573`). It is part of the IMAP path, not a
-   MailParser-only helper; it needs the live IMAP connection because it fetches each part with
-   `imap_fetchbody()`.
-
-The `cid:`-to-attachment-id mapping is returned and logged but deliberately not substituted into the
-body (`:294-299`); inline `cid:` references are rewritten to signed URLs at display time in
-`index.php`.
-
-**Statistics.** `updateStat('emails_processed', 1)` right after the insert (`:274`); the private
-`ImapProcessor::updateStat()` and the global `updateStat()` in `config.php:1540` both do
-`INSERT INTO email_stats ... ON DUPLICATE KEY UPDATE stat_value = stat_value + VALUES(stat_value)`.
-`updateStat('attachments_processed', $saved)` runs once per message in `saveAttachmentsFromMessage()`
-(`:591-597`), guarded by `function_exists('updateStat')` and a `\Throwable` catch. `emails_total` is
-incremented once per message *examined*, matched or not (`:130,134`).
-
-**Downstream processing.** If `pro_user_id` was resolved, the Pro webhook consumer runs from the
-service's post-storage hook (#196), which builds the payload from the values the service wrote and
-calls `dispatchWebhooks((int)$proUserId, $payload)`. It only *queues*: the entitlement check
-(`proUserIsPro()`) and the `filter_mode = 'all'` filter live inside `dispatchWebhooks()`
-(`:342-398`), Pushover hooks are additionally gated per destination address by
-`pushoverEnabledForAddress()` (`:424-447`, #174), and the actual HTTP delivery is done later by
-`dispatchDelivery()` (`:602-664`) from `cron/process-webhook-deliveries.php`. Webhook enqueue
-failures never affect the saved email.
-
-**IMAP message deletion.** The message is deleted after `saveEmail()` returns — on success *and*
-failure, and also for unmatched messages (`:129,133`), then `imap_expunge()` (`:140`). The
-consequence: a message whose insert failed is still deleted from the mailbox and is lost, unless
-`dryRun` is set.
-
-### 2.2 Path B — DirectAdmin pipe (`parse.php`)
-
-`parse.php` is a single procedural script (no class). Its numbered steps in the file are the clearest
-description of the flow.
-
-**Preconditions.** `ini_set('error_log', __DIR__ . '/debug_logs/parse_php_errors.log')` before
-`config.php` is loaded (`:64`) — Exim's pipe transport with `return_output` treats any stdout/stderr
-output as a permanent failure, so PHP's own error log must not reach stderr. Then `config.php`,
-`vendor/autoload.php` (required, else `MailParser` silently returns null fields — see the comment at
-`:69-81`) and `MailParser.php`.
-
-**Recipient derivation** (`:141-176`), in priority order: `$argv[1]` → `LOCAL_PART` (`$_SERVER` then
-`getenv()`) → `RECIPIENT` (local part before `@`). The chosen source is logged. Validation is
-`sanitizeLocalPart($localPart, 1, 64)` — the broad charset from `config.php:547`, *not* the
-`^[a-f0-9]{8,16}$` auto-generated-only regex that the header comment still cites; that regex was
-widened in #35 so personal aliases (`tony`, `crew-1`) are accepted.
-
-**Address lookup** (`:180-195`):
-
-```sql
-SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1
-```
-
-Missing row → `parseReject()` (`exit(1)`). `strtotime(expires_at) < time()` → `parseReject()`.
-`$toAddress` is then built as `$localPart . '@' . ($config['email']['domain'] ?? 'manjo.me')`
-(`:197-198`).
-
-**Parsing.** `new MailParser($pdo, $config, ...)` + `parseRawMessage($raw)` (`:202-216`) supplies
-`from`, `subject` (with the same `'(no subject)'` fallback as path A), `body_html` and `body_text`.
-Both bodies are then passed through a local `$stripDataUris` closure (`:218-228`) that mirrors
-`ImapProcessor::sanitizeSavedBody()`. `received_at` is `date('Y-m-d H:i:s')` — **the pipe's own clock,
-not the message's `Date:` header**, unlike both other paths.
-
-**`stored_emails` write.** `INSERT INTO stored_emails (...)` with the same eight columns as path A
-(`:252-259`). `expires_at` starts from the address's own `temp_emails.expires_at` and is overridden
-from `pro_users.address_ttl_days` when `pro_user_id` is set (`:236-250`) — the same calculation as
-`ImapProcessor::saveEmail()`. `lastInsertId()` is read at `:265`.
-
-**Attachment handling.** Only `MailParser::saveAttachments()` on `$parsed['attachments']`
-(`:268-280`). There is **no `LegacyImapFallback` fallback** here, because that class needs a live
-IMAP connection — the structurally different part of this path. `email_attachments` rows are
-therefore created from the ZBateson parse only.
-
-**Statistics.** `updateStat('emails_processed', 1)` (`:266`, the global `config.php` function), and
-`updateStat('attachments_processed', $attachmentsSaved)` when attachments were saved (`:274`). There
-is no `emails_total` increment on this path.
-
-**Downstream processing.** Pro webhooks come from the service's post-storage hook (#196); the payload
-is the one #188 ported to this path — same keys as path A — and it is what this path went live
-without, which had silently stopped every Pro webhook (Pushover included) for switched-over
-addresses. The payload is built by `EmailStorage/PostStorageWebhooks.php`, not by this script.
-
-**Exit codes.** `parseReject()` → `exit(1)` (permanent: empty stdin, undeterminable/invalid recipient,
-unknown recipient, expired recipient). `parseFail()` → `exit(2)` (internal: `temp_emails` lookup
-threw, `MailParser` threw, `stored_emails` insert threw or returned false). Success → `exit(0)`.
-Both helpers write the reason to **STDERR** as well as `system_logs`, which is deliberate (the MTA
-needs a reason) even though the header comment warns about output on the pipe.
-
-### 2.3 Path C — Python IMAP fallback (`python_imap_fallback.py`)
-
-**Invocation.** `ImapProcessor::runPythonImapScript()` (`php_imap_processor.php:709-720`) writes
-`json_encode($addresses)` — the `['unique' => [...], 'full' => [...]]` array from
-`getValidAddresses()` — to a temp file, then `shell_exec`s
-`$config['python_path'] ?? '/usr/bin/python3'` with
-`$config['python_imap_script'] ?? '/usr/local/bin/python_imap_fallback.py'`, and reads
-`new_emails` from the script's stdout JSON. The script's `stderr` logging is inherited, not captured.
-
-**Own DB connection.** `connect_to_database()` (`:22-41`) opens a second connection with
-`mysql.connector` straight from `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`. It inherits
-the parent's environment (populated by `config.php`), so no credentials are passed on the command
-line and `$pdo` is not shared. IMAP credentials come the same way from
-`IMAP_SERVER`/`IMAP_USER`/`IMAP_PASSWORD`, with `parse_imap_server()` translating the PHP
-`{host:993/imap/ssl}INBOX` form into host+port (`:43-50`).
-
-**Search.** `UNSEEN`; when that returns nothing it falls back to `SINCE <two days ago>` (`:269-287`).
-In the fallback branch every candidate is re-examined, which is where the duplicate check earns its
-keep.
-
-**Address lookup.** `extract_recipient_address()` (`:80-98`) searches `To` then
-`Delivered-To`/`X-Original-To`/`X-Envelope-To` for `([a-f0-9]+)@manjo\.me` — a **hex-only** pattern, so
-a personal alias such as `tony` is never recognised on this path even though it is a valid address
-everywhere else. The regex also hardcodes the domain.
-
-The gate that follows, `if not recipient_address or recipient_address not in addresses`
-(`:307`), tests membership against the JSON **dict**: `runPythonImapScript()` passes
-`{"unique": [...], "full": [...]}`, so `in` is a dict-key test and no address can ever match. As
-written, the fallback skips every message as "unknown address" (`:308`) and returns `new_emails = 0`.
-This is a latent defect in the current code; it is recorded here because later #169 steps will run
-through this path, not to propose a fix here.
-
-**Metadata.** `from_address` is the raw `From:` header (display name included — unlike path A, which
-builds `mailbox@host`), `subject` is the raw `Subject:` header with no `(no subject)` fallback,
-`received_at` comes from `parsedate_to_datetime(Date)` with `datetime.now()` as fallback, and bodies
-are the first `text/plain` / `text/html` parts found by `get_email_content()` (`:100-122`) with no
-`data:`-URI stripping and no HTML→text reduction. `to_address` is hardcoded
-`f'{recipient_address}@manjo.me'` (`:331`), not `$config['email']['domain']`.
-
-**`stored_emails` write.** `save_email_to_database()` (`:145-222`): duplicate check first (§4), then
-the same `temp_emails` → `pro_users.address_ttl_days` `expires_at` calculation (`:159-193`), then
-
-```sql
-INSERT INTO stored_emails (from_address, to_address, subject, body_text, body_html, received_at, expires_at, temp_email_id)
-```
-
-(column order differs from the PHP paths; the placeholder order matches). `temp_email_id` is passed as
-`locals().get('temp_email_id', None)`, i.e. the value only exists when the lookup found a row.
-`db_conn.commit()` follows immediately (`:212`).
-
-**Attachments: none.** The script never touches `email_attachments` and never writes to
-`attachments/`. `body_html`/`body_text` still carry any inline `data:` URIs, since the stripping step
-exists only in the PHP paths.
-
-**Statistics.** `update_stat(db_conn, 'emails_processed', 1)` (`:216`), same
-`ON DUPLICATE KEY UPDATE` shape against `email_stats`. No `emails_total`, no
-`attachments_processed`.
-
-**Downstream processing.** Since #196 this path gets the same Pro webhook dispatch as the other two:
-the bridge that stores the message attaches the service's post-storage consumer. Before #196 it had
-none — no webhook enqueue, no Pushover gating.
-
-**Message deletion.** `imap.store(msg_id, '+FLAGS', '\\Deleted')` only after
-`save_email_to_database()` returned `True` (`:339-345`), then `imap.expunge()` only when
-`new_emails_count > 0` (`:352-354`). A crashed or skipped message stays on the server. (Under the
-current gate defect, that means every message stays.)
-
-**Return value.** A JSON object on stdout, consumed by `runPythonImapScript()` via
-`json_decode(trim($out))`.
+Intake stays with the adapters, deliberately: the address set and the IMAP fetch walk (A), the stdin
+read, recipient derivation and validation (B), the JSON hand-off (C), the MIME parse and the body
+sanitizing (`sanitizeSavedBody()` on A/B). `emails_total` counts messages *examined* rather than
+stored and therefore also stays with the IMAP path.
 
 ---
 
-## 3. Direct write inventory
+## 2. Historical: the pre-migration inventory (#189)
 
-`stored_emails` — every ingestion write:
+Kept because it is the record of *why* the service exists and of which divergences were retired and
+which were deliberately kept. Every path used to build its own `stored_emails` row inline, with its
+own parsing, retention lookup and their own divergences. The listing below is the state at #189,
+before #192–#195 moved the callers.
 
-| Location | Columns written |
-|---|---|
-| `php_imap_processor.php:256` (`ImapProcessor::saveEmail()`) | `to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id` |
-| `parse.php:253` (step 5) | `to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id` |
-| `python_imap_fallback.py:197` (`save_email_to_database()`) | `from_address, to_address, subject, body_text, body_html, received_at, expires_at, temp_email_id` |
+| Path | `stored_emails` write (then) | Attachment writes (then) | Downstream (then) |
+|---|---|---|---|
+| A | `ImapProcessor::saveEmail()`, `php_imap_processor.php:256` | `MailParser::saveAttachments()` and `LegacyImapFallback::savePartsRecursive()` | its own `dispatchWebhooks()` call |
+| B | `parse.php` step 5, `:253` | `MailParser::saveAttachments()` — no legacy fallback (needs a live IMAP connection) | its own `dispatchWebhooks()` call, ported in #188 |
+| C | `python_imap_fallback.py:197` (`save_email_to_database()`) | none | **none** before #196 |
 
-`email_attachments` — every ingestion write. All four statements live behind a
-`content_id`-column probe, which is why each appears twice:
+Other divergences the inventory recorded, and their fate:
 
-| Location | Variants |
-|---|---|
-| `MailParser.php:266` / `:279` (`MailParser::saveAttachments()`) | with `content_id` / without |
-| `LegacyImapFallback.php:137` / `:149` (`LegacyImapFallback::savePartsRecursive()`) | with `content_id` / without |
+- `received_at`: IMAP internal date (A), the pipe's own clock (B), the `Date:` header (C). **Kept** —
+  `parse.php:253-255` still uses the pipe clock; the service stores whatever `receivedAt` the
+  adapter supplies.
+- `to_address` domain: built from a hardcoded `@manjo.me` on A and C, from
+  `$config['email']['domain']` on B. **Kept** — the service stores the address the adapter built.
+- Duplicate check: only C had one. **Kept as an opt-in** (§5).
+- Attachment fallback: only A had one (`LegacyImapFallback`, which needs the live connection).
+  **Kept** — it now hands what it extracts to `EmailStorage::persistAttachments()`
+  (`php_imap_processor.php:663-686`, #195).
+- Rejection: only B could refuse a message (MTA bounce). **Kept as an opt-in**, passed by B (§6).
+- Body sanitizing and the HTML-vs-text split: **kept** with the adapters.
+- The `content_id` self-heal `ALTER TABLE`: was duplicated in `MailParser` and
+  `LegacyImapFallback`; now only in `AttachmentStorage` (§3).
 
-Both classes `ALTER TABLE email_attachments ADD COLUMN content_id VARCHAR(255) NULL AFTER
-mime_type` on first use when the probe says the column is missing (`MailParser.php:413`,
-`LegacyImapFallback.php:333`). That is a schema mutation performed from inside the ingestion path,
-guarded only by an `information_schema` `SELECT COUNT(*)` (`tableHasColumn()`); no
-`IF NOT EXISTS`, deliberately, because older shared-hosting MySQL rejects the clause.
+---
 
-Other writers to the same tables exist but are **not** ingestion and are out of this epic's scope —
-listed so the inventory is complete:
+## 3. Direct write inventory (final)
 
-- Deletes: `config.php:1602` (expiry sweep), `cron/cleanup.php:73,131,186,399,623` (address/email
-  cleanup plus attachment files), `pro_auth.php:1339,1343` (account deletion).
-- Update: `cron/send-digests.php:198` (`UPDATE stored_emails SET digest_included_at = ?`).
-- Schema: no `CREATE TABLE` for either table exists in the repository — the tables are created
-  outside the codebase.
+`stored_emails` — the **only** write in the repository:
 
-Reading paths that depend on these writes: `index.php` (inbox), `inbox.php`, `files.php` /
+| Location | Statement | Kind |
+|---|---|---|
+| `EmailStorage/EmailStorage.php:69` (`INSERT_SQL`), executed by `insertEmail()` | `INSERT INTO stored_emails (to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id) VALUES (?,?,?,?,?,?,?,?)` | ingestion, the service |
+
+`email_attachments` — the **only** writes:
+
+| Location | Variants | Kind |
+|---|---|---|
+| `EmailStorage/AttachmentStorage.php:118` / `:120` (`AttachmentStorage::save()`) | with `content_id` / without, behind the column probe | ingestion, the service |
+
+Attachment *files* under `attachments/` are written in exactly one place for ingestion:
+`AttachmentStorage::save()` (`file_put_contents`), which unlinks the file again if its row does not
+commit.
+
+The `content_id` self-heal (`ALTER TABLE email_attachments ADD COLUMN ...`,
+`AttachmentStorage.php:190`) is likewise the only one left; the copies in `MailParser` and
+`LegacyImapFallback` went with their write paths (#195, #199). It is guarded by an
+`information_schema` probe, deliberately without `IF NOT EXISTS`, because older shared-hosting MySQL
+rejects that clause. `index.php:732` probes the same column read-only.
+
+### 3.1 Documented non-ingestion exceptions
+
+These touch the same two tables without being ingestion, are out of the storage boundary on purpose,
+and are listed so the inventory is complete:
+
+| Location | Statement | Why it is not ingestion |
+|---|---|---|
+| `config.php:1602` | `DELETE FROM stored_emails WHERE (expires_at < NOW()) OR (...)` | expiry sweep |
+| `cron/cleanup.php:73, 131, 399, 623` | `DELETE FROM stored_emails ...` | address/email cleanup |
+| `cron/cleanup.php:186` | `DELETE FROM email_attachments WHERE email_id = ?` | cleanup, paired with the attachment files it unlinks |
+| `pro_auth.php:1339, 1343` | `DELETE FROM email_attachments` / `DELETE FROM stored_emails` | account deletion |
+| `index.php:255, 304` | deletes the `temp_emails` row a FK cascades from | address deletion; the cascade is the schema's, not a statement here |
+| `cron/send-digests.php:198` | `UPDATE stored_emails SET digest_included_at = ?` | read-side bookkeeping for the digest |
+
+Read-side consumers of these rows: `index.php` (inbox), `inbox.php`, `files.php` /
 `download_attachment.php` (signed URLs over `email_attachments.file_path`), `pro_feed.php`,
 `cron/send-digests.php`.
 
+There is no `CREATE TABLE` for either table in the repository — the tables are created outside the
+codebase, so the schema is not owned here.
+
 ---
 
-## 4. Duplicate handling
+## 4. The #199 audit
+
+Repository-wide search for `INSERT INTO stored_emails`, `INSERT INTO email_attachments` and any
+equivalent helper that bypasses the service, across PHP, Python, cron/CLI scripts and compatibility
+fallbacks.
+
+**Result: one finding, fixed.** `MailParser::saveAttachments()` was the last direct writer outside
+the service. It had had no caller since #192–#195 migrated the three paths, but it still carried the
+`email_attachments` INSERT and the attachment file write, and it took a `PDO` to do it. It was
+removed in #199 together with the helpers only it used (`ensureContentIdColumn()`,
+`tableHasColumn()`, `normalizeCid()`), and `MailParser` no longer takes a PDO — it is a parser and
+nothing else. The `content_id` self-heal it duplicated is the one `AttachmentStorage` owns (§3).
+
+`LegacyImapFallback` was already extraction-only after #195 and was not touched.
+
+**No public HTTP endpoint for storage exists.** The storage entrypoints are:
+
+| Entrypoint | Guard |
+|---|---|
+| `EmailStorage/EmailStorage.php`, `EmailStorage/AttachmentStorage.php` | `TEMPMAIL_APP` check at the top of the file: a direct request gets an empty `403` |
+| `python_imap_bridge.php:54-59` | `php_sapi_name() !== 'cli'` → `403 Forbidden`, `exit(1)`, before any stdin read |
+| `parse.php:91-98` | the same non-CLI refusal |
+| `cron/run_imap_once.php`, `run_imap_processor.php` | CLI, localhost or `CRON_HTTP_SECRET` |
+
+`python_imap_bridge.php` is listed in `robots.txt` (`Disallow: /python_imap_bridge.php`, next to
+`/parse.php` and `/cron/`) and so is `run_imap_processor.php`. `.htaccess` carries no per-file rule
+for any of them — it blocks `.env|.log|.sql|.backup` and the Docker files only — so, exactly like
+`parse.php` and `cron/`, the protections that matter are the SAPI refusal, the `TEMPMAIL_APP` guards
+and the secret gate, with `robots.txt` a crawler hint rather than access control. That is the
+posture #199 was asked to confirm, and it is unchanged.
+
+---
+
+## 5. Duplicate handling
 
 | Path | Check |
 |---|---|
-| A — IMAP | **none.** A message is saved every time it is seen. `imap_delete`/`imap_expunge` after the attempt is the only thing preventing a re-fetch. |
-| B — `parse.php` | **none.** One pipe delivery = one row. If a forwarder was switched over while the catch-all still receives the same message, A and B can both save it. |
-| C — Python | `email_exists_in_database()` (`:124-143`): `SELECT COUNT(*) FROM stored_emails WHERE from_address = ? AND to_address = ? AND subject = ? AND ABS(TIMESTAMPDIFF(MINUTE, received_at, %s)) < 5`. A hit makes `save_email_to_database()` return `False`, which also means the message is **not** flagged `\Deleted`. |
+| A — IMAP | **none.** Passes no options, so every message is stored every time it is seen. `imap_delete`/`imap_expunge` after the attempt is the only thing preventing a re-fetch. |
+| B — `parse.php` | **none.** One pipe delivery = one row. |
+| C — bridge | The Python fallback's own rule, enabled via `OPTION_DETECT_DUPLICATES` (`python_imap_bridge.php:140`): same `from_address`, `to_address` and `subject`, with `received_at` within ±5 minutes (`EmailStorage.php:436-444`). A hit writes nothing and leaves the message on the server. A duplicate check that *cannot be completed* is `failed`, not `stored`, so the check cannot be silently defeated. |
 
-`stored_emails` has **no Message-ID column** (and the code never reads the `Message-ID` header), so
-none of the checks can be exact. The Python check is the only one, is heuristic (`subject` equality
-plus a ±5-minute window), and is defeated by path differences: `received_at` is the IMAP internal
-date on A, the pipe clock on B and the `Date:` header on C, so the same message ingested by two paths
-can fall outside the window.
+`stored_emails` has **no Message-ID column** and no path reads the `Message-ID` header, so none of
+the checks can be exact. `IncomingEmail::$messageId` exists for a future exact rule but is unused;
+adding the column is a separate, approved schema decision. The ±5-minute window is defeated by path
+differences: `received_at` is the IMAP internal date on A, the pipe clock on B and the `Date:` header
+on C, so one message ingested by two paths can fall outside the window.
 
 ---
 
-## 5. Failure and rollback behaviour
+## 6. Failure and rollback behaviour
 
-**No transactions.** `beginTransaction()` is used only in `ImapProcessor::dispatchDelivery()`
-(`:605,617,623,637,652`) for the webhook queue. Neither the email insert nor the attachment inserts
-are wrapped in a transaction on any path, and there is no compensating delete. There is consequently
-no rollback anywhere in ingestion.
+The service is transactional where the paths were not: the `stored_emails` INSERT is atomic (rolled
+back on failure, no attachment attempted, `failed` with no id, no counter moved), and each attachment
+is atomic on its own (its row rolled back and its file unlinked, reported as an entry in
+`attachmentWarnings` while the result stays `stored`). A caller already holding a transaction open
+gets a savepoint per attachment and owns the email row's fate. `email_stats` and the post-storage
+listeners run outside the transaction, after the commit, and can fail without affecting the email.
 
-| Failure | Path A | Path B (`parse.php`) | Path C (Python) |
+What each adapter reports on a failure the service can produce:
+
+| Failure | A — IMAP | B — `parse.php` | C — bridge |
 |---|---|---|---|
-| Body/header parse problem | per-message `try/catch` logs `ERROR`; message still deleted from mailbox | `parseFail()` (`exit(2)`) if `MailParser` throws | ignored per part; message skipped |
-| `temp_emails` lookup | `WARNING`, `expires_at`/`temp_email_id` left `NULL`, email still saved | lookup throwing → `parseFail()` `exit(2)`; a missing/expired row → `parseReject()` `exit(1)` **before** any write | `WARNING`, `expires_at` `NULL`, email still saved |
-| `stored_emails` INSERT fails | `saveEmail()` returns false → no attachments, no webhooks; `ERROR` logged; message is deleted anyway | `parseFail()` `exit(2)` — non-zero exit so the MTA can bounce | `ERROR` logged, returns `False`, message **not** deleted |
-| Attachment write/insert fails | logged (`LegacyImapFallback`/`MailParser` `ERROR`), the email row is kept; already-written files are left on disk | same, `WARNING` at `parse.php:278` | n/a — no attachments |
-| Stats update fails | caught, logged | caught inside `updateStat()` | caught, logged |
-| Webhook enqueue fails | caught, logged; email untouched | caught, logged; email untouched | caught, logged; email untouched since #196 (n/a before it) |
+| unusable recipient | `rejected` → logged, message **deleted** from the mailbox anyway | `rejected` → `exit(1)`, MTA bounce | `rejected` → exit 0, message stays |
+| unknown / expired recipient | stored with `temp_email_id` NULL (gate off) | `rejected` (`OPTION_REJECT_UNKNOWN_RECIPIENT`) → `exit(1)` | stored with `temp_email_id` NULL (gate off) |
+| `stored_emails` INSERT fails | `failed` → logged, no attachments, no webhooks, message **deleted** anyway | `failed` → `exit(2)` | `failed` → exit 2, message stays |
+| attachment fails | `attachmentWarnings`, email kept | same, logged `WARNING`; exit 0 — the email is already stored and must not bounce | n/a — no attachments |
+| stats update fails | caught inside `updateStat()`, logged | same | same |
+| webhook enqueue fails | caught by the listener, logged; email untouched | same | same |
+| duplicate | n/a (off) | n/a (off) | `duplicate` → exit 0, nothing written, message stays |
 
 The asymmetry to keep in mind: **B is the only path that can refuse a message** (MTA bounce), and
-**C is the only path that can retry** (it leaves the message on the server). A loses the message on a
-failed insert; C loses nothing but also makes no progress.
+**C is the only path that can retry** (it leaves the message on the server).
+
+`parse.php`'s exit codes: `exit(1)` permanent (empty stdin, undeterminable/invalid recipient, unknown
+recipient, expired recipient, service `rejected`), `exit(2)` internal (`temp_emails` lookup threw,
+`MailParser` threw, store threw or returned `failed`), `exit(0)` success — including `duplicate`,
+which is an answer rather than a failure. Both helpers also write the reason to **STDERR** and
+`system_logs`, which is deliberate even though the script's header comment warns about output on the
+pipe (Exim's `return_output` treats output as a permanent failure).
+
+`python_imap_bridge.php`'s contract: exactly one JSON object on stdout (`status`,
+`stored_email_id`, `message`), nothing else, because the Python caller parses it; `exit(0)` for any
+service verdict, `exit(2)` when the bridge itself could not produce one. The Python side treats a
+missing/unparseable answer exactly like `failed` and keeps the message on the server.
 
 ---
 
-## 6. Persistence versus downstream processing
+## 7. Persistence versus downstream
 
 | Operation | Kind |
 |---|---|
-| Address-set query, IMAP fetch/search, stdin read, recipient derivation/validation | intake |
-| MIME parse (path A `getMessageBody()`; B and A's attachments via `MailParser::parseRawMessage()`; C via `email.get_payload`) | intake |
-| Body sanitising/HTML-vs-text split (`sanitizeSavedBody()` / `$stripDataUris`) | intake, before persistence |
-| `temp_emails` (`+ pro_users.address_ttl_days`) lookup → `temp_email_id`, `expires_at` | persistence metadata |
-| `INSERT INTO stored_emails` | **persistence** |
-| Attachment byte write to `attachments/` + `INSERT INTO email_attachments` | **persistence** (dependent on the email id from the previous step) |
-| `content_id` column self-heal `ALTER TABLE` | persistence, schema side effect |
-| `INSERT INTO email_stats` (`emails_processed`, `emails_total`, `attachments_processed`) | downstream, non-blocking |
-| `INSERT INTO pro_webhook_deliveries` (the post-storage consumer's `dispatchWebhooks()` call) | downstream, non-blocking, and outside the storage transaction (queues only; HTTP delivery is `dispatchDelivery()` from cron) |
+| Address-set query, IMAP fetch/search, stdin read, recipient derivation/validation, JSON hand-off | intake |
+| MIME parse (A `getMessageBody()`; B and A's attachments via `MailParser::parseRawMessage()`; C via `email.get_payload`) | intake |
+| Body sanitising / HTML-vs-text split (`sanitizeSavedBody()` / `$stripDataUris`) | intake, before persistence |
+| `temp_emails` (+ `pro_users.address_ttl_days`) lookup → `temp_email_id`, `expires_at` | persistence metadata, in the service |
+| `INSERT INTO stored_emails` | **persistence**, in the service |
+| Attachment byte write to `attachments/` + `INSERT INTO email_attachments` | **persistence**, in the service |
+| `content_id` column self-heal `ALTER TABLE` | persistence, schema side effect, in the service |
+| `INSERT INTO email_stats` (`emails_processed`, `emails_total`, `attachments_processed`) | downstream, non-blocking. The first two of those three belong to persistence and are written by the service; `emails_total` stays with intake |
+| `INSERT INTO pro_webhook_deliveries` (the listener's `dispatchWebhooks()` call) | downstream, non-blocking, outside the storage transaction (queues only; delivery is `cron/process-webhook-deliveries.php`) |
 | `imap_delete` / `imap_expunge` / `imap.store`+expunge | post-persistence mailbox housekeeping |
 | `digest_included_at`, RSS reads, `stored_emails` expiry deletes | downstream consumers, outside this lifecycle |
 
 ---
 
-## 7. Migration dependency/order for Epic #169
+## 8. Known defects not addressed by #169
 
-The later steps build on this map. Ordering follows the hard dependencies in the current code; each
-item names what must exist before it can be done.
+Recorded so a later step is not surprised by them. None of these is a storage-boundary violation and
+none was in this epic's scope.
 
-1. **Nothing (this document).** The map itself, plus the defect observations it records: the Python
-   address gate (`python_imap_fallback.py:307`) can never pass, `parse.php` has no attachment
-   fallback, and no path is transactional. Any later step that assumes these behave as intended will
-   be wrong.
-2. **A single shared persistence entrypoint** (one function that performs the `temp_emails`/TTL
-   lookup, the `stored_emails` insert and the attachment save for all three paths). *Depends on:*
-   step 1 only. *Blocks:* everything below, because every later change should land once instead of
-   three times.
-3. **Message-ID capture and a duplicate check in the shared entrypoint.** *Depends on:* step 2 (one
-   place to check) and a schema change adding a `Message-ID` column, which can precede or accompany
-   this step. *Blocks:* any path cut-over, since overlapping intake (A + B) is currently
-   indistinguishable from a genuine repeat delivery.
-4. **Transactional scope around `stored_emails` + `email_attachments` (or a documented decision to
-   keep them independent).** *Depends on:* step 2. *Blocks:* step 6, because a cut-over should not
-   multiply the current partial-failure modes.
-5. **Path parity work** — give `parse.php` the `LegacyImapFallback` equivalent it lacks (or decide it
-   is unnecessary given the ZBateson dependency is now required there), and give the Python path
-   attachments, or decide to retire it. (Its webhooks arrived with #196, from the shared post-storage
-   hook.) *Depends on:* steps 2-4.
-6. **Verify the DirectAdmin cut-over end-to-end (#35) and retire or demote IMAP polling.**
-   *Depends on:* steps 3-5. *Blocked by:* confirming which of the two intake paths owns a message —
-   i.e. step 3.
-7. **Retire the Python fallback** (or repair it) once no environment needs it. *Depends on:* step 5.
+1. **The Python fallback's address gate can never pass.** `python_imap_fallback.py:221` tests
+   `recipient_address not in addresses` against the JSON **dict**
+   `{"unique": [...], "full": [...]}` that `runPythonImapScript()` writes
+   (`php_imap_processor.php:795-800`), so `in` is a dict-key test and no address can match. Every
+   message is skipped as "unknown address" and the fallback returns `new_emails = 0`. The extraction
+   regex above it (`extract_recipient_address()`) is also hex-only and hardcodes `@manjo.me`, so a
+   personal alias is never recognised on this path. **Any environment without the `imap` extension
+   is therefore storing nothing.** Fixing the gate changes which mail is stored, so it needs a
+   decision of its own — #169's step 7 ("retire the Python fallback, or repair it") is still open.
+2. **Asymmetric loss on failure.** Path A deletes a message from the mailbox even when the store
+   failed; path C leaves it (and, under defect 1, always does).
+3. **No `Message-ID` capture**, so duplicate detection stays heuristic (§5).
+4. **A and B can both store the same message** while a forwarder is switched over (§5).
+5. `MailParser::normalizeCid()` is gone; the inbox builds its own content-id map at display time
+   (`index.php:763-816`), which is where inline `cid:` resolution has always actually happened.
+
+---
+
+## 9. Epic #169, step by step
+
+| Step | Issue | State |
+|---|---|---|
+| 1. Architecture map (this document) | #189 | done |
+| 2. The storage contract (`IncomingEmail`, `EmailAttachment`, `StorageResult`) | #190 | done — `documentaion/EMAIL_STORAGE_API.md` |
+| 3. The `EmailStorage` service | #191 | done |
+| 4. IMAP intake (A) routed through it | #192 | done |
+| 5. DirectAdmin pipe (B) routed through it | #193 | done |
+| 6. Python fallback (C) routed through it via `python_imap_bridge.php` | #194 | done |
+| 7. Legacy IMAP parts fallback made extraction-only | #195 | done |
+| 8. One post-storage integration point (`onStored()` + the webhook consumer) | #196 | done |
+| 9. Test coverage for the service and the adapters | #197 | done — `tests/email_storage_test.php` |
+| 10. Repository-wide storage boundary audit | #199 | this step |
+
+Still open, from the epic's own dependency list:
+
+- **Verify the DirectAdmin cut-over end-to-end (#35) and retire or demote IMAP polling.** Blocked in
+  practice by defect 3 above: while A and B can both store the same message, which of them owns a
+  message cannot be told apart from a genuine repeat delivery. `DA_FORWARDER_ENABLED` is still off
+  by default.
+- **Retire or repair the Python fallback** (#169 step 7) — see defect 1.
 
 ---
 
 ## Files inspected
 
-- `php_imap_processor.php`
-- `parse.php`
-- `python_imap_fallback.py`
-- `LegacyImapFallback.php`
-- `MailParser.php`
+- `EmailStorage/EmailStorage.php`, `AttachmentStorage.php`, `IncomingEmail.php`, `StorageResult.php`,
+  `PostStorageWebhooks.php`
+- `php_imap_processor.php`, `parse.php`, `python_imap_bridge.php`, `python_imap_fallback.py`
+- `MailParser.php`, `LegacyImapFallback.php`
 - `config.php` (`updateStat()`, `sanitizeLocalPart()`, expiry deletes)
-- `run_imap_processor.php`, `cron/run_imap_once.php` (entrypoints)
+- `run_imap_processor.php`, `cron/run_imap_once.php` (entrypoints and their access control)
 - `cron/cleanup.php`, `cron/send-digests.php`, `pro_auth.php` (non-ingestion writers)
-- `AGENTS.md`, `CLAUDE.md` (context; note `AGENTS.md` is stale on `parse.php` webhooks — it still
-  says they are unported, which #188 fixed)
+- `.htaccess`, `robots.txt`, `documentaion/EMAIL_STORAGE_API.md`
+- `tests/email_storage_test.php`, `tests/pushover_routing_test.php`
