@@ -9,6 +9,11 @@ defined('TEMPMAIL_APP') or define('TEMPMAIL_APP', true);
  * only - dispatchWebhooks() queues deliveries, dispatchDelivery() sends them,
  * deliverNow() sends fresh ones straight away from the intake.
  * Mail arrives only through parse.php and the Email Storage service.
+ *
+ * dispatchWebhooks() has two routing paths (epic #251): the per-hook address
+ * routing once migrate_webhook_addresses.php has run, and the pre-routing
+ * behaviour - routing by hook kind, with the per-address Pushover opt-in - for
+ * as long as it has not. See dispatchWebhooks() and hooksForDestination().
  */
 class ImapProcessor
 {
@@ -16,6 +21,7 @@ class ImapProcessor
     private PDO $pdo;
     private bool $debugMode = false;
     private ?bool $tempEmailsHasPushoverColumn = null;
+    private ?bool $hasHookRouting = null;
 
     public function __construct(array $config, PDO $pdo, bool $debugMode = false)
     {
@@ -25,7 +31,18 @@ class ImapProcessor
     }
 
     /**
-     * Queue one delivery per active webhook of the user.
+     * Queue one delivery per webhook that the destination address routes to.
+     *
+     * Which path runs is decided by hookRoutingAvailable():
+     *
+     *  - Routing available (migrate_webhook_addresses.php has run): the hooks
+     *    come from hooksForDestination(), i.e. only the ones the destination
+     *    address actually routes to. Every hook kind is routed the same way;
+     *    Pushover gets no special case.
+     *  - Routing not available (pre-migration schema): the behaviour that
+     *    shipped before the routing, unchanged - every active hook of the user,
+     *    with the per-address Pushover opt-in still gating Pushover hooks.
+     *    Keeping this path is what makes the deploy order irrelevant.
      *
      * @return int[] ids of the pro_webhook_deliveries rows queued, so a caller
      *               can attempt them right away (see deliverNow()).
@@ -42,50 +59,157 @@ class ImapProcessor
                 return $queued;
             }
 
-            // Only select webhooks that are not paused
-            $stmt = $this->pdo->prepare('SELECT id, name, url, kind, config, secret, filter_mode FROM pro_webhooks WHERE user_id = ? AND filter_mode = \'all\'');
-            $stmt->execute([$proUserId]);
-            $hooks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            if (empty($hooks)) return $queued;
-
-            $ins = $this->pdo->prepare('INSERT INTO pro_webhook_deliveries (webhook_id, user_id, payload, attempts, status, next_attempt_at, created_at) VALUES (?, ?, ?, 0, \'pending\', ?, NOW())');
-            $now = date('Y-m-d H:i:s');
-            // Pushover is opt-in per destination address (#174). Resolved on the
-            // first Pushover hook and memoised in the loop, so a user without any
-            // Pushover webhook pays no extra query per message.
-            $pushoverEligible = null;
-            foreach ($hooks as $h) {
-                if (($h['kind'] ?? 'generic') === 'pushover') {
-                    if ($pushoverEligible === null) {
-                        $pushoverEligible = $this->pushoverEnabledForAddress($proUserId, $payload['to'] ?? null);
-                    }
-                    if (!$pushoverEligible) {
-                        // Expected, routine state: Pushover is off for this address
-                        // (the default). Generic webhooks are unaffected.
-                        $this->log('DEBUG', 'Skipping Pushover webhook: destination address has Pushover disabled', [
-                            'webhook_id' => $h['id'],
-                            'user_id' => $proUserId,
-                            'to' => $payload['to'] ?? null
-                        ]);
-                        continue;
-                    }
-                }
-                try {
-                    $ins->execute([$h['id'], $proUserId, json_encode($payload, JSON_UNESCAPED_UNICODE), $now]);
-                    $queued[] = (int)$this->pdo->lastInsertId();
-                    $this->log('INFO', 'Webhook queued', [
-                        'webhook_id' => $h['id'],
-                        'webhook_name' => $h['name'] ?? null,
-                        'kind' => $h['kind'],
-                        'user_id' => $proUserId,
-                        'subject' => $payload['subject'] ?? null
-                    ]);
-                } catch (Exception $e) {
-                    $this->log('ERROR', 'Enqueue webhook failed: ' . $e->getMessage());
-                }
+            if (!$this->hookRoutingAvailable()) {
+                // Legacy path: only select webhooks that are not paused
+                $stmt = $this->pdo->prepare('SELECT id, name, url, kind, config, secret, filter_mode FROM pro_webhooks WHERE user_id = ? AND filter_mode = \'all\'');
+                $stmt->execute([$proUserId]);
+                return $this->enqueueHooks($stmt->fetchAll(PDO::FETCH_ASSOC), $proUserId, $payload, true);
             }
+
+            return $this->enqueueHooks($this->hooksForDestination($proUserId, $payload['to'] ?? null), $proUserId, $payload, false);
         } catch (Exception $e) {
             $this->log('ERROR', 'Dispatch webhooks error: ' . $e->getMessage());
+        }
+        return $queued;
+    }
+
+    /**
+     * Is the per-hook address routing schema in place? (epic #251)
+     *
+     * True only when all three objects migrate_webhook_addresses.php adds
+     * exist, so a half-migrated database - or an entrypoint that did not load
+     * config.php and so has no tableHasColumn() - reads as "not routed" and
+     * keeps the pre-routing behaviour. Cached: the answer cannot change while
+     * one process runs, and this is consulted on every stored message.
+     */
+    private function hookRoutingAvailable(): bool
+    {
+        if ($this->hasHookRouting === null) {
+            $this->hasHookRouting = function_exists('tableHasColumn')
+                && tableHasColumn('pro_webhook_addresses', 'webhook_id')
+                && tableHasColumn('pro_webhooks', 'include_temporary')
+                && tableHasColumn('temp_emails', 'hooks_paused');
+        }
+        return $this->hasHookRouting;
+    }
+
+    /**
+     * Which of the user's active hooks does a message to $toAddress route to?
+     *
+     * $toAddress is the recipient the intake resolved from the message headers
+     * and stored on stored_emails.to_address, so it is the address the message
+     * is filed under. The address' own row decides, and it must belong to
+     * $proUserId:
+     *
+     *  - Personal address (is_personal = 1): its hooks_paused = 1 queues
+     *    nothing at all; otherwise exactly the user's active hooks
+     *    (filter_mode = 'all') with a pro_webhook_addresses row for this
+     *    address. New personal addresses start unlinked, so they start silent.
+     *  - Temporary address (is_personal = 0): the user's active hooks with
+     *    include_temporary = 1. The one switch covers all of the user's
+     *    temporary addresses, so no link row is involved.
+     *
+     * Anything unproven reads as "queue nothing": a missing row, an address not
+     * owned by $proUserId and a lookup exception all return []. Same
+     * fail-closed rule as pushoverEnabledForAddress().
+     *
+     * @param string|null $toAddress full recipient address (local@domain)
+     * @return list<array<string,mixed>>
+     */
+    private function hooksForDestination(int $proUserId, $toAddress): array
+    {
+        if (empty($toAddress) || !is_string($toAddress)) return [];
+        $local = explode('@', strtolower(trim($toAddress)))[0];
+        if ($local === '') return [];
+
+        try {
+            $stmt = $this->pdo->prepare('SELECT id, is_personal, hooks_paused FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? LIMIT 1');
+            $stmt->execute([$local, $proUserId]);
+            $address = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($address === false) {
+                $this->log('DEBUG', 'No webhook routing: destination address not owned by this user', [
+                    'user_id' => $proUserId,
+                    'to' => $toAddress
+                ]);
+                return [];
+            }
+
+            if ((int)$address['is_personal'] === 1) {
+                if ((int)$address['hooks_paused'] === 1) {
+                    // Expected, routine state, and reversible from the profile
+                    // page: the address keeps its links while it is paused.
+                    $this->log('DEBUG', 'Skipping webhooks: hooks are paused for this address', [
+                        'user_id' => $proUserId,
+                        'temp_email_id' => (int)$address['id'],
+                        'to' => $toAddress
+                    ]);
+                    return [];
+                }
+
+                $stmt = $this->pdo->prepare('SELECT w.id, w.name, w.url, w.kind, w.config, w.secret, w.filter_mode FROM pro_webhooks w JOIN pro_webhook_addresses l ON l.webhook_id = w.id WHERE w.user_id = ? AND w.filter_mode = \'all\' AND l.temp_email_id = ?');
+                $stmt->execute([$proUserId, (int)$address['id']]);
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            $stmt = $this->pdo->prepare('SELECT id, name, url, kind, config, secret, filter_mode FROM pro_webhooks WHERE user_id = ? AND filter_mode = \'all\' AND include_temporary = 1');
+            $stmt->execute([$proUserId]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            $this->log('WARNING', 'Webhook routing lookup failed: ' . $e->getMessage(), [
+                'user_id' => $proUserId
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Insert one pending delivery per hook, and return the new delivery ids.
+     *
+     * $legacyPushoverGate carries the one kind-specific rule the pre-routing
+     * path had: a Pushover hook is skipped unless the destination address has
+     * temp_emails.pushover_enabled = 1 (#174). When it is false the hook set
+     * was already routed by address, so no kind-specific check applies.
+     */
+    private function enqueueHooks(array $hooks, int $proUserId, array $payload, bool $legacyPushoverGate): array
+    {
+        $queued = [];
+        if (empty($hooks)) return $queued;
+
+        $ins = $this->pdo->prepare('INSERT INTO pro_webhook_deliveries (webhook_id, user_id, payload, attempts, status, next_attempt_at, created_at) VALUES (?, ?, ?, 0, \'pending\', ?, NOW())');
+        $now = date('Y-m-d H:i:s');
+        // Pushover is opt-in per destination address (#174). Resolved on the
+        // first Pushover hook and memoised in the loop, so a user without any
+        // Pushover webhook pays no extra query per message.
+        $pushoverEligible = null;
+        foreach ($hooks as $h) {
+            if ($legacyPushoverGate && ($h['kind'] ?? 'generic') === 'pushover') {
+                if ($pushoverEligible === null) {
+                    $pushoverEligible = $this->pushoverEnabledForAddress($proUserId, $payload['to'] ?? null);
+                }
+                if (!$pushoverEligible) {
+                    // Expected, routine state: Pushover is off for this address
+                    // (the default). Generic webhooks are unaffected.
+                    $this->log('DEBUG', 'Skipping Pushover webhook: destination address has Pushover disabled', [
+                        'webhook_id' => $h['id'],
+                        'user_id' => $proUserId,
+                        'to' => $payload['to'] ?? null
+                    ]);
+                    continue;
+                }
+            }
+            try {
+                $ins->execute([$h['id'], $proUserId, json_encode($payload, JSON_UNESCAPED_UNICODE), $now]);
+                $queued[] = (int)$this->pdo->lastInsertId();
+                $this->log('INFO', 'Webhook queued', [
+                    'webhook_id' => $h['id'],
+                    'webhook_name' => $h['name'] ?? null,
+                    'kind' => $h['kind'],
+                    'user_id' => $proUserId,
+                    'subject' => $payload['subject'] ?? null
+                ]);
+            } catch (Exception $e) {
+                $this->log('ERROR', 'Enqueue webhook failed: ' . $e->getMessage());
+            }
         }
         return $queued;
     }
