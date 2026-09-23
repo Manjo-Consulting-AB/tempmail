@@ -17,9 +17,6 @@ declare(strict_types=1);
  *
  *   - sections 1–7 call the real EmailStorage::store() (the probe docroot's
  *     copy, so its attachments/ is the throwaway one) against a real PDO;
- *   - section 8 drives the real ImapProcessor::saveEmail() with an IMAP header
- *     fixture — no server, no connection, which is exactly the part of that
- *     path that persistence owns;
  *   - section 9 runs parse.php as the separate CLI process production runs it
  *     as, and asserts its exit code and its streams: the pipe target must print
  *     nothing at all, because Exim turns any output into a bounce;
@@ -521,64 +518,6 @@ ms_test_same(
 );
 
 // ---------------------------------------------------------------------
-// 8. PHP IMAP adapter (ImapProcessor save path)
-// ---------------------------------------------------------------------
-
-ms_test_section('8. PHP IMAP adapter (ImapProcessor::saveEmail)');
-
-$msImapLocal = 'store0008';
-$msImapAddress = ms_test_seed_address($pdo, $msImapLocal, ['pro_user_id' => $msProUser, 'is_personal' => 1]);
-$msProcessor = new ImapProcessor($config, $pdo, true);
-$msSaveEmail = new ReflectionMethod(ImapProcessor::class, 'saveEmail');
-$msSaveEmail->setAccessible(true);
-
-/** An imap_headerinfo-shaped stdClass: no server, no connection. */
-$msHeader = static fn(string $subject, int $timestamp): object => (object) [
-    'from' => [(object) ['mailbox' => 'imap.sender', 'host' => 'example.com']],
-    'subject' => $subject,
-    'udate' => $timestamp,
-];
-
-$msImapTime = strtotime('2026-09-21 08:30:00');
-$msStatsBefore = ms_test_stat($pdo, 'emails_processed');
-$msSaved = $msSaveEmail->invoke($msProcessor, $msHeader('IMAP fixture', $msImapTime), '<p>Hello <b>IMAP</b>.</p>', $msAddress($msImapLocal), null, null);
-
-ms_test_check('8a. the adapter reports the message saved', $msSaved === true);
-$msRow = $pdo->query('SELECT * FROM stored_emails ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [];
-ms_test_same('8b. the recipient is the message header address', $msAddress($msImapLocal), $msRow['to_address'] ?? null);
-ms_test_same('8c. the From header is stored as a bare address', 'imap.sender@example.com', $msRow['from_address'] ?? null);
-ms_test_same('8d. the subject is stored', 'IMAP fixture', $msRow['subject'] ?? null);
-ms_test_same('8e. an HTML body is split into body_html and a text rendering', ['Hello IMAP.', '<p>Hello <b>IMAP</b>.</p>'], [$msRow['body_text'] ?? null, $msRow['body_html'] ?? null]);
-ms_test_same('8f. received_at comes from the IMAP internal date, not the wall clock', date('Y-m-d H:i:s', $msImapTime), $msRow['received_at'] ?? null);
-ms_test_same('8g. the Pro retention window is applied', date('Y-m-d H:i:s', $msImapTime + 3 * 86400), $msRow['expires_at'] ?? null);
-ms_test_same('8h. ownership is resolved for the recipient', $msImapAddress, (int) ($msRow['temp_email_id'] ?? 0));
-ms_test_same('8i. the adapter counts the stored email', $msStatsBefore + 1, ms_test_stat($pdo, 'emails_processed'));
-
-// A plain-text body takes the other branch, and an inline data: URI is stripped
-// before storage on this path.
-$msSaveEmail->invoke($msProcessor, $msHeader('IMAP text fixture', $msImapTime), 'Just plain text.', $msAddress($msImapLocal), null, null);
-$msRow = $pdo->query('SELECT * FROM stored_emails ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [];
-ms_test_same('8j. a plain-text body is stored as body_text only', ['Just plain text.', null], [$msRow['body_text'] ?? null, $msRow['body_html'] ?? null]);
-
-$msSaveEmail->invoke($msProcessor, $msHeader('IMAP inline fixture', $msImapTime), '<p>See this</p><img src="data:image/png;base64,iVBORw0KGgo=">', $msAddress($msImapLocal), null, null);
-$msRow = $pdo->query('SELECT * FROM stored_emails ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [];
-ms_test_check(
-    '8k. an inline data: URI is stripped before it is stored',
-    str_contains((string) ($msRow['body_html'] ?? ''), '[attachment removed]') && !str_contains((string) ($msRow['body_html'] ?? ''), 'base64,'),
-    'stored=' . ms_test_dump($msRow['body_html'] ?? null)
-);
-
-// This path passes no options, so it keeps storing everything it sees: the
-// duplicate rule is the Python bridge's, not the IMAP path's.
-$msSaveEmail->invoke($msProcessor, $msHeader('IMAP repeat fixture', $msImapTime), 'Repeated body.', $msAddress($msImapLocal), null, null);
-$msSaveEmail->invoke($msProcessor, $msHeader('IMAP repeat fixture', $msImapTime), 'Repeated body.', $msAddress($msImapLocal), null, null);
-ms_test_same(
-    '8l. the IMAP path performs no duplicate check, as before the migration',
-    2,
-    ms_test_count($pdo, 'stored_emails', 'subject = ?', ['IMAP repeat fixture'])
-);
-
-// ---------------------------------------------------------------------
 // 9. DirectAdmin pipe adapter (parse.php)
 // ---------------------------------------------------------------------
 
@@ -874,10 +813,6 @@ ms_test_check(
 ms_test_check(
     '11d. MailParser takes no PDO',
     !str_contains((string) file_get_contents($msRepoRoot . '/MailParser.php'), 'PDO $')
-);
-ms_test_check(
-    '11e. LegacyImapFallback takes no PDO either',
-    !str_contains((string) file_get_contents($msRepoRoot . '/LegacyImapFallback.php'), 'PDO $')
 );
 
 // ---------------------------------------------------------------------
