@@ -17,15 +17,16 @@ declare(strict_types=1);
  * over the schema migrate_webhook_addresses.php creates (applied here on top of
  * ms_test_schema() by ms_test_webhook_address_schema()).
  *
- * The complement of this suite is tests/pushover_routing_test.php, which runs
- * the *pre-routing* path: it deliberately leaves the routing schema off, so
- * between the two suites both branches of hookRoutingAvailable() are exercised.
+ * This is the only routing suite since #251 step 6: its complement,
+ * tests/pushover_routing_test.php, existed to keep the pre-routing path honest,
+ * and that path is gone — dispatch now queues nothing without this schema. The
+ * per-address RSS feed and credential sections it used to end with were moved
+ * here, fixtures adapted and assertions kept.
  *
- * Scenarios 0–8 assert the routing rules through dispatch alone. From scenario
+ * Scenarios 0–7 assert the routing rules through dispatch alone. From scenario
  * 9 on they also drive the real pro_profile.php / index.php actions over a real
- * request — the same technique as tests/pushover_routing_test.php — so the
- * origin check, the Pro gate, the ownership queries and the transaction under
- * test are the pages' own code. Scenario 16 renders the real
+ * request, so the origin check, the Pro gate, the ownership queries and the
+ * transaction under test are the pages' own code. Scenario 16 renders the real
  * pro_profile_page.php and asserts the PHP→JS contract the routing UI is built
  * from (#251 step 5): the "has any webhook" and "routing available" flags, and
  * that the retired per-address Pushover control left nothing behind. The UI
@@ -83,11 +84,6 @@ function ms_wr_include_temporary(PDO $pdo, int $webhookId): void {
 function ms_wr_pause_address(PDO $pdo, int $addressId): void {
     $stmt = $pdo->prepare('UPDATE temp_emails SET hooks_paused = 1 WHERE id = ?');
     $stmt->execute([$addressId]);
-}
-
-function ms_wr_set_pushover_enabled(PDO $pdo, int $addressId, int $value): void {
-    $stmt = $pdo->prepare('UPDATE temp_emails SET pushover_enabled = ? WHERE id = ?');
-    $stmt->execute([$value, $addressId]);
 }
 
 /** How many addresses one hook is linked to. */
@@ -319,28 +315,15 @@ ms_test_dispatch($userFree, $msPayload('ca401001'));
 ms_test_same('7a. the linked hook of a non-Pro account is not queued', 0, ms_wr_count($pdo, $userFree, $hookFree));
 
 // ---------------------------------------------------------------------
-// 8. pushover_enabled has no effect once routing is available
+// 8. (removed)
+//
+// This section proved that a linked Pushover hook was queued even with the
+// per-address Pushover flag off — i.e. that the routing path consulted no
+// kind-specific gate. #251 step 6 deleted that gate, and the column with it,
+// so a linked Pushover hook is simply one of the hooks in section 1 and there
+// is no longer a second rule to tell apart. The numbering is left as it was so
+// the remaining scenario labels keep matching the ones #254 and #255 shipped.
 // ---------------------------------------------------------------------
-
-ms_test_section('8. pushover_enabled has no effect once routing is available');
-
-ms_wr_link($pdo, $hookP, $addrD);
-ms_wr_set_pushover_enabled($pdo, $addrD, 0);
-
-$pdo = ms_test_refresh_db($msSqlite);
-ms_test_same('8a. the address really is opted out of the retired flag', 0, ms_test_pushover_flag($pdo, $addrD));
-
-$pBefore = ms_wr_count($pdo, $userA, $hookP);
-ms_test_forget_logs();
-ms_test_dispatch($userA, $msPayload('a11ce104'));
-
-ms_test_same('8b. the linked Pushover hook is queued anyway', $pBefore + 1, ms_wr_count($pdo, $userA, $hookP));
-ms_test_check(
-    '8c. no kind-specific Pushover gate runs on the routing path',
-    !ms_test_logged('destination address has Pushover disabled'),
-    'the retired per-address gate was still consulted'
-);
-ms_test_same('8d. an unlinked hook on the same dispatch stays quiet', 0, ms_wr_count($pdo, $userA, $hookH));
 
 // =====================================================================
 // #251 step 4: the routing API
@@ -663,17 +646,86 @@ ms_test_check(
 );
 
 // The retired per-address Pushover control and its server-side flag must be
-// gone from the page entirely, not merely hidden.
+// gone from the page entirely, not merely hidden. The per-address Pushover
+// actions themselves went with #251 step 6; what is asserted here is the
+// rendered page, not the actions.
 $leaked = [];
-foreach (['hasPushoverWebhook', 'address_pushover_'] as $needle) {
+foreach (['hasPushoverWebhook'] as $needle) {
     if (str_contains($render['stdout'], $needle)) {
         $leaked[] = $needle;
     }
 }
 ms_test_check(
-    '16f. the page carries neither the removed flag nor the removed actions',
+    '16f. the page does not carry the removed flag',
     $leaked === [],
     'still present: ' . implode(', ', $leaked)
+);
+
+// ---------------------------------------------------------------------
+// Regression: the per-address RSS feed still behaves (#160/#161)
+//
+// Moved here from tests/pushover_routing_test.php when #251 step 6 retired the
+// per-address Pushover opt-in. The feed and the routing are independent
+// per-address features, and these checks outlived the suite that hosted them;
+// the fixtures are this suite's own, the assertions are the ones that shipped.
+// ---------------------------------------------------------------------
+
+ms_test_section('Regression: per-address RSS feed is unaffected');
+
+$rfUser    = ms_test_seed_user($pdo, 'hanna@example.com', 'pro');
+$rfAddrOn  = ms_test_seed_address($pdo, 'feed0001', ['pro_user_id' => $rfUser, 'feed_token' => 'feed-fixture-token-0001']);
+$rfAddrOff = ms_test_seed_address($pdo, 'feed0002', ['pro_user_id' => $rfUser]);
+
+// R12 asserts that a feed change leaves the address' other per-address state
+// alone, so that state is set first — otherwise "untouched" would hold for a
+// value that was never anything else. The retired per-address Pushover flag
+// used to play this role; temp_emails.hooks_paused is what the model has now.
+ms_wr_pause_address($pdo, $rfAddrOn);
+
+$list = ms_test_json('R1. list_personal answers', $msAction('index.php', 'list_personal', [], $rfUser));
+$byId = [];
+foreach (($list['personal'] ?? []) as $row) {
+    $byId[(int) $row['id']] = $row;
+}
+ms_test_same('R2. a feed-enabled address still reports feed_enabled=true', true, $byId[$rfAddrOn]['feed_enabled'] ?? null);
+ms_test_same('R3. an address without a feed still reports feed_enabled=false', false, $byId[$rfAddrOff]['feed_enabled'] ?? null);
+ms_test_check(
+    'R4. list_personal still never returns the feed credential itself',
+    !array_key_exists('feed_token', $byId[$rfAddrOn] ?? []) && !str_contains($list === null ? '' : (string) json_encode($list), 'feed-fixture-token-0001'),
+    'the credential leaked into the address list'
+);
+
+$feed = ms_test_json('R5. address_feed_get_token still returns the existing token', $msAction('pro_profile.php', 'address_feed_get_token', ['id' => $rfAddrOn], $rfUser));
+ms_test_same('R6. the stored token is returned unchanged', 'feed-fixture-token-0001', $feed['token'] ?? null);
+
+$feed = ms_test_json('R7. address_feed_regenerate still answers', $msAction('pro_profile.php', 'address_feed_regenerate', ['id' => $rfAddrOn], $rfUser));
+ms_test_check('R8. regeneration returns a new token', is_string($feed['token'] ?? null) && $feed['token'] !== 'feed-fixture-token-0001');
+
+$feed = ms_test_json('R9. address_feed_disable still answers', $msAction('pro_profile.php', 'address_feed_disable', ['id' => $rfAddrOn], $rfUser));
+ms_test_same('R10. disabling the feed succeeded', true, $feed['success'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+$stmt = $pdo->prepare('SELECT feed_token FROM temp_emails WHERE id = ?');
+$stmt->execute([$rfAddrOn]);
+ms_test_same('R11. the feed token is cleared', null, $stmt->fetchColumn() ?: null);
+ms_test_same("R12. clearing the feed left the address' hook pause alone", 1, ms_wr_hooks_paused($pdo, $rfAddrOn));
+
+// ---------------------------------------------------------------------
+// The Pushover credential never leaves the server
+// ---------------------------------------------------------------------
+
+ms_test_section('Credential handling');
+
+$leaked = [];
+foreach ($msBodies as $index => $body) {
+    if (str_contains($body, MS_TEST_FAKE_TOKEN) || str_contains($body, MS_TEST_FAKE_USER_KEY)) {
+        $leaked[] = $index;
+    }
+}
+ms_test_check(
+    'C1. no probed response ever contains the Pushover token or user key',
+    $leaked === [],
+    'leaked in response(s) ' . implode(', ', $leaked)
 );
 
 // ---------------------------------------------------------------------

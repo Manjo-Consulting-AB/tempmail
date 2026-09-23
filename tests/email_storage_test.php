@@ -587,9 +587,18 @@ ms_test_same(
 
 // The one consumer that exists: the Pro webhook listener, registered on the
 // service, queuing for a Pro address the same way the paths always did.
+// Routing is per hook and per address since epic #251, and dispatch queues
+// nothing without its schema — so the consumer needs the routing tables and a
+// link from the hook to the address it should fire for.
+if (!tableHasColumn('pro_webhook_addresses', 'webhook_id')) {
+    $pdo->exec(ms_test_webhook_address_schema());
+}
+
 $msHookId = ms_test_seed_webhook($pdo, $msProUser, 'pushover', 'all', 'Probe Pushover');
 $msNotifyLocal = 'store0007';
-ms_test_seed_address($pdo, $msNotifyLocal, ['pro_user_id' => $msProUser, 'is_personal' => 1, 'pushover_enabled' => 1]);
+$msNotifyAddress = ms_test_seed_address($pdo, $msNotifyLocal, ['pro_user_id' => $msProUser, 'is_personal' => 1]);
+$msLinkNotify = $pdo->prepare('INSERT INTO pro_webhook_addresses (webhook_id, temp_email_id, created_at) VALUES (?, ?, ?)');
+$msLinkNotify->execute([$msHookId, $msNotifyAddress, date('Y-m-d H:i:s')]);
 
 $msConsumerStorage = new EmailStorage($pdo, true);
 PostStorageWebhooks::attach($msConsumerStorage, $config, $pdo, true);
@@ -599,7 +608,7 @@ $msResult = $msConsumerStorage->store(ms_test_incoming([
 ]), []);
 
 ms_test_check('7e. the webhook consumer runs through the service for a stored email', $msResult->isStored(), 'status=' . $msResult->status);
-ms_test_same('7f. the Pushover webhook of an opted-in address is queued', 1, ms_test_deliveries($pdo, $msProUser)[$msHookId] ?? 0);
+ms_test_same('7f. the Pushover webhook linked to this address is queued', 1, ms_test_deliveries($pdo, $msProUser)[$msHookId] ?? 0);
 
 $msConsumerStorage->store(ms_test_incoming([
     'toAddress' => $msAddress($msProLocal),

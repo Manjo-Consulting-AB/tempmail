@@ -206,18 +206,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // only ever returned by the Pro-gated address_feed_* actions
                     // in pro_profile.php.
                     $feedEnabledCol = tableHasColumn('temp_emails', 'feed_token') ? ", (feed_token IS NOT NULL) AS feed_enabled" : "";
-                    // pushover_enabled exposed (#172) for the same reason, and it
-                    // is even less sensitive: unlike feed_token this is a plain
-                    // preference with no credential behind it — the Pushover token
-                    // and user key stay in pro_webhooks.config and are never read
-                    // or returned here.
-                    $pushoverCol = tableHasColumn('temp_emails', 'pushover_enabled') ? ", (pushover_enabled = 1) AS pushover_enabled" : "";
                     // hooks_paused exposed (#251 step 4) on the same terms: it is
                     // a preference, not a credential — no address, no hook and no
                     // URL travels with it, only whether the address' routing is
                     // silenced. The links themselves stay in pro_profile.php.
                     $hooksPausedCol = tableHasColumn('temp_emails', 'hooks_paused') ? ", (hooks_paused = 1) AS hooks_paused" : "";
-                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$pushoverCol}{$hooksPausedCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
+                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$hooksPausedCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
                     $stmt->execute([$_SESSION['pro_user_id']]);
                     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $list = [];
@@ -229,9 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'expires_at' => $r['expires_at'],
                             'feed_enabled' => !empty($r['feed_enabled']),
                             // Absent when the migration hasn't run, and empty()
-                            // reads an undefined key as false, i.e. disabled.
-                            'pushover_enabled' => !empty($r['pushover_enabled']),
-                            // Same rule: absent reads as not paused.
+                            // reads an undefined key as false, i.e. not paused.
                             'hooks_paused' => !empty($r['hooks_paused'])
                         ];
                     }

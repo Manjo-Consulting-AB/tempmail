@@ -699,6 +699,59 @@ function cleanupInactiveRegularAccounts() {
 }
 
 /**
+ * Städa föräldralösa länkar i pro_webhook_addresses (#251 step 6).
+ *
+ * Den nya routingen (epic #251) kopplar varje webhook till sina personliga
+ * adresser via pro_webhook_addresses. Tabellen har medvetet INGA foreign keys
+ * (se migrate_webhook_addresses.php), så en länk städas bara om just den
+ * kodväg som tar bort raden också tar bort länkarna. Det gör delete_personal
+ * (index.php) och webhook_delete (pro_profile.php) - men inte de vägar som
+ * raderar adresser och konton i bulk: utgångna adresser i
+ * cleanupExpiredAddresses(), grace-periodsraderingen i
+ * cleanupExpiredProUsers() och kontoborttagningen i pro_auth.php. De lämnar
+ * alltså länkar kvar som pekar på en webhook eller en adress som inte finns,
+ * eller på en adress som inte längre är personlig eller inte tillhör
+ * webhookens ägare.
+ *
+ * Den här svepningen tar bort dem. Villkoret är detsamma som routingen
+ * förutsätter: länken behålls bara om både webhooken och en personlig adress
+ * som ägs av samma användare finns kvar.
+ *
+ * Idempotent och billig: en körning utan orphan-rader gör ingenting.
+ */
+function cleanupOrphanWebhookAddressLinks() {
+    global $pdo;
+
+    if (!tableHasColumn('pro_webhook_addresses', 'webhook_id')) {
+        logMessage('DEBUG', 'cleanupOrphanWebhookAddressLinks: pro_webhook_addresses saknas, hoppar över (migrationen är inte körd)');
+        return 0;
+    }
+
+    try {
+        $stmt = $pdo->prepare(
+            "DELETE l FROM pro_webhook_addresses l
+             LEFT JOIN pro_webhooks w ON w.id = l.webhook_id
+             LEFT JOIN temp_emails t ON t.id = l.temp_email_id AND t.is_personal = 1 AND t.pro_user_id = w.user_id
+             WHERE w.id IS NULL OR t.id IS NULL"
+        );
+        $stmt->execute();
+        $deleted = $stmt->rowCount();
+
+        if ($deleted > 0) {
+            logMessage('INFO', 'Orphan webhook address links cleaned up', ['count' => $deleted]);
+        } else {
+            logMessage('DEBUG', 'No orphan webhook address links found');
+        }
+
+        return $deleted;
+
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Failed to cleanup orphan webhook address links: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Hämta databasstatistik
  */
 function getDatabaseStats() {
@@ -782,6 +835,12 @@ function runCleanup($options = []) {
     $regularUsersResult = cleanupInactiveRegularAccounts();
     if ($regularUsersResult !== false) {
         $results['regular_users_cleaned'] = $regularUsersResult;
+    }
+
+    // Städa länkar som raderingsvägarna ovan kan ha lämnat kvar (#251 step 6)
+    $orphanLinksResult = cleanupOrphanWebhookAddressLinks();
+    if ($orphanLinksResult !== false) {
+        $results['orphan_webhook_links_cleaned'] = $orphanLinksResult;
     }
 
     // Rensa utgångna 2FA trusted-device-cookies
