@@ -723,6 +723,48 @@ if (ms_test_has_mime_parser()) {
     ms_test_skip('9aa–9ab. a text/plain attachment keeps the attached bytes', 'run composer install so MailParser can decode the part');
 }
 
+// The size gate (#212): at most 10 MB (10485760 bytes) of raw message, measured
+// on everything stdin delivers. One byte more is a permanent rejection decided
+// before the recipient is even looked at — so the same LOCAL_PART as 9a is
+// deliverable, and the rejection has to come from the size alone.
+$msSizeLimitBytes = 10485760;
+$msSizedEml = static function (string $toAddress, string $subject, int $totalBytes) use ($msEml): string {
+    // $msEml's header block plus its trailing line break is the only other
+    // content, so padding the body by the difference hits $totalBytes exactly.
+    return $msEml($toAddress, $subject, str_repeat('a', $totalBytes - strlen($msEml($toAddress, $subject, ''))));
+};
+
+$msOversizeSubject = 'Pipe oversize fixture';
+$msSizeBefore = ms_test_count($pdo, 'stored_emails');
+$msRun = ms_test_cli_php(
+    $msProbe,
+    'parse.php',
+    $msSizedEml($msAddress($msPipeLocal), $msOversizeSubject, $msSizeLimitBytes + 1),
+    $msEnv + ['LOCAL_PART' => $msPipeLocal]
+);
+ms_test_same('9ac. a message one byte over the size limit is a permanent rejection', 1, $msRun['exit']);
+ms_test_check(
+    '9ad. the size reason is reported on stderr',
+    str_contains($msRun['stderr'], 'exceeds the maximum size')
+);
+ms_test_same('9ae. the oversize message wrote no row', $msSizeBefore, ms_test_count($pdo, 'stored_emails'));
+// The row count alone cannot tell which message a stray row came from; the
+// subject only survives the round trip when MailParser is installed, so a row
+// under this subject would be a second, independent way of failing.
+ms_test_same(
+    '9ae. (nothing carries the oversize message subject either)',
+    0,
+    ms_test_count($pdo, 'stored_emails', 'subject = ?', [$msOversizeSubject])
+);
+
+$msRun = ms_test_cli_php(
+    $msProbe,
+    'parse.php',
+    $msSizedEml($msAddress($msPipeLocal), 'Pipe exact-limit fixture', $msSizeLimitBytes),
+    $msEnv + ['LOCAL_PART' => $msPipeLocal]
+);
+ms_test_same('9af. a message exactly at the size limit is still stored', 0, $msRun['exit']);
+
 // A *temporary* failure must defer, not bounce: the pipe exits 75 (EX_TEMPFAIL)
 // and still prints nothing at all, so the DirectAdmin/Exim pipe transport —
 // which bounces on any output, whatever the exit code — retries the delivery

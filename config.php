@@ -223,7 +223,9 @@ $baseConfig = [
     'email' => [
         'domain' => $_ENV['EMAIL_DOMAIN'] ?? 'manjo.me',
         // Use primary domain for generated links in production (no subdomain)
-        'base_url' => $_ENV['BASE_URL'] ?? ($environment === 'production' ? 'https://manjo.me/' : 'http://localhost:8085/')
+        'base_url' => $_ENV['BASE_URL'] ?? ($environment === 'production' ? 'https://manjo.me/' : 'http://localhost:8085/'),
+        // Largest raw message parse.php accepts, in bytes (#212). 10 MB.
+        'max_message_bytes' => (int)($_ENV['MAX_MESSAGE_BYTES'] ?? 10485760),
     ],
     'app' => [
         'cleanup_hours' => 24,
