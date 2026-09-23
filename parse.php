@@ -339,7 +339,14 @@ try {
         // exit 1) unless the recipient still resolves to a live, unexpired
         // address row. Step 3 already enforced this; passing it here keeps the
         // two verdicts in agreement if the row disappears in between.
-        [EmailStorage::OPTION_REJECT_UNKNOWN_RECIPIENT => true]
+        //
+        // The Message-ID duplicate rule (#212, step 18) rides along: this pipe
+        // exits 75 on a temporary failure, and Exim then redelivers the same
+        // message — which must not be stored twice.
+        [
+            EmailStorage::OPTION_REJECT_UNKNOWN_RECIPIENT => true,
+            EmailStorage::OPTION_DEDUPLICATE_MESSAGE_ID => true,
+        ]
     );
 } catch (Throwable $e) {
     parseFail('EmailStorage::store() threw', ['error' => $e->getMessage(), 'to' => $toAddress]);
@@ -362,10 +369,10 @@ switch ($result->status) {
         break; // unreachable
 
     case StorageResult::STATUS_DUPLICATE:
-        // This path passes no duplicate detection (#191 §7.4), so the service
-        // cannot return this today. Nothing was written and nothing failed, so
-        // it is not a bounce: log it and exit 0.
-        logMessage('WARNING', 'parse.php: Email Storage reported a duplicate, nothing was written', ['to' => $toAddress]);
+        // A redelivery of a message already stored for this recipient
+        // (Message-ID, #212): nothing was written and nothing failed, so it is
+        // accepted (exit 0) and not bounced.
+        logMessage('INFO', 'parse.php: Email Storage reported a duplicate, nothing was written', ['to' => $toAddress]);
         exit(0);
 
     case StorageResult::STATUS_FAILED:

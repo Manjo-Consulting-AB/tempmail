@@ -330,6 +330,75 @@ ms_test_check('3j. the rule keys on the subject: a different one is stored', $ms
 $msOtherSender = $msStore(array_merge($msNoCheck, ['subject' => $msDuplicateSubject, 'fromAddress' => 'another@example.com']), $msOptIn);
 ms_test_check('3k. the rule keys on the sender: a different one is stored', $msOtherSender->isStored(), 'status=' . $msOtherSender->status);
 
+// The exact rule (#212, step 18) is a second, separate option: a row with the
+// same recipient and the same normalized Message-ID already stored makes the
+// message a duplicate. It is what keeps a redelivery — the pipe exits 75 and
+// Exim retries the same message — from being stored twice.
+//
+// ms_test_incoming() carries no Message-ID, so these checks build their DTOs
+// directly, the way section 1 does for the normalization cases.
+$msMessageIdOption = [EmailStorage::OPTION_DEDUPLICATE_MESSAGE_ID => true];
+$msRedeliveredId = 'redelivered.1@example.com';
+
+/** Store one fixture for $localPart carrying $messageId, under $options. */
+$msStoreMessaged = static function (string $localPart, ?string $messageId, string $subject, array $options) use ($msStorage, $msReceived, $msAddress): StorageResult {
+    return $msStorage->store(new IncomingEmail(
+        toAddress: $msAddress($localPart),
+        receivedAt: $msReceived,
+        fromAddress: 'sender@example.com',
+        subject: $subject,
+        messageId: $messageId,
+    ), $options);
+};
+
+$msFirst = $msStoreMessaged($msProLocal, $msRedeliveredId, 'Message-ID fixture', $msMessageIdOption);
+ms_test_check('3l. with the Message-ID rule on, the first delivery is stored', $msFirst->isStored(), 'status=' . $msFirst->status);
+
+$msFilesBefore = count(ms_test_storage_files($msProbe));
+$msStatsBefore = ms_test_stat($pdo, 'emails_processed');
+$msSecond = $msStoreMessaged($msProLocal, $msRedeliveredId, 'Message-ID fixture', $msMessageIdOption);
+ms_test_same('3m. the same Message-ID to the same recipient is a duplicate', StorageResult::STATUS_DUPLICATE, $msSecond->status);
+ms_test_same('3n. a duplicate reports no stored row id', null, $msSecond->storedEmailId);
+ms_test_same(
+    '3o. exactly one row carries that Message-ID for that recipient',
+    1,
+    ms_test_count($pdo, 'stored_emails', 'to_address = ? AND message_id = ?', [$msAddress($msProLocal), $msRedeliveredId])
+);
+ms_test_same('3o2. a duplicate moves no statistic', $msStatsBefore, ms_test_stat($pdo, 'emails_processed'));
+ms_test_same('3o3. a duplicate writes no attachment file', $msFilesBefore, count(ms_test_storage_files($msProbe)));
+
+// Scoped per recipient on purpose: one message sent to two of our addresses is
+// stored for both.
+$msElsewhere = $msStoreMessaged($msFreeLocal, $msRedeliveredId, 'Message-ID fixture', $msMessageIdOption);
+ms_test_check('3p. the same Message-ID for another recipient is stored', $msElsewhere->isStored(), 'status=' . $msElsewhere->status);
+ms_test_same(
+    '3q. so two rows carry that Message-ID, one per recipient',
+    2,
+    ms_test_count($pdo, 'stored_emails', 'message_id = ?', [$msRedeliveredId])
+);
+
+// A message with no usable Message-ID is never a duplicate: the rule keys on a
+// value, and NULL is not one.
+$msNoId = $msStoreMessaged($msProLocal, null, 'No Message-ID fixture', $msMessageIdOption);
+$msNoIdAgain = $msStoreMessaged($msProLocal, null, 'No Message-ID fixture', $msMessageIdOption);
+ms_test_check('3r. with no Message-ID, both deliveries are stored', $msNoId->isStored() && $msNoIdAgain->isStored(), 'statuses=' . $msNoId->status . '/' . $msNoIdAgain->status);
+ms_test_same(
+    '3s. and both rows are there, with a NULL Message-ID',
+    2,
+    ms_test_count($pdo, 'stored_emails', 'subject = ? AND message_id IS NULL', ['No Message-ID fixture'])
+);
+
+// Off by default: without the option the same Message-ID writes a second row,
+// which is what the service did before this rule existed.
+$msOffFirst = $msStoreMessaged($msProLocal, 'off-by-default@example.com', 'Message-ID off fixture', []);
+$msOffSecond = $msStoreMessaged($msProLocal, 'off-by-default@example.com', 'Message-ID off fixture', []);
+ms_test_check('3t. with the option off, the same Message-ID is stored twice', $msOffFirst->isStored() && $msOffSecond->isStored(), 'statuses=' . $msOffFirst->status . '/' . $msOffSecond->status);
+ms_test_same(
+    '3u. and both rows are there',
+    2,
+    ms_test_count($pdo, 'stored_emails', 'message_id = ?', ['off-by-default@example.com'])
+);
+
 // ---------------------------------------------------------------------
 // 4. Invalid / rejected input
 // ---------------------------------------------------------------------
@@ -819,6 +888,32 @@ ms_test_same(
 
 $msRun = ms_test_cli_php($msProbe, 'parse.php', $msEml($msAddress($msPipeLocal), 'Pipe RECIPIENT fixture', 'Body.'), $msEnv + ['RECIPIENT' => $msAddress($msPipeLocal)]);
 ms_test_same('9q. the full RECIPIENT address is accepted too', 0, $msRun['exit']);
+
+// A redelivery (#212, step 18): Exim hands the very same message to the pipe a
+// second time after a run that exited 75 (#215). Both deliveries are accepted —
+// a duplicate is not a failure, so bouncing it would be wrong — and only one
+// row exists. The fixture's own Message-ID is what the rule keys on, so the
+// assertions about the row need the MIME parser; the exit codes and the two
+// streams do not, which is why only the count is conditional.
+$msRedeliverySubject = 'Pipe redelivery fixture';
+$msRedeliveryEml = $msEml($msAddress($msPipeLocal), $msRedeliverySubject, 'Redelivered body.');
+$msFirstDelivery = ms_test_cli_php($msProbe, 'parse.php', $msRedeliveryEml, $msEnv + ['LOCAL_PART' => $msPipeLocal]);
+$msRedelivery = ms_test_cli_php($msProbe, 'parse.php', $msRedeliveryEml, $msEnv + ['LOCAL_PART' => $msPipeLocal]);
+
+ms_test_same('9q2. the first delivery of the fixture exits 0', 0, $msFirstDelivery['exit']);
+ms_test_same('9q3. the redelivery exits 0 as well, so Exim does not bounce it', 0, $msRedelivery['exit']);
+ms_test_same('9q4. the redelivery prints nothing on stdout', '', $msRedelivery['stdout']);
+ms_test_same('9q5. the redelivery prints nothing on stderr (any output would bounce the mail)', '', $msRedelivery['stderr']);
+
+if (ms_test_has_mime_parser()) {
+    ms_test_same(
+        '9q6. only one stored_emails row carries the redelivered message',
+        1,
+        ms_test_count($pdo, 'stored_emails', 'to_address = ? AND subject = ?', [$msAddress($msPipeLocal), $msRedeliverySubject])
+    );
+} else {
+    ms_test_skip('9q6. only one stored_emails row carries the redelivered message', 'run composer install so MailParser supplies the Message-ID the rule keys on');
+}
 
 // End to end: a message carrying an attachment is stored with it, and the file
 // lands in the docroot's attachments/ (which the teardown removes).
