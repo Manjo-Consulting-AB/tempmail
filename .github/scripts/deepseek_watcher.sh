@@ -35,16 +35,9 @@ mkdir -p "$WORKTREE_BASE" "$LOG_DIR" "$(dirname "$LOCK_PATH")"
 exec 9>"$LOCK_PATH"
 flock -n 9 || { echo "Redan igång, hoppar över."; exit 0; }
 
-# DeepSeeks peak hours (UTC, vardagar): 01:00-03:59 och 06:00-09:59.
-# Samma fönster som mimers process_next_issue.py undviker.
-now_hour=$(date -u +%H)
-now_dow=$(date -u +%u)  # 1=mån .. 7=sön
-if [ "$now_dow" -le 5 ]; then
-  if { [ "$now_hour" -ge 1 ] && [ "$now_hour" -le 3 ]; } || { [ "$now_hour" -ge 6 ] && [ "$now_hour" -le 9 ]; }; then
-    echo "Hoppar över: DeepSeek peak hours (UTC)."
-    exit 0
-  fi
-fi
+# Körs dygnet runt - undviker inte längre DeepSeeks peak hours (UTC
+# 01:00-03:59 och 06:00-09:59, samma fönster som mimers
+# process_next_issue.py undviker).
 
 cd "$REPO_ROOT"
 
@@ -114,6 +107,11 @@ if [ -z "$issue_num" ]; then
   exit 0
 fi
 
+# Märker issuet med "building" direkt vid upplockning, innan worktree/subagent
+# ens startar, så det syns i GitHub UI att det redan är under bygge (labeln
+# måste finnas i repot sedan tidigare - skapas inte här).
+gh issue edit "$issue_num" --repo "$GH_REPO" --add-label building 2>/dev/null || true
+
 branch="build/$issue_num"
 worktree="$WORKTREE_BASE/$branch"
 log="$LOG_DIR/issue-$issue_num.log"
@@ -167,8 +165,9 @@ set -e
 pr_url=$(gh pr list --repo "$GH_REPO" --state open --head "$branch" --json url -q '.[0].url' 2>/dev/null || true)
 
 if [ -n "$pr_url" ]; then
-  gh issue edit "$issue_num" --repo "$GH_REPO" --remove-label Build 2>/dev/null || true
+  gh issue edit "$issue_num" --repo "$GH_REPO" --remove-label Build --remove-label building 2>/dev/null || true
   ~/.local/bin/notify-tony "Issue #$issue_num klar: $pr_url" "Tempmail build" 2>/dev/null || true
 else
+  gh issue edit "$issue_num" --repo "$GH_REPO" --remove-label building 2>/dev/null || true
   ~/.local/bin/notify-tony "Issue #$issue_num: DeepSeek körde men öppnade ingen PR (status $run_status). Se $log" "Tempmail build - fel" 2>/dev/null || true
 fi
