@@ -608,6 +608,8 @@ function generateSignedAttachmentUrl(...$args) { return ''; }
 function hasSessionAddressAccess(...$args) { return false; }
 function grantSessionAddressAccess(...$args) { return true; }
 function shouldRunGlobalImapRefresh(PDO $pdo, int $cooldownSeconds = 5): bool { return true; }
+function deleteStoredEmailsForTempEmail(PDO $pdo, int $tempEmailId): array { return []; }
+function unlinkAttachmentFiles(array $paths): void {}
 function getStats() { return []; }
 function resolveUrlToPublicTarget(...$args) { return ['ip' => '127.0.0.1', 'host' => 'localhost']; }
 PHP;

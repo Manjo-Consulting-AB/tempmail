@@ -242,21 +242,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 try {
                     // Ensure the address belongs to this pro user and is a personal address
-                    $stmt = $pdo->prepare("SELECT unique_address FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                    $stmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                     $stmt->execute([$id, $_SESSION['pro_user_id']]);
                     $row = $stmt->fetch(PDO::FETCH_ASSOC);
                     if (!$row) {
                         echo json_encode(['success' => false, 'error' => 'Address not found or not owned by user']);
                         break;
                     }
+                    $id = (int)$row['id'];
                     $unique = $row['unique_address'];
 
                     $pdo->beginTransaction();
-                    // Delete the personal address row (DB FK will cascade stored_emails)
+                    // Delete the stored emails and attachment rows explicitly: there is
+                    // no guaranteed FK cascade from temp_emails. The attachment files
+                    // are unlinked only after the commit, so a rollback cannot leave
+                    // rows pointing at deleted files.
+                    $attachmentFiles = deleteStoredEmailsForTempEmail($pdo, $id);
                     $d2 = $pdo->prepare("DELETE FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
                     $d2->execute([$id, $_SESSION['pro_user_id']]);
 
                     $pdo->commit();
+                    unlinkAttachmentFiles($attachmentFiles);
                     deleteDirectAdminForwarder($unique);
                     logMessage('INFO', 'Personal address deleted', ['user_id' => $_SESSION['pro_user_id'], 'address' => $unique]);
                     echo json_encode(['success' => true, 'deleted_address' => $unique]);
@@ -294,14 +300,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // If this is a pro user, ensure they only have one non-personal temp address at a time.
                 if ($proUserId) {
                     $replacedAddresses = [];
+                    $replacedAttachmentFiles = [];
                     try {
                         $pdo->beginTransaction();
                         // Look up the address(es) about to be replaced so their DirectAdmin
                         // forwarder can be removed after the transaction commits.
-                        $oldStmt = $pdo->prepare("SELECT unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
+                        $oldStmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
                         $oldStmt->execute([$proUserId]);
-                        $replacedAddresses = $oldStmt->fetchAll(PDO::FETCH_COLUMN);
-                        // Delete any existing non-personal temp addresses for this pro user (will cascade stored_emails)
+                        $oldRows = $oldStmt->fetchAll(PDO::FETCH_ASSOC);
+                        foreach ($oldRows as $oldRow) {
+                            $replacedAddresses[] = $oldRow['unique_address'];
+                            // Delete the stored emails and attachment rows explicitly:
+                            // there is no guaranteed FK cascade from temp_emails.
+                            $replacedAttachmentFiles = array_merge(
+                                $replacedAttachmentFiles,
+                                deleteStoredEmailsForTempEmail($pdo, (int)$oldRow['id'])
+                            );
+                        }
+                        // Delete any existing non-personal temp addresses for this pro user
                         $del = $pdo->prepare("DELETE FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
                         $del->execute([$proUserId]);
                         // Now insert new address
@@ -311,6 +327,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($pdo->inTransaction()) $pdo->rollBack();
                         throw $e;
                     }
+                    // Files are unlinked only after the commit, so a rollback cannot
+                    // leave rows pointing at deleted files.
+                    unlinkAttachmentFiles($replacedAttachmentFiles);
                     foreach ($replacedAddresses as $replacedAddress) {
                         deleteDirectAdminForwarder($replacedAddress);
                     }

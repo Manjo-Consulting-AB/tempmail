@@ -1423,6 +1423,43 @@ function shouldRunGlobalImapRefresh(PDO $pdo, int $cooldownSeconds = 5): bool {
 }
 
 /**
+ * Delete every stored email of one temp_emails row and their attachment rows.
+ * Returns the absolute paths of the attachment files, which the caller must
+ * unlink with unlinkAttachmentFiles() only AFTER its transaction commits.
+ * Does not delete the temp_emails row itself.
+ */
+function deleteStoredEmailsForTempEmail(PDO $pdo, int $tempEmailId): array {
+    $stmt = $pdo->prepare("SELECT ea.file_path FROM email_attachments ea JOIN stored_emails se ON se.id = ea.email_id WHERE se.temp_email_id = ?");
+    $stmt->execute([$tempEmailId]);
+    $filePaths = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    $delAttachments = $pdo->prepare("DELETE FROM email_attachments WHERE email_id IN (SELECT id FROM stored_emails WHERE temp_email_id = ?)");
+    $delAttachments->execute([$tempEmailId]);
+
+    $delStoredEmails = $pdo->prepare("DELETE FROM stored_emails WHERE temp_email_id = ?");
+    $delStoredEmails->execute([$tempEmailId]);
+
+    $paths = [];
+    foreach ($filePaths as $filePath) {
+        // basename() so a stored path can never point outside attachments/
+        $paths[] = __DIR__ . '/attachments/' . basename($filePath);
+    }
+    return $paths;
+}
+
+/** Unlink attachment files collected by deleteStoredEmailsForTempEmail(). Never throws. */
+function unlinkAttachmentFiles(array $paths): void {
+    foreach ($paths as $path) {
+        if (!is_file($path)) {
+            continue;
+        }
+        if (!@unlink($path)) {
+            logMessage('WARNING', 'Failed to delete attachment file', ['file' => basename($path)]);
+        }
+    }
+}
+
+/**
  * Hämta e-postmeddelanden för en specifik adress
  */
 function getEmailsForAddress($address, $limit = 20) {
@@ -1580,48 +1617,6 @@ function getStats() {
             'total_users' => 0,
             'attachments_processed' => 0
         ];
-    }
-}
-
-/**
- * Rensa gamla data (anropas av cleanup.php)
- */
-function cleanupOldData() {
-    global $pdo, $config;
-    
-    try {
-        $pdo->beginTransaction();
-        
-        // Radera gamla adresser (aldrig personliga Pro-adresser - matchar
-        // filtret i cron/cleanup.php, som är den faktiska aktiva cleanup-koden)
-        $stmt = $pdo->prepare("DELETE FROM temp_emails WHERE is_personal = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)");
-        $stmt->execute([$config['app']['cleanup_hours']]);
-        $deletedAddresses = $stmt->rowCount();
-        
-        // Radera gamla e-postmeddelanden
-            $stmt = $pdo->prepare("DELETE FROM stored_emails WHERE (expires_at IS NOT NULL AND expires_at < NOW()) OR (expires_at IS NULL AND received_at < DATE_SUB(NOW(), INTERVAL ? HOUR))");
-        $stmt->execute([$config['app']['cleanup_hours']]);
-        $deletedEmails = $stmt->rowCount();
-        
-        // Radera gamla loggar (behåll 7 dagar)
-        $stmt = $pdo->prepare("DELETE FROM system_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)");
-        $stmt->execute([$config['cleanup']['log_retention_days']]);
-        $deletedLogs = $stmt->rowCount();
-        
-        $pdo->commit();
-        
-        logMessage('INFO', 'Cleanup completed successfully', [
-            'deleted_addresses' => $deletedAddresses,
-            'deleted_emails' => $deletedEmails, 
-            'deleted_logs' => $deletedLogs
-        ]);
-        
-        return true;
-        
-    } catch (PDOException $e) {
-        $pdo->rollBack();
-        logMessage('ERROR', 'Cleanup failed: ' . $e->getMessage());
-        return false;
     }
 }
 
