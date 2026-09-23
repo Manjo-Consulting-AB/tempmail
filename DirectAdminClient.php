@@ -127,11 +127,85 @@ class DirectAdminClient
     }
 
     /**
+     * List every forwarder on the configured domain as alias => destination.
+     * Read-only: the GET request performs no create/delete action.
+     * Returns null on transport failure or on an API error response.
+     */
+    public function listForwarders(): ?array
+    {
+        $raw = $this->requestRaw('CMD_API_EMAIL_FORWARDERS', ['domain' => $this->domain], 'GET');
+        if ($raw === null) {
+            return null;
+        }
+
+        $parsed = self::parseForwarderList($raw);
+
+        if (isset($parsed['error']) && (string)$parsed['error'] !== '0' && isset($parsed['text'])) {
+            $this->log('ERROR', 'DirectAdmin listForwarders failed', [
+                'response_message' => $parsed['text'],
+            ]);
+            return null;
+        }
+
+        return $parsed;
+    }
+
+    /**
+     * Parse a URL-encoded CMD_API_EMAIL_FORWARDERS response into
+     * alias => destination. Written by hand rather than with parse_str()
+     * because parse_str() rewrites '.' in keys to '_', and personal
+     * aliases may legitimately contain dots.
+     */
+    public static function parseForwarderList(string $raw): array
+    {
+        $forwarders = [];
+
+        foreach (explode('&', $raw) as $pair) {
+            if ($pair === '') {
+                continue;
+            }
+
+            $separator = strpos($pair, '=');
+            if ($separator === false) {
+                $key = urldecode($pair);
+                $value = '';
+            } else {
+                $key = urldecode(substr($pair, 0, $separator));
+                $value = urldecode(substr($pair, $separator + 1));
+            }
+
+            if ($key === '') {
+                continue;
+            }
+
+            $forwarders[$key] = $value;
+        }
+
+        return $forwarders;
+    }
+
+    /**
      * Low-level HTTP call against the DirectAdmin API. Returns the parsed
      * key=value response as an array, or null on transport failure.
      * Never includes the API key in logged output.
      */
     private function request(string $command, array $params): ?array
+    {
+        $raw = $this->requestRaw($command, $params);
+        if ($raw === null) {
+            return null;
+        }
+
+        parse_str($raw, $parsed);
+        return $parsed;
+    }
+
+    /**
+     * Low-level HTTP call against the DirectAdmin API. Returns the raw
+     * response body, or null on transport failure / non-2xx status.
+     * Never includes the API key in logged output.
+     */
+    private function requestRaw(string $command, array $params, string $method = 'POST'): ?string
     {
         if ($this->host === '' || $this->user === '' || $this->apiKey === '' || $this->domain === '') {
             $this->log('ERROR', 'DirectAdmin client not configured (missing host/user/api_key/domain)');
@@ -140,15 +214,7 @@ class DirectAdminClient
 
         $url = $this->host . '/' . ltrim($command, '/');
 
-        $ch = curl_init($url);
-        if ($ch === false) {
-            $this->log('ERROR', 'DirectAdmin request: curl_init failed');
-            return null;
-        }
-
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query($params),
+        $options = [
             CURLOPT_USERPWD => $this->user . ':' . $this->apiKey,
             CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
             CURLOPT_RETURNTRANSFER => true,
@@ -156,7 +222,23 @@ class DirectAdminClient
             CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT => $this->timeoutSeconds,
             CURLOPT_CONNECTTIMEOUT => $this->timeoutSeconds,
-        ]);
+        ];
+
+        if ($method === 'GET') {
+            $url .= '?' . http_build_query($params);
+            $options[CURLOPT_HTTPGET] = true;
+        } else {
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = http_build_query($params);
+        }
+
+        $ch = curl_init($url);
+        if ($ch === false) {
+            $this->log('ERROR', 'DirectAdmin request: curl_init failed');
+            return null;
+        }
+
+        curl_setopt_array($ch, $options);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -173,8 +255,7 @@ class DirectAdminClient
             return null;
         }
 
-        parse_str((string)$response, $parsed);
-        return $parsed;
+        return (string)$response;
     }
 
     private function log(string $level, string $message, ?array $context = null): void
