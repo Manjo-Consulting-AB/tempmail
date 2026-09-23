@@ -81,5 +81,24 @@ check('createForwarder rejects an alias containing whitespace', $configured->cre
 check('createForwarder rejects an empty alias', $configured->createForwarder('', 'test@example.com') === false);
 check('deleteForwarder rejects an alias containing "@"', $configured->deleteForwarder('abc@manjo.me') === false);
 
+// ---------------------------------------------------------------------
+// Response parsing (#216): parseForwarderList() is pure string work, so
+// it can be asserted offline. It deliberately avoids parse_str(), which
+// would turn the '.' in "tony.k" into '_'.
+// ---------------------------------------------------------------------
+
+$parsed = DirectAdminClient::parseForwarderList(
+    'a1b2c3d4=%22%7C%2Fusr%2Fbin%2Fphp%20%2Fhome%2Fu%2Fparse.php%22&tony.k=someone%40example.com'
+);
+check(
+    'parseForwarderList decodes aliases, dots and pipe destinations',
+    $parsed === [
+        'a1b2c3d4' => '"|/usr/bin/php /home/u/parse.php"',
+        'tony.k' => 'someone@example.com',
+    ]
+);
+
+check('parseForwarderList returns an empty array for an empty response', DirectAdminClient::parseForwarderList('') === []);
+
 echo "\n$total checks run, " . ($total - $failures) . " passed, $failures failed.\n";
 exit($failures === 0 ? 0 : 1);
