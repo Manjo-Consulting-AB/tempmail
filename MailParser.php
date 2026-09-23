@@ -176,6 +176,17 @@ final class MailParser
 
     private function extractContent(object $part): ?string
     {
+        // An attachment must keep the bytes the sender attached. getContent()
+        // charset-converts a text/* part to UTF-8, so a latin-1 .txt/.csv/.ics
+        // would be saved re-encoded; getBinaryContentStream() only undoes the
+        // transfer encoding (base64/quoted-printable) and leaves the charset
+        // alone, which is what a file on disk has to hold (#212).
+        if (method_exists($part, 'getBinaryContentStream')) {
+            $stream = $part->getBinaryContentStream();
+            if ($stream !== null) {
+                return $stream->getContents();
+            }
+        }
         if (method_exists($part, 'getContent')) {
             $data = $part->getContent();
             return is_string($data) ? $data : null;

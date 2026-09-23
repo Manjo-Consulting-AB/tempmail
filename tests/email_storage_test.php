@@ -713,6 +713,47 @@ if (ms_test_has_mime_parser()) {
     ms_test_skip('9v–9z. a nameless inline image survives the pipe end to end', 'run composer install so MailParser can decode the part');
 }
 
+// An attachment is the sender's bytes, not the parser's idea of text: a
+// `text/*` part is charset-converted to UTF-8 by getContent(), so a latin-1
+// .txt/.csv/.ics would be saved with different bytes than were attached (#212).
+// The three bytes below are åäö in ISO-8859-1.
+if (ms_test_has_mime_parser()) {
+    $msLatin1Bytes = "\xE5\xE4\xF6";
+    $msEmlWithLatin1Attachment = implode("\r\n", [
+        'From: Sender Name <sender@example.com>',
+        'To: <' . $msAddress($msPipeLocal) . '>',
+        'Subject: Pipe latin-1 attachment fixture',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="PROBE-CHARSET-BOUNDARY"',
+        '',
+        '--PROBE-CHARSET-BOUNDARY',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        'Body with a latin-1 attachment.',
+        '',
+        '--PROBE-CHARSET-BOUNDARY',
+        'Content-Type: text/plain; charset=ISO-8859-1; name="latin1.txt"',
+        'Content-Disposition: attachment; filename="latin1.txt"',
+        'Content-Transfer-Encoding: base64',
+        '',
+        base64_encode($msLatin1Bytes),
+        '',
+        '--PROBE-CHARSET-BOUNDARY--',
+        '',
+    ]);
+    $msRun = ms_test_cli_php($msProbe, 'parse.php', $msEmlWithLatin1Attachment, $msEnv + ['LOCAL_PART' => $msPipeLocal]);
+    ms_test_same('9aa. a message with a text/plain attachment exits 0', 0, $msRun['exit']);
+    $msLatin1EmailId = (int) $pdo->query('SELECT id FROM stored_emails ORDER BY id DESC LIMIT 1')->fetchColumn();
+    $msLatin1Attachments = ms_test_attachment_rows($pdo, $msLatin1EmailId);
+    ms_test_same(
+        '9ab. a text/plain attachment is saved byte-identical to the attached bytes, not charset-converted',
+        $msLatin1Bytes,
+        (string) @file_get_contents($msProbe . '/' . (string) ($msLatin1Attachments[0]['file_path'] ?? 'x'))
+    );
+} else {
+    ms_test_skip('9aa–9ab. a text/plain attachment keeps the attached bytes', 'run composer install so MailParser can decode the part');
+}
+
 // A *temporary* failure must defer, not bounce: the pipe exits 75 (EX_TEMPFAIL)
 // and still prints nothing at all, so the DirectAdmin/Exim pipe transport —
 // which bounces on any output, whatever the exit code — retries the delivery
