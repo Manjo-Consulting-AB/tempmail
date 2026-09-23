@@ -30,7 +30,6 @@ Disallow: /log_viewer.php
 Disallow: /bmac_handler.php
 Disallow: /parse.php
 Disallow: /python_imap_bridge.php
-Disallow: /run_imap_processor.php
 Disallow: /documentaion/
 Disallow: /partials/
 Disallow: /cron/

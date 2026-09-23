@@ -1406,29 +1406,6 @@ function requireSameOriginRequest(): bool {
     return strcasecmp($sourceHost, $expectedHost) === 0;
 }
 
-// refresh_emails triggers a full IMAP fetch/parse/DB-write cycle across every
-// currently valid address, not just the one requested, with no per-request
-// cost. Without a global cooldown, anyone can hammer that action to force
-// repeated full-mailbox syncs (cost-amplification DoS against the mail
-// server and DB). The UPDATE below only succeeds for one caller at a time
-// once the cooldown has elapsed, so concurrent requests can't all pass.
-function shouldRunGlobalImapRefresh(PDO $pdo, int $cooldownSeconds = 5): bool {
-    try {
-        $pdo->exec("CREATE TABLE IF NOT EXISTS imap_refresh_state (
-            id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
-            last_run_at DATETIME NULL
-        ) ENGINE=InnoDB");
-        $pdo->exec("INSERT IGNORE INTO imap_refresh_state (id, last_run_at) VALUES (1, NULL)");
-
-        $upd = $pdo->prepare("UPDATE imap_refresh_state SET last_run_at = NOW() WHERE id = 1 AND (last_run_at IS NULL OR last_run_at <= DATE_SUB(NOW(), INTERVAL ? SECOND))");
-        $upd->execute([$cooldownSeconds]);
-        return $upd->rowCount() > 0;
-    } catch (Exception $e) {
-        logMessage('WARNING', 'IMAP refresh cooldown check failed, allowing run', ['error' => $e->getMessage()]);
-        return true;
-    }
-}
-
 /**
  * Delete every stored email of one temp_emails row and their attachment rows.
  * Returns the absolute paths of the attachment files, which the caller must
