@@ -253,6 +253,15 @@ $baseConfig = [
         'smtp_batch_size' => (int)($_ENV['SMTP_BATCH_SIZE'] ?? 50),
         'smtp_per_minute' => (int)($_ENV['SMTP_PER_MINUTE'] ?? 200)
     ],
+    'webhooks' => [
+        // Send Pro webhooks from parse.php as soon as the email is stored, instead
+        // of waiting for cron/process-webhook-deliveries.php (which still retries
+        // failures). WEBHOOK_DELIVER_IMMEDIATELY=false restores queue-only.
+        'deliver_immediately' => filter_var($_ENV['WEBHOOK_DELIVER_IMMEDIATELY'] ?? true, FILTER_VALIDATE_BOOLEAN),
+        // Upper bound on deliveries sent inline per email, so slow targets cannot
+        // hold the Exim pipe for long; the rest go to the cron worker.
+        'immediate_limit' => (int)($_ENV['WEBHOOK_IMMEDIATE_LIMIT'] ?? 5),
+    ],
     'bmac' => [
         // Buy Me a Coffee webhook secret for signature verification
         'webhook_secret' => $_ENV['BMAC_WEBHOOK_SECRET'] ?? null
