@@ -49,8 +49,14 @@ if ($arg === '') {
     report('INFO', "no address given, using the latest stored mail's recipient: {$arg}");
 }
 $local = explode('@', $arg)[0];
-if (!preg_match('/^[a-f0-9]{8,16}$/', $local)) {
-    report('FEL', 'not a valid address local part (^[a-f0-9]{8,16}$)');
+// Two shapes are both legitimate local parts, told apart only by is_personal on
+// the temp_emails row looked up below: an anonymous temp address is always
+// ^[a-f0-9]{8,16}$, but a personal address can be any name sanitizeLocalPart()
+// (config.php) accepts on creation — a-z, 0-9, ., -, _, 3-64 chars. Gate on
+// that wider shape here so a real personal address (e.g. "duo") isn't rejected
+// as invalid before the lookup even runs.
+if (!preg_match('/^[a-z0-9._-]{3,64}$/', $local)) {
+    report('FEL', 'not a valid address local part (temp: ^[a-f0-9]{8,16}$, personal: a-z 0-9 . _ - , 3-64 chars)');
     exit(2);
 }
 
