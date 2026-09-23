@@ -4009,11 +4009,11 @@ a:hover {
    did before — and it only fires once the two no longer fit together, so wide
    viewports are unchanged. `flex-wrap` on the controls is the floor for the
    narrowest phones (320px), where the three no longer fit even alone. */
-.ms-address-row__main:has(.ms-address-row__hooks) {
+.ms-address-row__main:has(.ms-address-row__hooks:not(.d-none)) {
     flex-wrap: wrap;
 }
 
-.ms-address-row__main:has(.ms-address-row__hooks) .ms-address-row__actions {
+.ms-address-row__main:has(.ms-address-row__hooks:not(.d-none)) .ms-address-row__actions {
     flex-wrap: wrap;
     justify-content: flex-end;
 }
