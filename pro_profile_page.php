@@ -1295,16 +1295,16 @@ try {
                         ? '<span class="badge bg-warning text-dark ms-2">Paused</span>' 
                         : '<span class="badge bg-success ms-2">Active</span>';
                     var pauseBtn = isPaused
-                        ? '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+w.id+'" data-mode="all" title="Resume webhook" aria-label="Resume webhook"><i class="fas fa-play text-success"></i></button>'
-                        : '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+w.id+'" data-mode="paused" title="Pause webhook" aria-label="Pause webhook"><i class="fas fa-pause text-warning"></i></button>';
+                        ? '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+escapeHtml(w.id)+'" data-mode="all" title="Resume webhook" aria-label="Resume webhook"><i class="fas fa-play text-success"></i></button>'
+                        : '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+escapeHtml(w.id)+'" data-mode="paused" title="Pause webhook" aria-label="Pause webhook"><i class="fas fa-pause text-warning"></i></button>';
                     html += '<div class="list-group-item d-flex justify-content-between align-items-start">'
-                        + '<div class="me-3"><strong>' + (w.name || ('#'+w.id)) + '</strong>' + statusBadge + '<div class="text-muted small">' + w.kind + ' — ' + w.url + '</div>'
-                        + (cfg ? '<div class="text-muted small">Config: ' + cfg + '</div>' : '')
+                        + '<div class="me-3"><strong>' + escapeHtml(w.name || ('#'+w.id)) + '</strong>' + statusBadge + '<div class="text-muted small">' + escapeHtml(w.kind) + ' — ' + escapeHtml(w.url) + '</div>'
+                        + (cfg ? '<div class="text-muted small">Config: ' + escapeHtml(cfg) + '</div>' : '')
                         + '</div>'
                         + '<div class="btn-group">'
                         + pauseBtn
-                        + '<button class="btn btn-sm btn-outline-secondary wh-deliveries" data-id="'+w.id+'">Deliveries</button>'
-                        + '<button class="btn btn-sm btn-danger wh-delete" data-id="'+w.id+'" title="Delete webhook" aria-label="Delete webhook"><i class="fas fa-trash"></i></button>'
+                        + '<button class="btn btn-sm btn-outline-secondary wh-deliveries" data-id="'+escapeHtml(w.id)+'">Deliveries</button>'
+                        + '<button class="btn btn-sm btn-danger wh-delete" data-id="'+escapeHtml(w.id)+'" title="Delete webhook" aria-label="Delete webhook"><i class="fas fa-trash"></i></button>'
                         + '</div></div>';
                 });
                 html += '</div>';
@@ -1344,7 +1344,7 @@ try {
                         $('#whName,#whUrl,#whConfig,#whSecret').val('');
                         loadWebhooks();
                     } else {
-                        $('#whMsg').html('<div class="text-danger">'+(r && r.error ? r.error : 'Failed')+'</div>');
+                        $('#whMsg').html('<div class="text-danger">'+escapeHtml(r && r.error ? r.error : 'Failed')+'</div>');
                     }
                 }, 'json').fail(function(xhr, status, err){
                     $('#whCreateBtn').prop('disabled', false);
@@ -1410,7 +1410,7 @@ try {
                         if (!r.deliveries || r.deliveries.length === 0) out += 'No deliveries yet.';
                         else {
                             r.deliveries.forEach(function(d){
-                                out += '<div class="mb-2">['+d.status+'] attempts='+d.attempts+' created='+d.created_at+'<div class="text-muted small">error: '+(d.last_error||'')+'</div></div>';
+                                out += '<div class="mb-2">['+escapeHtml(d.status)+'] attempts='+escapeHtml(d.attempts)+' created='+escapeHtml(d.created_at)+'<div class="text-muted small">error: '+escapeHtml(d.last_error||'')+'</div></div>';
                             });
                         }
                         out += '</div>';
