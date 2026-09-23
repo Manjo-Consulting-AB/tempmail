@@ -277,6 +277,18 @@ $pdo->sqliteCreateFunction('TIMESTAMPDIFF', static function ($unit, $a, $b): int
     if ($from === false || $to === false) return 0;
     return (int)(($to - $from) / 60);
 }, 3);
+
+// Same reasoning for AttachmentStorage's content_id probe: the suite's own
+// connection gets it from ms_test_storage_emulate_information_schema(), and
+// without this copy every subprocess would answer "missing", fail the
+// ALTER ... AFTER self-heal and take the six-column INSERT — so no check across
+// parse.php or the bridge could ever see content_id written (#217). Keep the
+// two in step.
+$pdo->sqliteCreateFunction('DATABASE', static fn(): string => 'mailshield_test', 0);
+$pdo->exec("ATTACH DATABASE ':memory:' AS information_schema");
+$pdo->exec('CREATE TABLE information_schema.COLUMNS (TABLE_SCHEMA TEXT, TABLE_NAME TEXT, COLUMN_NAME TEXT)');
+$pdo->prepare('INSERT INTO information_schema.COLUMNS (TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME) VALUES (?, ?, ?)')
+    ->execute(['mailshield_test', 'email_attachments', 'content_id']);
 PHP;
 }
 
