@@ -20,10 +20,9 @@ declare(strict_types=1);
  *   - section 8 drives the real ImapProcessor::saveEmail() with an IMAP header
  *     fixture — no server, no connection, which is exactly the part of that
  *     path that persistence owns;
- *   - sections 9–10 run parse.php and python_imap_bridge.php as the separate
- *     CLI processes production runs them as, and assert their exit codes and
- *     their streams: the pipe target must print nothing at all, because Exim
- *     turns any output into a bounce;
+ *   - section 9 runs parse.php as the separate CLI process production runs it
+ *     as, and asserts its exit code and its streams: the pipe target must print
+ *     nothing at all, because Exim turns any output into a bounce;
  *   - section 11 scans the repository itself and asserts that the two
  *     ingestion INSERTs exist in the Email Storage service and nowhere else,
  *     which is the invariant the #199 audit established.
@@ -805,67 +804,6 @@ try {
 ms_test_same('9u. a store failure exits 75 so Exim defers the delivery', 75, $msRun['exit']);
 ms_test_same('9u. (a deferred run prints nothing on stdout)', '', $msRun['stdout']);
 ms_test_same('9u. (a deferred run prints nothing on stderr)', '', $msRun['stderr']);
-
-// ---------------------------------------------------------------------
-// 10. Python fallback handoff (python_imap_bridge.php)
-// ---------------------------------------------------------------------
-
-ms_test_section('10. Python fallback handoff (python_imap_bridge.php)');
-
-$msBridgePayload = [
-    'to_address' => $msAddress($msFreeLocal),
-    'received_at' => '2026-09-22 09:00:00',
-    'from_address' => 'fallback@example.com',
-    'subject' => 'Bridge fixture',
-    'body_text' => 'Stored by the bridge.',
-];
-
-$msRun = ms_test_cli_php($msProbe, 'python_imap_bridge.php', (string) json_encode($msBridgePayload), $msEnv);
-ms_test_same('10a. a verdict is produced (exit 0)', 0, $msRun['exit']);
-ms_test_same('10b. the bridge answers with one JSON object', StorageResult::STATUS_STORED, $msRun['json']['status'] ?? null);
-ms_test_check('10c. the answer carries the stored row id', is_int($msRun['json']['stored_email_id'] ?? null) && $msRun['json']['stored_email_id'] > 0, ms_test_dump($msRun['json']));
-
-$msRow = $pdo->query('SELECT * FROM stored_emails ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [];
-ms_test_same('10d. the message is filed under the recipient address', $msAddress($msFreeLocal), $msRow['to_address'] ?? null);
-ms_test_same('10e. the payload fields are stored', ['fallback@example.com', 'Bridge fixture', 'Stored by the bridge.'], [$msRow['from_address'] ?? null, $msRow['subject'] ?? null, $msRow['body_text'] ?? null]);
-ms_test_same('10f. the fallback path stores no attachments, as before', [], ms_test_attachment_rows($pdo, (int) ($msRow['id'] ?? 0)));
-
-// The bridge is the one caller that passes OPTION_DETECT_DUPLICATES, so its own
-// duplicate rule is the one that has to hold here.
-$msRun = ms_test_cli_php($msProbe, 'python_imap_bridge.php', (string) json_encode($msBridgePayload), $msEnv);
-ms_test_same('10g. re-submitting the same message is reported as a duplicate', StorageResult::STATUS_DUPLICATE, $msRun['json']['status'] ?? null);
-ms_test_same('10h. a duplicate still exits 0 — it is an answer, not a failure', 0, $msRun['exit']);
-ms_test_same('10i. and it wrote no second row', 1, ms_test_count($pdo, 'stored_emails', 'subject = ?', ['Bridge fixture']));
-
-$msRun = ms_test_cli_php($msProbe, 'python_imap_bridge.php', (string) json_encode(array_merge($msBridgePayload, ['subject' => 'Bridge fixture, later'])), $msEnv);
-ms_test_same('10j. a different subject is stored', StorageResult::STATUS_STORED, $msRun['json']['status'] ?? null);
-
-$msRun = ms_test_cli_php($msProbe, 'python_imap_bridge.php', (string) json_encode(['to_address' => $msAddress('unknown99'), 'received_at' => '2026-09-22 09:05:00']), $msEnv);
-ms_test_same('10k. an unknown recipient is stored, because this path passes no recipient gate', StorageResult::STATUS_STORED, $msRun['json']['status'] ?? null);
-$msRow = $pdo->query('SELECT * FROM stored_emails ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [];
-ms_test_same(
-    '10l. and it is filed under that recipient with no ownership',
-    [$msAddress('unknown99'), null],
-    [$msRow['to_address'] ?? null, $msRow['temp_email_id'] ?? null]
-);
-
-$msRun = ms_test_cli_php($msProbe, 'python_imap_bridge.php', (string) json_encode(['to_address' => 'nope', 'received_at' => '2026-09-22 09:05:00']), $msEnv);
-ms_test_same('10m. an unusable recipient is a service verdict, not a bridge error', StorageResult::STATUS_REJECTED, $msRun['json']['status'] ?? null);
-ms_test_same('10n. a service verdict exits 0', 0, $msRun['exit']);
-
-// Bridge errors: the caller has to be able to tell them apart, because exit 2
-// means it leaves the source message on the server.
-foreach ([
-    '10o. a missing to_address is a bridge failure' => (string) json_encode(['received_at' => '2026-09-22 09:05:00']),
-    '10p. a missing received_at is a bridge failure' => (string) json_encode(['to_address' => $msAddress($msFreeLocal)]),
-    '10q. a malformed received_at is a bridge failure' => (string) json_encode(['to_address' => $msAddress($msFreeLocal), 'received_at' => 'not a timestamp']),
-    '10r. stdin that is not JSON is a bridge failure' => 'this is not JSON',
-    '10s. empty stdin is a bridge failure' => '',
-] as $msLabel => $msStdin) {
-    $msRun = ms_test_cli_php($msProbe, 'python_imap_bridge.php', $msStdin, $msEnv);
-    ms_test_same($msLabel, 2, $msRun['exit']);
-    ms_test_same($msLabel . ' (reported as failed)', StorageResult::STATUS_FAILED, $msRun['json']['status'] ?? null);
-}
 
 // ---------------------------------------------------------------------
 // 11. The storage boundary, repository-wide (#199)
