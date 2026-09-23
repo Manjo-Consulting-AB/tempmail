@@ -2,70 +2,53 @@
 
 declare(strict_types=1);
 
-// Use safe local debug logger to avoid DB/network calls during IMAP processing
-@require_once __DIR__ . '/debug_logger.php';
+@require_once __DIR__ . '/EmailStorage/EmailAttachment.php';
 
 /**
  * Legacy IMAP parts-based attachment extractor.
- * This class exposes a static method compatible with previous behavior and
- * requires the caller to provide a PDO instance for DB inserts.
+ *
+ * Extraction only. It walks the MIME structure of a message over a live IMAP
+ * connection, decodes each attachment part and returns them as value objects.
+ * It writes no file and no database row: persistence belongs to the Email
+ * Storage service (EmailStorage::persistAttachments()), which is the same path
+ * the MailParser attachments of a message take (epic #169, #195).
+ *
+ * The live IMAP connection is what keeps this separate from MailParser: it
+ * fetches each part with imap_fetchbody() instead of parsing a raw message.
  */
 final class LegacyImapFallback
 {
     /**
-     * Normalize a content-id for reliable matching.
-     */
-    public static function normalizeCid(string $cid): string
-    {
-        return strtolower(preg_replace('/[^a-z0-9]/i', '', $cid) ?? '');
-    }
-
-    /**
-     * Recursively save IMAP message parts as attachments.
+     * Decode every attachment of one message, recursing into nested parts.
      *
-     * @param PDO $pdo Database connection
+     * The content-id travels on each returned EmailAttachment: it is what the
+     * service stores alongside the attachment, and what the inbox resolves the
+     * body's inline `cid:` references from at display time. No content-id map
+     * is built here because the attachment ids it would key on do not exist
+     * until the service has persisted them.
+     *
      * @param resource $imapConnection IMAP connection resource
      * @param int $messageNumber IMAP message number
      * @param array $parts Array of IMAP part structures
      * @param string $prefix Part number prefix for nested parts
-     * @param int $emailId Database email ID
-     * @param string $attachmentsDir Path to attachments directory
-     * @param int &$savedCount Counter for saved attachments (passed by reference)
-     * @param array<string, int>|null &$cidMap Content-ID to attachment ID mapping (passed by reference)
+     * @return list<EmailAttachment>
      */
-    public static function savePartsRecursive(
-        PDO $pdo,
+    public static function extractAttachments(
         $imapConnection,
         int $messageNumber,
         array $parts,
-        string $prefix,
-        int $emailId,
-        string $attachmentsDir,
-        int &$savedCount,
-        ?array &$cidMap = null
-    ): void {
-        // Check content_id column existence once per call stack
-        static $hasContentIdColumn = null;
-        if ($hasContentIdColumn === null) {
-            $hasContentIdColumn = self::ensureContentIdColumn($pdo);
-        }
+        string $prefix = ''
+    ): array {
+        $attachments = [];
 
         foreach ($parts as $index => $part) {
             $partNumber = $prefix === '' ? (string)($index + 1) : ($prefix . '.' . ($index + 1));
 
-            // Recurse into sub-parts (pass cidMap to nested calls)
+            // Nested parts come before their parent, as on this path always.
             if (isset($part->parts) && is_array($part->parts) && count($part->parts) > 0) {
-                self::savePartsRecursive(
-                    $pdo,
-                    $imapConnection,
-                    $messageNumber,
-                    $part->parts,
-                    $partNumber,
-                    $emailId,
-                    $attachmentsDir,
-                    $savedCount,
-                    $cidMap
-                );
+                foreach (self::extractAttachments($imapConnection, $messageNumber, $part->parts, $partNumber) as $nested) {
+                    $attachments[] = $nested;
+                }
             }
 
             // Detect filename from dparameters or parameters
@@ -100,124 +83,15 @@ final class LegacyImapFallback
                 $filename = sprintf('attachment_%d_%d.%s', $messageNumber, $index + 1, $ext);
             }
 
-            // Sanitize filename
-            $filename = preg_replace('/[^A-Za-z0-9._-]/', '_', $filename) ?? 'attachment';
-            $unique = time() . '_' . bin2hex(random_bytes(4));
-            $finalName = $unique . '_' . $filename;
-            $fullPath = rtrim($attachmentsDir, '/') . '/' . $finalName;
-
-            // Write file
-            $written = @file_put_contents($fullPath, $data);
-            if ($written === false) {
-                $msg = "[LegacyImapFallback] Failed to write attachment: {$fullPath} (email_id={$emailId})";
-                    if (function_exists('logMessage')) {
-                        logMessage('ERROR', 'LegacyImapFallback failed to write attachment', ['email_id' => $emailId, 'file_path' => $fullPath, 'filename' => $filename]);
-                    } else {
-                        error_log($msg);
-                    }
-                if (function_exists('safeDebugLog')) {
-                    safeDebugLog('ERROR', $msg, ['email_id' => $emailId, 'file_path' => $fullPath, 'filename' => $filename]);
-                }
-                continue;
-            }
-
-            $relativePath = 'attachments/' . $finalName;
-            $ctype = self::determineMimeType($part);
-            $contentId = self::extractContentId($part);
-            $fileSize = is_string($data) ? strlen($data) : 0;
-
-            // Insert into database
-            try {
-                // Direct file log for debugging email_id issue -> use safeDebugLog instead
-                if (function_exists('safeDebugLog')) {
-                    safeDebugLog('DEBUG', '[LegacyImapFallback] INSERT', ['email_id' => (int)$emailId, 'filename' => $filename]);
-                }
-
-                if ($hasContentIdColumn) {
-                    $sql = 'INSERT INTO email_attachments (email_id, filename, file_path, mime_type, file_size, created_at, content_id) VALUES (?, ?, ?, ?, ?, ?, ?)';
-                    $stmt = $pdo->prepare($sql);
-                    $stmt->bindValue(1, (int)$emailId, PDO::PARAM_INT);
-                    $stmt->bindValue(2, (string)$filename, PDO::PARAM_STR);
-                    $stmt->bindValue(3, (string)$relativePath, PDO::PARAM_STR);
-                    $stmt->bindValue(4, (string)$ctype, PDO::PARAM_STR);
-                    $stmt->bindValue(5, (int)$fileSize, PDO::PARAM_INT);
-                    $stmt->bindValue(6, date('Y-m-d H:i:s'), PDO::PARAM_STR);
-                    $stmt->bindValue(7, $contentId, PDO::PARAM_STR);
-                    if (function_exists('safeDebugLog')) safeDebugLog('DEBUG', '[LegacyImapFallback] Executing attachment INSERT', ['email_id' => (int)$emailId, 'filename' => $filename, 'file_path' => $relativePath]);
-                    $result = $stmt->execute();
-                } else {
-                    $sql = 'INSERT INTO email_attachments (email_id, filename, file_path, mime_type, file_size, created_at) VALUES (?, ?, ?, ?, ?, ?)';
-                    $stmt = $pdo->prepare($sql);
-                    $stmt->bindValue(1, (int)$emailId, PDO::PARAM_INT);
-                    $stmt->bindValue(2, (string)$filename, PDO::PARAM_STR);
-                    $stmt->bindValue(3, (string)$relativePath, PDO::PARAM_STR);
-                    $stmt->bindValue(4, (string)$ctype, PDO::PARAM_STR);
-                    $stmt->bindValue(5, (int)$fileSize, PDO::PARAM_INT);
-                    $stmt->bindValue(6, date('Y-m-d H:i:s'), PDO::PARAM_STR);
-                    if (function_exists('safeDebugLog')) safeDebugLog('DEBUG', '[LegacyImapFallback] Executing attachment INSERT', ['email_id' => (int)$emailId, 'filename' => $filename, 'file_path' => $relativePath]);
-                    $result = $stmt->execute();
-                }
-
-                if (!$result) {
-                    $err = $stmt->errorInfo();
-                    $msg = "[LegacyImapFallback] DB execute failed for {$relativePath}: " . implode(', ', $err);
-                        if (function_exists('logMessage')) {
-                            logMessage('ERROR', 'LegacyImapFallback DB execute failed', ['email_id' => $emailId, 'file_path' => $relativePath, 'pdo_error' => $err]);
-                        } else {
-                            error_log($msg);
-                        }
-                    if (function_exists('safeDebugLog')) {
-                        safeDebugLog('ERROR', $msg, [
-                            'email_id' => $emailId,
-                            'file_path' => $relativePath,
-                            'filename' => $filename,
-                            'mime_type' => $ctype,
-                            'file_size' => $fileSize,
-                            'pdo_error' => $err,
-                            'query' => $stmt->queryString ?? null
-                        ]);
-                    }
-                    continue;
-                }
-
-                $savedCount++;
-                $aid = (int)$pdo->lastInsertId();
-                    if (function_exists('logMessage')) {
-                        logMessage('INFO', 'LegacyImapFallback inserted attachment', ['email_id' => $emailId, 'attachment_id' => $aid, 'file' => $relative]);
-                    } else {
-                        error_log("[LegacyImapFallback] Inserted attachment id={$aid} for email_id={$emailId} file={$relativePath}");
-                    }
-
-                // Build content-id mapping (original and normalized)
-                if ($cidMap !== null && $contentId !== null && $contentId !== '') {
-                    $cidClean = trim($contentId, "<> \t\n\r");
-                    if ($cidClean !== '') {
-                        $cidMap[$cidClean] = $aid;
-                        $normalized = self::normalizeCid($cidClean);
-                        if ($normalized !== '' && $normalized !== $cidClean) {
-                            $cidMap[$normalized] = $aid;
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {
-                $msg = "[LegacyImapFallback] DB insert failed for {$relativePath}: " . $e->getMessage();
-                if (function_exists('logMessage')) {
-                    logMessage('ERROR', 'LegacyImapFallback DB insert failed', ['email_id' => $emailId, 'file_path' => $relativePath, 'exception' => $e->getMessage()]);
-                } else {
-                    error_log($msg);
-                }
-                if (function_exists('safeDebugLog')) {
-                    safeDebugLog('ERROR', $msg, [
-                        'email_id' => $emailId,
-                        'file_path' => $relativePath,
-                        'filename' => $filename,
-                        'mime_type' => $ctype,
-                        'file_size' => $fileSize,
-                        'exception' => $e->getMessage()
-                    ]);
-                }
-            }
+            $attachments[] = new EmailAttachment(
+                $filename,
+                $data,
+                self::determineMimeType($part),
+                self::extractContentId($part)
+            );
         }
+
+        return $attachments;
     }
 
     /**
@@ -290,55 +164,5 @@ final class LegacyImapFallback
             6 => 'video/' . $sub,
             default => 'application/octet-stream',
         };
-    }
-
-    /**
-     * Check if a table has a specific column.
-     */
-    private static function tableHasColumn(PDO $pdo, string $table, string $column): bool
-    {
-        try {
-            // Not "SHOW COLUMNS FROM table LIKE ?": MariaDB rejects a bound
-            // placeholder there with a hard SQL syntax error (confirmed live
-            // against production), which the catch below silently turned into
-            // a permanent false negative - this looked like it worked because
-            // no exception surfaced anywhere the caller could see it.
-            $stmt = $pdo->prepare(
-                'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
-            );
-            $stmt->execute([$table, $column]);
-            return (int)$stmt->fetchColumn() > 0;
-        } catch (\Throwable $_) {
-            return false;
-        }
-    }
-
-    /**
-     * Ensure the email_attachments.content_id column exists, creating it if
-     * necessary. Without this column, embedded/inline images referenced via
-     * "cid:" in HTML email bodies can never be resolved to a downloadable
-     * URL, so this self-heals older schemas instead of silently degrading.
-     */
-    private static function ensureContentIdColumn(PDO $pdo): bool
-    {
-        if (self::tableHasColumn($pdo, 'email_attachments', 'content_id')) {
-            return true;
-        }
-        try {
-            // No "IF NOT EXISTS" here: that clause requires MySQL 8.0.29+/
-            // recent MariaDB and throws a syntax error on older shared-hosting
-            // MySQL, which would silently defeat this self-heal. The
-            // tableHasColumn() check above is what actually guards against
-            // re-adding an existing column.
-            $pdo->exec("ALTER TABLE email_attachments ADD COLUMN content_id VARCHAR(255) NULL AFTER mime_type");
-        } catch (\Throwable $e) {
-            if (function_exists('logMessage')) {
-                logMessage('WARNING', 'LegacyImapFallback could not ensure content_id column exists', ['error' => $e->getMessage()]);
-            } else {
-                error_log('[LegacyImapFallback] Could not ensure content_id column exists: ' . $e->getMessage());
-            }
-            return false;
-        }
-        return self::tableHasColumn($pdo, 'email_attachments', 'content_id');
     }
 }

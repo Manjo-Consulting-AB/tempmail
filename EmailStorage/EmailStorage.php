@@ -172,10 +172,7 @@ final class EmailStorage
         // Outside the email's transaction, and after it: an attachment is
         // allowed to fail without undoing the email, which is what both intake
         // paths do today (architecture doc §5).
-        [$warnings, $saved] = $this->persistAttachments($email, $emailId);
-        if ($saved > 0) {
-            $this->bumpStat('attachments_processed', $saved);
-        }
+        [$warnings, $saved] = $this->persistAttachments($emailId, $email->attachments);
 
         return StorageResult::stored($emailId, $warnings, $saved > 0 ? 'Stored with ' . $saved . ' attachment(s)' : '');
     }
@@ -244,16 +241,21 @@ final class EmailStorage
     }
 
     /**
-     * Persist every attachment of the email, keeping whatever succeeds.
+     * Persist attachments for an email that is already stored, keeping whatever
+     * succeeds. This is the one attachment-persistence path: store() uses it for
+     * an email's own (MailParser) attachments, and the IMAP fallback uses it for
+     * the parts it extracted over the live connection, which cannot travel in
+     * the DTO because the email row has to exist first (#195).
      *
+     * @param list<EmailAttachment> $attachments
      * @return array{0: list<string>, 1: int} warnings and the number stored.
      */
-    private function persistAttachments(IncomingEmail $email, int $emailId): array
+    public function persistAttachments(int $emailId, array $attachments): array
     {
         $warnings = [];
         $saved = 0;
 
-        foreach ($email->attachments as $attachment) {
+        foreach ($attachments as $attachment) {
             if (!$attachment instanceof EmailAttachment) {
                 $warnings[] = 'An attachment was skipped: not an EmailAttachment';
                 $this->log('WARNING', 'EmailStorage skipped an attachment that is not an EmailAttachment', ['email_id' => $emailId]);
@@ -268,6 +270,12 @@ final class EmailStorage
                 $warnings[] = 'Attachment "' . $attachment->filename . '" was not stored';
                 $this->log('WARNING', 'EmailStorage kept an email whose attachment failed', ['email_id' => $emailId, 'filename' => $attachment->filename, 'error' => $e->getMessage()]);
             }
+        }
+
+        // The counter belongs to persistence (§7.6), so it follows the
+        // attachments regardless of which entrypoint handed them over.
+        if ($saved > 0) {
+            $this->bumpStat('attachments_processed', $saved);
         }
 
         return [$warnings, $saved];
