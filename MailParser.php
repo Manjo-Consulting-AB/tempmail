@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-// Use safe local debug logger to avoid DB/network calls during IMAP processing
+// Use safe local debug logger to avoid DB/network calls during mail processing
 @require_once __DIR__ . '/debug_logger.php';
 
 /**
  * MailParser: centralizes MIME parsing and attachment extraction.
- * Uses ZBateson MailMimeParser when available; otherwise returns no attachments
- * and leaves fallback to LegacyImapFallback.
+ * Uses ZBateson MailMimeParser when available; otherwise it returns no
+ * attachments.
  *
  * Parsing only. It writes no file and no database row: what it extracts is
  * handed to the Email Storage service, which owns every `stored_emails` and
@@ -68,7 +68,7 @@ final class MailParser
             }
 
             // Extract from-address as a bare email (e.g. "user@example.com"),
-            // matching the format ImapProcessor builds from IMAP headers.
+            // the format the rest of the app expects.
             if (method_exists($message, 'getHeader')) {
                 $fromHeader = $message->getHeader('from');
                 if ($fromHeader !== null && method_exists($fromHeader, 'getEmail')) {

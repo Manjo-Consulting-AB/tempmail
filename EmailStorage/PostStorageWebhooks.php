@@ -51,8 +51,8 @@ final class PostStorageWebhooks
             }
 
             // Loaded here rather than at the top of the file: this consumer is
-            // attached by entrypoints (parse.php, python_imap_bridge.php) that
-            // have no other use for the IMAP processor class.
+            // attached by parse.php, which has no other use for the processor
+            // class that holds the webhook dispatch.
             require_once __DIR__ . '/../php_imap_processor.php';
 
             $processor = new ImapProcessor($config, $pdo, $debug);

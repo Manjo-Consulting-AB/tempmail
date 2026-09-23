@@ -27,9 +27,8 @@ class ImapProcessor
     {
         try {
             // Entitlement check lives here (not in the caller) so every current and future
-            // caller of dispatchWebhooks() is covered. function_exists() guards against running
-            // from entrypoints (run_imap_processor.php, cron/run_imap_once.php) that construct
-            // this class without loading config.php.
+            // caller of dispatchWebhooks() is covered. function_exists() guards against a caller
+            // that constructs this class without loading config.php.
             if (function_exists('proUserIsPro') && !proUserIsPro($proUserId)) {
                 $this->log('DEBUG', 'Skipping webhook dispatch for non-pro account', ['user_id' => $proUserId]);
                 return;

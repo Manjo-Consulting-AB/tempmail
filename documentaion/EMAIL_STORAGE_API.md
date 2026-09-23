@@ -7,21 +7,22 @@ incoming email it accepts and the result it returns, §3–§6) and the service 
 §7, plus the post-storage listeners in §7.8).
 **Epic:** #169 (email persistence consolidation), steps 2/10 (#190, the contract), 3/10 (#191,
 the service), 8/10 (#196, post-storage processing) and 10/10 (#199, which corrected §1 to the
-post-migration tense and §7.1/§7.5 to the removed parser helper).
+post-migration tense and §7.1/§7.5 to the removed parser helper). Updated for #212, which removed
+every intake path but the DirectAdmin pipe.
 
-This document describes types and a service that exist and are loadable today. All three ingestion
-paths now go through the service (#192–#195 migrated the callers, #196 moved their downstream
-processing onto it). The current state of all three ingestion paths is in
-`documentaion/EMAIL_STORAGE_ARCHITECTURE.md` (#189) and is not repeated here.
+This document describes types and a service that exist and are loadable today. `parse.php` now goes
+through the service (#192–#195 migrated the call sites, #196 moved their downstream processing onto
+it, and #212 removed the other intake paths), and it is the only caller. The current state of the
+intake is in `documentaion/EMAIL_STORAGE_ARCHITECTURE.md` (#189) and is not repeated here.
 
 ---
 
 ## 1. What this is for
 
-Each of the three ingestion paths (IMAP polling, the DirectAdmin pipe, the Python fallback) used to
-build its own `stored_emails` row inline, with its own parsing, its own retention lookup and its
-own divergences — the architecture document inventories those differences. Epic #169 replaced that
-with one persistence entrypoint, and all three now call it.
+Each of the three ingestion paths the epic started from used to build its own `stored_emails` row
+inline, with its own parsing, its own retention lookup and its own divergences — the architecture
+document inventories those differences. Epic #169 replaced that with one persistence entrypoint, and
+`parse.php` is the only caller left: it is the one path #212 did not remove.
 
 A single entrypoint needs a single input shape and a single output shape. That is all this issue
 defines: `IncomingEmail` (plus `EmailAttachment`) going in, `StorageResult` coming back. Defining
@@ -79,16 +80,16 @@ service will write, so the mapping stays obvious.
 
 | Property | Type | Null? | Meaning |
 |---|---|---|---|
-| `toAddress` | `string` | no | Recipient as the full address (`local@domain`). Every path resolves this before it persists anything, so it is required. |
-| `receivedAt` | `DateTimeImmutable` | no | When the message was received. Required: all three paths set it (IMAP internal date on A, the pipe clock on B, the `Date:` header with a `now()` fallback on C). |
-| `fromAddress` | `?string` | yes | Sender. Path A writes `''` when the header is absent, path C may leave it missing; adapters normalize "absent" to `null`. |
+| `toAddress` | `string` | no | Recipient as the full address (`local@domain`). The adapter resolves this before it persists anything, so it is required. |
+| `receivedAt` | `DateTimeImmutable` | no | When the message was received. Required: the pipe sets it to its own clock. |
+| `fromAddress` | `?string` | yes | Sender. The adapter normalizes "absent" to `null`. |
 | `subject` | `?string` | yes | Subject, already MIME-decoded by the adapter. The `'(no subject)'` fallback stays where it is today — it is a persistence decision, not part of the contract. |
-| `bodyText` | `?string` | yes | Plain-text body, already sanitized by the adapter (`sanitizeSavedBody()` on A/B). `null` when the message had no text part. |
+| `bodyText` | `?string` | yes | Plain-text body, already sanitized by the adapter. `null` when the message had no text part. |
 | `bodyHtml` | `?string` | yes | HTML body, same sanitizing. `null` when the message had no HTML part. |
-| `tempEmailId` | `?int` | yes | `temp_emails.id`. Both the IMAP path and the Python path continue after the address lookup fails, leaving this `null` while still storing the email. |
+| `tempEmailId` | `?int` | yes | `temp_emails.id`. An adapter whose address lookup fails may leave this `null` while still storing the email. |
 | `proUserId` | `?int` | yes | `temp_emails.pro_user_id` when the address is Pro-owned. `null` for a temporary address or a failed lookup. |
 | `expiresAt` | `?DateTimeImmutable` | yes | The expiry the adapter resolved. `null` whenever `tempEmailId` is `null`. The service re-derives the retention it writes and falls back to this value (§7.3). |
-| `messageId` | `?string` | yes | The `Message-ID` header, the field an exact duplicate rule would key on. **`stored_emails` has no column for it today** (architecture doc §4), and the service does not use it (§7.4); the field exists so a later step can use it without changing this contract. |
+| `messageId` | `?string` | yes | The `Message-ID` header, the field an exact duplicate rule would key on. **`stored_emails` has no column for it today** (architecture doc §8), and the service does not use it (§7.4); the field exists so a later step can use it without changing this contract. |
 | `attachments` | `list<EmailAttachment>` | no | Defaults to `[]`. See §4. |
 | `rawMessage` | `?string` | yes | The raw RFC822 message, when the adapter has it to hand. Optional: the current persistence design needs the decoded attachment bytes, which `attachments` already carries, so nothing requires this field. It is here for a caller that would otherwise have to re-read the message. |
 
@@ -96,9 +97,8 @@ service will write, so the mapping stays obvious.
 
 Both timestamps are `DateTimeImmutable` rather than strings so the adapter does not have to choose a
 format: `stored_emails.received_at`/`expires_at` are SQL DATETIME, and formatting them as
-`'Y-m-d H:i:s'` is the service's decision, made once. This also keeps the three current
-timestamp divergences (IMAP internal date vs. pipe clock vs. `Date:` header) visible at the call
-site instead of hidden in three `date()` calls.
+`'Y-m-d H:i:s'` is the service's decision, made once. This also keeps the timestamp decision visible
+at the call site instead of hidden in a `date()` call.
 
 ---
 
@@ -172,7 +172,7 @@ Plus `isStored()` and `hasAttachmentWarnings()` for the two checks every caller 
 
 ## 7. The service — `EmailStorage` (#191)
 
-One call does everything the three paths do inline today:
+One call does everything the intake used to do inline:
 
 ```php
 $emailStorage = new EmailStorage($pdo, !empty($config['app']['debug_mode']));
@@ -183,11 +183,11 @@ $result = $emailStorage->store($email);            // $email is an IncomingEmail
 `attachments/...` relative path `file_path` already uses) and is not part of the caller-facing API.
 
 `store()` is not quite the only caller-facing method: `persistAttachments(int $emailId, array
-$attachments)` is public too, added by #195 for the one adapter whose attachments cannot travel in
-the DTO — `LegacyImapFallback` extracts them over a live IMAP connection, which needs the email row
-to exist first. It is the same persistence `store()` uses for the DTO's attachments, so an
-attachment reaches `email_attachments` by one route whichever caller hands it over (§7.6); a caller
-that is not `store()` itself is expected to be an ingestion adapter that has just stored its email.
+$attachments)` is public too, added by #195 for the one adapter whose attachments could not travel in
+the DTO — it extracted them over a live connection, which needs the email row to exist first. That
+adapter was removed in #212, so nothing outside the service calls it today. It is the same
+persistence `store()` uses for the DTO's attachments, so an attachment reaches `email_attachments` by
+one route whichever caller hands it over (§7.6).
 
 ### 7.1 What it owns, and the guard
 
@@ -208,19 +208,19 @@ Both are off by default, because the behaviour they change is behaviour a curren
 
 | Option | Default | What it does |
 |---|---|---|
-| `detect_duplicates` | `false` | Apply the Python fallback's duplicate rule (§7.4). Off: every call writes a row, as IMAP and `parse.php` do today. |
-| `reject_unknown_recipient` | `false` | Return `rejected` unless the recipient resolves to a live, unexpired `temp_emails` row — the DirectAdmin pipe's permanent-bounce behaviour. Off: an address lookup that comes up empty still stores the email with `temp_email_id` NULL, as path A and path C do today. |
+| `detect_duplicates` | `false` | Apply the duplicate rule the Python fallback used (§7.4). Off: every call writes a row, as `parse.php` does today. No application caller passes this option today. |
+| `reject_unknown_recipient` | `false` | Return `rejected` unless the recipient resolves to a live, unexpired `temp_emails` row — the DirectAdmin pipe's permanent-bounce behaviour, and the option `parse.php` passes. Off: an address lookup that comes up empty still stores the email with `temp_email_id` NULL, as the removed intake paths did. |
 
 ```php
 $result = $emailStorage->store($email, [
-    EmailStorage::OPTION_DETECT_DUPLICATES => true,        // the Python bridge (#194)
-    EmailStorage::OPTION_REJECT_UNKNOWN_RECIPIENT => true, // the pipe (#193)
+    EmailStorage::OPTION_DETECT_DUPLICATES => true,        // no application caller today
+    EmailStorage::OPTION_REJECT_UNKNOWN_RECIPIENT => true, // parse.php (#193)
 ]);
 ```
 
 ### 7.3 Ownership context, retention and value normalization
 
-The service resolves ownership itself, with the same lookup every path does today
+The service resolves ownership itself, with the same lookup the intake does today
 (`SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1`, the local
 part lowercased): the resolved row is authoritative for `temp_email_id` / `pro_user_id`, and the
 DTO's own fields are the fallback for an adapter that already looked the address up and whose row
@@ -229,27 +229,27 @@ resolved — neither loses information.
 
 **Retention is computed here, not passed in** (this resolves open item 2 of #190): when the address
 is Pro-owned, `expires_at` is `received_at` + `pro_users.address_ttl_days` (clamped to 1…18250),
-exactly as all three paths compute it; otherwise it is the address' own `temp_emails.expires_at`,
+exactly as the intake computed it; otherwise it is the address' own `temp_emails.expires_at`,
 and the DTO's `expiresAt` is the last fallback. A failing TTL lookup logs a `WARNING` and falls
 back rather than failing the store, as today.
 
 Two persistence-time normalizations happen here, so the value a duplicate check compares is the
 value the row receives: a `null` **or empty** subject becomes `'(no subject)'` (the pipe's rule),
-and a `null` sender becomes `''` (both PHP paths). Bodies are stored exactly as the adapter
+and a `null` sender becomes `''`. Bodies are stored exactly as the adapter
 sanitized them — `null` stays `NULL`; the empty-body coercion stays with the adapter.
 
 A recipient that is not a full `local@domain` address, or whose local part is empty, longer than 64
 characters or outside `sanitizeLocalPart()`'s charset, is `rejected` regardless of the options: no
-lookup could find a row for it and no other path can produce one.
+lookup could find a row for it and nothing else can produce one.
 
 Nothing about the mail domain is decided here. `to_address` is stored exactly as the adapter
 supplied it; building `local@$config['email']['domain']` stays at the call site, as it is today.
 
 ### 7.4 The duplicate rule (opt-in, no schema change)
 
-`stored_emails` has **no Message-ID column** and no path reads the `Message-ID` header, so the only
-duplicate rule that exists is the Python fallback's — and that is the rule implemented here,
-unchanged:
+`stored_emails` has **no Message-ID column** and nothing reads the `Message-ID` header, so the only
+duplicate rule that exists is the one the Python fallback used — and that is the rule implemented
+here, unchanged:
 
 ```sql
 SELECT COUNT(*) FROM stored_emails
@@ -258,13 +258,13 @@ WHERE from_address = ? AND to_address = ? AND subject = ?
 ```
 
 It runs against the values this call would write (§7.3) and only when `detect_duplicates` is set. A
-hit returns `duplicate` having written nothing — no row, no file, no statistics — leaving the
-message for the caller to deal with (the Python path leaves it on the server). A duplicate check
-that cannot be completed at all is `failed`, not `stored`: writing there would silently defeat the
-opt-in, and a caller that asks for the check can retry.
+hit returns `duplicate` having written nothing — no row, no file, no statistics — leaving the message
+for the caller to deal with. A duplicate check that cannot be completed at all is `failed`, not
+`stored`: writing there would silently defeat the opt-in, and a caller that asks for the check can
+retry.
 
-IMAP and `parse.php` therefore keep calling **without** it and keep storing everything they see, as
-today (architecture doc §4). The Python bridge (#194) is the caller that passes it.
+`parse.php` therefore calls **without** it and stores everything it sees, as it always has. No
+application caller passes this option today.
 
 **`messageId` remains unused**: an exact, Message-ID-based rule would need a new `stored_emails`
 column and an approved schema change, which is a separate decision (architecture doc §7 step 3) —
@@ -272,7 +272,7 @@ not something the storage consolidation can slip in.
 
 ### 7.5 The failure state machine
 
-Decided to preserve today's behaviour: both intake paths keep the email when attachments fail
+Decided to preserve the intake's behaviour: the pipe keeps the email when attachments fail
 (logged as `WARNING`), and making storage all-or-nothing would drop legitimate mail and make
 `parse.php` bounce. So the granularity is: the email is atomic, each attachment is atomic, and a
 failed attachment never takes the email with it.
@@ -294,7 +294,7 @@ Attachment persistence itself — file naming, the `attachments/...` relative pa
 array-in-one-call helper in a narrow class (`AttachmentStorage`), because that helper could not
 report which element failed, so its DB-failure path left the file it had just written behind on
 disk. That helper (`MailParser::saveAttachments()`) had no caller left once #192–#195 had migrated
-the three paths and was removed by the #199 storage-boundary audit, so nothing outside
+the intake paths and was removed by the #199 storage-boundary audit, so nothing outside
 `AttachmentStorage` writes an `email_attachments` row any more
 (`documentaion/EMAIL_STORAGE_ARCHITECTURE.md` §3, §4).
 
@@ -303,19 +303,20 @@ the three paths and was removed by the #199 storage-boundary audit, so nothing o
 `emails_processed` +1 per stored email, `attachments_processed` + `n` per stored attachments, both
 best-effort through the existing global `updateStat()` (a failure is logged and never changes the
 result). Nothing is counted for `duplicate`, `rejected` or `failed`. `emails_total` is **not**
-written here: it counts messages *examined*, matched or not, which is intake and stays with the IMAP
-path.
+written here: it counted messages *examined*, matched or not, which was intake — the path that wrote
+it was removed in #212.
 
-One deliberate divergence from path A: `ImapProcessor::saveEmail()` increments `emails_processed`
-even when its insert fails, while the service counts only rows it actually wrote. That counter
-should describe stored mail; the old behaviour is a bug, not something to preserve.
+One deliberate divergence from the intake this replaced: the old IMAP path's `saveEmail()`
+incremented `emails_processed` even when its insert failed, while the service counts only rows it
+actually wrote. That counter should describe stored mail; the old behaviour is a bug, not something
+to preserve.
 
 ### 7.7 What the service does not do
 
 - No webhook, Pushover, HTTP or other network call of any kind (no `curl`, no queue write). The
   webhook payload and `dispatchWebhooks()` live in a registered listener, not in the service (§7.8).
-- No MIME parsing, no body sanitizing, no address-set/IMAP work, no mailbox housekeeping:
-  intake stays intake (architecture doc §6).
+- No MIME parsing, no body sanitizing, no IMAP or mailbox housekeeping work: intake stays intake
+  (architecture doc §6).
 - No DirectAdmin forwarder changes, no cleanup, no schema creation of its own (the only DDL it can
   issue is the pre-existing `content_id` self-heal, exactly as `MailParser` does it).
 - No user-facing output, no HTTP route.
@@ -348,11 +349,9 @@ that builds the unchanged payload (`to`, `from`, `subject`, `body` = HTML or tex
 Pushover per-address filtering (#174) stay inside that method, untouched. Nothing the service does
 would change if that file were deleted; a caller would simply stop being notified.
 
-Because every ingestion path attaches the same consumer, a path that previously dispatched no
-webhooks now does — the Python bridge (#194) was the one, and it is a deliberate behaviour change of
-#196's, not an accident of the refactor. `emails_processed` / `attachments_processed` are **not**
-listeners: they are persistence counters and stay in the service (§7.6). `emails_total` stays with
-intake.
+`parse.php` is the path that attaches the consumer, so the pipe dispatches webhooks through it.
+`emails_processed` / `attachments_processed` are **not** listeners: they are persistence counters
+and stay in the service (§7.6).
 
 ---
 
@@ -360,11 +359,10 @@ intake.
 
 1. **`rawMessage` is unused.** No caller passes it and the service ignores it; it can be removed
    from the constructor without touching anything else.
-2. **The path differences #192–#195 must decide, not the service.** Which timestamp a path passes
-   (IMAP internal date vs. pipe clock vs. `Date:` header), whether an adapter keeps coercing a
-   message with no body at all to an empty string (the pipe does; the service stores `NULL`), and
-   which options each caller passes are all call-site decisions this service deliberately does not
-   make.
+2. **The call-site differences #192–#195 must decide, not the service.** Which timestamp the adapter
+   passes, whether it keeps coercing a message with no body at all to an empty string (the pipe does;
+   the service stores `NULL`), and which options the caller passes are all call-site decisions this
+   service deliberately does not make.
 
 ---
 
@@ -372,9 +370,8 @@ intake.
 
 - `MailParser.php` (`parseRawMessage()`; the `saveAttachments()`/`normalizeCid()` pair was removed by
   #199, see §7.5)
-- `php_imap_processor.php` (`saveEmail()`, `sanitizeSavedBody()`)
-- `parse.php` (steps 4–6)
-- `python_imap_fallback.py` (`email_exists_in_database()` — the duplicate rule in §7.4)
+- `php_imap_processor.php` (`dispatchWebhooks()`, the webhook dispatch that remains)
+- `parse.php` (the intake)
 - `documentaion/EMAIL_STORAGE_ARCHITECTURE.md` (#189)
 - `composer.json` (no `autoload` section)
 - `EmailStorage/EmailStorage.php`, `EmailStorage/AttachmentStorage.php` (#191)
