@@ -69,11 +69,11 @@ final class AttachmentStorage
             throw new RuntimeException('refusing to store an attachment without an email id');
         }
 
-        $filename = preg_replace('/[^A-Za-z0-9._-]/', '_', $attachment->filename) ?? 'attachment';
-        if ($filename === '') {
-            $filename = 'attachment';
+        $diskName = preg_replace('/[^A-Za-z0-9._-]/', '_', $attachment->filename) ?? 'attachment';
+        if ($diskName === '') {
+            $diskName = 'attachment';
         }
-        $storedName = time() . '_' . bin2hex(random_bytes(4)) . '_' . $filename;
+        $storedName = time() . '_' . bin2hex(random_bytes(4)) . '_' . $diskName;
         $fullPath = $this->directory . '/' . $storedName;
         $relativePath = $this->relativePrefix . '/' . $storedName;
         $mimeType = $attachment->mimeType ?? 'application/octet-stream';
@@ -92,7 +92,7 @@ final class AttachmentStorage
         $written = @file_put_contents($fullPath, $attachment->data);
         if ($written === false) {
             @unlink($fullPath);
-            $this->log('ERROR', 'AttachmentStorage could not write the attachment file', ['file_path' => $relativePath, 'email_id' => $emailId, 'filename' => $filename]);
+            $this->log('ERROR', 'AttachmentStorage could not write the attachment file', ['file_path' => $relativePath, 'email_id' => $emailId, 'filename' => $diskName]);
             throw new RuntimeException('could not write the attachment file');
         }
 
@@ -125,7 +125,9 @@ final class AttachmentStorage
             // content_id bound through execute() has bitten this codebase
             // before, and the column list differs between the two variants.
             $stmt->bindValue(1, $emailId, PDO::PARAM_INT);
-            $stmt->bindValue(2, $filename, PDO::PARAM_STR);
+            // The stored name is the sender's own, not the lossy disk name: it
+            // is what the inbox shows and what files.php sends back.
+            $stmt->bindValue(2, $this->displayName($attachment->filename), PDO::PARAM_STR);
             $stmt->bindValue(3, $relativePath, PDO::PARAM_STR);
             $stmt->bindValue(4, $mimeType, PDO::PARAM_STR);
             $stmt->bindValue(5, $fileSize, PDO::PARAM_INT);
@@ -158,10 +160,37 @@ final class AttachmentStorage
             }
 
             @unlink($fullPath);
-            $this->log('ERROR', 'AttachmentStorage could not store an attachment', ['email_id' => $emailId, 'file_path' => $relativePath, 'filename' => $filename, 'error' => $e->getMessage()]);
+            $this->log('ERROR', 'AttachmentStorage could not store an attachment', ['email_id' => $emailId, 'file_path' => $relativePath, 'filename' => $diskName, 'error' => $e->getMessage()]);
 
             throw new RuntimeException('attachment could not be stored: ' . $e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * The name the user sees: the sender's own, with only what is unsafe for
+     * display or for a header removed.
+     *
+     * Deliberately separate from the disk name. That one has to be safe for a
+     * filesystem and is therefore lossy — `Offert ÅÄÖ.pdf` becomes
+     * `_Offert_______.pdf`, one underscore per byte — while this one becomes
+     * the `email_attachments.filename` the inbox lists and files.php
+     * downloads, so the sender's spelling has to survive.
+     */
+    private function displayName(string $original): string
+    {
+        $name = mb_scrub($original, 'UTF-8');
+        // Drop any path the sender supplied, in either separator convention.
+        $name = str_replace('\\', '/', $name);
+        $name = basename($name);
+        // Control characters, CR/LF/NUL included, would break a header.
+        $name = preg_replace('/[\x00-\x1F\x7F]/u', '', $name) ?? '';
+        $name = trim($name);
+
+        if ($name === '' || $name === '.' || $name === '..') {
+            $name = 'attachment';
+        }
+
+        return mb_strcut($name, 0, 255, 'UTF-8');
     }
 
     /**

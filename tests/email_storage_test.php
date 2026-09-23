@@ -231,14 +231,45 @@ ms_test_same('2i. content_id is stored, so an inline cid: reference still resolv
 ms_test_same('2j. attachments_processed counts the stored attachment', 1, ms_test_stat($pdo, 'attachments_processed'));
 ms_test_check('2k. the attachment is linked to its email row', $msRow !== [] && (int) ($msAttachments[0]['email_id'] ?? 0) === (int) $msResult->storedEmailId);
 
-// A filename the storage layer has to sanitize for the filesystem.
+// A filename the storage layer has to sanitize for the filesystem, but must
+// keep for the user: the disk name and the stored name have parted ways (#219).
 $msResult = $msStore([
     'toAddress' => $msAddress($msProLocal),
     'receivedAt' => $msReceived,
     'attachments' => [new EmailAttachment('we ird/na me.txt', 'x', null, null)],
 ]);
 $msAttachments = ms_test_attachment_rows($pdo, (int) $msResult->storedEmailId);
-ms_test_same('2l. an unsafe filename is sanitized before it reaches the disk', 'we_ird_na_me.txt', $msAttachments[0]['filename'] ?? null);
+ms_test_same('2l. a supplied path is dropped and the name is otherwise kept for display', 'na me.txt', $msAttachments[0]['filename'] ?? null);
+ms_test_check(
+    '2l2. the disk name is still sanitized, so file_path is unchanged',
+    str_ends_with((string) ($msAttachments[0]['file_path'] ?? ''), '_we_ird_na_me.txt'),
+    'file_path=' . (string) ($msAttachments[0]['file_path'] ?? '')
+);
+
+// A multibyte name survives verbatim for display; the disk name still folds
+// every non-ASCII byte to one underscore each.
+$msMultibyteName = 'Offert ÅÄÖ.pdf';
+$msResult = $msStore([
+    'toAddress' => $msAddress($msProLocal),
+    'receivedAt' => $msReceived,
+    'attachments' => [new EmailAttachment($msMultibyteName, 'x', null, null)],
+]);
+$msAttachments = ms_test_attachment_rows($pdo, (int) $msResult->storedEmailId);
+ms_test_same('2m. a multibyte filename is stored as the sender wrote it', $msMultibyteName, $msAttachments[0]['filename'] ?? null);
+ms_test_check(
+    '2m2. the disk name still folds each multibyte character to underscores',
+    str_ends_with((string) ($msAttachments[0]['file_path'] ?? ''), '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $msMultibyteName)),
+    'file_path=' . (string) ($msAttachments[0]['file_path'] ?? '')
+);
+
+// Control characters cannot reach a header, so they are stripped.
+$msResult = $msStore([
+    'toAddress' => $msAddress($msProLocal),
+    'receivedAt' => $msReceived,
+    'attachments' => [new EmailAttachment("a\tb\x00.txt", 'x', null, null)],
+]);
+$msAttachments = ms_test_attachment_rows($pdo, (int) $msResult->storedEmailId);
+ms_test_same('2n. control characters are stripped from the stored filename', 'ab.txt', $msAttachments[0]['filename'] ?? null);
 
 // ---------------------------------------------------------------------
 // 3. The duplicate rule: opt-in, and off by default
