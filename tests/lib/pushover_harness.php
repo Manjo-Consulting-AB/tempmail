@@ -151,6 +151,32 @@ CREATE TABLE pending_profile_changes (
 SQL;
 }
 
+/**
+ * DDL for the per-hook address routing schema (epic #251, step 2), translated
+ * to SQLite from migrate_webhook_addresses.php.
+ *
+ * Suites that exercise the per-hook routing apply this *on top of*
+ * ms_test_schema() — it is an ALTER against two of ms_test_schema()'s tables,
+ * so it cannot stand alone. ms_test_schema() is deliberately left without it:
+ * the suites that shipped before the routing exist to keep the pre-migration
+ * path honest (no pro_webhook_addresses, no pro_webhooks.include_temporary and
+ * no temp_emails.hooks_paused), and they keep getting exactly that.
+ */
+function ms_test_webhook_address_schema(): string {
+    return <<<'SQL'
+CREATE TABLE pro_webhook_addresses (
+    webhook_id INTEGER NOT NULL,
+    temp_email_id INTEGER NOT NULL,
+    created_at TEXT NULL,
+    PRIMARY KEY (webhook_id, temp_email_id)
+);
+
+ALTER TABLE pro_webhooks ADD COLUMN include_temporary INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE temp_emails ADD COLUMN hooks_paused INTEGER NOT NULL DEFAULT 0;
+SQL;
+}
+
 function ms_test_db(string $sqlitePath): PDO {
     $pdo = new PDO('sqlite:' . $sqlitePath, null, null, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
