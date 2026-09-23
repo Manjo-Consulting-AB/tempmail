@@ -192,7 +192,7 @@ one route whichever caller hands it over (§7.6).
 ### 7.1 What it owns, and the guard
 
 The service owns: recipient validation, the `temp_emails` / `pro_users.address_ttl_days` ownership
-and retention lookup, the opt-in duplicate rule (§7.4), the transactional `stored_emails` insert,
+and retention lookup, the opt-in duplicate rules (§7.4), the transactional `stored_emails` insert,
 attachment persistence, the `emails_processed` / `attachments_processed` counters that belong to
 persistence (§7.6), and the `StorageResult`. All `stored_emails` INSERT logic for this path exists
 only here.
@@ -204,17 +204,19 @@ output of any kind.
 
 ### 7.2 Options
 
-Both are off by default, because the behaviour they change is behaviour a current path depends on.
+All are off by default, because the behaviour they change is behaviour a current path depends on.
 
 | Option | Default | What it does |
 |---|---|---|
-| `detect_duplicates` | `false` | Apply the duplicate rule the Python fallback used (§7.4). Off: every call writes a row, as `parse.php` does today. No application caller passes this option today. |
+| `detect_duplicates` | `false` | Apply the heuristic duplicate rule the Python fallback used (§7.4). Off: every call writes a row, as `parse.php` does today. No application caller passes this option today. |
 | `reject_unknown_recipient` | `false` | Return `rejected` unless the recipient resolves to a live, unexpired `temp_emails` row — the DirectAdmin pipe's permanent-bounce behaviour, and the option `parse.php` passes. Off: an address lookup that comes up empty still stores the email with `temp_email_id` NULL, as the removed intake paths did. |
+| `deduplicate_message_id` | `false` | Apply the exact, Message-ID-based rule (§7.4): a `stored_emails` row already stored for the same `to_address` with the same normalized `message_id` makes the message a `duplicate`. **`parse.php` passes it**, so a message Exim redelivers after a deferred run (`exit 75`) is stored once. Inactive until `migrate_message_id.php` has run (#228) — with no `message_id` column there is nothing to compare, so the email is stored; a lookup that fails is `failed`, not `stored`. |
 
 ```php
 $result = $emailStorage->store($email, [
     EmailStorage::OPTION_DETECT_DUPLICATES => true,        // no application caller today
     EmailStorage::OPTION_REJECT_UNKNOWN_RECIPIENT => true, // parse.php (#193)
+    EmailStorage::OPTION_DEDUPLICATE_MESSAGE_ID => true,   // parse.php (#212, step 18)
 ]);
 ```
 
@@ -245,11 +247,11 @@ lookup could find a row for it and nothing else can produce one.
 Nothing about the mail domain is decided here. `to_address` is stored exactly as the adapter
 supplied it; building `local@$config['email']['domain']` stays at the call site, as it is today.
 
-### 7.4 The duplicate rule (opt-in, no schema change)
+### 7.4 The duplicate rules (both opt-in)
 
-`stored_emails` has **no Message-ID column** and nothing reads the `Message-ID` header, so the only
-duplicate rule that exists is the one the Python fallback used — and that is the rule implemented
-here, unchanged:
+There are two, and they stay separate options.
+
+**The heuristic rule** (`detect_duplicates`) is the one the Python fallback used, unchanged:
 
 ```sql
 SELECT COUNT(*) FROM stored_emails
@@ -266,9 +268,27 @@ retry.
 `parse.php` therefore calls **without** it and stores everything it sees, as it always has. No
 application caller passes this option today.
 
-**`messageId` remains unused**: an exact, Message-ID-based rule would need a new `stored_emails`
-column and an approved schema change, which is a separate decision (architecture doc §7 step 3) —
-not something the storage consolidation can slip in.
+**The exact rule** (`deduplicate_message_id`, #212 step 18) keys on the Message-ID instead: a message
+is a **duplicate** when a `stored_emails` row already exists with the same `to_address` and the same
+normalized `message_id`:
+
+```sql
+SELECT COUNT(*) FROM stored_emails WHERE to_address = ? AND message_id = ?
+```
+
+- It is scoped **per recipient** on purpose: one message sent to two of our addresses is stored for
+  both.
+- There is **no time window**. Rows disappear with their retention, and that bounds the rule.
+- A message whose Message-ID is not usable — normalized to `NULL` (§3) — is never a duplicate.
+- **`parse.php` turns it on.** That path exits 75 on a temporary failure and Exim redelivers the same
+  message (#215); without the rule the mail would be stored twice.
+- It is **inactive until `migrate_message_id.php` has run** (#228). With no `message_id` column to
+  look in there is nothing to compare, so the email is stored — the same deploy-order tolerance the
+  INSERT itself has. A lookup that fails is `failed`, for the reason above: the pipe then defers
+  (`exit 75`) and Exim retries the delivery.
+
+A `duplicate` from either rule behaves the same way: nothing is written, no statistic moves, and no
+post-storage listener runs (§7.8) — the existing flow returns before `notifyStored()`.
 
 ### 7.5 The failure state machine
 

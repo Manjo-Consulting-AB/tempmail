@@ -61,6 +61,24 @@ final class EmailStorage
     public const OPTION_REJECT_UNKNOWN_RECIPIENT = 'reject_unknown_recipient';
 
     /**
+     * The exact duplicate rule (#212, step 18): a message is a **duplicate** when
+     * a `stored_emails` row already exists with the same `to_address` and the
+     * same normalized `message_id` — the rule that stops a message Exim
+     * redelivers (because a run of `parse.php` exited 75, #215) from being stored
+     * a second time.
+     *
+     * Scoped per recipient on purpose: one message sent to two of our addresses
+     * is stored for both. There is no time window: rows disappear with their
+     * retention, and that bounds the rule. A message whose Message-ID normalized
+     * to NULL is never a duplicate.
+     *
+     * Separate from OPTION_DETECT_DUPLICATES, which is left exactly as it is, and
+     * inactive until `migrate_message_id.php` has added the column (#228): with
+     * no column to look in there is nothing to compare, so the email is stored.
+     */
+    public const OPTION_DEDUPLICATE_MESSAGE_ID = 'deduplicate_message_id';
+
+    /**
      * The eight columns the intake writes, in the order the pipe uses them.
      * `lastInsertId()` is read straight after this statement, before any
      * attachment insert can move it.
@@ -132,9 +150,9 @@ final class EmailStorage
     /**
      * Store one normalized incoming email.
      *
-     * @param array{detect_duplicates?: bool, reject_unknown_recipient?: bool} $options
-     *        Both default to off; see OPTION_DETECT_DUPLICATES and
-     *        OPTION_REJECT_UNKNOWN_RECIPIENT.
+     * @param array{detect_duplicates?: bool, reject_unknown_recipient?: bool, deduplicate_message_id?: bool} $options
+     *        All default to off; see OPTION_DETECT_DUPLICATES,
+     *        OPTION_REJECT_UNKNOWN_RECIPIENT and OPTION_DEDUPLICATE_MESSAGE_ID.
      */
     public function store(IncomingEmail $email, array $options = []): StorageResult
     {
@@ -204,6 +222,37 @@ final class EmailStorage
             if ($alreadyStored) {
                 $this->log('INFO', 'EmailStorage skipped an already stored email', ['to_address' => $toAddress, 'subject' => $subject]);
                 return StorageResult::duplicate('An identical message was stored within the last 5 minutes');
+            }
+        }
+
+        // The exact rule (#212, step 18): same recipient, same normalized
+        // Message-ID. The check is skipped when the Message-ID normalized to
+        // NULL — a message that carries no usable id is never a duplicate — and
+        // when the column does not exist yet (migrate_message_id.php, #228),
+        // which is a database where every email is stored exactly as before.
+        if (!empty($options[self::OPTION_DEDUPLICATE_MESSAGE_ID]) && $messageId !== null && $this->hasMessageIdColumn()) {
+            try {
+                $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM stored_emails WHERE to_address = ? AND message_id = ?');
+                $stmt->execute([$toAddress, $messageId]);
+                $redelivered = (int)$stmt->fetchColumn() > 0;
+            } catch (\Throwable $e) {
+                // Asked to check and unable to answer: fail closed, exactly as
+                // the check above does. Writing here would silently defeat the
+                // opt-in, and the pipe defers (exit 75) so Exim retries.
+                $this->log('ERROR', 'EmailStorage could not complete the Message-ID duplicate check', [
+                    'to_address' => $toAddress,
+                    'message_id' => $messageId,
+                    'error' => $e->getMessage(),
+                ]);
+                return StorageResult::failed('Could not complete the Message-ID duplicate check');
+            }
+
+            if ($redelivered) {
+                $this->log('INFO', 'EmailStorage skipped a redelivered message', [
+                    'to_address' => $toAddress,
+                    'message_id' => $messageId,
+                ]);
+                return StorageResult::duplicate('A message with this Message-ID is already stored for this recipient');
             }
         }
 
