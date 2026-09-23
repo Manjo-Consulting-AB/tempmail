@@ -8,9 +8,8 @@ declare(strict_types=1);
  * A normalized incoming email, as handed to the Email Storage service.
  *
  * Part of the Email Storage API contract (epic #169, step 2/10). It carries
- * everything the three current ingestion paths (IMAP polling in
- * ImapProcessor::saveEmail(), the DirectAdmin pipe in parse.php, the Python
- * fallback) already resolve, and nothing about how it is persisted: no PDO
+ * everything the intake (the DirectAdmin pipe in parse.php) already resolves,
+ * and nothing about how it is persisted: no PDO
  * handle, no SQL, no table names. Persistence and business validation belong to
  * the service (#191), which decides the retention window, the duplicate rule and
  * the attachment storage layout. See documentaion/EMAIL_STORAGE_API.md.
@@ -23,10 +22,8 @@ final class IncomingEmail
 {
     /**
      * @param string $toAddress Recipient, as the full address (`local@domain`).
-     * @param DateTimeImmutable $receivedAt When the message was received. All
-     *        three paths set this (IMAP internal date on path A, the pipe clock
-     *        on B, the `Date:` header with a `now()` fallback on C), so it is
-     *        never absent.
+     * @param DateTimeImmutable $receivedAt When the message was received. The
+     *        pipe sets this from its own clock, so it is never absent.
      * @param list<EmailAttachment> $attachments
      */
     public function __construct(

@@ -17,7 +17,7 @@ if (!defined('TEMPMAIL_APP')) {
  *
  * One entrypoint — `store(IncomingEmail $email, array $options = [])` — owns
  * everything that turns a normalized incoming email into `stored_emails` and
- * `email_attachments` rows. It replaces, for the three callers migrated in
+ * `email_attachments` rows. It replaces, for the callers migrated in
  * #192–#195, the inline inserts inventoried in
  * documentaion/EMAIL_STORAGE_ARCHITECTURE.md §3.
  *
@@ -41,11 +41,11 @@ final class EmailStorage
 {
     /**
      * Duplicate detection, off unless the caller asks for it. When on, the rule
-     * is exactly the Python fallback's (`python_imap_fallback.py`): same
+     * is exactly the one the Python fallback used: same
      * `from_address`, `to_address` and `subject` with `received_at` within ±5
-     * minutes. Off by default because the IMAP path and `parse.php` do no
-     * duplicate check today and must keep behaving that way (epic #169,
-     * backwards compatibility); the Python bridge (#194) turns it on.
+     * minutes. Off by default because `parse.php` does no
+     * duplicate check and must keep behaving that way (epic #169,
+     * backwards compatibility); no application caller passes it today.
      *
      * `stored_emails` has no Message-ID column, so this remains a heuristic; a
      * Message-ID-based rule would need a separate, approved schema change.
@@ -55,20 +55,20 @@ final class EmailStorage
     /**
      * Refuse the message (`rejected`) unless the recipient resolves to a live,
      * unexpired `temp_emails` row — the DirectAdmin pipe's permanent-bounce
-     * behaviour. Off by default: the IMAP path and the Python fallback both
-     * store the email anyway when the address lookup comes up empty, leaving
+     * behaviour. Off by default: the intake stores the email anyway when the
+     * address lookup comes up empty, leaving
      * `temp_email_id` NULL, and that has to keep working.
      */
     public const OPTION_REJECT_UNKNOWN_RECIPIENT = 'reject_unknown_recipient';
 
     /**
-     * The eight columns every path writes, in the order paths A and B use.
+     * The eight columns the intake writes, in the order the pipe uses them.
      * `lastInsertId()` is read straight after this statement, before any
      * attachment insert can move it.
      */
     private const INSERT_SQL = 'INSERT INTO stored_emails (to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
 
-    /** Upper clamp on `pro_users.address_ttl_days`, applied identically by all three paths. */
+    /** Upper clamp on `pro_users.address_ttl_days`, applied to the retention calculation. */
     private const MAX_RETENTION_DAYS = 18250; // 365 * 50
 
     /** Local part of a recipient address: the charset `sanitizeLocalPart()` allows. */
@@ -181,9 +181,8 @@ final class EmailStorage
                 $alreadyStored = $this->isDuplicate($fromAddress, $toAddress, $subject, $receivedAt);
             } catch (\Throwable $e) {
                 // Asked to check and unable to answer: fail closed. Writing here
-                // would silently defeat the opt-in, and the callers that ask for
-                // it can retry the message (the Python path leaves it on the
-                // server).
+                // would silently defeat the opt-in, and a caller that asks for
+                // it can retry the message.
                 $this->log('ERROR', 'EmailStorage could not complete the duplicate check', ['to_address' => $toAddress, 'error' => $e->getMessage()]);
                 return StorageResult::failed('Could not complete the duplicate check');
             }
@@ -330,9 +329,10 @@ final class EmailStorage
     /**
      * Persist attachments for an email that is already stored, keeping whatever
      * succeeds. This is the one attachment-persistence path: store() uses it for
-     * an email's own (MailParser) attachments, and the IMAP fallback uses it for
-     * the parts it extracted over the live connection, which cannot travel in
-     * the DTO because the email row has to exist first (#195).
+     * an email's own (MailParser) attachments. It is public because #195 added
+     * it for an adapter whose attachments could not travel in the DTO, since the
+     * email row had to exist first; that adapter was removed in #212, so nothing
+     * outside the service calls it today.
      *
      * @param list<EmailAttachment> $attachments
      * @return array{0: list<string>, 1: int} warnings and the number stored.
@@ -385,10 +385,10 @@ final class EmailStorage
     }
 
     /**
-     * The retention the row is written with, computed exactly as all three paths
-     * compute it: a Pro-owned address gets `pro_users.address_ttl_days` counted
+     * The retention the row is written with, computed exactly as the intake
+     * computed it: a Pro-owned address gets `pro_users.address_ttl_days` counted
      * from the message's own `received_at`; otherwise the address' own expiry.
-     * A failed TTL lookup falls back rather than failing the store, as today.
+     * A failed TTL lookup falls back rather than failing the store, as before.
      */
     private function resolveExpiresAt(IncomingEmail $email, ?array $ownership, ?int $proUserId): ?DateTimeImmutable
     {
@@ -479,9 +479,9 @@ final class EmailStorage
 
     /**
      * The `email_stats` counters that belong to persistence. Non-blocking: a
-     * failure is logged and never changes the result, as on every path today.
+     * failure is logged and never changes the result, as before.
      * `emails_total` is not written here — it counts messages *examined*, which
-     * is intake, and stays with the IMAP path.
+     * was intake; the path that wrote it was removed in #212.
      */
     private function bumpStat(string $statName, int $increment): void
     {

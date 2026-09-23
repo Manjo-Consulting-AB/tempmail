@@ -5,17 +5,14 @@ declare(strict_types=1);
 /**
  * parse.php — STDIN entrypoint for the DirectAdmin pipe-forwarder mail intake.
  *
- * This replaces IMAP polling (php_imap_processor.php / cron/run_imap_once.php)
- * for addresses whose DirectAdmin forwarder has been switched over: instead of
- * this app fetching mail from a catch-all inbox, DirectAdmin pipes each
- * incoming message directly to `php parse.php`, which reads the raw RFC822
- * message from php://stdin, parses it with MailParser and hands it to the Email
- * Storage service (EmailStorage::store(), epic #169) — the same persistence
- * entrypoint the IMAP path goes through since #192. Intake stays here: reading
- * stdin, deriving and validating the recipient, the MIME parse and the body
- * sanitizing. IMAP polling is kept running in parallel as a fallback until #35
- * verifies this path end-to-end in production; DA_FORWARDER_ENABLED gates
- * whether any forwarder actually points here (see DirectAdminClient.php /
+ * This is the only intake path for incoming mail: a DirectAdmin forwarder per
+ * address pipes each incoming message directly to `php parse.php`, which reads
+ * the raw RFC822 message from php://stdin, parses it with MailParser and hands
+ * it to the Email Storage service (EmailStorage::store(), epic #169). There is
+ * no shared mailbox and nothing polls one — the other intake paths this
+ * replaced were removed in #212. Intake stays here: reading stdin, deriving and validating
+ * the recipient, the MIME parse and the body sanitizing. DA_FORWARDER_ENABLED
+ * gates whether any forwarder actually points here (see DirectAdminClient.php /
  * config.php).
  *
  * Deriving the recipient: DirectAdmin's forwarder destination is configured
@@ -74,10 +71,8 @@ define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/config.php';
 
 // MailParser::parseRawMessage() needs ZBateson\MailMimeParser, which only
-// exists via Composer's autoloader. Nothing else in this script's require
-// chain loads it — the IMAP path (php_imap_processor.php) never needs it for
-// headers/body because it parses those itself via ext/imap, only relying on
-// MailParser for attachments. Confirmed live in #35: without this require,
+// exists via Composer's autoloader, and nothing else in this script's require
+// chain loads it. Confirmed live in #35: without this require,
 // class_exists() inside parseRawMessage() silently returns the empty-stub
 // result (from/subject/body_text/body_html all null), so the pipe delivered
 // successfully but every field except to_address/received_at was blank.
@@ -225,7 +220,7 @@ if (strtotime((string)$tempEmail['expires_at']) < time()) {
 $domain = $config['email']['domain'] ?? 'manjo.me';
 $toAddress = $localPart . '@' . $domain;
 
-// --- 4. Parse the MIME message (reuses MailParser, same as ImapProcessor) ---
+// --- 4. Parse the MIME message (MailParser, the same parser the intake always used) ---
 
 try {
     $parser = new MailParser($config, !empty($config['app']['debug_mode']));
@@ -243,9 +238,9 @@ if ($bodyHtml === null && $bodyText === null) {
     $bodyText = '';
 }
 
-// Mirrors ImapProcessor::sanitizeSavedBody(): strip inline data: URIs before
-// storage so embedded images/attachments (persisted separately by the service,
-// below) don't get duplicated as base64 bloat in the stored body.
+// Strip inline data: URIs before storage so embedded images/attachments
+// (persisted separately by the service, below) don't get duplicated as base64
+// bloat in the stored body.
 $stripDataUris = static function (?string $body): ?string {
     if ($body === null || $body === '') {
         return $body;
