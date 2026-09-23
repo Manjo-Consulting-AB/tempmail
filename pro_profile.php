@@ -1245,6 +1245,15 @@ try {
                 if (!is_array($configArr) || ($configArr !== [] && array_keys($configArr) === range(0, count($configArr) - 1))) {
                     send_json(['success' => false, 'error' => 'Config must be a JSON object']);
                 }
+                // Custom headers (generic hooks) are checked here so a bad one is
+                // refused now, not on every delivery.
+                if ($kind === 'generic') {
+                    try {
+                        ImapProcessor::webhookHeaders($configArr);
+                    } catch (InvalidArgumentException $e) {
+                        send_json(['success' => false, 'error' => $e->getMessage()]);
+                    }
+                }
             }
 
             // Pushover must include token and user
@@ -1311,13 +1320,15 @@ try {
                     } else {
                         // Generic JSON POST, config merged in as on a real delivery
                         $payloadJson = json_encode(ImapProcessor::genericWebhookBody($configArr ?? [], $payload), JSON_UNESCAPED_UNICODE);
-                        $headers = ['Content-Type: application/json'];
+                        $signature = null;
                         if (!empty($storedSecret)) {
                             $secretPlain = decrypt_webhook_secret($storedSecret);
                             if (!empty($secretPlain)) {
-                                $headers[] = 'X-TempMail-Signature: sha256=' . hash_hmac('sha256', $payloadJson, $secretPlain);
+                                $signature = 'sha256=' . hash_hmac('sha256', $payloadJson, $secretPlain);
                             }
                         }
+                        // Already validated above, so this does not throw.
+                        $headers = ImapProcessor::webhookHeaders($configArr ?? [], $signature);
                         // Re-resolve right before dispatch (not just at validation time above) and
                         // pin the connection to the validated IP, so a DNS change between
                         // validation and connect time can't redirect the request internally.

@@ -241,13 +241,86 @@ class ImapProcessor
     /**
      * JSON body for a generic hook: the mail payload with the config's
      * top-level keys merged over it, so a key in the config replaces ours.
+     * `headers` is the one reserved key - it becomes HTTP headers (see
+     * webhookHeaders()) and never reaches the body.
      */
     public static function genericWebhookBody(array $cfg, array $payload): array
     {
         foreach ($cfg as $key => $value) {
-            if (is_string($key)) $payload[$key] = $value;
+            if (is_string($key) && $key !== self::CONFIG_HEADERS_KEY) $payload[$key] = $value;
         }
         return $payload;
+    }
+
+    /** Config key whose object is sent as HTTP headers on a generic hook. */
+    public const CONFIG_HEADERS_KEY = 'headers';
+
+    /**
+     * Headers the config may not set: the ones that describe the request
+     * framing or the connection (setting them could smuggle a second request
+     * or confuse the transport), Host (the connection is pinned to the IP
+     * resolved for the URL's host, and the Host header must stay that host),
+     * and our own signature.
+     */
+    private const RESERVED_HEADERS = [
+        'host', 'content-length', 'transfer-encoding', 'connection', 'keep-alive',
+        'upgrade', 'te', 'trailer', 'expect', 'proxy-authorization', 'proxy-connection',
+        'x-tempmail-signature',
+    ];
+
+    private const MAX_CUSTOM_HEADERS = 20;
+    private const MAX_HEADER_VALUE_LENGTH = 2048;
+
+    /**
+     * The request headers for a generic hook: Content-Type: application/json,
+     * then the config's `headers` object ({"Authorization": "Bearer ..."}) -
+     * a config header replaces ours of the same name, case-insensitively - and
+     * last the signature when the hook has a secret, which the config cannot
+     * replace. Throws InvalidArgumentException naming the problem when the
+     * `headers` value is not an object of valid name => string/number pairs,
+     * so a broken config fails at creation and shows in the delivery log
+     * rather than being sent half-applied.
+     */
+    public static function webhookHeaders(array $cfg, ?string $signature = null): array
+    {
+        $headers = ['content-type' => 'Content-Type: application/json'];
+        $custom = $cfg[self::CONFIG_HEADERS_KEY] ?? [];
+        if (!is_array($custom) || ($custom !== [] && array_keys($custom) === range(0, count($custom) - 1))) {
+            throw new InvalidArgumentException('"headers" must be a JSON object of header name to value');
+        }
+        if (count($custom) > self::MAX_CUSTOM_HEADERS) {
+            throw new InvalidArgumentException('At most ' . self::MAX_CUSTOM_HEADERS . ' custom headers');
+        }
+        foreach ($custom as $name => $value) {
+            $name = (string)$name;
+            // RFC 9110 token characters only.
+            if (!preg_match('/^[!#$%&\'*+.^_`|~0-9A-Za-z-]{1,64}$/', $name)) {
+                throw new InvalidArgumentException('Invalid header name: ' . substr($name, 0, 64));
+            }
+            $lower = strtolower($name);
+            if (in_array($lower, self::RESERVED_HEADERS, true) || strpos($lower, 'proxy-') === 0) {
+                throw new InvalidArgumentException('Header cannot be set: ' . $name);
+            }
+            if (!is_string($value) && !is_int($value) && !is_float($value)) {
+                throw new InvalidArgumentException('Header value must be a string or number: ' . $name);
+            }
+            // No control characters other than tab - above all no CR/LF, which
+            // would let a value inject further headers. Checked before trimming,
+            // so a trailing CR/LF/NUL is refused rather than silently cut.
+            $value = (string)$value;
+            if (preg_match('/[\x00-\x08\x0A-\x1F\x7F]/', $value)) {
+                throw new InvalidArgumentException('Invalid header value: ' . $name);
+            }
+            $value = trim($value, " \t");
+            if (strlen($value) > self::MAX_HEADER_VALUE_LENGTH) {
+                throw new InvalidArgumentException('Invalid header value: ' . $name);
+            }
+            $headers[$lower] = $name . ': ' . $value;
+        }
+        if ($signature !== null) {
+            $headers['x-tempmail-signature'] = 'X-TempMail-Signature: ' . $signature;
+        }
+        return array_values($headers);
     }
 
     private function sendWebhookRequest(array $hook, array $payload): array
@@ -290,11 +363,13 @@ class ImapProcessor
 
         // Signed over the body as sent, config included.
         $payloadJson = json_encode(self::genericWebhookBody($cfg, $payload), JSON_UNESCAPED_UNICODE);
-        $headers = ['Content-Type: application/json'];
+        $signature = null;
         if (!empty($hook['secret'])) {
             $secret = $this->decryptHookSecret($hook['secret']);
-            $headers[] = 'X-TempMail-Signature: sha256=' . hash_hmac('sha256', $payloadJson, $secret);
+            $signature = 'sha256=' . hash_hmac('sha256', $payloadJson, $secret);
         }
+        // Throws on an invalid headers config: a failed delivery, logged.
+        $headers = self::webhookHeaders($cfg, $signature);
 
         // This is the real, recurring webhook delivery path (fired on every new
         // email) - webhook_create's validation in pro_profile.php only gates what
