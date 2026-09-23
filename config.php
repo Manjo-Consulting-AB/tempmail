@@ -226,6 +226,8 @@ $baseConfig = [
         'base_url' => $_ENV['BASE_URL'] ?? ($environment === 'production' ? 'https://manjo.me/' : 'http://localhost:8085/'),
         // Largest raw message parse.php accepts, in bytes (#212). 10 MB.
         'max_message_bytes' => (int)($_ENV['MAX_MESSAGE_BYTES'] ?? 10485760),
+        // Stored-mail quota per user account, or per anonymous address, in bytes (#212). 100 MB.
+        'quota_bytes' => (int)($_ENV['MAILBOX_QUOTA_BYTES'] ?? 104857600),
     ],
     'app' => [
         'cleanup_hours' => 24,

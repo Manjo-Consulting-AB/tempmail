@@ -15,7 +15,7 @@ declare(strict_types=1);
  *
  * What is under test is the shipped code, not a restatement of it:
  *
- *   - sections 1–7 call the real EmailStorage::store() (the probe docroot's
+ *   - sections 1–7b call the real EmailStorage::store() (the probe docroot's
  *     copy, so its attachments/ is the throwaway one) against a real PDO;
  *   - section 9 runs parse.php as the separate CLI process production runs it
  *     as, and asserts its exit code and its streams: the pipe target must print
@@ -515,6 +515,188 @@ ms_test_same(
     '7g. Pushover stays opt-in per address through the service',
     1,
     ms_test_deliveries($pdo, $msProUser)[$msHookId] ?? 0
+);
+
+// ---------------------------------------------------------------------
+// 7b. Mailbox quota (MailboxQuota)
+// ---------------------------------------------------------------------
+
+ms_test_section('7b. Mailbox quota (MailboxQuota)');
+
+// The probe docroot's copy, and the probe docroot's own attachments/ directory:
+// every file these checks create or delete has to stay inside the throwaway
+// docroot, exactly as sections 1–7 keep theirs.
+require_once $msProbe . '/EmailStorage/MailboxQuota.php';
+$msQuotaAttachments = ms_test_storage_attachments_dir($msProbe);
+
+/**
+ * Store one 31-byte fixture for $localPart and return its store() result
+ * together with the onStored() context a listener would be handed.
+ *
+ * The 31 bytes are the subject 'q' plus a body of exactly 30 'a' characters,
+ * with no HTML part — so "usage" and "what was deleted" can be reasoned about
+ * without reading a byte count back out of the database. Distinct receivedAt
+ * values make "oldest" unambiguous.
+ *
+ * @return array{0: StorageResult, 1: array<string, mixed>}
+ */
+$msQuotaStore = static function (
+    string $localPart,
+    DateTimeImmutable $receivedAt,
+    ?int $tempEmailId,
+    ?int $proUserId,
+    array $attachments = []
+) use ($msStorage, $msAddress): array {
+    $result = $msStorage->store(ms_test_incoming([
+        'toAddress' => $msAddress($localPart),
+        'receivedAt' => $receivedAt,
+        'subject' => 'q',
+        'bodyText' => str_repeat('a', 30),
+        'bodyHtml' => null,
+        'attachments' => $attachments,
+    ]));
+
+    return [$result, [
+        'stored_email_id' => $result->storedEmailId,
+        'temp_email_id' => $tempEmailId,
+        'pro_user_id' => $proUserId,
+    ]];
+};
+
+$msQuotaReceived = new DateTimeImmutable('2026-09-21 09:00:00');
+
+// An address outside every scope below, seeded first: no check may touch it.
+$msQuotaOtherLocal = 'quota0000';
+$msQuotaOtherAddress = ms_test_seed_address($pdo, $msQuotaOtherLocal, ['pro_user_id' => null, 'is_personal' => 0]);
+[$msQuotaOtherResult] = $msQuotaStore($msQuotaOtherLocal, $msQuotaReceived, $msQuotaOtherAddress, null);
+$msQuotaOtherEmailId = (int) $msQuotaOtherResult->storedEmailId;
+ms_test_check(
+    '7b1. the unrelated address seeded for the scope checks stored its mail',
+    $msQuotaOtherResult->isStored() && $msQuotaOtherEmailId > 0,
+    'status=' . $msQuotaOtherResult->status
+);
+
+// An anonymous address, quota 70, three 31-byte messages: the third takes the
+// scope to 93, so the oldest goes and the two newest stay at 62.
+$msQuotaAnonLocal = 'quota0001';
+$msQuotaAnonAddress = ms_test_seed_address($pdo, $msQuotaAnonLocal, ['pro_user_id' => null, 'is_personal' => 0]);
+$msQuotaAnon = new MailboxQuota($pdo, $msQuotaAttachments, 70);
+
+$msQuotaAnonIds = [];
+$msQuotaAnonDeleted = 0;
+for ($msQuotaIndex = 0; $msQuotaIndex < 3; $msQuotaIndex++) {
+    [$msQuotaResult, $msQuotaContext] = $msQuotaStore(
+        $msQuotaAnonLocal,
+        $msQuotaReceived->modify('+' . $msQuotaIndex . ' minutes'),
+        $msQuotaAnonAddress,
+        null
+    );
+    $msQuotaAnonIds[] = (int) $msQuotaResult->storedEmailId;
+    $msQuotaAnonDeleted = $msQuotaAnon->enforce($msQuotaContext);
+}
+
+ms_test_same('7b2. over quota, exactly one message is deleted', 1, $msQuotaAnonDeleted);
+ms_test_check(
+    '7b3. the oldest message is the one deleted',
+    ms_test_stored_email($pdo, $msQuotaAnonIds[0]) === null,
+    'id=' . $msQuotaAnonIds[0]
+);
+ms_test_check(
+    '7b4. the two newest messages stay, which is 62 of the 70 bytes',
+    ms_test_stored_email($pdo, $msQuotaAnonIds[1]) !== null && ms_test_stored_email($pdo, $msQuotaAnonIds[2]) !== null
+);
+ms_test_same('7b5. the address is left with two rows', 2, ms_test_count($pdo, 'stored_emails', 'temp_email_id = ?', [$msQuotaAnonAddress]));
+
+// The message just stored is never the one deleted, even when it alone is
+// heavier than the whole quota.
+$msQuotaNewLocal = 'quota0002';
+$msQuotaNewAddress = ms_test_seed_address($pdo, $msQuotaNewLocal, ['pro_user_id' => null, 'is_personal' => 0]);
+$msQuotaNew = new MailboxQuota($pdo, $msQuotaAttachments, 10);
+[$msQuotaNewResult, $msQuotaNewContext] = $msQuotaStore($msQuotaNewLocal, $msQuotaReceived, $msQuotaNewAddress, null);
+$msQuotaNewId = (int) $msQuotaNewResult->storedEmailId;
+ms_test_same('7b6. a quota below the message itself deletes nothing', 0, $msQuotaNew->enforce($msQuotaNewContext));
+ms_test_check('7b7. the message just stored survives', ms_test_stored_email($pdo, $msQuotaNewId) !== null, 'id=' . $msQuotaNewId);
+
+// User scope: two addresses of one account share the quota, so the oldest
+// message of the account goes even though its own address also holds the newest.
+$msQuotaUserId = ms_test_seed_user($pdo, 'quota@example.com', 'pro');
+$msQuotaALocal = 'quota0003';
+$msQuotaBLocal = 'quota0004';
+$msQuotaAAddress = ms_test_seed_address($pdo, $msQuotaALocal, ['pro_user_id' => $msQuotaUserId, 'is_personal' => 1]);
+$msQuotaBAddress = ms_test_seed_address($pdo, $msQuotaBLocal, ['pro_user_id' => $msQuotaUserId, 'is_personal' => 1]);
+$msQuotaUser = new MailboxQuota($pdo, $msQuotaAttachments, 70);
+
+[$msQuotaFirstResult, $msQuotaFirstContext] = $msQuotaStore($msQuotaALocal, $msQuotaReceived, $msQuotaAAddress, $msQuotaUserId);
+$msQuotaUser->enforce($msQuotaFirstContext);
+[$msQuotaSecondResult, $msQuotaSecondContext] = $msQuotaStore($msQuotaBLocal, $msQuotaReceived->modify('+1 minute'), $msQuotaBAddress, $msQuotaUserId);
+$msQuotaUser->enforce($msQuotaSecondContext);
+[$msQuotaThirdResult, $msQuotaThirdContext] = $msQuotaStore($msQuotaALocal, $msQuotaReceived->modify('+2 minutes'), $msQuotaAAddress, $msQuotaUserId);
+$msQuotaUserDeleted = $msQuotaUser->enforce($msQuotaThirdContext);
+
+ms_test_same('7b8. the account-wide quota deletes the account\'s oldest message', 1, $msQuotaUserDeleted);
+ms_test_check(
+    '7b9. that is the first message, on the account\'s other address',
+    ms_test_stored_email($pdo, (int) $msQuotaFirstResult->storedEmailId) === null
+);
+ms_test_check(
+    '7b10. the message on the second address and the newest one stay',
+    ms_test_stored_email($pdo, (int) $msQuotaSecondResult->storedEmailId) !== null
+        && ms_test_stored_email($pdo, (int) $msQuotaThirdResult->storedEmailId) !== null
+);
+
+// Attachments count too: the oldest message carries a 4-byte one on top of its
+// 31 bytes, so the three messages weigh 97 against a quota of 74 and the oldest
+// goes — its row, its email_attachments row and its file.
+$msQuotaAttachmentLocal = 'quota0005';
+$msQuotaAttachmentAddress = ms_test_seed_address($pdo, $msQuotaAttachmentLocal, ['pro_user_id' => null, 'is_personal' => 0]);
+$msQuotaAttached = new MailboxQuota($pdo, $msQuotaAttachments, 74);
+$msQuotaFilesBefore = count(ms_test_storage_files($msProbe));
+
+[$msQuotaAttachedResult, $msQuotaAttachedContext] = $msQuotaStore(
+    $msQuotaAttachmentLocal,
+    $msQuotaReceived,
+    $msQuotaAttachmentAddress,
+    null,
+    [new EmailAttachment('x.txt', 'xxxx', 'text/plain', null)]
+);
+$msQuotaAttachedRows = ms_test_attachment_rows($pdo, (int) $msQuotaAttachedResult->storedEmailId);
+$msQuotaAttachedPath = (string) ($msQuotaAttachedRows[0]['file_path'] ?? '');
+$msQuotaAttached->enforce($msQuotaAttachedContext);
+
+[$msQuotaKeptResult, $msQuotaKeptContext] = $msQuotaStore($msQuotaAttachmentLocal, $msQuotaReceived->modify('+1 minute'), $msQuotaAttachmentAddress, null);
+$msQuotaAttached->enforce($msQuotaKeptContext);
+[$msQuotaNewestResult, $msQuotaNewestContext] = $msQuotaStore($msQuotaAttachmentLocal, $msQuotaReceived->modify('+2 minutes'), $msQuotaAttachmentAddress, null);
+$msQuotaAttachedDeleted = $msQuotaAttached->enforce($msQuotaNewestContext);
+
+ms_test_same('7b11. an attachment weighs on the quota: one message is deleted', 1, $msQuotaAttachedDeleted);
+ms_test_check(
+    '7b12. the deleted message\'s row is gone',
+    ms_test_stored_email($pdo, (int) $msQuotaAttachedResult->storedEmailId) === null
+);
+ms_test_same('7b13. its email_attachments row is gone', [], ms_test_attachment_rows($pdo, (int) $msQuotaAttachedResult->storedEmailId));
+ms_test_check(
+    '7b14. its file is gone from the attachments directory',
+    $msQuotaAttachedPath !== '' && !is_file($msProbe . '/' . $msQuotaAttachedPath),
+    'path=' . $msQuotaAttachedPath
+);
+ms_test_same('7b15. and the directory is back to the file count it had before', $msQuotaFilesBefore, count(ms_test_storage_files($msProbe)));
+ms_test_check(
+    '7b16. the two remaining messages are intact',
+    ms_test_stored_email($pdo, (int) $msQuotaKeptResult->storedEmailId) !== null
+        && ms_test_stored_email($pdo, (int) $msQuotaNewestResult->storedEmailId) !== null
+);
+
+// Nothing outside the scope was touched: the unrelated address seeded at the
+// top still holds its mail, and only its own.
+ms_test_check(
+    '7b17. mail of an unrelated address survived every check above',
+    ms_test_stored_email($pdo, $msQuotaOtherEmailId) !== null,
+    'id=' . $msQuotaOtherEmailId
+);
+ms_test_same(
+    '7b18. and it is still the only row that address has',
+    1,
+    ms_test_count($pdo, 'stored_emails', 'temp_email_id = ?', [$msQuotaOtherAddress])
 );
 
 // ---------------------------------------------------------------------
