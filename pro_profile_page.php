@@ -992,10 +992,12 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                     var hooksPaused = !!it.hooks_paused;
                     // The Pause/Start control exists only when the account has a
                     // webhook at all and the routing schema is in place; which
-                    // addresses its hooks fire for is decided per hook.
+                    // addresses its hooks fire for is decided per hook. It is
+                    // hidden while no hook is linked to this address, since there
+                    // is nothing to pause — see syncAddressHooksButtons().
                     var hooksButton = '';
                     if (hasAnyWebhook && hookRoutingAvailable) {
-                        hooksButton = '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__hooks'+(hooksPaused ? '' : ' is-on')+'" aria-pressed="'+(hooksPaused ? 'true' : 'false')+'" title="'+escapeHtml(addressHooksTitle(hooksPaused))+'"'+(isProAccount ? '' : ' disabled')+'>\n'
+                        hooksButton = '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__hooks'+(hooksPaused ? '' : ' is-on')+(addressHasLinkedHook(it.id) ? '' : ' d-none')+'" aria-pressed="'+(hooksPaused ? 'true' : 'false')+'" title="'+escapeHtml(addressHooksTitle(hooksPaused))+'"'+(isProAccount ? '' : ' disabled')+'>\n'
                         + '                                                <i class="fas '+(hooksPaused ? 'fa-bell-slash' : 'fa-bell')+'" aria-hidden="true"></i> <span class="ms-address-row__hooks-state">'+(hooksPaused ? 'Hooks paused' : 'Hooks on')+'</span>\n'
                         + '                                            </button>\n';
                     }
@@ -1165,6 +1167,26 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 if (hasAny === hasAnyWebhook) return;
                 hasAnyWebhook = hasAny;
                 if ($('#personalList').length) loadPersonalList();
+            }
+
+            // Is any hook linked to this personal address? A paused hook still
+            // counts: the link exists and the address' own pause still applies
+            // when the hook is resumed.
+            function addressHasLinkedHook(addressId) {
+                var target = String(addressId);
+                return lastWebhooks.some(function(w){
+                    return (w.address_ids || []).some(function(id){ return String(id) === target; });
+                });
+            }
+
+            // Show or hide each row's Pause/Start button from the current links,
+            // without re-rendering the rows (which would collapse an open feed
+            // panel). Called whenever lastWebhooks changes.
+            function syncAddressHooksButtons() {
+                $('#personalList .ms-address-row').each(function(){
+                    var $row = $(this);
+                    $row.find('.ms-address-row__hooks').toggleClass('d-none', !addressHasLinkedHook($row.data('id')));
+                });
             }
 
             function addressHooksTitle(paused) {
@@ -1421,6 +1443,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                     if (res && res.success) {
                         lastWebhooks = res.webhooks || [];
                         renderWebhooks(lastWebhooks);
+                        syncAddressHooksButtons();
                         // Only whether any hook exists is read here — never a
                         // config, which can hold a Pushover token and user key.
                         syncAddressHooksControl(lastWebhooks.length > 0);
@@ -1460,6 +1483,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                             }
                         });
                         renderWebhooks(lastWebhooks);
+                        syncAddressHooksButtons();
                     } else {
                         $box.prop('checked', !$box.prop('checked'));
                         $group.find('input').prop('disabled', !isProAccount);
