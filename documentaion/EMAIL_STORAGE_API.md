@@ -4,13 +4,13 @@
 2026-09-22.
 **Scope:** the two types the Email Storage service exchanges with its callers (the normalized
 incoming email it accepts and the result it returns, §3–§6) and the service itself (`EmailStorage`,
-§7).
-**Epic:** #169 (email persistence consolidation), steps 2/10 (#190, the contract) and 3/10 (#191,
-the service).
+§7, plus the post-storage listeners in §7.8).
+**Epic:** #169 (email persistence consolidation), steps 2/10 (#190, the contract), 3/10 (#191,
+the service) and 8/10 (#196, post-storage processing).
 
-This document describes types and a service that exist and are loadable today. No ingestion path
-has been changed to use them yet — #192–#195 migrate the callers — so merging the service changes
-nothing at runtime. The current state of all three ingestion paths is in
+This document describes types and a service that exist and are loadable today. All three ingestion
+paths now go through the service (#192–#195 migrated the callers, #196 moved their downstream
+processing onto it). The current state of all three ingestion paths is in
 `documentaion/EMAIL_STORAGE_ARCHITECTURE.md` (#189) and is not repeated here.
 
 ---
@@ -66,6 +66,7 @@ value objects — see §7.1.
 |---|---|
 | `EmailStorage` | `EmailStorage/EmailStorage.php` |
 | `AttachmentStorage` | `EmailStorage/AttachmentStorage.php` |
+| `PostStorageWebhooks` (the one consumer, §7.8) | `EmailStorage/PostStorageWebhooks.php` |
 
 ---
 
@@ -160,9 +161,9 @@ Plus `isStored()` and `hasAttachmentWarnings()` for the two checks every caller 
 - **No validation and no rejection rules.** The types accept what the adapters resolve. Which
   recipient is unknown or expired, what counts as a duplicate and how long a message is retained are
   all decided by the service — the types invent none of them.
-- **No behaviour change.** The types are not called by any ingestion path, and neither is the
-  service that consumes them (#192–#195 migrate the callers), so merging either changes nothing at
-  runtime.
+- **No behaviour of its own beyond persistence.** The types carry no rules — every verdict the
+  service returns is one a path already made (architecture doc §5) — and the service performs no
+  webhook or network work (§7.8).
 - **No schema change.** `messageId` has no column behind it; adding one is a later step's decision
   (§7.4).
 
@@ -273,7 +274,7 @@ failed attachment never takes the email with it.
 | `stored_emails` INSERT | one transaction, opened and committed by the service | rolled back — nothing is written, no attachment is attempted, the result is `failed` with no `storedEmailId`, and no statistic moves |
 | each attachment (`attachments/` file + `email_attachments` row) | its own transaction, or a `SAVEPOINT` when the caller already holds one open | that attachment's row is rolled back and its file unlinked, so nothing of it remains; the entry is added to `attachmentWarnings` and the result stays `stored` |
 | `email_stats` counters | outside the transaction, after the commit | logged; the result is unchanged |
-| webhooks | **not here at all** | callers dispatch after `store()` returns — which is what keeps every webhook and network call out of the storage transaction |
+| post-storage listeners | outside the transaction, after the commit, each in its own try/catch | logged; the email stays stored and the result is unchanged (§7.8) |
 
 If the caller already has a transaction open, the service does not open a second one (that would
 throw) and does not roll the caller's back from inside: the email insert joins the caller's
@@ -302,12 +303,46 @@ should describe stored mail; the old behaviour is a bug, not something to preser
 ### 7.7 What the service does not do
 
 - No webhook, Pushover, HTTP or other network call of any kind (no `curl`, no queue write). The
-  webhook payload and `dispatchWebhooks()` stay with the caller, after `store()`.
+  webhook payload and `dispatchWebhooks()` live in a registered listener, not in the service (§7.8).
 - No MIME parsing, no body sanitizing, no address-set/IMAP work, no mailbox housekeeping:
   intake stays intake (architecture doc §6).
 - No DirectAdmin forwarder changes, no cleanup, no schema creation of its own (the only DDL it can
   issue is the pre-existing `content_id` self-heal, exactly as `MailParser` does it).
 - No user-facing output, no HTTP route.
+
+### 7.8 Post-storage processing (#196)
+
+Everything that *follows* from a stored email has one integration point: a list of plain callables on
+the service, appended through `onStored()` and invoked once per `stored` result.
+
+```php
+$emailStorage->onStored(function (array $stored): void { /* … */ });
+```
+
+The service runs them at the end of `store()`, after the email row and each attachment are committed,
+so nothing a listener does can be rolled back with the email or hold the persistence transaction
+open. Each listener is called inside its own `try/catch`: a listener that throws is logged as a
+`WARNING` and the result, the stored email and the listeners after it are unaffected. A caller that
+holds a transaction open around `store()` has committed nothing yet, so the listeners are skipped
+there and the skip is logged.
+
+The context a listener receives is the normalized set of values the service wrote — `stored_email_id`,
+`to_address`, `from_address`, `subject`, `body_text`, `body_html`, `received_at`, `expires_at`,
+`temp_email_id`, `pro_user_id` — so a listener never needs the row or the schema to do its work, and
+no ingestion path needs database knowledge to trigger downstream processing.
+
+The service names no consumer. The one that exists is **`PostStorageWebhooks`**
+(`EmailStorage/PostStorageWebhooks.php`), the Pro webhook consumer: `attach()` registers a listener
+that builds the unchanged payload (`to`, `from`, `subject`, `body` = HTML or text, `received_at`,
+`temp_email_id`) and calls the existing `ImapProcessor::dispatchWebhooks()`. Entitlement and the
+Pushover per-address filtering (#174) stay inside that method, untouched. Nothing the service does
+would change if that file were deleted; a caller would simply stop being notified.
+
+Because every ingestion path attaches the same consumer, a path that previously dispatched no
+webhooks now does — the Python bridge (#194) was the one, and it is a deliberate behaviour change of
+#196's, not an accident of the refactor. `emails_processed` / `attachments_processed` are **not**
+listeners: they are persistence counters and stay in the service (§7.6). `emails_total` stays with
+intake.
 
 ---
 

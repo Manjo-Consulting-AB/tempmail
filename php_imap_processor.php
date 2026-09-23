@@ -300,20 +300,11 @@ class ImapProcessor
                 }
             }
 
-            // Webhooks run only after the service reported a stored email, and
-            // outside its transaction. They stay here until #196 centralizes
-            // them. Entitlement is checked inside dispatchWebhooks().
-            if ($proUserId !== null) {
-                $payload = [
-                    'to' => $toAddress,
-                    'from' => $fromAddress,
-                    'subject' => $subject,
-                    'body' => ($bodyHtml ?? $bodyText),
-                    'received_at' => $receivedAt->format('Y-m-d H:i:s'),
-                    'temp_email_id' => $tempEmailId
-                ];
-                $this->dispatchWebhooks($proUserId, $payload);
-            }
+            // Webhooks are not dispatched here any more (#196). They are one of
+            // the service's post-storage listeners, registered in
+            // emailStorage() below and run by store() after it has committed,
+            // so this path cannot forget them and they cannot run inside the
+            // storage transaction.
 
             return true;
         } catch (Exception $e) {
@@ -328,6 +319,10 @@ class ImapProcessor
      * It owns the `temp_emails` ownership lookup, the retention calculation,
      * the transactional `stored_emails` insert, attachment persistence and the
      * `emails_processed`/`attachments_processed` counters.
+     *
+     * The Pro webhook consumer is attached here and nowhere else (#196): its
+     * payload is built and dispatched by the service's post-storage listener,
+     * after the commit, instead of by saveEmail().
      */
     private function emailStorage(): EmailStorage
     {
@@ -335,7 +330,9 @@ class ImapProcessor
             require_once __DIR__ . '/EmailStorage/IncomingEmail.php';
             require_once __DIR__ . '/EmailStorage/StorageResult.php';
             require_once __DIR__ . '/EmailStorage/EmailStorage.php';
+            require_once __DIR__ . '/EmailStorage/PostStorageWebhooks.php';
             $this->emailStorage = new EmailStorage($this->pdo, $this->debugMode);
+            PostStorageWebhooks::attach($this->emailStorage, $this->config, $this->pdo, $this->debugMode);
         }
 
         return $this->emailStorage;

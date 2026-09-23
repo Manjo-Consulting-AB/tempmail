@@ -20,9 +20,11 @@ declare(strict_types=1);
  * subject with `received_at` within ±5 minutes (documentaion/EMAIL_STORAGE_API.md
  * §7.4). OPTION_REJECT_UNKNOWN_RECIPIENT stays OFF, because like the IMAP path
  * this path stores a message whose address lookup comes up empty and leaves
- * `temp_email_id` NULL. Attachments and webhooks are deliberately not part of
- * this path here: the fallback has never stored attachments, and whether this
- * path should dispatch webhooks is #196's decision.
+ * `temp_email_id` NULL. Attachments are deliberately not part of this path: the
+ * fallback has never stored attachments. Pro webhooks are: since #196 the
+ * consumer is registered on the storage service, so a Pro address ingested
+ * through the fallback notifies like any other path — this bridge, like the
+ * other two callers, never names dispatchWebhooks() itself.
  *
  * The caller is Python, not the mail system, so this is not an MTA pipe target
  * — but it is CLI-only for the same reason parse.php is: an HTTP request must
@@ -115,8 +117,15 @@ $optional = static function (array $data, string $key): ?string {
     return array_key_exists($key, $data) && $data[$key] !== null ? (string) $data[$key] : null;
 };
 
+$emailStorage = new EmailStorage($pdo, !empty($config['app']['debug_mode']));
+
+// Post-storage processing (#196): the Pro webhook consumer runs from the
+// service, after the commit. This path dispatched nothing before, so a Pro
+// address ingested through the fallback starts notifying now.
+require_once __DIR__ . '/EmailStorage/PostStorageWebhooks.php';
+PostStorageWebhooks::attach($emailStorage, $config, $pdo, !empty($config['app']['debug_mode']));
+
 try {
-    $emailStorage = new EmailStorage($pdo, !empty($config['app']['debug_mode']));
     $result = $emailStorage->store(
         new IncomingEmail(
             toAddress: $toAddress,

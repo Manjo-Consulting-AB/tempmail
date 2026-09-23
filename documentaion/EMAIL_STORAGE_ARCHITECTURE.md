@@ -23,9 +23,9 @@ third is a degraded substitute for the first when the PHP `imap` extension is mi
 
 | # | Path | Entrypoint | Trigger | Parser | Attachments | Webhooks |
 |---|------|-----------|---------|--------|-------------|----------|
-| A | PHP IMAP polling | `cron/run_imap_once.php`, `run_imap_processor.php` → `ImapProcessor::processEmails()` | cron / manual | `ext/imap` headers + `ImapProcessor::getMessageBody()`, then `MailParser` for attachments | `MailParser`, falling back to `LegacyImapFallback` | yes (`ImapProcessor::dispatchWebhooks()`) |
-| B | DirectAdmin pipe | `parse.php` (invoked by Exim with the raw message on stdin) | per-message, MTA-driven | `MailParser::parseRawMessage()` for everything | `MailParser` only | yes (`dispatchWebhooks()`, ported in #188) |
-| C | Python IMAP fallback | `ImapProcessor::processEmailsWithCurl()` → `runPythonImapScript()` → `python_imap_fallback.py` | only when `!extension_loaded('imap')` | Python `email` module | **none** | **none** |
+| A | PHP IMAP polling | `cron/run_imap_once.php`, `run_imap_processor.php` → `ImapProcessor::processEmails()` | cron / manual | `ext/imap` headers + `ImapProcessor::getMessageBody()`, then `MailParser` for attachments | `MailParser`, falling back to `LegacyImapFallback` | yes — the service's post-storage hook (#196) |
+| B | DirectAdmin pipe | `parse.php` (invoked by Exim with the raw message on stdin) | per-message, MTA-driven | `MailParser::parseRawMessage()` for everything | `MailParser` only | yes — the same hook (#196; ported to this path in #188) |
+| C | Python IMAP fallback | `ImapProcessor::processEmailsWithCurl()` → `runPythonImapScript()` → `python_imap_fallback.py` | only when `!extension_loaded('imap')` | Python `email` module | **none** | yes since #196 — **none** before it |
 
 Selection between A and C is a single branch at `php_imap_processor.php:37-39`:
 
@@ -54,6 +54,13 @@ catch-all inbox still receives it (see §4, duplicate handling).
 ---
 
 ## 2. Path detail
+
+The per-path sections below inventory the three paths as they stood when this document was written
+(#189), which is what makes the divergences between them visible. Persistence has since moved into
+the shared service (#192–#195) and downstream processing onto its post-storage hook (#196), so read
+the "stored_emails write", "attachment handling", "statistics" and "downstream processing"
+paragraphs as the behaviour the service now reproduces once — `documentaion/EMAIL_STORAGE_API.md`
+§7 is authoritative for those.
 
 ### 2.1 Path A — IMAP polling (`ImapProcessor`)
 
@@ -130,9 +137,10 @@ body (`:294-299`); inline `cid:` references are rewritten to signed URLs at disp
 (`:591-597`), guarded by `function_exists('updateStat')` and a `\Throwable` catch. `emails_total` is
 incremented once per message *examined*, matched or not (`:130,134`).
 
-**Downstream processing.** If `pro_user_id` was resolved, `dispatchWebhooks((int)$proUserId,
-$payload)` is called (`:305-309`). It only *queues*: the entitlement check (`proUserIsPro()`) and the
-`filter_mode = 'all'` filter live inside `dispatchWebhooks()`
+**Downstream processing.** If `pro_user_id` was resolved, the Pro webhook consumer runs from the
+service's post-storage hook (#196), which builds the payload from the values the service wrote and
+calls `dispatchWebhooks((int)$proUserId, $payload)`. It only *queues*: the entitlement check
+(`proUserIsPro()`) and the `filter_mode = 'all'` filter live inside `dispatchWebhooks()`
 (`:342-398`), Pushover hooks are additionally gated per destination address by
 `pushoverEnabledForAddress()` (`:424-447`, #174), and the actual HTTP delivery is done later by
 `dispatchDelivery()` (`:602-664`) from `cron/process-webhook-deliveries.php`. Webhook enqueue
@@ -190,10 +198,10 @@ therefore created from the ZBateson parse only.
 `updateStat('attachments_processed', $attachmentsSaved)` when attachments were saved (`:274`). There
 is no `emails_total` increment on this path.
 
-**Downstream processing.** Pro webhooks are dispatched at `:286-302` by instantiating an
-`ImapProcessor` and calling `dispatchWebhooks()` — ported in #188 after this path went live without
-it, which had silently stopped every Pro webhook (Pushover included) for switched-over addresses.
-The payload keys mirror path A's.
+**Downstream processing.** Pro webhooks come from the service's post-storage hook (#196); the payload
+is the one #188 ported to this path — same keys as path A — and it is what this path went live
+without, which had silently stopped every Pro webhook (Pushover included) for switched-over
+addresses. The payload is built by `EmailStorage/PostStorageWebhooks.php`, not by this script.
 
 **Exit codes.** `parseReject()` → `exit(1)` (permanent: empty stdin, undeterminable/invalid recipient,
 unknown recipient, expired recipient). `parseFail()` → `exit(2)` (internal: `temp_emails` lookup
@@ -259,7 +267,9 @@ exists only in the PHP paths.
 `ON DUPLICATE KEY UPDATE` shape against `email_stats`. No `emails_total`, no
 `attachments_processed`.
 
-**Downstream processing: none.** No webhook enqueue, no Pushover gating.
+**Downstream processing.** Since #196 this path gets the same Pro webhook dispatch as the other two:
+the bridge that stores the message attaches the service's post-storage consumer. Before #196 it had
+none — no webhook enqueue, no Pushover gating.
 
 **Message deletion.** `imap.store(msg_id, '+FLAGS', '\\Deleted')` only after
 `save_email_to_database()` returned `True` (`:339-345`), then `imap.expunge()` only when
@@ -340,7 +350,7 @@ no rollback anywhere in ingestion.
 | `stored_emails` INSERT fails | `saveEmail()` returns false → no attachments, no webhooks; `ERROR` logged; message is deleted anyway | `parseFail()` `exit(2)` — non-zero exit so the MTA can bounce | `ERROR` logged, returns `False`, message **not** deleted |
 | Attachment write/insert fails | logged (`LegacyImapFallback`/`MailParser` `ERROR`), the email row is kept; already-written files are left on disk | same, `WARNING` at `parse.php:278` | n/a — no attachments |
 | Stats update fails | caught, logged | caught inside `updateStat()` | caught, logged |
-| Webhook enqueue fails | caught, logged; email untouched | caught, logged; email untouched | n/a |
+| Webhook enqueue fails | caught, logged; email untouched | caught, logged; email untouched | caught, logged; email untouched since #196 (n/a before it) |
 
 The asymmetry to keep in mind: **B is the only path that can refuse a message** (MTA bounce), and
 **C is the only path that can retry** (it leaves the message on the server). A loses the message on a
@@ -360,7 +370,7 @@ failed insert; C loses nothing but also makes no progress.
 | Attachment byte write to `attachments/` + `INSERT INTO email_attachments` | **persistence** (dependent on the email id from the previous step) |
 | `content_id` column self-heal `ALTER TABLE` | persistence, schema side effect |
 | `INSERT INTO email_stats` (`emails_processed`, `emails_total`, `attachments_processed`) | downstream, non-blocking |
-| `INSERT INTO pro_webhook_deliveries` (`dispatchWebhooks()`) | downstream, non-blocking (queues only; HTTP delivery is `dispatchDelivery()` from cron) |
+| `INSERT INTO pro_webhook_deliveries` (the post-storage consumer's `dispatchWebhooks()` call) | downstream, non-blocking, and outside the storage transaction (queues only; HTTP delivery is `dispatchDelivery()` from cron) |
 | `imap_delete` / `imap_expunge` / `imap.store`+expunge | post-persistence mailbox housekeeping |
 | `digest_included_at`, RSS reads, `stored_emails` expiry deletes | downstream consumers, outside this lifecycle |
 
@@ -388,7 +398,8 @@ item names what must exist before it can be done.
    multiply the current partial-failure modes.
 5. **Path parity work** — give `parse.php` the `LegacyImapFallback` equivalent it lacks (or decide it
    is unnecessary given the ZBateson dependency is now required there), and give the Python path
-   attachments and webhooks, or decide to retire it. *Depends on:* steps 2-4.
+   attachments, or decide to retire it. (Its webhooks arrived with #196, from the shared post-storage
+   hook.) *Depends on:* steps 2-4.
 6. **Verify the DirectAdmin cut-over end-to-end (#35) and retire or demote IMAP polling.**
    *Depends on:* steps 3-5. *Blocked by:* confirming which of the two intake paths owns a message —
    i.e. step 3.
