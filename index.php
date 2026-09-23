@@ -212,7 +212,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // and user key stay in pro_webhooks.config and are never read
                     // or returned here.
                     $pushoverCol = tableHasColumn('temp_emails', 'pushover_enabled') ? ", (pushover_enabled = 1) AS pushover_enabled" : "";
-                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$pushoverCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
+                    // hooks_paused exposed (#251 step 4) on the same terms: it is
+                    // a preference, not a credential — no address, no hook and no
+                    // URL travels with it, only whether the address' routing is
+                    // silenced. The links themselves stay in pro_profile.php.
+                    $hooksPausedCol = tableHasColumn('temp_emails', 'hooks_paused') ? ", (hooks_paused = 1) AS hooks_paused" : "";
+                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$pushoverCol}{$hooksPausedCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
                     $stmt->execute([$_SESSION['pro_user_id']]);
                     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $list = [];
@@ -225,7 +230,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'feed_enabled' => !empty($r['feed_enabled']),
                             // Absent when the migration hasn't run, and empty()
                             // reads an undefined key as false, i.e. disabled.
-                            'pushover_enabled' => !empty($r['pushover_enabled'])
+                            'pushover_enabled' => !empty($r['pushover_enabled']),
+                            // Same rule: absent reads as not paused.
+                            'hooks_paused' => !empty($r['hooks_paused'])
                         ];
                     }
                     echo json_encode(['success' => true, 'personal' => $list]);
@@ -263,6 +270,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // are unlinked only after the commit, so a rollback cannot leave
                     // rows pointing at deleted files.
                     $attachmentFiles = deleteStoredEmailsForTempEmail($pdo, $id);
+                    // The routing links have no foreign key either (#251 step 4),
+                    // so they go with the address; a surviving row would keep
+                    // routing this now-reusable id to hooks that are not its own.
+                    if (tableHasColumn('pro_webhook_addresses', 'webhook_id')) {
+                        $dl = $pdo->prepare("DELETE FROM pro_webhook_addresses WHERE temp_email_id = ?");
+                        $dl->execute([$id]);
+                    }
                     $d2 = $pdo->prepare("DELETE FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
                     $d2->execute([$id, $_SESSION['pro_user_id']]);
 

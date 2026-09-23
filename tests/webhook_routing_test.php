@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Regression coverage for the per-hook address routing (epic #251, step 3).
+ * Regression coverage for the per-hook address routing (epic #251, steps 3–4).
  *
  * Run with:  php tests/webhook_routing_test.php
  *
@@ -21,9 +21,12 @@ declare(strict_types=1);
  * the *pre-routing* path: it deliberately leaves the routing schema off, so
  * between the two suites both branches of hookRoutingAvailable() are exercised.
  *
- * The one honest limit: the routing rules the epic decides are asserted here
- * through dispatch only. The API that writes the links is #251 step 4 and the
- * UI that shows them is step 5; nothing here covers those.
+ * Scenarios 0–8 assert the routing rules through dispatch alone. From scenario
+ * 9 on they also drive the real pro_profile.php / index.php actions over a real
+ * request — the same technique as tests/pushover_routing_test.php — so the
+ * origin check, the Pro gate, the ownership queries and the transaction under
+ * test are the pages' own code. The UI that renders the links is #251 step 5
+ * and is not covered by either suite.
  */
 
 $msRepoRoot = dirname(__DIR__);
@@ -83,12 +86,40 @@ function ms_wr_set_pushover_enabled(PDO $pdo, int $addressId, int $value): void 
     $stmt->execute([$value, $addressId]);
 }
 
+/** How many addresses one hook is linked to. */
+function ms_wr_link_count(PDO $pdo, int $webhookId): int {
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM pro_webhook_addresses WHERE webhook_id = ?');
+    $stmt->execute([$webhookId]);
+    return (int) $stmt->fetchColumn();
+}
+
+/** How many hooks one address is linked to, whoever owns them. */
+function ms_wr_address_link_count(PDO $pdo, int $addressId): int {
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM pro_webhook_addresses WHERE temp_email_id = ?');
+    $stmt->execute([$addressId]);
+    return (int) $stmt->fetchColumn();
+}
+
+function ms_wr_hook_exists(PDO $pdo, int $webhookId): bool {
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM pro_webhooks WHERE id = ?');
+    $stmt->execute([$webhookId]);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+/** One address' hooks_paused column, or null when the row is gone. */
+function ms_wr_hooks_paused(PDO $pdo, int $addressId): ?int {
+    $stmt = $pdo->prepare('SELECT hooks_paused FROM temp_emails WHERE id = ?');
+    $stmt->execute([$addressId]);
+    $value = $stmt->fetchColumn();
+    return $value === false ? null : (int) $value;
+}
+
 /** Deliveries one webhook has queued, 0 when it has none. */
 function ms_wr_count(PDO $pdo, int $userId, int $webhookId): int {
     return ms_test_deliveries($pdo, $userId)[$webhookId] ?? 0;
 }
 
-echo "Mail Shield — per-hook address routing (#251 step 3)\n";
+echo "Mail Shield — per-hook address routing (#251 steps 3-4)\n";
 echo "probe docroot: {$msProbe}\n";
 
 // ---------------------------------------------------------------------
@@ -306,6 +337,285 @@ ms_test_check(
     'the retired per-address gate was still consulted'
 );
 ms_test_same('8d. an unlinked hook on the same dispatch stays quiet', 0, ms_wr_count($pdo, $userA, $hookH));
+
+// =====================================================================
+// #251 step 4: the routing API
+//
+// Everything below drives the real pages through a real request, the way
+// tests/pushover_routing_test.php does, so the origin check, the Pro gate, the
+// ownership queries and the transaction under test are the pages' own code.
+//
+// The fixtures are new rather than the ones above: those sections deliberately
+// left link rows, an include_temporary switch and a pause flag behind, and
+// reusing them would make "nothing was written" unprovable.
+// =====================================================================
+
+$msBodies = [];
+/** Run one probe request and remember its body. */
+$msRun = function (array $request) use ($msProbe, &$msBodies): array {
+    $response = ms_test_request($msProbe, $request);
+    $msBodies[] = $response['stdout'];
+    return $response;
+};
+/** POST a JSON action to one of the real pages as $userId. */
+$msAction = function (string $page, string $action, array $fields, int $userId) use ($msRun): array {
+    return $msRun([
+        'page' => $page,
+        'method' => 'POST',
+        'user_id' => $userId,
+        'user_email' => 'user' . $userId . '@example.com',
+        'post' => array_merge(['action' => $action], $fields),
+    ]);
+};
+/** webhooks_list rows for one user, keyed by hook id. */
+$msHooks = function (int $userId) use ($msAction): array {
+    $response = $msAction('pro_profile.php', 'webhooks_list', [], $userId);
+    $rows = [];
+    foreach (($response['json']['webhooks'] ?? []) as $row) {
+        $rows[(int) $row['id']] = $row;
+    }
+    return $rows;
+};
+/** list_personal rows for one user, keyed by address id. */
+$msPersonal = function (int $userId) use ($msAction): array {
+    $response = $msAction('index.php', 'list_personal', [], $userId);
+    $rows = [];
+    foreach (($response['json']['personal'] ?? []) as $row) {
+        $rows[(int) $row['id']] = $row;
+    }
+    return $rows;
+};
+
+$apUser  = ms_test_seed_user($pdo, 'dora@example.com', 'pro');
+$apOther = ms_test_seed_user($pdo, 'erik@example.com', 'pro');
+$apFree  = ms_test_seed_user($pdo, 'frida@example.com', 'regular');
+
+$apAddr1  = ms_test_seed_address($pdo, 'd0a00001', ['pro_user_id' => $apUser]);
+$apAddr2  = ms_test_seed_address($pdo, 'd0a00002', ['pro_user_id' => $apUser]);
+$apAddr3  = ms_test_seed_address($pdo, 'd0a00003', ['pro_user_id' => $apUser]);
+$apTemp   = ms_test_seed_address($pdo, 'd0a00004', ['pro_user_id' => $apUser, 'is_personal' => 0]);
+$apOtherA = ms_test_seed_address($pdo, 'e01c0001', ['pro_user_id' => $apOther]);
+$apFreeA  = ms_test_seed_address($pdo, 'f01e0001', ['pro_user_id' => $apFree]);
+
+$apHookA   = ms_test_seed_webhook($pdo, $apUser, 'generic', 'all', 'API hook A');
+$apHookB   = ms_test_seed_webhook($pdo, $apUser, 'generic', 'all', 'API hook B');
+$apHookOth = ms_test_seed_webhook($pdo, $apOther, 'generic', 'all', 'Other user hook');
+$apHookFre = ms_test_seed_webhook($pdo, $apFree, 'generic', 'all', 'Non-Pro hook');
+
+// ---------------------------------------------------------------------
+// 9. webhooks_list reports the routing state
+// ---------------------------------------------------------------------
+
+ms_test_section('9. webhooks_list reports the routing state');
+
+$list = ms_test_json('9a. webhooks_list answers', $msAction('pro_profile.php', 'webhooks_list', [], $apUser));
+ms_test_same('9b. routing_available is true now that the schema is in place', true, $list['routing_available'] ?? null);
+
+$hooks = $msHooks($apUser);
+ms_test_same('9c. an unlinked hook reports an empty address set', [], $hooks[$apHookA]['address_ids'] ?? null);
+ms_test_same('9d. and reports include_temporary=false', false, $hooks[$apHookA]['include_temporary'] ?? null);
+ms_test_check(
+    '9e. the secret is still never listed',
+    !array_key_exists('secret', $hooks[$apHookA] ?? []),
+    'the secret key survived the list'
+);
+
+// ---------------------------------------------------------------------
+// 10. webhook_set_addresses replaces the whole set
+// ---------------------------------------------------------------------
+
+ms_test_section('10. webhook_set_addresses replaces the whole set');
+
+// Sent out of order on purpose: the response must come back sorted, because the
+// UI renders it directly and the list query has no ORDER BY of its own.
+$result = ms_test_json('10a. the call answers', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookA, 'address_ids' => [$apAddr2, $apAddr1]], $apUser));
+ms_test_same('10b. the write succeeded', true, $result['success'] ?? null);
+ms_test_same('10c. the response lists the ids sorted', [$apAddr1, $apAddr2], $result['address_ids'] ?? null);
+ms_test_same('10d. include_temporary is false when the field is omitted', false, $result['include_temporary'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('10e. exactly two link rows are stored', 2, ms_wr_link_count($pdo, $apHookA));
+
+$hooks = $msHooks($apUser);
+ms_test_same('10f. webhooks_list shows the new set', [$apAddr1, $apAddr2], $hooks[$apHookA]['address_ids'] ?? null);
+ms_test_same("10g. the user's other hook is untouched", [], $hooks[$apHookB]['address_ids'] ?? null);
+
+// A replacement, not a merge.
+$result = ms_test_json('10h. a second call answers', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookA, 'address_ids' => [$apAddr3], 'include_temporary' => '1'], $apUser));
+ms_test_same('10i. the second write succeeded', true, $result['success'] ?? null);
+ms_test_same('10j. the response reports the new single id', [$apAddr3], $result['address_ids'] ?? null);
+ms_test_same('10k. include_temporary is on when the field is "1"', true, $result['include_temporary'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('10l. the previous links are gone, not merged', 1, ms_wr_link_count($pdo, $apHookA));
+
+$hooks = $msHooks($apUser);
+ms_test_same('10m. the list shows the set was replaced', [$apAddr3], $hooks[$apHookA]['address_ids'] ?? null);
+ms_test_same('10n. the list shows include_temporary persisted', true, $hooks[$apHookA]['include_temporary'] ?? null);
+
+// An empty list clears the hook.
+$result = ms_test_json('10o. an empty set answers', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookA, 'address_ids' => []], $apUser));
+ms_test_same('10p. clearing succeeded', true, $result['success'] ?? null);
+ms_test_same('10q. the response reports no addresses', [], $result['address_ids'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('10r. no link rows remain', 0, ms_wr_link_count($pdo, $apHookA));
+
+$hooks = $msHooks($apUser);
+ms_test_same('10s. the list agrees the hook is unlinked', [], $hooks[$apHookA]['address_ids'] ?? null);
+ms_test_same('10t. include_temporary is off again, the field having defaulted to false', false, $hooks[$apHookA]['include_temporary'] ?? null);
+
+// Malformed and oversized input is refused before anything is written.
+$result = ms_test_json('10u. a non-array address_ids is refused', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookA, 'address_ids' => 'nope'], $apUser));
+ms_test_same('10v. the refusal is "Invalid request"', 'Invalid request', $result['error'] ?? null);
+
+$result = ms_test_json('10w. more than 50 addresses is refused', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookA, 'address_ids' => range(100000, 100050)], $apUser));
+ms_test_same('10x. the refusal is "Too many addresses"', 'Too many addresses', $result['error'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('10y. neither refusal wrote a link row', 0, ms_wr_link_count($pdo, $apHookA));
+
+// ---------------------------------------------------------------------
+// 11. Ownership of the hook and of every address is enforced
+// ---------------------------------------------------------------------
+
+ms_test_section('11. Ownership of the hook and of every address is enforced');
+
+$result = ms_test_json("11a. A cannot set addresses on B's hook", $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookOth, 'address_ids' => [$apOtherA]], $apUser));
+ms_test_same('11b. the write is refused', false, $result['success'] ?? null);
+ms_test_same('11c. and does not disclose whether the hook exists', 'Not found', $result['error'] ?? null);
+
+$result = ms_test_json("11d. A cannot link B's address to A's own hook", $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookB, 'address_ids' => [$apOtherA]], $apUser));
+ms_test_same('11e. the write is refused', false, $result['success'] ?? null);
+ms_test_same('11f. and reads as "Address not found"', 'Address not found', $result['error'] ?? null);
+
+// A mixed list is refused whole: the one id the user does own must not be
+// written either, or the hook would be left in a state nobody asked for.
+$result = ms_test_json('11g. a mixed list of owned and unowned ids is refused', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookB, 'address_ids' => [$apAddr1, $apOtherA]], $apUser));
+ms_test_same('11h. the write is refused', false, $result['success'] ?? null);
+ms_test_same('11i. and reads as "Address not found"', 'Address not found', $result['error'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same("11j. nothing was written for the other user's hook", 0, ms_wr_link_count($pdo, $apHookOth));
+ms_test_same("11k. nothing was written for A's own hook, not even the owned id", 0, ms_wr_link_count($pdo, $apHookB));
+
+// ---------------------------------------------------------------------
+// 12. A temporary address cannot be linked
+// ---------------------------------------------------------------------
+
+ms_test_section('12. A temporary address cannot be linked');
+
+$result = ms_test_json('12a. A cannot link its own temporary address', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookB, 'address_ids' => [$apTemp]], $apUser));
+ms_test_same('12b. the write is refused', false, $result['success'] ?? null);
+ms_test_same('12c. the refusal reads as "Address not found"', 'Address not found', $result['error'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('12d. nothing was written', 0, ms_wr_link_count($pdo, $apHookB));
+
+// ---------------------------------------------------------------------
+// 13. A non-Pro account is refused by the Pro gate
+// ---------------------------------------------------------------------
+
+ms_test_section('13. A non-Pro account is refused by the Pro gate');
+
+$result = ms_test_json('13a. a non-Pro owner is refused', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookFre, 'address_ids' => [$apFreeA]], $apFree));
+ms_test_same('13b. the write is refused', false, $result['success'] ?? null);
+ms_test_same('13c. the refusal is the Pro gate', 'Pro required', $result['error'] ?? null);
+ms_test_same('13d. and is flagged pro_required', true, $result['pro_required'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('13e. nothing was written', 0, ms_wr_link_count($pdo, $apHookFre));
+
+// ---------------------------------------------------------------------
+// 14. Per-address hook pause and resume
+// ---------------------------------------------------------------------
+
+ms_test_section('14. Per-address hook pause and resume');
+
+$personal = $msPersonal($apUser);
+ms_test_same('14a. the address starts unpaused', false, $personal[$apAddr1]['hooks_paused'] ?? null);
+
+$result = ms_test_json('14b. address_hooks_pause answers', $msAction('pro_profile.php', 'address_hooks_pause', ['id' => $apAddr1], $apUser));
+ms_test_same('14c. the write succeeded', true, $result['success'] ?? null);
+ms_test_same('14d. the response reports the new state', true, $result['hooks_paused'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('14e. the flag is on in the database', 1, ms_wr_hooks_paused($pdo, $apAddr1));
+
+$personal = $msPersonal($apUser);
+ms_test_same('14f. list_personal reports the pause', true, $personal[$apAddr1]['hooks_paused'] ?? null);
+ms_test_same('14g. the neighbouring address is still unpaused', false, $personal[$apAddr2]['hooks_paused'] ?? null);
+
+$result = ms_test_json('14h. address_hooks_resume answers', $msAction('pro_profile.php', 'address_hooks_resume', ['id' => $apAddr1], $apUser));
+ms_test_same('14i. the write succeeded', true, $result['success'] ?? null);
+ms_test_same('14j. the response reports the new state', false, $result['hooks_paused'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('14k. the flag is off in the database', 0, ms_wr_hooks_paused($pdo, $apAddr1));
+
+$personal = $msPersonal($apUser);
+ms_test_same('14l. list_personal agrees the pause is cleared', false, $personal[$apAddr1]['hooks_paused'] ?? null);
+
+// Ownership and the Pro gate hold for the pause pair too.
+$result = ms_test_json("14m. another user cannot pause A's address", $msAction('pro_profile.php', 'address_hooks_pause', ['id' => $apAddr1], $apOther));
+ms_test_same('14n. the write is refused', false, $result['success'] ?? null);
+ms_test_same('14o. and reads as "Address not found"', 'Address not found', $result['error'] ?? null);
+
+$result = ms_test_json('14p. a temporary address cannot be paused', $msAction('pro_profile.php', 'address_hooks_pause', ['id' => $apTemp], $apUser));
+ms_test_same('14q. the write is refused', false, $result['success'] ?? null);
+ms_test_same('14r. and reads as "Address not found"', 'Address not found', $result['error'] ?? null);
+
+$result = ms_test_json('14s. a non-Pro account cannot pause its own address', $msAction('pro_profile.php', 'address_hooks_pause', ['id' => $apFreeA], $apFree));
+ms_test_same('14t. the write is refused', false, $result['success'] ?? null);
+ms_test_same('14u. and is refused by the Pro gate', 'Pro required', $result['error'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('14v. no refusal moved a flag', 0, ms_wr_hooks_paused($pdo, $apAddr1) + ms_wr_hooks_paused($pdo, $apTemp) + ms_wr_hooks_paused($pdo, $apFreeA));
+
+// ---------------------------------------------------------------------
+// 15. Deleting a hook or an address leaves no link rows
+// ---------------------------------------------------------------------
+
+ms_test_section('15. Deleting a hook or an address leaves no link rows');
+
+$result = ms_test_json('15a. the address is linked through the API', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookB, 'address_ids' => [$apAddr3]], $apUser));
+ms_test_same('15b. the write succeeded', true, $result['success'] ?? null);
+
+// A second link from *another user's* hook, written straight into the table
+// because the API rightly refuses to create that state. It is the shape a
+// hand-written or pre-migration row would have, and it must be cleaned up too.
+$pdo = ms_test_refresh_db($msSqlite);
+ms_wr_link($pdo, $apHookOth, $apAddr3);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('15c. the address now has two link rows', 2, ms_wr_address_link_count($pdo, $apAddr3));
+
+$result = ms_test_json('15d. delete_personal answers', $msAction('index.php', 'delete_personal', ['id' => $apAddr3], $apUser));
+ms_test_same('15e. the delete succeeded', true, $result['success'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_check('15f. the address row is gone', !ms_test_address_exists($pdo, $apAddr3));
+ms_test_same('15g. its link rows are gone, including the one the API would not create', 0, ms_wr_address_link_count($pdo, $apAddr3));
+ms_test_same("15h. A's surviving hook lost its link to it", 0, ms_wr_link_count($pdo, $apHookB));
+
+// Deleting the hook removes its links — and only its own.
+$result = ms_test_json('15i. the hook is linked again', $msAction('pro_profile.php', 'webhook_set_addresses', ['id' => $apHookA, 'address_ids' => [$apAddr1, $apAddr2]], $apUser));
+ms_test_same('15j. the write succeeded', true, $result['success'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_same('15k. two link rows are stored', 2, ms_wr_link_count($pdo, $apHookA));
+
+$result = ms_test_json('15l. webhook_delete answers', $msAction('pro_profile.php', 'webhook_delete', ['id' => $apHookA], $apUser));
+ms_test_same('15m. the delete succeeded', true, $result['success'] ?? null);
+
+$pdo = ms_test_refresh_db($msSqlite);
+ms_test_check('15n. the hook row is gone', !ms_wr_hook_exists($pdo, $apHookA));
+ms_test_same('15o. its link rows are gone too', 0, ms_wr_link_count($pdo, $apHookA));
+ms_test_check(
+    '15p. the addresses themselves survive their hook',
+    ms_test_address_exists($pdo, $apAddr1) && ms_test_address_exists($pdo, $apAddr2),
+    'deleting a hook took an address with it'
+);
 
 // ---------------------------------------------------------------------
 // Summary
