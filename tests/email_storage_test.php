@@ -23,7 +23,10 @@ declare(strict_types=1);
  *   - sections 9–10 run parse.php and python_imap_bridge.php as the separate
  *     CLI processes production runs them as, and assert their exit codes and
  *     their streams: the pipe target must print nothing at all, because Exim
- *     turns any output into a bounce.
+ *     turns any output into a bounce;
+ *   - section 11 scans the repository itself and asserts that the two
+ *     ingestion INSERTs exist in the Email Storage service and nowhere else,
+ *     which is the invariant the #199 audit established.
  *
  * The two dialect stand-ins the harness installs (TIMESTAMPDIFF and the
  * information_schema probe) are documented there; the SQL that uses them is
@@ -733,19 +736,94 @@ foreach ([
 }
 
 // ---------------------------------------------------------------------
-// 11. Teardown
+// 11. The storage boundary, repository-wide (#199)
 // ---------------------------------------------------------------------
 
-ms_test_section('11. Teardown');
+ms_test_section('11. The storage boundary');
+
+/**
+ * Every shipped file that could carry SQL: PHP and Python, minus the service
+ * that is allowed to write and the documentation that is allowed to quote it.
+ * vendor/ is not shipped code; tests/ is not shipped at all.
+ *
+ * @return array<string, string> relative path => absolute path, sorted.
+ */
+$msShippedSources = static function (string $root): array {
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iterator as $file) {
+        if (!$file->isFile()) {
+            continue;
+        }
+        $relative = substr($file->getPathname(), strlen($root) + 1);
+        if (!in_array(strtolower($file->getExtension()), ['php', 'py'], true)) {
+            continue;
+        }
+        foreach (['vendor/', 'EmailStorage/', 'documentaion/', 'tests/'] as $allowed) {
+            if (str_starts_with($relative, $allowed)) {
+                continue 2;
+            }
+        }
+        $files[$relative] = $file->getPathname();
+    }
+    ksort($files);
+    return $files;
+};
+
+$msSources = $msShippedSources($msRepoRoot);
+ms_test_check('11a. the audit found files to scan', count($msSources) > 20, 'only ' . count($msSources) . ' shipped source files');
+
+// The two statements the boundary is about. Everything below asserts that they
+// exist in the service and nowhere else: the parser's own copy had no caller
+// left and was removed by #199, and nothing has reintroduced one since.
+foreach (['INSERT INTO stored_emails', 'INSERT INTO email_attachments'] as $msStatement) {
+    $msOffenders = [];
+    foreach ($msSources as $msRelative => $msPath) {
+        if (str_contains((string) file_get_contents($msPath), $msStatement)) {
+            $msOffenders[] = $msRelative;
+        }
+    }
+    ms_test_same(
+        '11b. "' . $msStatement . '" is written only by the Email Storage service',
+        [],
+        $msOffenders
+    );
+}
+
+ms_test_check(
+    '11c. and the service is where it is written',
+    str_contains((string) file_get_contents($msRepoRoot . '/EmailStorage/EmailStorage.php'), 'INSERT INTO stored_emails')
+        && str_contains((string) file_get_contents($msRepoRoot . '/EmailStorage/AttachmentStorage.php'), 'INSERT INTO email_attachments')
+);
+
+// The pair #199 retired: the parsers write nothing, so they must not be handed
+// the connection they would need to. Matched as a type declaration ("PDO $pdo")
+// so a comment may still say the word.
+ms_test_check(
+    '11d. MailParser takes no PDO',
+    !str_contains((string) file_get_contents($msRepoRoot . '/MailParser.php'), 'PDO $')
+);
+ms_test_check(
+    '11e. LegacyImapFallback takes no PDO either',
+    !str_contains((string) file_get_contents($msRepoRoot . '/LegacyImapFallback.php'), 'PDO $')
+);
+
+// ---------------------------------------------------------------------
+// 12. Teardown
+// ---------------------------------------------------------------------
+
+ms_test_section('12. Teardown');
 
 ms_test_same(
-    '11a. the suite wrote nothing into the repository\'s own attachments/ directory',
+    '12a. the suite wrote nothing into the repository\'s own attachments/ directory',
     $msRepoAttachmentsBefore,
     ms_test_storage_files($msRepoRoot)
 );
-ms_test_check('11b. the attachment files it did create live in the docroot', count(ms_test_storage_files($msProbe)) > 0, 'the suite stored no attachment file at all');
+ms_test_check('12b. the attachment files it did create live in the docroot', count(ms_test_storage_files($msProbe)) > 0, 'the suite stored no attachment file at all');
 
 ms_test_cleanup($msProbe);
-ms_test_check('11c. the throwaway docroot and its attachment files are gone', !is_dir($msProbe));
+ms_test_check('12c. the throwaway docroot and its attachment files are gone', !is_dir($msProbe));
 
 exit(ms_test_summary());

@@ -629,7 +629,7 @@ class ImapProcessor
             $rawBody = @imap_body($imapConnection, $messageNumber);
             $raw = ($rawHeaders ?: '') . "\r\n" . ($rawBody ?: '');
 
-            $parser = new MailParser($this->pdo, $this->config, $this->debugMode);
+            $parser = new MailParser($this->config, $this->debugMode);
             $parsed = $parser->parseRawMessage($raw);
         } catch (\Throwable $e) {
             $this->log('WARNING', 'MailParser failed: ' . $e->getMessage());
