@@ -69,7 +69,10 @@ report('INFO', "stored mails for {$local}: " . (int)$stmt->fetchColumn());
 // ---------------------------------------------------------------------
 
 $hasPushoverColumn = tableHasColumn('temp_emails', 'pushover_enabled');
-$cols = 'id, pro_user_id, is_personal, expires_at' . ($hasPushoverColumn ? ', pushover_enabled' : '');
+$hasHooksPausedColumn = tableHasColumn('temp_emails', 'hooks_paused');
+$cols = 'id, pro_user_id, is_personal, expires_at'
+    . ($hasPushoverColumn ? ', pushover_enabled' : '')
+    . ($hasHooksPausedColumn ? ', hooks_paused' : '');
 $stmt = $pdo->prepare("SELECT {$cols} FROM temp_emails WHERE unique_address = ? LIMIT 1");
 $stmt->execute([$local]);
 $address = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -77,14 +80,18 @@ if (!$address) {
     stop('the address has no temp_emails row');
     exit(1);
 }
-report('INFO', sprintf(
+$addressLine = sprintf(
     'temp_emails id=%d pro_user_id=%s is_personal=%d pushover_enabled=%s expires_at=%s',
     (int)$address['id'],
     $address['pro_user_id'] === null ? 'NULL' : (string)$address['pro_user_id'],
     (int)$address['is_personal'],
     $hasPushoverColumn ? (string)$address['pushover_enabled'] : 'column missing',
     (string)($address['expires_at'] ?? 'NULL')
-));
+);
+if ($hasHooksPausedColumn) {
+    $addressLine .= sprintf(' hooks_paused=%d', (int)$address['hooks_paused']);
+}
+report('INFO', $addressLine);
 if ($address['pro_user_id'] === null) {
     stop('the address belongs to no account, so no webhook is ever queued for it');
     exit(1);
@@ -113,7 +120,15 @@ if (!proUserIsPro($userId)) {
 // 4. Webhooks and the per-hook gates
 // ---------------------------------------------------------------------
 
-$stmt = $pdo->prepare('SELECT id, name, kind, filter_mode, config FROM pro_webhooks WHERE user_id = ? ORDER BY id');
+// Which dispatch path applies, using the same three-object test as
+// ImapProcessor::hookRoutingAvailable(). Without all three the routing is not
+// available and the output below is the pre-routing report, unchanged.
+$hasIncludeTemporaryColumn = tableHasColumn('pro_webhooks', 'include_temporary');
+$hasLinkTable = tableHasColumn('pro_webhook_addresses', 'webhook_id');
+$routingAvailable = $hasLinkTable && $hasIncludeTemporaryColumn && $hasHooksPausedColumn;
+
+$hookCols = 'id, name, kind, filter_mode, config' . ($hasIncludeTemporaryColumn ? ', include_temporary' : '');
+$stmt = $pdo->prepare("SELECT {$hookCols} FROM pro_webhooks WHERE user_id = ? ORDER BY id");
 $stmt->execute([$userId]);
 $hooks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 if ($hooks === []) {
@@ -125,33 +140,78 @@ $pushoverEligible = $hasPushoverColumn
     && (int)($address['pushover_enabled'] ?? 0) === 1;
 
 $wouldQueue = 0;
-foreach ($hooks as $h) {
-    $kind = (string)($h['kind'] ?? 'generic');
-    $label = sprintf('webhook %d "%s" (%s, filter_mode=%s)', (int)$h['id'], (string)$h['name'], $kind, (string)$h['filter_mode']);
-    if ($h['filter_mode'] !== 'all') {
-        report('SKIP', "{$label}: paused (only filter_mode='all' is dispatched)");
-        continue;
-    }
-    if ($kind === 'pushover') {
-        if (!$hasPushoverColumn) {
-            report('SKIP', "{$label}: temp_emails.pushover_enabled missing, run migrate_address_pushover_state.php");
-            continue;
-        }
-        if ((int)$address['is_personal'] !== 1) {
-            report('SKIP', "{$label}: Pushover only fires for personal addresses, this one is temporary");
-            continue;
-        }
-        if (!$pushoverEligible) {
-            report('SKIP', "{$label}: Pushover is off for this address (turn it on per address under Personal addresses)");
-            continue;
-        }
-        $cfg = json_decode((string)$h['config'], true) ?: [];
-        if (empty($cfg['token']) || empty($cfg['user'])) {
-            report('VARN', "{$label}: would be queued, but its token/user key is missing, so sending will fail");
+
+if ($routingAvailable) {
+    // Per-hook address routing (epic #251): for a personal address, the links
+    // under the hook decide, plus the address' own pause; for a temporary
+    // address, the hook's include_temporary switch does.
+    $linkedHookIds = [];
+    if ((int)$address['is_personal'] === 1) {
+        $stmt = $pdo->prepare('SELECT webhook_id FROM pro_webhook_addresses WHERE temp_email_id = ?');
+        $stmt->execute([(int)$address['id']]);
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $linkedId) {
+            $linkedHookIds[(int)$linkedId] = true;
         }
     }
-    report('OK', "{$label}: would be queued");
-    $wouldQueue++;
+
+    foreach ($hooks as $h) {
+        $kind = (string)($h['kind'] ?? 'generic');
+        $label = sprintf('webhook %d "%s" (%s, filter_mode=%s)', (int)$h['id'], (string)$h['name'], $kind, (string)$h['filter_mode']);
+        if ($h['filter_mode'] !== 'all') {
+            report('SKIP', "{$label}: paused (only filter_mode='all' is dispatched)");
+            continue;
+        }
+        if ((int)$address['is_personal'] === 1) {
+            if ((int)$address['hooks_paused'] === 1) {
+                report('SKIP', "{$label}: hooks are paused for this address (temp_emails.hooks_paused = 1)");
+                continue;
+            }
+            if (!isset($linkedHookIds[(int)$h['id']])) {
+                report('SKIP', "{$label}: not linked to this address (no pro_webhook_addresses row)");
+                continue;
+            }
+        } elseif ((int)($h['include_temporary'] ?? 0) !== 1) {
+            report('SKIP', "{$label}: include_temporary is off, so it does not fire for temporary addresses");
+            continue;
+        }
+        if ($kind === 'pushover') {
+            $cfg = json_decode((string)$h['config'], true) ?: [];
+            if (empty($cfg['token']) || empty($cfg['user'])) {
+                report('VARN', "{$label}: would be queued, but its token/user key is missing, so sending will fail");
+            }
+        }
+        report('OK', "{$label}: would be queued");
+        $wouldQueue++;
+    }
+} else {
+    foreach ($hooks as $h) {
+        $kind = (string)($h['kind'] ?? 'generic');
+        $label = sprintf('webhook %d "%s" (%s, filter_mode=%s)', (int)$h['id'], (string)$h['name'], $kind, (string)$h['filter_mode']);
+        if ($h['filter_mode'] !== 'all') {
+            report('SKIP', "{$label}: paused (only filter_mode='all' is dispatched)");
+            continue;
+        }
+        if ($kind === 'pushover') {
+            if (!$hasPushoverColumn) {
+                report('SKIP', "{$label}: temp_emails.pushover_enabled missing, run migrate_address_pushover_state.php");
+                continue;
+            }
+            if ((int)$address['is_personal'] !== 1) {
+                report('SKIP', "{$label}: Pushover only fires for personal addresses, this one is temporary");
+                continue;
+            }
+            if (!$pushoverEligible) {
+                report('SKIP', "{$label}: Pushover is off for this address (turn it on per address under Personal addresses)");
+                continue;
+            }
+            $cfg = json_decode((string)$h['config'], true) ?: [];
+            if (empty($cfg['token']) || empty($cfg['user'])) {
+                report('VARN', "{$label}: would be queued, but its token/user key is missing, so sending will fail");
+            }
+        }
+        report('OK', "{$label}: would be queued");
+        $wouldQueue++;
+    }
 }
 if ($hooks !== [] && $wouldQueue === 0) {
     stop('no webhook passes the gates, so nothing is queued for this address');
