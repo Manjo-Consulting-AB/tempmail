@@ -110,6 +110,26 @@ function require_pro(int $userId): void {
     }
 }
 
+// Is the per-hook address routing schema in place? (epic #251)
+//
+// True only when all three objects migrate_webhook_addresses.php adds exist, so
+// a half-migrated database reads as "not routed" and the actions below keep
+// their pre-routing shape — the same rule ImapProcessor::hookRoutingAvailable()
+// applies on the dispatch side. Cached: the answer cannot change while one
+// process is running. function_exists-guarded so a repeated require cannot
+// redeclare it.
+if (!function_exists('proWebhookRoutingAvailable')) {
+    function proWebhookRoutingAvailable(): bool {
+        static $available = null;
+        if ($available === null) {
+            $available = tableHasColumn('pro_webhook_addresses', 'webhook_id')
+                && tableHasColumn('pro_webhooks', 'include_temporary')
+                && tableHasColumn('temp_emails', 'hooks_paused');
+        }
+        return $available;
+    }
+}
+
 // Helper: notification email for 2FA activation/deactivation. Never includes
 // the secret or any code — see documentaion/2FA_DESIGN.md §3 and §5.5.
 function send_2fa_notification_email(int $userId, string $event): void {
@@ -849,18 +869,146 @@ try {
 
         case 'webhooks_list':
             try {
-                $s = $pdo->prepare("SELECT id, name, url, kind, config, secret, filter_mode, created_at FROM pro_webhooks WHERE user_id = ? ORDER BY id DESC");
+                // The routing columns only exist once migrate_webhook_addresses.php
+                // has run, so they are selected conditionally rather than assumed.
+                $routing = proWebhookRoutingAvailable();
+                $routingCol = $routing ? ', include_temporary' : '';
+                $s = $pdo->prepare("SELECT id, name, url, kind, config, secret, filter_mode, created_at{$routingCol} FROM pro_webhooks WHERE user_id = ? ORDER BY id DESC");
                 $s->execute([$userId]);
                 $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+
+                // Every hook's address links in one extra query (#251 step 4),
+                // not one query per hook. The JOINs re-check the ownership the
+                // link table cannot: only links pointing at one of this user's
+                // own personal addresses are ever returned, so a stale row or a
+                // hand-written one cannot surface someone else's address id.
+                $linksByHook = [];
+                if ($routing) {
+                    $ls = $pdo->prepare("SELECT l.webhook_id, l.temp_email_id FROM pro_webhook_addresses l
+                        JOIN pro_webhooks w ON w.id = l.webhook_id
+                        JOIN temp_emails t ON t.id = l.temp_email_id AND t.pro_user_id = w.user_id AND t.is_personal = 1
+                        WHERE w.user_id = ?");
+                    $ls->execute([$userId]);
+                    foreach ($ls->fetchAll(PDO::FETCH_NUM) as $link) {
+                        $linksByHook[(int)$link[0]][] = (int)$link[1];
+                    }
+                }
+
                 // Decode config JSON for response
                 foreach ($rows as &$r) {
                     $r['config'] = $r['config'] ? json_decode($r['config'], true) : null;
                     unset($r['secret']); // Do not expose secret in list
+                    // Absent (pre-migration) reads as off / unlinked.
+                    $r['include_temporary'] = $routing && (int)($r['include_temporary'] ?? 0) === 1;
+                    $addressIds = $linksByHook[(int)$r['id']] ?? [];
+                    sort($addressIds);
+                    $r['address_ids'] = $addressIds;
                 }
-                echo json_encode(['success' => true, 'webhooks' => $rows]);
+                echo json_encode(['success' => true, 'routing_available' => $routing, 'webhooks' => $rows]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed listing webhooks', ['user_id' => $userId, 'error' => $e->getMessage()]);
                 echo json_encode(['success' => false, 'error' => 'Could not fetch webhooks']);
+            }
+            break;
+
+        // Replace one hook's whole address set in a single call (#251 step 4):
+        // the UI sends what should be linked, not a diff. Also carries the
+        // hook's include_temporary switch, because the Temporary addresses
+        // control is a property of the same routing decision.
+        case 'webhook_set_addresses':
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin webhook address change', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            require_pro($userId);
+            if (!proWebhookRoutingAvailable()) {
+                send_json(['success' => false, 'error' => 'Webhook routing is not available yet']);
+            }
+            $wid = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+            if ($wid <= 0) {
+                send_json(['success' => false, 'error' => 'Invalid id']);
+            }
+            // address_ids is optional and an empty list is meaningful: it is how
+            // a hook is emptied. Present but not an array is a malformed request
+            // rather than an empty set.
+            $addressIds = [];
+            if (array_key_exists('address_ids', $_POST)) {
+                if (!is_array($_POST['address_ids'])) {
+                    send_json(['success' => false, 'error' => 'Invalid request']);
+                }
+                foreach ($_POST['address_ids'] as $rawId) {
+                    // Non-scalars are dropped rather than cast: (int)[] is 1, so
+                    // casting blindly would turn junk into a plausible id.
+                    if (!is_scalar($rawId)) {
+                        continue;
+                    }
+                    $candidate = (int)$rawId;
+                    if ($candidate > 0) {
+                        $addressIds[$candidate] = $candidate;
+                    }
+                }
+                $addressIds = array_values($addressIds);
+                if (count($addressIds) > 50) {
+                    send_json(['success' => false, 'error' => 'Too many addresses']);
+                }
+            }
+            $includeTemporary = (($_POST['include_temporary'] ?? '') === '1');
+            try {
+                // Ensure ownership of the hook before anything is written.
+                $s = $pdo->prepare("SELECT user_id FROM pro_webhooks WHERE id = ? LIMIT 1");
+                $s->execute([$wid]);
+                $row = $s->fetch(PDO::FETCH_ASSOC);
+                if (!$row || (int)$row['user_id'] !== $userId) {
+                    send_json(['success' => false, 'error' => 'Not found']);
+                }
+
+                // Every id must be one of this user's own personal addresses.
+                // One query, placeholders built from the count and the values
+                // bound — never interpolated.
+                if ($addressIds !== []) {
+                    // Only the *count* of the ids reaches the SQL: the
+                    // placeholder string is ('?' x N), reduced to '?' and ','
+                    // by the preg_replace, and every id is bound separately.
+                    // Same construct, and same suppression, as index.php's
+                    // multi-address lookup.
+                    $placeholders = implode(',', array_fill(0, count($addressIds), '?'));
+                    $safePlaceholders = preg_replace('/[^?,]/', '', $placeholders);
+                    // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
+                    $sql = "SELECT id FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 AND id IN ($safePlaceholders)";
+                    // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
+                    $v = $pdo->prepare($sql);
+                    $v->execute(array_merge([$userId], $addressIds));
+                    $owned = array_map('intval', $v->fetchAll(PDO::FETCH_COLUMN));
+                    if (count($owned) !== count($addressIds)) {
+                        // All or nothing: a partially applied set would be a
+                        // routing state the caller never asked for.
+                        send_json(['success' => false, 'error' => 'Address not found']);
+                    }
+                }
+
+                $pdo->beginTransaction();
+                try {
+                    $d = $pdo->prepare("DELETE FROM pro_webhook_addresses WHERE webhook_id = ?");
+                    $d->execute([$wid]);
+                    if ($addressIds !== []) {
+                        $ins = $pdo->prepare("INSERT INTO pro_webhook_addresses (webhook_id, temp_email_id) VALUES (?, ?)");
+                        foreach ($addressIds as $addressId) {
+                            $ins->execute([$wid, $addressId]);
+                        }
+                    }
+                    $u = $pdo->prepare("UPDATE pro_webhooks SET include_temporary = ? WHERE id = ? AND user_id = ?");
+                    $u->execute([$includeTemporary ? 1 : 0, $wid, $userId]);
+                    $pdo->commit();
+                } catch (Exception $e) {
+                    if ($pdo->inTransaction()) $pdo->rollBack();
+                    throw $e;
+                }
+                sort($addressIds);
+                logMessage('INFO', 'Webhook address routing updated', ['user_id' => $userId, 'webhook_id' => $wid, 'count' => count($addressIds)]);
+                send_json(['success' => true, 'id' => $wid, 'address_ids' => $addressIds, 'include_temporary' => $includeTemporary]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed updating webhook addresses', ['user_id' => $userId, 'webhook_id' => $wid, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'Could not update webhook addresses']);
             }
             break;
 
@@ -1048,6 +1196,43 @@ try {
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed updating per-address Pushover state', ['user_id' => $userId, 'error' => $e->getMessage()]);
                 send_json(['success' => false, 'error' => 'Could not update Pushover settings']);
+            }
+            break;
+
+        // Per-address hook pause (#251 step 4). Same shape as the Pushover
+        // pair above: a preference on the address, never a credential, and
+        // ownership resolved with id + pro_user_id + is_personal = 1 in one
+        // query — another user's address and a temporary one are both simply
+        // "not found". Pausing keeps the address' links; it only silences them
+        // (see ImapProcessor::hooksForDestination()).
+        case 'address_hooks_pause':
+        case 'address_hooks_resume':
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin per-address hook change', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            require_pro($userId);
+            $pause = ($action === 'address_hooks_pause');
+            try {
+                if (!tableHasColumn('temp_emails', 'hooks_paused')) {
+                    send_json(['success' => false, 'error' => 'Could not update hook settings']);
+                }
+                $addressId = (int)($_POST['id'] ?? 0);
+                if (!$addressId) {
+                    send_json(['success' => false, 'error' => 'Invalid address']);
+                }
+                $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                $s->execute([$addressId, $userId]);
+                if (!$s->fetch(PDO::FETCH_ASSOC)) {
+                    send_json(['success' => false, 'error' => 'Address not found']);
+                }
+                $u = $pdo->prepare("UPDATE temp_emails SET hooks_paused = ? WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
+                $u->execute([$pause ? 1 : 0, $addressId, $userId]);
+                logMessage('INFO', $pause ? 'Paused hooks for address' : 'Resumed hooks for address', ['user_id' => $userId, 'address_id' => $addressId]);
+                send_json(['success' => true, 'hooks_paused' => $pause]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed updating per-address hook state', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'Could not update hook settings']);
             }
             break;
 
@@ -1255,6 +1440,13 @@ try {
                 }
                 $d = $pdo->prepare("DELETE FROM pro_webhooks WHERE id = ?");
                 $d->execute([$wid]);
+                // pro_webhook_addresses has no foreign key, so its rows go
+                // explicitly (#251 step 4). Left behind they would route the
+                // next hook that reuses this id to the old addresses.
+                if (tableHasColumn('pro_webhook_addresses', 'webhook_id')) {
+                    $dl = $pdo->prepare("DELETE FROM pro_webhook_addresses WHERE webhook_id = ?");
+                    $dl->execute([$wid]);
+                }
                 logMessage('INFO', 'Webhook deleted', ['user_id' => $userId, 'webhook_id' => $wid]);
                 send_json(['success' => true]);
             } catch (Exception $e) {
