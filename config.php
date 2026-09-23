@@ -259,9 +259,10 @@ $baseConfig = [
         'user' => $_ENV['DA_USER'] ?? '',
         'api_key' => $_ENV['DA_API_KEY'] ?? '',
         'domain' => $_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me'),
-        // Kill switch: keep disabled until the forwarder integration (#32/#33)
-        // has been verified end-to-end (#35). Off by default in all environments.
-        'forwarder_enabled' => filter_var($_ENV['DA_FORWARDER_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        // The forwarder is the only mail intake (#212): on by default in production,
+        // off by default elsewhere (no DirectAdmin credentials in local dev). An
+        // explicit DA_FORWARDER_ENABLED always wins.
+        'forwarder_enabled' => filter_var($_ENV['DA_FORWARDER_ENABLED'] ?? ($environment === 'production'), FILTER_VALIDATE_BOOLEAN),
         // Pipe destination new forwarders are created with. Path confirmed via SSH
         // against the real Inleed server in #35 — username s174280, webroot under
         // domains/<domain>/public_html. Override with DA_FORWARDER_DESTINATION if
