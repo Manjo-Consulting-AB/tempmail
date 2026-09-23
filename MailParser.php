@@ -97,16 +97,6 @@ final class MailParser
                         continue;
                     }
 
-                    $filename = $this->extractFilename($part);
-                    if ($filename === null) {
-                        continue;
-                    }
-
-                    $data = $this->extractContent($part);
-                    if ($data === null) {
-                        continue;
-                    }
-
                     $contentId = null;
                     if (method_exists($part, 'getContentId')) {
                         $cid = $part->getContentId();
@@ -116,6 +106,23 @@ final class MailParser
                     }
 
                     $ctype = $this->extractMimeType($part);
+
+                    $filename = $this->extractFilename($part);
+                    if ($filename === null) {
+                        $normalizedType = strtolower((string)$ctype);
+                        if ($contentId !== null && str_starts_with($normalizedType, 'image/')) {
+                            // Inline image referenced by cid: with no filename — name it after its type
+                            // so the attachment survives and the HTML body can resolve the reference.
+                            $filename = 'inline-image' . $this->inlineImageExtension($normalizedType);
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    $data = $this->extractContent($part);
+                    if ($data === null) {
+                        continue;
+                    }
 
                     $result['attachments'][] = [
                         'filename' => $filename,
@@ -187,6 +194,17 @@ final class MailParser
             }
         }
         return null;
+    }
+
+    private function inlineImageExtension(string $mimeType): string
+    {
+        return match (strtolower($mimeType)) {
+            'image/png' => '.png',
+            'image/jpeg' => '.jpg',
+            'image/gif' => '.gif',
+            'image/webp' => '.webp',
+            default => '.bin',
+        };
     }
 
     private function extractMimeType(object $part): ?string
