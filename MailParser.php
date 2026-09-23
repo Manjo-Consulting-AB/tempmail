@@ -30,7 +30,7 @@ final class MailParser
     /**
      * Parse a raw RFC822 message string and extract attachments + basic metadata.
      *
-     * @return array{subject: ?string, from: ?string, to: ?string, body_text: ?string, body_html: ?string, attachments: array<int, array{filename: string, data: string, mime_type: ?string, content_id: ?string}>}
+     * @return array{subject: ?string, from: ?string, to: ?string, message_id: ?string, body_text: ?string, body_html: ?string, attachments: array<int, array{filename: string, data: string, mime_type: ?string, content_id: ?string}>}
      */
     public function parseRawMessage(string $raw): array
     {
@@ -38,6 +38,7 @@ final class MailParser
             'subject' => null,
             'from' => null,
             'to' => null,
+            'message_id' => null,
             'body_text' => null,
             'body_html' => null,
             'attachments' => [],
@@ -65,6 +66,14 @@ final class MailParser
             } elseif (method_exists($message, 'getHeader')) {
                 $header = $message->getHeader('subject');
                 $result['subject'] = $header !== null ? (string)$header : null;
+            }
+
+            // The Message-ID header, exactly as it arrived. Normalizing it — one
+            // pair of angle brackets, whitespace, the length and charset limits —
+            // is the storage service's decision, not the parser's (#229).
+            if (method_exists($message, 'getHeaderValue')) {
+                $messageId = $message->getHeaderValue('message-id');
+                $result['message_id'] = $messageId !== null ? (string)$messageId : null;
             }
 
             // Extract from-address as a bare email (e.g. "user@example.com"),

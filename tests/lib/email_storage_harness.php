@@ -88,6 +88,7 @@ CREATE TABLE stored_emails (
     received_at TEXT NULL,
     expires_at TEXT NULL,
     temp_email_id INTEGER NULL,
+    message_id TEXT NULL,
     MINUTE TEXT NULL
 );
 

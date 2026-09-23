@@ -332,6 +332,7 @@ try {
             tempEmailId: $tempEmailId,
             proUserId: $proUserId,
             expiresAt: $addressExpiresAt,
+            messageId: $parsed['message_id'] ?? null,
             attachments: $attachments
         ),
         // The pipe's permanent-bounce behavior: the service refuses (and we
