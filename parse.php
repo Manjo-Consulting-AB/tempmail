@@ -65,6 +65,10 @@ declare(strict_types=1);
 // triggered a bounce. Redirect PHP's error_log destination to a file before
 // config.php runs so this pipe-delivery path stays completely silent.
 ini_set('error_log', __DIR__ . '/debug_logs/parse_php_errors.log');
+ini_set('display_errors', '0');
+// Tells config.php that a DB connection failure must defer (exit 75,
+// silent) instead of printing, which Exim would turn into a bounce.
+define('TEMPMAIL_PIPE_INTAKE', true);
 
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/config.php';
@@ -97,6 +101,14 @@ if (php_sapi_name() === 'cli') {
     exit(1);
 }
 
+// Nothing below here is allowed to reach Exim: an uncaught Throwable would be
+// printed by PHP (if display_errors were ever on) and the delivery would bounce.
+// Log it and exit 75 (EX_TEMPFAIL) so the transport defers and retries instead.
+set_exception_handler(static function (Throwable $e): void {
+    error_log('parse.php: uncaught ' . get_class($e) . ': ' . $e->getMessage());
+    exit(75);
+});
+
 /**
  * Log + exit(1): a permanent rejection (bad/unknown/expired recipient).
  * Non-zero so DirectAdmin/Exim can bounce the message if configured to.
@@ -109,14 +121,21 @@ function parseReject(string $reason, array $context = []): void
 }
 
 /**
- * Log + exit(2): an internal failure (parsing/DB), distinct from a
- * permanent rejection so bounce behavior can be tuned differently later.
+ * Log + exit(75): a *temporary* failure (parsing/DB). 75 is EX_TEMPFAIL, the
+ * conventional code a pipe transport lists in temp_errors: Exim defers the
+ * delivery and retries later rather than bouncing it. Nothing may be written to
+ * stdout or stderr — output alone makes Exim treat the delivery as permanently
+ * failed, whatever the exit code (see this file's header).
  */
 function parseFail(string $reason, array $context = []): void
 {
-    logMessage('ERROR', 'parse.php: ' . $reason, $context);
-    fwrite(STDERR, $reason . "\n");
-    exit(2);
+    try {
+        logMessage('ERROR', 'parse.php: ' . $reason, $context);
+    } catch (\Throwable $_) {
+        // The database may be exactly what failed, so logging can fail too.
+        error_log('parse.php: ' . $reason);
+    }
+    exit(75);
 }
 
 /** Read one env var, trying $_SERVER first (per the issue's example) then getenv(). */
@@ -192,7 +211,7 @@ try {
     $tempEmail = $stmt->fetch(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
     parseFail('temp_emails lookup threw', ['error' => $e->getMessage(), 'local_part' => $localPart]);
-    exit(2); // unreachable, keeps static analysis happy
+    exit(75); // unreachable, keeps static analysis happy
 }
 
 if (!$tempEmail) {
@@ -213,7 +232,7 @@ try {
     $parsed = $parser->parseRawMessage($raw);
 } catch (Throwable $e) {
     parseFail('MailParser threw while parsing message', ['error' => $e->getMessage(), 'to' => $toAddress]);
-    exit(2); // unreachable
+    exit(75); // unreachable
 }
 
 $fromAddress = $parsed['from'] ?? '';
@@ -301,7 +320,7 @@ try {
     );
 } catch (Throwable $e) {
     parseFail('EmailStorage::store() threw', ['error' => $e->getMessage(), 'to' => $toAddress]);
-    exit(2); // unreachable, keeps static analysis happy
+    exit(75); // unreachable, keeps static analysis happy
 }
 
 logMessage('DEBUG', 'parse.php: EmailStorage store result', [

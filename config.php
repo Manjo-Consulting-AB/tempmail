@@ -651,6 +651,13 @@ try {
     }
 
     if (!isset($pdo) || !($pdo instanceof PDO)) {
+    // The DirectAdmin/Exim pipe intake (parse.php) must not print here: any
+    // output makes Exim bounce the mail permanently. Defer instead — exit 75
+    // (EX_TEMPFAIL), silent, so the transport retries the delivery later.
+    if (defined('TEMPMAIL_PIPE_INTAKE')) {
+        error_log('Database connection failed (pipe intake, deferring): ' . $e->getMessage());
+        exit(75);
+    }
     if ($config['app']['debug_mode']) {
         die("Databasanslutning misslyckades i {$environment}-miljö: " . $e->getMessage() . 
             "<br>Host: {$config['db']['host']}, DB: {$config['db']['name']}, User: {$config['db']['user']}");
