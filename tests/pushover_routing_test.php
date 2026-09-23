@@ -19,15 +19,21 @@ declare(strict_types=1);
  *     Pro-gating decisions are the page's own SQL and guards;
  *   - scenarios 8–12 call the real ImapProcessor::dispatchWebhooks() against a
  *     real PDO;
- *   - scenarios 1–2 render the real pro_profile_page.php and assert the
- *     PHP→JS contract that gates the PO control.
+ *   - scenario 13 and the regression block after it cover address deletion and
+ *     the per-address RSS feed (#160).
  *
- * One honest limit: the PO control is assembled in the browser by the page's
- * inline script from `list_personal`, and this suite has no JS engine, so
- * scenarios 1–2 assert the rendered flag and the structure of the guard that
- * consumes it rather than a DOM node. Everything on the PHP side of that
- * contract — which webhooks count as "configured", and which addresses report
- * themselves as enabled — is asserted directly.
+ * This suite deliberately runs the *pre-routing* path: it never applies
+ * ms_test_webhook_address_schema(), so pushover_enabled is still the gate that
+ * decides whether a Pushover hook is queued. Its complement is
+ * tests/webhook_routing_test.php, which applies that schema and exercises the
+ * per-hook routing instead — between the two, both branches of routing
+ * availability are covered.
+ *
+ * The PHP→JS contract that used to be asserted here — the server-rendered flag
+ * that gated the per-address Pushover control — went with the control itself
+ * (#251 step 5). pro_profile_page.php no longer renders it, so there is nothing
+ * left of that contract to assert; the page's own render coverage now lives in
+ * tests/webhook_routing_test.php.
  */
 
 $msRepoRoot = dirname(__DIR__);
@@ -91,50 +97,17 @@ $addrQueueOff = ms_test_seed_address($pdo, 'a11ce004', ['pro_user_id' => $userA,
 $addrQueueOn  = ms_test_seed_address($pdo, 'a11ce005', ['pro_user_id' => $userA, 'pushover_enabled' => 1]);
 $addrBob      = ms_test_seed_address($pdo, 'b0b00001', ['pro_user_id' => $userB, 'pushover_enabled' => 0]);
 
+// A paused Pushover hook from the start. It was seeded by the retired scenario
+// 2, whose subject was the removed per-address PO control; scenario 10 still
+// needs it, because a hook's own paused state is a separate rule from the
+// address' opt-in.
+$pausedHook = ms_test_seed_webhook($pdo, $userA, 'pushover', 'paused', 'Paused Pushover');
+
 $msPayload = static fn(string $localPart): array => [
     'to' => $localPart . '@' . MS_TEST_EMAIL_DOMAIN,
     'subject' => 'Routing fixture',
     'body' => 'Body of the routing fixture.',
 ];
-
-// ---------------------------------------------------------------------
-// 1. No Pushover configuration => no PO UI control
-// ---------------------------------------------------------------------
-
-ms_test_section('1. No Pushover configuration => no PO UI control');
-
-// A generic webhook exists, so this also shows the gate keys on kind, not on
-// "the account has some webhook".
-ms_test_seed_webhook($pdo, $userA, 'generic', 'all', 'Generic only');
-
-$render = $msRun(['page' => 'pro_profile_page.php', 'method' => 'GET', 'user_id' => $userA, 'user_email' => 'alice@example.com']);
-ms_test_no_php_errors('1a. pro_profile_page.php renders without PHP errors', $render);
-ms_test_check(
-    '1b. hasPushoverWebhook is false with only a generic webhook',
-    str_contains($render['stdout'], 'var hasPushoverWebhook = false;'),
-    'rendered flag not found'
-);
-ms_test_check(
-    '1c. the PO button is assigned only inside the hasPushoverWebhook guard',
-    preg_match('/var poButton = \'\';[\s\n]+if \(hasPushoverWebhook\) \{/', $render['stdout']) === 1,
-    'guard structure not found — the control would render unconditionally'
-);
-
-// ---------------------------------------------------------------------
-// 2. Configured but paused Pushover => PO control visible
-// ---------------------------------------------------------------------
-
-ms_test_section('2. Configured but paused Pushover => PO control visible');
-
-$pausedHook = ms_test_seed_webhook($pdo, $userA, 'pushover', 'paused', 'Paused Pushover');
-
-$render = $msRun(['page' => 'pro_profile_page.php', 'method' => 'GET', 'user_id' => $userA, 'user_email' => 'alice@example.com']);
-ms_test_no_php_errors('2a. pro_profile_page.php still renders cleanly', $render);
-ms_test_check(
-    '2b. a paused Pushover webhook still counts as configured (filter_mode is not consulted)',
-    str_contains($render['stdout'], 'var hasPushoverWebhook = true;'),
-    'paused webhook did not make the control available'
-);
 
 // ---------------------------------------------------------------------
 // 3. Existing enabled/disabled state renders correctly
