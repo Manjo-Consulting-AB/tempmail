@@ -5,6 +5,7 @@
 require_once 'config.php';
 require_once __DIR__ . '/client/backend/bootstrap.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
+require_once __DIR__ . '/php_imap_processor.php';
 // Pulls in redeemVoucherForEmail() for the upgrade_with_voucher action below.
 // pro_auth.php guards its actual HTTP endpoints behind
 // `if (realpath($_SERVER['SCRIPT_FILENAME']) === realpath(__FILE__)):` — since
@@ -1239,6 +1240,11 @@ try {
                 if ($configArr === null && $config) {
                     send_json(['success' => false, 'error' => 'Invalid config JSON']);
                 }
+                // Its keys are sent as fields (Pushover) or merged into the body
+                // (generic), so it has to be a JSON object, not a list or scalar.
+                if (!is_array($configArr) || ($configArr !== [] && array_keys($configArr) === range(0, count($configArr) - 1))) {
+                    send_json(['success' => false, 'error' => 'Config must be a JSON object']);
+                }
             }
 
             // Pushover must include token and user
@@ -1271,7 +1277,8 @@ try {
                         $token = $configArr['token'] ?? null;
                         $userKey = $configArr['user'] ?? null;
                         if (!empty($token) && !empty($userKey)) {
-                            $post = ['token' => $token, 'user' => $userKey, 'message' => $payload['message'], 'title' => 'Mail Shield Test'];
+                            // Same fields as a real delivery, so the test proves the config.
+                            $post = ImapProcessor::pushoverPostFields($configArr, $payload['message'], 'Mail Shield Test');
                             if (function_exists('curl_init')) {
                                 $ch = curl_init('https://api.pushover.net/1/messages.json');
                                 curl_setopt($ch, CURLOPT_POST, 1);
@@ -1302,8 +1309,8 @@ try {
                             }
                         }
                     } else {
-                        // Generic JSON POST
-                        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
+                        // Generic JSON POST, config merged in as on a real delivery
+                        $payloadJson = json_encode(ImapProcessor::genericWebhookBody($configArr ?? [], $payload), JSON_UNESCAPED_UNICODE);
                         $headers = ['Content-Type: application/json'];
                         if (!empty($storedSecret)) {
                             $secretPlain = decrypt_webhook_secret($storedSecret);

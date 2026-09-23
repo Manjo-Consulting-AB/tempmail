@@ -373,7 +373,7 @@ function ms_test_probe_build(string $repoRoot): string {
         throw new RuntimeException("Could not create probe docroot at {$root}");
     }
 
-    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'TwoFactorAuth.php'] as $page) {
+    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'TwoFactorAuth.php', 'php_imap_processor.php'] as $page) {
         if (!copy($repoRoot . '/' . $page, $root . '/' . $page)) {
             throw new RuntimeException("Could not copy {$page} into the probe docroot");
         }

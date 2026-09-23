@@ -225,6 +225,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                 <div class="mb-2">
                                     <label class="form-label">Config (JSON)</label>
                                     <input id="whConfig" class="form-control" placeholder='{"token":"...","user":"..."}' />
+                                    <div class="form-text">A JSON object, sent as-is. Pushover: every key goes to the Pushover API — <code>token</code> and <code>user</code> are required, add e.g. <code>device</code>, <code>sound</code> or <code>priority</code>. Generic: the keys are merged into the JSON body and replace ours where the names match.</div>
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label">Secret (optional)</label>
