@@ -1175,18 +1175,20 @@ function generateUniqueString($length = null) {
 }
 
 /**
- * Best-effort creation of the DirectAdmin mail forwarder for a newly
- * created temp address (alias@domain -> parse.php pipe). Fail-open: any
- * failure (misconfiguration, API error, network timeout) is logged but
- * never prevents the address from being usable, so an outage on the
- * DirectAdmin side can't block address generation (#32). No-op while
- * $config['directadmin']['forwarder_enabled'] is off (the default).
+ * Creation of the DirectAdmin mail forwarder for a newly created temp
+ * address (alias@domain -> parse.php pipe). Fail-closed since #212: the
+ * forwarder is the only way mail reaches the address, so when it cannot be
+ * created the address must not be created either. Returns false when
+ * createForwarder() fails or throws (both logged at ERROR), true when it
+ * succeeds. No-op returning true while
+ * $config['directadmin']['forwarder_enabled'] is off (there is no forwarder
+ * to create in that configuration, so creation proceeds as before).
  */
-function createDirectAdminForwarder(string $alias): void {
+function createDirectAdminForwarder(string $alias): bool {
     global $config;
 
     if (empty($config['directadmin']['forwarder_enabled'])) {
-        return;
+        return true;
     }
 
     require_once __DIR__ . '/DirectAdminClient.php';
@@ -1195,10 +1197,13 @@ function createDirectAdminForwarder(string $alias): void {
         $client = new DirectAdminClient($config['directadmin']);
         $ok = $client->createForwarder($alias, $config['directadmin']['forwarder_destination']);
         if (!$ok) {
-            logMessage('WARNING', 'DirectAdmin forwarder creation failed; address remains usable without it', ['alias' => $alias]);
+            logMessage('ERROR', 'DirectAdmin forwarder creation failed; address creation is refused', ['alias' => $alias]);
+            return false;
         }
+        return true;
     } catch (Throwable $e) {
-        logMessage('ERROR', 'DirectAdmin forwarder creation threw an exception', ['alias' => $alias, 'error' => $e->getMessage()]);
+        logMessage('ERROR', 'DirectAdmin forwarder creation failed; address creation is refused', ['alias' => $alias, 'error' => $e->getMessage()]);
+        return false;
     }
 }
 
@@ -1268,9 +1273,15 @@ function saveNewAddress($address, $proUserId = null, $isPersonal = 0) {
         }
 
         if ($result) {
+            // The forwarder is the only intake path for mail, so an address
+            // whose forwarder could not be created is removed again instead of
+            // being handed to the user, and counts no stats (#212).
+            if (!createDirectAdminForwarder($address)) {
+                $pdo->prepare("DELETE FROM temp_emails WHERE unique_address = ?")->execute([$address]);
+                return false;
+            }
             updateStat('emails_created', 1);
             updateStat('total_users', 1);
-            createDirectAdminForwarder($address);
         }
         return $result;
     } catch (PDOException $e) {

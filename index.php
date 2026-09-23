@@ -178,7 +178,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $ins = $pdo->prepare("INSERT INTO temp_emails (unique_address, expires_at, pro_user_id, is_personal) VALUES (?, ?, ?, 1)");
                     $ins->execute([$local, $expiresAt, $_SESSION['pro_user_id']]);
-                    createDirectAdminForwarder($local);
+                    if (!createDirectAdminForwarder($local)) {
+                        $pdo->prepare("DELETE FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? AND is_personal = 1")
+                            ->execute([$local, $_SESSION['pro_user_id']]);
+                        echo json_encode(['success' => false, 'error' => 'Mail delivery could not be set up for this address, so it was not created. Please try again in a moment.']);
+                        break;
+                    }
                     logMessage('INFO', 'Personal address created', ['user_id' => $_SESSION['pro_user_id'], 'address' => $local]);
                     echo json_encode(['success' => true, 'address' => $local, 'full_address' => $local . '@' . $config['email']['domain'], 'expires_at' => $expiresAt]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                 } catch (Exception $e) {
@@ -322,16 +327,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $del->execute([$proUserId]);
                         // Now insert new address
                         $saved = saveNewAddress($address, $proUserId);
-                        $pdo->commit();
+                        if ($saved) {
+                            $pdo->commit();
+                        } else {
+                            // The new address could not be set up, so the previous
+                            // one is kept: rolling back undoes the delete above,
+                            // leaving its rows, its mail and its forwarder intact
+                            // (#212).
+                            $pdo->rollBack();
+                        }
                     } catch (Exception $e) {
                         if ($pdo->inTransaction()) $pdo->rollBack();
                         throw $e;
                     }
-                    // Files are unlinked only after the commit, so a rollback cannot
-                    // leave rows pointing at deleted files.
-                    unlinkAttachmentFiles($replacedAttachmentFiles);
-                    foreach ($replacedAddresses as $replacedAddress) {
-                        deleteDirectAdminForwarder($replacedAddress);
+                    if ($saved) {
+                        // Files are unlinked only after the commit, so a rollback cannot
+                        // leave rows pointing at deleted files.
+                        unlinkAttachmentFiles($replacedAttachmentFiles);
+                        foreach ($replacedAddresses as $replacedAddress) {
+                            deleteDirectAdminForwarder($replacedAddress);
+                        }
                     }
                 } else {
                     $saved = saveNewAddress($address, $proUserId);
@@ -348,7 +363,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 } else {
                     unset($GLOBALS['__custom_expires_at']);
-                    throw new Exception('Could not create address');
+                    throw new Exception('Mail delivery could not be set up for a new address, so none was created. Please try again in a moment.');
                 }
                 break;
                 
