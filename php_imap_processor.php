@@ -227,6 +227,9 @@ class ImapProcessor
             $message = ($payload['subject'] ?? '(No subject)') . "\n\n" . trim(strip_tags($payload['body'] ?? ''));
             if (strlen($message) > 4096) $message = substr($message, 0, 4000) . '...';
             $post = ['token' => $token, 'user' => $user, 'message' => $message, 'title' => ($payload['to'] ?? 'Mail Shield')];
+            // Optional: target one or more named devices instead of all of the user's devices.
+            $device = is_string($cfg['device'] ?? null) ? trim($cfg['device']) : '';
+            if ($device !== '') $post['device'] = $device;
 
             if (function_exists('curl_init')) {
                 $ch = curl_init('https://api.pushover.net/1/messages.json');
