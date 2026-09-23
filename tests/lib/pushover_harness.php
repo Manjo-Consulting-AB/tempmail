@@ -607,7 +607,6 @@ function isValidLocalPart($localPart) { return isValidAddress($localPart); }
 function generateSignedAttachmentUrl(...$args) { return ''; }
 function hasSessionAddressAccess(...$args) { return false; }
 function grantSessionAddressAccess(...$args) { return true; }
-function shouldRunGlobalImapRefresh(PDO $pdo, int $cooldownSeconds = 5): bool { return true; }
 function deleteStoredEmailsForTempEmail(PDO $pdo, int $tempEmailId): array { return []; }
 function unlinkAttachmentFiles(array $paths): void {}
 function getStats() { return []; }

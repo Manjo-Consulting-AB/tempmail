@@ -553,58 +553,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } catch (Exception $_) {
                     // ignore logging failures
                 }
-                // Note: we run IMAP first, then fetch DB results to ensure newly fetched messages are returned
-                
-                // Anropa Production PHP IMAP-processor direkt
-                try {
-                    // Kontrollera om PHP IMAP extension finns
-                    if (!extension_loaded('imap')) {
-                        // Fallback: Använd cURL-baserad lösning eller logga varning
-                        logMessage('WARNING', 'PHP IMAP extension saknas - emails kan inte processas automatiskt', [
-                            'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown',
-                            'php_version' => PHP_VERSION
-                        ]);
-                        
-                        $imapResult = [
-                            'success' => false,
-                            'new_emails' => 0,
-                            'message' => 'PHP IMAP extension saknas på servern'
-                        ];
-                    } elseif (!shouldRunGlobalImapRefresh($pdo)) {
-                        // A sync ran very recently (triggered by this or another
-                        // caller) - skip re-fetching from IMAP and just return
-                        // whatever's already stored, same as get_emails would.
-                        $imapResult = [
-                            'success' => true,
-                            'new_emails' => 0,
-                            'message' => 'A refresh already ran recently'
-                        ];
-                    } else {
-                        require_once __DIR__ . '/php_imap_processor.php';
+                // Mail arrives through the DirectAdmin pipe (parse.php) as it is delivered;
+                // there is no mailbox to poll, so a refresh only re-reads the database.
+                $imapSuccess = true;
+                $newEmailsFromImap = 0;
+                $imapMessage = '';
 
-                        $imapProcessor = new ImapProcessor($config, $pdo, $config['app']['debug_mode']);
-                        $imapResult = $imapProcessor->processEmails();
-                    }
-                    
-                    $imapSuccess = $imapResult['success'] ?? false;
-                    $newEmailsFromImap = $imapResult['new_emails'] ?? 0;
-                    $imapMessage = $imapResult['message'] ?? 'Unknown response';
-                    
-                    logMessage('DEBUG', 'Production IMAP processor completed', [
-                        'success' => $imapSuccess,
-                        'new_emails_from_imap' => $newEmailsFromImap,
-                        'message' => $imapMessage
-                    ]);
-                    
-                } catch (Exception $e) {
-                    $imapSuccess = false;
-                    $newEmailsFromImap = 0;
-                    $imapMessage = 'IMAP-processor fel: ' . $e->getMessage();
-                    logMessage('ERROR', 'Production IMAP processing failed', [
-                        'error' => $e->getMessage()
-                    ]);
-                }
-                
                 // Hämta e-post från databasen efter IMAP-körning
                 // Use the same address-set logic as in 'get_emails' so pro users see personal addresses too
                 $fullAddress = $address . '@' . $config['email']['domain'];
