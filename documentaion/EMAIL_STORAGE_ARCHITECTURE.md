@@ -165,6 +165,7 @@ and are listed so the inventory is complete:
 | `pro_auth.php:1339, 1343` | `DELETE FROM email_attachments` / `DELETE FROM stored_emails` | account deletion |
 | `index.php:255, 304` | deletes the `temp_emails` row a FK cascades from | address deletion; the cascade is the schema's, not a statement here |
 | `cron/send-digests.php:198` | `UPDATE stored_emails SET digest_included_at = ?` | read-side bookkeeping for the digest |
+| `EmailStorage/MailboxQuota.php` | `DELETE FROM email_attachments WHERE email_id = ?` / `DELETE FROM stored_emails WHERE id = ?` | the stored-mail quota (#227): a post-storage listener that, once a new message is committed, deletes the oldest mail in the same scope until the scope is back at or below `$config['email']['quota_bytes']` |
 
 Read-side consumers of these rows: `index.php` (inbox), `inbox.php`, `files.php` (signed URLs over
 `email_attachments.file_path`), `pro_feed.php`, `cron/send-digests.php`.
