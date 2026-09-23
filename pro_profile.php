@@ -5,6 +5,7 @@
 require_once 'config.php';
 require_once __DIR__ . '/client/backend/bootstrap.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
+require_once __DIR__ . '/php_imap_processor.php';
 // Pulls in redeemVoucherForEmail() for the upgrade_with_voucher action below.
 // pro_auth.php guards its actual HTTP endpoints behind
 // `if (realpath($_SERVER['SCRIPT_FILENAME']) === realpath(__FILE__)):` — since
@@ -1246,15 +1247,6 @@ try {
                 if (empty($configArr['token']) || empty($configArr['user'])) {
                     send_json(['success' => false, 'error' => 'Pushover config requires token and user']);
                 }
-                // Optional device: Pushover device names are up to 25 of [A-Za-z0-9_-],
-                // several may be given comma-separated.
-                if (isset($configArr['device'])) {
-                    $device = is_string($configArr['device']) ? trim($configArr['device']) : null;
-                    if ($device === null || ($device !== '' && !preg_match('/^[A-Za-z0-9_-]{1,25}(,[A-Za-z0-9_-]{1,25})*$/', $device))) {
-                        send_json(['success' => false, 'error' => 'Pushover device must be a device name (letters, digits, _ or -, max 25), comma-separated for several']);
-                    }
-                    $configArr['device'] = $device;
-                }
             }
 
             try {
@@ -1280,8 +1272,8 @@ try {
                         $token = $configArr['token'] ?? null;
                         $userKey = $configArr['user'] ?? null;
                         if (!empty($token) && !empty($userKey)) {
-                            $post = ['token' => $token, 'user' => $userKey, 'message' => $payload['message'], 'title' => 'Mail Shield Test'];
-                            if (!empty($configArr['device'])) $post['device'] = $configArr['device'];
+                            // Same fields as a real delivery, so the test proves the config.
+                            $post = ImapProcessor::pushoverPostFields($configArr, $payload['message'], 'Mail Shield Test');
                             if (function_exists('curl_init')) {
                                 $ch = curl_init('https://api.pushover.net/1/messages.json');
                                 curl_setopt($ch, CURLOPT_POST, 1);

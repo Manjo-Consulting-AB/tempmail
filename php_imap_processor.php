@@ -212,6 +212,30 @@ class ImapProcessor
         }
     }
 
+    /**
+     * Builds the form fields for a Pushover messages.json call from a hook's
+     * config JSON. Every scalar key the user put in the config is passed on
+     * as-is (device, sound, priority, url, url_title, html, ttl, ...), so any
+     * Pushover API parameter works without us listing it; Pushover itself
+     * rejects what it does not accept, and the error lands in the delivery log.
+     * The request always goes to api.pushover.net, so the config cannot
+     * redirect it. `message` is always the mail itself; `title` defaults to
+     * the recipient address but the config may override it. Nested values are
+     * dropped - the API takes flat form fields only.
+     */
+    public static function pushoverPostFields(array $cfg, string $message, string $defaultTitle): array
+    {
+        $post = ['title' => $defaultTitle];
+        foreach ($cfg as $key => $value) {
+            if (!is_string($key) || $key === 'message') continue;
+            if (is_bool($value)) $value = $value ? 1 : 0;
+            if (!is_scalar($value)) continue;
+            $post[$key] = $value;
+        }
+        $post['message'] = $message;
+        return $post;
+    }
+
     private function sendWebhookRequest(array $hook, array $payload): array
     {
         $kind = $hook['kind'] ?? 'generic';
@@ -226,10 +250,7 @@ class ImapProcessor
             if (empty($token) || empty($user)) throw new Exception('Pushover config missing');
             $message = ($payload['subject'] ?? '(No subject)') . "\n\n" . trim(strip_tags($payload['body'] ?? ''));
             if (strlen($message) > 4096) $message = substr($message, 0, 4000) . '...';
-            $post = ['token' => $token, 'user' => $user, 'message' => $message, 'title' => ($payload['to'] ?? 'Mail Shield')];
-            // Optional: target one or more named devices instead of all of the user's devices.
-            $device = is_string($cfg['device'] ?? null) ? trim($cfg['device']) : '';
-            if ($device !== '') $post['device'] = $device;
+            $post = self::pushoverPostFields($cfg, $message, (string)($payload['to'] ?? 'Mail Shield'));
 
             if (function_exists('curl_init')) {
                 $ch = curl_init('https://api.pushover.net/1/messages.json');
