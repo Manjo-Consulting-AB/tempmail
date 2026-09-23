@@ -15,7 +15,7 @@
  *                                     new one replaces the previous
  *   24 hours                          index.php `case 'generate'` /
  *                                     config.php saveNewAddress() default
- *   signed attachment links           download_attachment.php / files.php
+ *   signed attachment links           files.php
  *   up to 10 personal addresses       index.php `case 'create_personal'` — the
  *                                     quota is 10 per account
  *   lifetime 1 to 7 days on Pro       index.php `case 'generate'` clamps

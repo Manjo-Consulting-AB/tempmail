@@ -129,11 +129,13 @@ try {
     if ($useXSend) {
         $xAccel = getenv('X_ACCEL_REDIRECT_LOCATION');
         if ($xAccel) {
+            header('X-Content-Type-Options: nosniff');
             header('Content-Type: ' . $ctype);
             header('Content-Disposition: attachment; filename="' . $downloadName . '"');
             header('X-Accel-Redirect: ' . rtrim($xAccel, '/') . '/' . $fileBasename);
             exit;
         }
+        header('X-Content-Type-Options: nosniff');
         header('Content-Type: ' . $ctype);
         header('Content-Disposition: attachment; filename="' . $downloadName . '"');
         header('X-Sendfile: ' . $real);
@@ -161,6 +163,7 @@ try {
     }
 
     if ($statusCode === 206) http_response_code(206);
+    header('X-Content-Type-Options: nosniff');
     header('Content-Type: ' . $ctype);
     header('Content-Disposition: attachment; filename="' . $downloadName . '"');
     header('Accept-Ranges: bytes');

@@ -1,0 +1,2 @@
+# Attachments are served only through files.php (signed URLs). Never directly.
+Require all denied

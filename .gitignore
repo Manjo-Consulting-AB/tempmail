@@ -6,6 +6,7 @@ vendor/
 # Runtime uploads and generated files
 attachments/*
 !attachments/.gitkeep
+!attachments/.htaccess
 
 # Local logs
 *.log
