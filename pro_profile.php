@@ -1240,6 +1240,11 @@ try {
                 if ($configArr === null && $config) {
                     send_json(['success' => false, 'error' => 'Invalid config JSON']);
                 }
+                // Its keys are sent as fields (Pushover) or merged into the body
+                // (generic), so it has to be a JSON object, not a list or scalar.
+                if (!is_array($configArr) || ($configArr !== [] && array_keys($configArr) === range(0, count($configArr) - 1))) {
+                    send_json(['success' => false, 'error' => 'Config must be a JSON object']);
+                }
             }
 
             // Pushover must include token and user
@@ -1304,8 +1309,8 @@ try {
                             }
                         }
                     } else {
-                        // Generic JSON POST
-                        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
+                        // Generic JSON POST, config merged in as on a real delivery
+                        $payloadJson = json_encode(ImapProcessor::genericWebhookBody($configArr ?? [], $payload), JSON_UNESCAPED_UNICODE);
                         $headers = ['Content-Type: application/json'];
                         if (!empty($storedSecret)) {
                             $secretPlain = decrypt_webhook_secret($storedSecret);

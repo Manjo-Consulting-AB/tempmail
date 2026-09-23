@@ -213,27 +213,41 @@ class ImapProcessor
     }
 
     /**
-     * Builds the form fields for a Pushover messages.json call from a hook's
-     * config JSON. Every scalar key the user put in the config is passed on
-     * as-is (device, sound, priority, url, url_title, html, ttl, ...), so any
-     * Pushover API parameter works without us listing it; Pushover itself
-     * rejects what it does not accept, and the error lands in the delivery log.
-     * The request always goes to api.pushover.net, so the config cannot
-     * redirect it. `message` is always the mail itself; `title` defaults to
-     * the recipient address but the config may override it. Nested values are
-     * dropped - the API takes flat form fields only.
+     * The config JSON on a hook is the user's own, and it is applied as-is:
+     * webhooks are a technical feature, so the user gets full control over
+     * what is sent, our fixed fields included. What stays out of their reach
+     * is where it goes - Pushover always posts to api.pushover.net, a generic
+     * hook only to the URL that passed resolveUrlToPublicTarget() - and the
+     * config size, capped at creation in pro_profile.php.
+     *
+     * Form fields for a Pushover messages.json call: our defaults (message,
+     * title), then every scalar config key on top (token, user, device, sound,
+     * priority, url, html, ttl, ... or message/title themselves). Pushover
+     * validates the fields; its error lands in the delivery log. Nested values
+     * are dropped - the API takes flat form fields only.
      */
     public static function pushoverPostFields(array $cfg, string $message, string $defaultTitle): array
     {
-        $post = ['title' => $defaultTitle];
+        $post = ['message' => $message, 'title' => $defaultTitle];
         foreach ($cfg as $key => $value) {
-            if (!is_string($key) || $key === 'message') continue;
+            if (!is_string($key)) continue;
             if (is_bool($value)) $value = $value ? 1 : 0;
             if (!is_scalar($value)) continue;
             $post[$key] = $value;
         }
-        $post['message'] = $message;
         return $post;
+    }
+
+    /**
+     * JSON body for a generic hook: the mail payload with the config's
+     * top-level keys merged over it, so a key in the config replaces ours.
+     */
+    public static function genericWebhookBody(array $cfg, array $payload): array
+    {
+        foreach ($cfg as $key => $value) {
+            if (is_string($key)) $payload[$key] = $value;
+        }
+        return $payload;
     }
 
     private function sendWebhookRequest(array $hook, array $payload): array
@@ -241,10 +255,10 @@ class ImapProcessor
         $kind = $hook['kind'] ?? 'generic';
         $url = $hook['url'] ?? '';
         if (empty($url)) throw new Exception('Webhook URL missing');
-        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        $cfg = !empty($hook['config']) ? json_decode($hook['config'], true) : [];
+        if (!is_array($cfg)) $cfg = [];
 
         if ($kind === 'pushover') {
-            $cfg = !empty($hook['config']) ? json_decode($hook['config'], true) : [];
             $token = $cfg['token'] ?? null;
             $user = $cfg['user'] ?? null;
             if (empty($token) || empty($user)) throw new Exception('Pushover config missing');
@@ -274,6 +288,8 @@ class ImapProcessor
             return $resp === false ? ['code' => 0, 'body' => 'file_get_contents failed'] : ['code' => 200, 'body' => $resp];
         }
 
+        // Signed over the body as sent, config included.
+        $payloadJson = json_encode(self::genericWebhookBody($cfg, $payload), JSON_UNESCAPED_UNICODE);
         $headers = ['Content-Type: application/json'];
         if (!empty($hook['secret'])) {
             $secret = $this->decryptHookSecret($hook['secret']);
