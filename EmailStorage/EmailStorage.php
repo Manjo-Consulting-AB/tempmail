@@ -17,9 +17,9 @@ if (!defined('TEMPMAIL_APP')) {
  *
  * One entrypoint — `store(IncomingEmail $email, array $options = [])` — owns
  * everything that turns a normalized incoming email into `stored_emails` and
- * `email_attachments` rows. It replaces, for callers migrated in #192–#195, the
- * three inline inserts inventoried in documentaion/EMAIL_STORAGE_ARCHITECTURE.md
- * §3. Nothing calls it yet: this step implements the service only.
+ * `email_attachments` rows. It replaces, for the three callers migrated in
+ * #192–#195, the inline inserts inventoried in
+ * documentaion/EMAIL_STORAGE_ARCHITECTURE.md §3.
  *
  * What it owns: recipient validation, the `temp_emails` / `pro_users.address_ttl_days`
  * ownership and retention lookup, the opt-in duplicate rule, the transactional
@@ -27,11 +27,12 @@ if (!defined('TEMPMAIL_APP')) {
  * `attachments_processed` statistics that belong to persistence, and a
  * normalized StorageResult.
  *
- * What it deliberately does not do: no webhook or network call of any kind
- * (callers dispatch webhooks after `store()` returns, which is what keeps them
- * out of the storage transaction), no mailbox housekeeping, no MIME parsing and
- * no user-facing output. It is not an HTTP endpoint and is guarded against being
- * requested as one.
+ * What it deliberately does not do: no webhook or network call of any kind —
+ * downstream work is registered as a plain callable through `onStored()` and
+ * runs after the commit, which keeps it out of the storage transaction and keeps
+ * this class free of any knowledge of a specific consumer (#196). No mailbox
+ * housekeeping, no MIME parsing and no user-facing output either. It is not an
+ * HTTP endpoint and is guarded against being requested as one.
  *
  * See documentaion/EMAIL_STORAGE_API.md §7 for the option list, the duplicate
  * rule and the failure state machine.
@@ -73,6 +74,15 @@ final class EmailStorage
     /** Local part of a recipient address: the charset `sanitizeLocalPart()` allows. */
     private const LOCAL_PART_PATTERN = '/^[a-z0-9._-]+$/';
 
+    /**
+     * Post-storage listeners, registered by callers through onStored() and run
+     * once per `stored` result. Plain callables: the service knows nothing
+     * about webhooks, statistics or anything else a listener does (#196).
+     *
+     * @var list<callable(array<string, mixed>): void>
+     */
+    private array $storedListeners = [];
+
     private PDO $pdo;
     private bool $debug;
     private AttachmentStorage $attachmentStorage;
@@ -82,6 +92,28 @@ final class EmailStorage
         $this->pdo = $pdo;
         $this->debug = $debug;
         $this->attachmentStorage = new AttachmentStorage($pdo, dirname(__DIR__) . '/attachments', 'attachments', $debug);
+    }
+
+    /**
+     * Register a post-storage listener: a plain callable invoked once for every
+     * `stored` result, after the email and its attachments are committed and
+     * outside every transaction the service opened (#196).
+     *
+     * The service deliberately knows nothing about what a listener does — the
+     * Pro webhook consumer is one such listener
+     * (EmailStorage/PostStorageWebhooks.php) and the service never names it.
+     * Each listener runs inside its own try/catch: one that throws is logged and
+     * cannot affect the stored email, the result or the listeners after it.
+     *
+     * @param callable(array<string, mixed>): void $listener Receives the
+     *        normalized values written to `stored_emails` — `stored_email_id`,
+     *        `to_address`, `from_address`, `subject`, `body_text`, `body_html`,
+     *        `received_at`, `expires_at`, `temp_email_id`, `pro_user_id` — so a
+     *        listener never needs the row or the schema to do its work.
+     */
+    public function onStored(callable $listener): void
+    {
+        $this->storedListeners[] = $listener;
     }
 
     /**
@@ -174,7 +206,62 @@ final class EmailStorage
         // paths do today (architecture doc §5).
         [$warnings, $saved] = $this->persistAttachments($emailId, $email->attachments);
 
-        return StorageResult::stored($emailId, $warnings, $saved > 0 ? 'Stored with ' . $saved . ' attachment(s)' : '');
+        $result = StorageResult::stored($emailId, $warnings, $saved > 0 ? 'Stored with ' . $saved . ' attachment(s)' : '');
+
+        // The single post-success integration point (#196): everything that
+        // follows from a stored email starts here, after the commits above and
+        // outside them, so no listener can hold the persistence transaction open
+        // — or be rolled back with it.
+        $this->notifyStored([
+            'stored_email_id' => $emailId,
+            'to_address' => $toAddress,
+            'from_address' => $fromAddress,
+            'subject' => $subject,
+            'body_text' => $email->bodyText,
+            'body_html' => $email->bodyHtml,
+            'received_at' => $receivedAt,
+            'expires_at' => $expiresAt !== null ? $expiresAt->format('Y-m-d H:i:s') : null,
+            'temp_email_id' => $tempEmailId,
+            'pro_user_id' => $proUserId,
+        ]);
+
+        return $result;
+    }
+
+    /**
+     * Run the registered post-storage listeners for an email that is stored.
+     *
+     * Only ever reached for a `stored` result, once the email row (and each
+     * attachment) is committed. A caller that holds a transaction open around
+     * store() has committed nothing yet, so the listeners are skipped there and
+     * the skip is logged rather than run against an uncommitted row.
+     *
+     * @param array<string, mixed> $context The values written to `stored_emails`.
+     */
+    private function notifyStored(array $context): void
+    {
+        if ($this->storedListeners === []) {
+            return;
+        }
+
+        if ($this->pdo->inTransaction()) {
+            $this->log('WARNING', 'EmailStorage skipped post-storage listeners: the caller has not committed yet', ['stored_email_id' => $context['stored_email_id'] ?? null]);
+            return;
+        }
+
+        foreach ($this->storedListeners as $listener) {
+            try {
+                $listener($context);
+            } catch (\Throwable $e) {
+                // Downstream work is allowed to fail without undoing the email,
+                // exactly as a webhook enqueue failure always has been.
+                $this->log('WARNING', 'EmailStorage post-storage listener failed', [
+                    'stored_email_id' => $context['stored_email_id'] ?? null,
+                    'to_address' => $context['to_address'] ?? null,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     /**

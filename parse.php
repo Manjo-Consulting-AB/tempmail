@@ -243,8 +243,8 @@ $bodyText = $stripDataUris($bodyText);
 // transactional stored_emails insert, attachment persistence and the
 // emails_processed / attachments_processed counters. What stays here is intake
 // — the stdin read, the recipient derivation and validation, the MIME parse and
-// the body sanitizing above — plus the webhook dispatch below, which is a
-// downstream step the service deliberately does not perform.
+// the body sanitizing above. Pro webhooks are downstream of storage and run
+// from inside the service, through the consumer registered below (#196).
 
 require_once __DIR__ . '/EmailStorage/IncomingEmail.php';
 require_once __DIR__ . '/EmailStorage/StorageResult.php';
@@ -271,8 +271,15 @@ foreach ($parsed['attachments'] as $attachment) {
     }
 }
 
+$emailStorage = new EmailStorage($pdo, !empty($config['app']['debug_mode']));
+
+// Post-storage processing (#196): the Pro webhook consumer is registered on the
+// service, so it runs from inside store() once the email is committed, instead
+// of being dispatched by this script afterwards.
+require_once __DIR__ . '/EmailStorage/PostStorageWebhooks.php';
+PostStorageWebhooks::attach($emailStorage, $config, $pdo, !empty($config['app']['debug_mode']));
+
 try {
-    $emailStorage = new EmailStorage($pdo, !empty($config['app']['debug_mode']));
     $result = $emailStorage->store(
         new IncomingEmail(
             toAddress: $toAddress,
@@ -338,29 +345,10 @@ if ($result->hasAttachmentWarnings()) {
 }
 $attachmentsSaved = count($attachments) - count($result->attachmentWarnings);
 
-// Pro webhook dispatch, ported from ImapProcessor::saveEmail() (#34 only
-// covered saving to stored_emails/email_attachments; this path went live
-// with DA_FORWARDER_ENABLED=true without it, so no Pro webhook — Pushover
-// included — fired for any address whose forwarder had switched over). It runs
-// only after the service confirmed the message was persisted, and outside the
-// service's transaction; #196 replaces it with the central post-storage hook.
-if ($proUserId !== null) {
-    require_once __DIR__ . '/php_imap_processor.php';
-    try {
-        $processor = new ImapProcessor($config, $pdo, !empty($config['app']['debug_mode']));
-        $payload = [
-            'to' => $toAddress,
-            'from' => $fromAddress,
-            'subject' => $subject,
-            'body' => ($bodyHtml ?? $bodyText),
-            'received_at' => $receivedAt->format('Y-m-d H:i:s'),
-            'temp_email_id' => $tempEmailId,
-        ];
-        $processor->dispatchWebhooks($proUserId, $payload);
-    } catch (Throwable $e) {
-        logMessage('WARNING', 'parse.php: dispatchWebhooks threw', ['error' => $e->getMessage(), 'to' => $toAddress]);
-    }
-}
+// Pro webhooks are dispatched by the service's post-storage listener, which was
+// registered above and runs after the commit (#196). This path used to build
+// that payload itself — the call #34 left out, which took every Pro webhook
+// down for switched-over addresses until #188 added it back.
 
 logMessage('INFO', 'parse.php: saved incoming email', [
     'email_id' => $emailId,
