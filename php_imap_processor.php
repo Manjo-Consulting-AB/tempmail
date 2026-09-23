@@ -36,7 +36,7 @@ class ImapProcessor
             }
 
             if (!extension_loaded('imap')) {
-                return $this->processEmailsWithCurl();
+                return ['success' => false, 'new_emails' => 0, 'message' => 'PHP imap extension missing'];
             }
 
             $addresses = $this->getValidAddresses();
@@ -776,43 +776,6 @@ class ImapProcessor
             $this->log('ERROR', 'Header parsing error: ' . $e->getMessage());
             return null;
         }
-    }
-
-    private function processEmailsWithCurl()
-    {
-        $this->log('INFO', 'Using Python IMAP fallback (no PHP imap extension)');
-        try {
-            $addresses = $this->getValidAddresses();
-            if (empty($addresses['full'])) return ['success' => true, 'new_emails' => 0, 'message' => 'No active addresses'];
-            $count = $this->runPythonImapScript($addresses);
-            return ['success' => true, 'new_emails' => $count, 'message' => "Python IMAP fetched {$count} messages"];
-        } catch (Exception $e) {
-            $this->log('ERROR', 'Python IMAP fallback failed: ' . $e->getMessage());
-            return ['success' => false, 'new_emails' => 0, 'message' => $e->getMessage()];
-        }
-    }
-
-    private function runPythonImapScript($addresses)
-    {
-        $tmp = tempnam(sys_get_temp_dir(), 'tempmail_addresses_');
-        file_put_contents($tmp, json_encode($addresses));
-        $python = $this->config['python_path'] ?? '/usr/bin/python3';
-        $script = $this->config['python_imap_script'] ?? '/usr/local/bin/python_imap_fallback.py';
-        // The fallback persists through the Email Storage service via the CLI
-        // bridge (#194) instead of opening a database connection of its own.
-        // Both paths travel in the inherited environment — the same way DB_* and
-        // IMAP_* already reach Python (see config.php's loadEnvironmentVariables)
-        // — so nothing is added to the command line and no shell-quoting
-        // concern exists. The bridge lives beside this file in the docroot,
-        // which the Python script cannot derive from its own location in
-        // /usr/local/bin.
-        putenv('TEMPMAIL_PHP_BIN=' . (PHP_BINARY ?: '/usr/bin/php'));
-        putenv('TEMPMAIL_PYTHON_BRIDGE=' . __DIR__ . '/python_imap_bridge.php');
-        $cmd = escapeshellcmd($python) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($tmp);
-        $out = shell_exec($cmd);
-        @unlink($tmp);
-        $res = json_decode(trim($out), true);
-        return $res['new_emails'] ?? 0;
     }
 
     private function sanitizeSavedBody($body)

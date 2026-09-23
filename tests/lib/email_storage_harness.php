@@ -198,7 +198,7 @@ function ms_test_storage_probe_build(string $repoRoot): string
     // The classes under test are these copies, never the repository's own: see
     // the file header. debug_logger.php comes along because MailParser requires
     // it unconditionally, and it writes into the docroot's own debug_logs/.
-    foreach (['MailParser.php', 'debug_logger.php', 'php_imap_processor.php', 'parse.php', 'python_imap_bridge.php'] as $file) {
+    foreach (['MailParser.php', 'debug_logger.php', 'php_imap_processor.php', 'parse.php'] as $file) {
         if (!copy($repoRoot . '/' . $file, $root . '/' . $file)) {
             throw new RuntimeException("Could not copy {$file} into the storage probe docroot");
         }
@@ -269,8 +269,8 @@ function updateStat($statName, $increment = 1) {
 }
 
 // The suite's own connection gets the same stand-in from ms_test_storage_db();
-// this copy serves the subprocesses (parse.php, python_imap_bridge.php), which
-// cannot share it. MySQL's TIMESTAMPDIFF(MINUTE, a, b) is b - a.
+// this copy serves the subprocesses (parse.php), which cannot share it.
+// MySQL's TIMESTAMPDIFF(MINUTE, a, b) is b - a.
 $pdo->sqliteCreateFunction('TIMESTAMPDIFF', static function ($unit, $a, $b): int {
     $from = strtotime((string)$a);
     $to = strtotime((string)$b);
@@ -282,8 +282,7 @@ $pdo->sqliteCreateFunction('TIMESTAMPDIFF', static function ($unit, $a, $b): int
 // connection gets it from ms_test_storage_emulate_information_schema(), and
 // without this copy every subprocess would answer "missing", fail the
 // ALTER ... AFTER self-heal and take the six-column INSERT — so no check across
-// parse.php or the bridge could ever see content_id written (#217). Keep the
-// two in step.
+// parse.php could ever see content_id written (#217). Keep the two in step.
 $pdo->sqliteCreateFunction('DATABASE', static fn(): string => 'mailshield_test', 0);
 $pdo->exec("ATTACH DATABASE ':memory:' AS information_schema");
 $pdo->exec('CREATE TABLE information_schema.COLUMNS (TABLE_SCHEMA TEXT, TABLE_NAME TEXT, COLUMN_NAME TEXT)');
@@ -299,11 +298,10 @@ PHP;
 /**
  * Run one staged script as its own PHP process, feeding it stdin.
  *
- * This is how the suite reaches the two adapters that are CLI entrypoints: the
- * DirectAdmin pipe target (parse.php) and the Python fallback's storage bridge
- * (python_imap_bridge.php). Their exit code and their streams are part of what
- * they promise — the pipe must print nothing at all, because Exim bounces on
- * any output — so the suite needs the real process, not an include.
+ * This is how the suite reaches the CLI entrypoint adapter: the DirectAdmin pipe
+ * target (parse.php). Its exit code and its streams are part of what it promises
+ * — the pipe must print nothing at all, because Exim bounces on any output — so
+ * the suite needs the real process, not an include.
  *
  * @param list<string> $argv Arguments after the script path.
  * @param array<string,string> $env Extra environment; PROBE_SQLITE points the

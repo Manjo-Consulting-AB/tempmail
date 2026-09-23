@@ -29,7 +29,6 @@ Disallow: /client_agent_manage.php
 Disallow: /log_viewer.php
 Disallow: /bmac_handler.php
 Disallow: /parse.php
-Disallow: /python_imap_bridge.php
 Disallow: /documentaion/
 Disallow: /partials/
 Disallow: /cron/
