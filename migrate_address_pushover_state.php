@@ -6,6 +6,14 @@ declare(strict_types=1);
  * migrate_address_pushover_state.php — CLI migration: adds the per-address
  * Pushover flag to temp_emails.
  *
+ * SUPERSEDED by migrate_webhook_addresses.php (#251). The per-address Pushover
+ * opt-in was replaced by per-hook address routing, and pushover_enabled is no
+ * longer read or written anywhere — the column is left in the schema, unread,
+ * so a rollback of the code stays possible. This script is kept only so older
+ * deploy notes that still name it keep working; on a database that has not been
+ * migrated, run migrate_webhook_addresses.php instead. Running this one adds a
+ * column nothing uses.
+ *
  * Pushover today is one kind of Pro webhook (pro_webhooks.kind = 'pushover',
  * dispatched by ImapProcessor::dispatchWebhooks()): the credentials live in
  * the webhook's config JSON and every incoming message for every address is
