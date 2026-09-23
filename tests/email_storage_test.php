@@ -188,6 +188,31 @@ ms_test_same('1o. a temporary address keeps its own expiry', $msFreeExpiry, $msR
 ms_test_same('1p. temp_email_id is still the address row', $msFreeAddress, (int) ($msRow['temp_email_id'] ?? 0));
 ms_test_same('1q. emails_processed counts every stored email', 3, ms_test_stat($pdo, 'emails_processed'));
 
+// The Message-ID (#229): the adapter hands it over as it arrived and the service
+// normalizes it before it reaches the row. One row per case, so a stored NULL
+// and a stored value are told apart by the column itself.
+$msStoredMessageId = static function (?string $messageId) use ($msStorage, $pdo, $msAddress, $msProLocal, $msReceived): ?string {
+    $result = $msStorage->store(new IncomingEmail(
+        toAddress: $msAddress($msProLocal),
+        receivedAt: $msReceived,
+        messageId: $messageId,
+    ));
+    $row = $result->storedEmailId !== null ? ms_test_stored_email($pdo, $result->storedEmailId) : null;
+
+    return $row['message_id'] ?? null;
+};
+
+ms_test_same(
+    '1r. one pair of angle brackets is stripped from the stored Message-ID',
+    'abc.123@example.com',
+    $msStoredMessageId('<abc.123@example.com>')
+);
+ms_test_same('1s. the whitespace around a Message-ID is trimmed', 'xyz@example.com', $msStoredMessageId('  xyz@example.com  '));
+ms_test_same('1t. an absent Message-ID is stored as NULL', null, $msStoredMessageId(null));
+ms_test_same('1u. an empty pair of angle brackets is not an id', null, $msStoredMessageId('<>'));
+ms_test_same('1v. a value longer than the column holds is stored as NULL', null, $msStoredMessageId(str_repeat('a', 300)));
+ms_test_same('1w. a value containing a space is stored as NULL', null, $msStoredMessageId('has space@example.com'));
+
 // ---------------------------------------------------------------------
 // 2. Successful attachment persistence
 // ---------------------------------------------------------------------
@@ -744,10 +769,18 @@ if (ms_test_has_mime_parser()) {
     // Trimmed: the parser keeps the message's trailing line break, which is
     // not what "the body reached the row" is about.
     ms_test_same('9i. the parsed body is stored', 'Hello from the pipe.', trim((string) ($msRow['body_text'] ?? '')));
+    // The fixture's own Message-ID, without the angle brackets the header
+    // carries and the service strips (#229).
+    ms_test_same(
+        '9i2. the fixture Message-ID reaches the row without its angle brackets',
+        'probe-' . md5('Pipe fixture' . 'Hello from the pipe.') . '@example.com',
+        $msRow['message_id'] ?? null
+    );
 } else {
     ms_test_skip('9g. the parsed From header is stored', 'run composer install so MailParser has its MIME parser');
     ms_test_skip('9h. the parsed subject is stored', 'run composer install so MailParser has its MIME parser');
     ms_test_skip('9i. the parsed body is stored', 'run composer install so MailParser has its MIME parser');
+    ms_test_skip('9i2. the fixture Message-ID reaches the row without its angle brackets', 'run composer install so MailParser has its MIME parser');
 }
 
 // A permanent rejection is exit 1 and no row: unknown recipient, expired

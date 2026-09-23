@@ -47,8 +47,7 @@ final class EmailStorage
      * duplicate check and must keep behaving that way (epic #169,
      * backwards compatibility); no application caller passes it today.
      *
-     * `stored_emails` has no Message-ID column, so this remains a heuristic; a
-     * Message-ID-based rule would need a separate, approved schema change.
+     * Message-ID based detection is a separate option (step 18 of #212).
      */
     public const OPTION_DETECT_DUPLICATES = 'detect_duplicates';
 
@@ -68,6 +67,13 @@ final class EmailStorage
      */
     private const INSERT_SQL = 'INSERT INTO stored_emails (to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
 
+    /**
+     * The same statement with `message_id` appended, used only when the column
+     * exists (`migrate_message_id.php`, #228). The eight-column statement above
+     * stays exactly as it was for a database where the migration has not run.
+     */
+    private const INSERT_SQL_WITH_MESSAGE_ID = 'INSERT INTO stored_emails (to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+
     /** Upper clamp on `pro_users.address_ttl_days`, applied to the retention calculation. */
     private const MAX_RETENTION_DAYS = 18250; // 365 * 50
 
@@ -86,6 +92,12 @@ final class EmailStorage
     private PDO $pdo;
     private bool $debug;
     private AttachmentStorage $attachmentStorage;
+
+    /**
+     * Whether `stored_emails.message_id` exists, probed once per instance (see
+     * hasMessageIdColumn()). `null` means "not asked yet".
+     */
+    private ?bool $hasMessageIdColumn = null;
 
     public function __construct(PDO $pdo, bool $debug = false)
     {
@@ -107,9 +119,10 @@ final class EmailStorage
      *
      * @param callable(array<string, mixed>): void $listener Receives the
      *        normalized values written to `stored_emails` — `stored_email_id`,
-     *        `to_address`, `from_address`, `subject`, `body_text`, `body_html`,
-     *        `received_at`, `expires_at`, `temp_email_id`, `pro_user_id` — so a
-     *        listener never needs the row or the schema to do its work.
+     *        `to_address`, `from_address`, `subject`, `message_id`, `body_text`,
+     *        `body_html`, `received_at`, `expires_at`, `temp_email_id`,
+     *        `pro_user_id` — so a listener never needs the row or the schema to
+     *        do its work.
      */
     public function onStored(callable $listener): void
     {
@@ -173,6 +186,7 @@ final class EmailStorage
         // PHP paths. Bodies are stored exactly as the adapter sanitized them.
         $fromAddress = $email->fromAddress ?? '';
         $subject = ($email->subject !== null && $email->subject !== '') ? $email->subject : '(no subject)';
+        $messageId = $this->normalizeMessageId($email->messageId);
         $receivedAt = $email->receivedAt->format('Y-m-d H:i:s');
         $expiresAt = $this->resolveExpiresAt($email, $ownership, $proUserId);
 
@@ -193,7 +207,7 @@ final class EmailStorage
             }
         }
 
-        $emailId = $this->insertEmail($email, $toAddress, $fromAddress, $subject, $receivedAt, $expiresAt, $tempEmailId);
+        $emailId = $this->insertEmail($email, $toAddress, $fromAddress, $subject, $receivedAt, $expiresAt, $tempEmailId, $messageId);
         if ($emailId === null) {
             return StorageResult::failed('Could not write the stored_emails row');
         }
@@ -216,6 +230,7 @@ final class EmailStorage
             'to_address' => $toAddress,
             'from_address' => $fromAddress,
             'subject' => $subject,
+            'message_id' => $messageId,
             'body_text' => $email->bodyText,
             'body_html' => $email->bodyHtml,
             'received_at' => $receivedAt,
@@ -276,20 +291,25 @@ final class EmailStorage
         string $subject,
         string $receivedAt,
         ?DateTimeImmutable $expiresAt,
-        ?int $tempEmailId
+        ?int $tempEmailId,
+        ?string $messageId
     ): ?int {
         // A caller already holding a transaction open owns the commit; opening a
         // second one would throw, and rolling back the outer one from here would
         // discard the caller's own work.
         $ownsTransaction = !$this->pdo->inTransaction();
 
+        // Probed before the transaction is opened: the answer is a property of
+        // the schema, not of this insert, and a probe that failed inside the
+        // transaction would be indistinguishable from the insert failing.
+        $withMessageId = $this->hasMessageIdColumn();
+
         try {
             if ($ownsTransaction) {
                 $this->pdo->beginTransaction();
             }
 
-            $stmt = $this->pdo->prepare(self::INSERT_SQL);
-            $inserted = $stmt->execute([
+            $values = [
                 $toAddress,
                 $fromAddress,
                 $subject,
@@ -298,7 +318,13 @@ final class EmailStorage
                 $receivedAt,
                 $expiresAt !== null ? $expiresAt->format('Y-m-d H:i:s') : null,
                 $tempEmailId,
-            ]);
+            ];
+            if ($withMessageId) {
+                $values[] = $messageId;
+            }
+
+            $stmt = $this->pdo->prepare($withMessageId ? self::INSERT_SQL_WITH_MESSAGE_ID : self::INSERT_SQL);
+            $inserted = $stmt->execute($values);
 
             if ($inserted === false) {
                 $info = $stmt->errorInfo();
@@ -324,6 +350,62 @@ final class EmailStorage
         }
 
         return $emailId;
+    }
+
+    /**
+     * Whether `stored_emails.message_id` exists yet — the column arrives with
+     * `migrate_message_id.php` (#228) and a deploy where it has not run has to
+     * keep storing mail exactly as before.
+     *
+     * The probe is a zero-row SELECT rather than an `information_schema` lookup
+     * on purpose: the same statement answers on MySQL and on the SQLite
+     * database the test harness brings, so the column decision is taken by the
+     * same code in both. Asked once per instance; the schema does not change
+     * under a running process.
+     */
+    private function hasMessageIdColumn(): bool
+    {
+        if ($this->hasMessageIdColumn !== null) {
+            return $this->hasMessageIdColumn;
+        }
+
+        try {
+            $this->pdo->query('SELECT message_id FROM stored_emails LIMIT 0');
+            $this->hasMessageIdColumn = true;
+        } catch (\Throwable $e) {
+            $this->hasMessageIdColumn = false;
+        }
+
+        return $this->hasMessageIdColumn;
+    }
+
+    /**
+     * The `Message-ID` as it is worth storing: one pair of surrounding angle
+     * brackets and the surrounding whitespace are stripped, and anything that
+     * is empty, longer than the column's 255 bytes, or carries whitespace or
+     * control characters is not an id at all and is stored as NULL rather than
+     * as junk. The case is left alone — a Message-ID is case-sensitive by
+     * RFC 5322, and a later duplicate rule compares it as received (#229).
+     */
+    private function normalizeMessageId(?string $raw): ?string
+    {
+        if ($raw === null) {
+            return null;
+        }
+
+        $messageId = trim($raw);
+        if (str_starts_with($messageId, '<') && str_ends_with($messageId, '>')) {
+            $messageId = trim(substr($messageId, 1, -1));
+        }
+
+        if ($messageId === '' || strlen($messageId) > 255) {
+            return null;
+        }
+        if (preg_match('/[\x00-\x20\x7F]/', $messageId) === 1) {
+            return null;
+        }
+
+        return $messageId;
     }
 
     /**
