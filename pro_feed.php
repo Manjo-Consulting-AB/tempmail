@@ -149,8 +149,12 @@ if (!$token) {
     $suspicious = detectSuspiciousPatterns((string)$rawToken);
     if (!empty($suspicious)) {
         logMessage('WARNING', 'Suspicious feed token attempt', ['patterns' => $suspicious, 'ip' => getVisitorIp()]);
-        // Flagga IP för blockering
-        flagMaliciousActivity(getVisitorIp(), 'Suspicious feed token: ' . implode(', ', $suspicious));
+        // Flagga IP för blockering - base64_payload alone (any long
+        // alphanumeric run) is logged and rejected but never blocks the IP.
+        $flagPatterns = patternsWarrantingIpFlag($suspicious);
+        if ($flagPatterns) {
+            flagMaliciousActivity(getVisitorIp(), 'Suspicious feed token: ' . implode(', ', $flagPatterns));
+        }
         http_response_code(403);
         header('Content-Type: text/plain; charset=utf-8');
         echo "Invalid request";

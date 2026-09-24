@@ -3,7 +3,16 @@
  * Worker script to process queued webhook deliveries.
  * Intended to be run from cron every minute or via a long-running supervisor.
  */
+require_once __DIR__ . '/_guard.php';
 require_once __DIR__ . '/../config.php';
+
+// Same rule as cleanup.php / send-digests.php: CLI, localhost, or a valid
+// CRON_HTTP_SECRET (X-Cron-Secret header or ?key=). Without it anyone could
+// trigger webhook dispatch over HTTP. The secret lives in the env file that
+// config.php loads, so the check has to follow it, but it runs before any
+// delivery is read or sent.
+cronRequireAccess($_ENV['CRON_HTTP_SECRET'] ?? ($config['cron']['http_secret'] ?? null));
+
 require_once __DIR__ . '/../php_imap_processor.php';
 
 $processor = new ImapProcessor($config, $pdo, false);

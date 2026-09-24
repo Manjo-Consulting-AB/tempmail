@@ -3,6 +3,14 @@
 // This script prints environment detection, DB status,
 // attachments dir checks and vendor/autoload presence. It is safe to run.
 
+// CLI only, like the check_*.php scripts. It runs with display_errors on and
+// prints the environment, config summary and DB table counts, so it must not
+// answer an HTTP request. Checked before config.php is loaded.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('CLI only');
+}
+
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 

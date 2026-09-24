@@ -373,7 +373,7 @@ function ms_test_probe_build(string $repoRoot): string {
         throw new RuntimeException("Could not create probe docroot at {$root}");
     }
 
-    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'TwoFactorAuth.php', 'php_imap_processor.php', 'paddle_sync.php'] as $page) {
+    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'TwoFactorAuth.php', 'php_imap_processor.php', 'paddle_sync.php', 'reserved_local_parts.php'] as $page) {
         if (!copy($repoRoot . '/' . $page, $root . '/' . $page)) {
             throw new RuntimeException("Could not copy {$page} into the probe docroot");
         }
@@ -645,6 +645,7 @@ function requireSameOriginRequest(): bool {
 function detectSuspiciousPatterns(string $input): array { return []; }
 function getVisitorIp() { return $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'; }
 function flagMaliciousActivity(...$args) { return true; }
+function patternsWarrantingIpFlag(array $patterns): array { return $patterns; }
 function deleteDirectAdminForwarder(...$args) { return true; }
 function createDirectAdminForwarder(...$args) { return true; }
 function generateUniqueString($length = null) { return bin2hex(random_bytes(8)); }

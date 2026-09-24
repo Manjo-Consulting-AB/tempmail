@@ -332,8 +332,11 @@ try {
             $suspicious = detectSuspiciousPatterns((string)$rawEmail);
             if (!empty($suspicious)) {
                 logMessage('WARNING', 'Suspicious email update attempt', ['patterns' => $suspicious, 'user_id' => $userId]);
-                // Flagga IP för blockering
-                flagMaliciousActivity(getVisitorIp(), 'Suspicious email update: ' . implode(', ', $suspicious)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
+                // Flagga IP för blockering - never on base64_payload alone
+                $flagPatterns = patternsWarrantingIpFlag($suspicious);
+                if ($flagPatterns) {
+                    flagMaliciousActivity(getVisitorIp(), 'Suspicious email update: ' . implode(', ', $flagPatterns)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
+                }
                 send_json(['success' => false, 'error' => 'Invalid request']);
             }
             $newEmail = sanitizeEmail($rawEmail);
@@ -1248,8 +1251,12 @@ try {
                 $suspicious = detectSuspiciousPatterns((string)$input);
                 if (!empty($suspicious)) {
                     logMessage('WARNING', 'Suspicious webhook input', ['patterns' => $suspicious, 'user_id' => $userId]);
-                    // Flagga IP för blockering
-                    flagMaliciousActivity(getVisitorIp(), 'Suspicious webhook input: ' . implode(', ', $suspicious)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
+                    // Flagga IP för blockering - never on base64_payload
+                    // alone: a long webhook secret or URL matches it.
+                    $flagPatterns = patternsWarrantingIpFlag($suspicious);
+                    if ($flagPatterns) {
+                        flagMaliciousActivity(getVisitorIp(), 'Suspicious webhook input: ' . implode(', ', $flagPatterns)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
+                    }
                     send_json(['success' => false, 'error' => 'Invalid request']);
                 }
             }
