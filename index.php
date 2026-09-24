@@ -144,9 +144,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'error' => 'Invalid local part']);
                     break;
                 }
-                // Blacklisted local parts that users may NOT choose
-                $blacklist = ['jj', 'roland', 'investering'];
-                if (in_array($local, $blacklist, true)) {
+                // A new address must also be a valid unquoted dot-atom: no
+                // leading/trailing ".", "-" or "_" and no "..". Only creation
+                // is checked; existing addresses keep receiving mail.
+                require_once __DIR__ . '/reserved_local_parts.php';
+                if (!isValidNewLocalPartSyntax($local)) {
+                    echo json_encode(['success' => false, 'error' => 'Invalid local part']);
+                    break;
+                }
+                // Role, system and brand names (postmaster@, admin@, noreply@ ...)
+                // may not be claimed - see reserved_local_parts.php.
+                if (isReservedLocalPart($local)) {
+                    logMessage('INFO', 'create_personal denied: reserved local part', ['user_id' => $_SESSION['pro_user_id'], 'local' => $local]);
                     echo json_encode(['success' => false, 'error' => 'This local part is not allowed']);
                     break;
                 }
