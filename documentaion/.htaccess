@@ -1,0 +1,2 @@
+# Never served over HTTP; PHP reads these files from disk. See the root .htaccess.
+Require all denied

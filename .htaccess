@@ -4,6 +4,25 @@
 # Aktivera mod_rewrite
 RewriteEngine On
 
+# Directories that exist only for development, documentation or CLI use and
+# must never be fetched over HTTP. PHP still reads them from the filesystem
+# (require/include/file_get_contents are unaffected by .htaccess):
+#   vendor/       - Composer packages, loaded via vendor/autoload.php
+#   tests/        - CLI regression suites (no longer deployed, but an older
+#                   upload may still sit on the server since rsync has no --delete)
+#   documentaion/ - internal docs (not deployed either)
+#   client/       - Client Agent source. Downloads go through
+#                   client_agent_download.php / client_agent_install_download.php
+#                   and the API through client_agent_api.php, all of which
+#                   read client/ from disk; nothing requests client/ by URL.
+# In a per-directory .htaccess the pattern is matched without a leading slash.
+RewriteRule ^(?:vendor|tests|documentaion|client)(?:/|$) - [F,L]
+
+# Any path component that starts with a dot (.git/, .github/, .claude/, ...) is
+# refused, except .well-known/ which ACME (Let's Encrypt) and other RFC 8615
+# consumers need. Dotfiles themselves are also refused by the FilesMatch below.
+RewriteRule (?:^|/)\.(?!well-known(?:/|$)) - [F,L]
+
 # /sitemap.xml serveras av sitemap.php (genererad, se sitemap.php)
 RewriteRule ^sitemap\.xml$ sitemap.php [L]
 
@@ -20,6 +39,40 @@ DirectoryIndex index.php
     Require all denied
 </FilesMatch>
 
+# Every dotfile: .env.production (and any other .env.<env> - the rule above
+# only matches names ending in .env), .env.example, .gitignore, .semgrepignore,
+# .htaccess itself, editor leftovers such as .foo.php.swp, ...
+# <FilesMatch> tests the basename of the requested file, not the directories
+# in its path, so /.well-known/acme-challenge/<token> (basename <token>) is
+# not affected; the .well-known directory is also exempted in the rewrite
+# rule above.
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Repository metadata and documentation. blog/*.md is rendered by blog.php,
+# which reads the files from disk, so the raw Markdown never needs to be served.
+<FilesMatch "(\.md|\.lock|\.dist|\.example|^composer\.json)$">
+    Require all denied
+</FilesMatch>
+
+# Backup and editor swap files (foo.php.bak, foo.php.swp, foo.php~, ...),
+# which would otherwise be served as plain text with the PHP source in them.
+<FilesMatch "(\.(bak|swp|swo|orig|old)|~)$">
+    Require all denied
+</FilesMatch>
+
 # Sätt korrekt MIME-types
 AddType text/css .css
 AddType application/javascript .js
+
+# Security headers. No Content-Security-Policy here on purpose: it needs its
+# own rollout. SAMEORIGIN still lets the site frame its own pages.
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    # HSTS only on HTTPS responses. No includeSubDomains/preload: other
+    # manjo.me hosts have not been audited for HTTPS.
+    Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTPS} == 'on'"
+</IfModule>

@@ -1,5 +1,13 @@
 <?php
 // Quick helper to verify installed MIME parser libraries and autoload
+
+// CLI only, like the other check_*.php scripts: over HTTP it would list the
+// installed vendor packages and file paths to anyone.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('CLI only');
+}
+
 echo "== Parser check helper ==\n";
 $autoload = __DIR__ . '/../vendor/autoload.php';
 echo "vendor/autoload.php exists: " . (file_exists($autoload) ? 'yes' : 'no') . "\n";
