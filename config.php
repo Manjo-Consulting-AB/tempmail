@@ -1471,10 +1471,20 @@ function resolveUrlToPublicTarget(string $url): ?array {
 // Modern browsers reliably send Origin on same-origin POST/XHR/fetch requests
 // (how this app's own JS makes these calls), so this shouldn't affect
 // legitimate use.
+//
+// Fail-closed: no Origin and no Referer, an opaque `Origin: null` (sandboxed
+// iframes, data: URLs, some redirects) or a non-http(s) source all answer
+// false. Only the host is compared, deliberately: the site is served from one
+// host (base_url's), and comparing scheme/port as well would turn a small
+// BASE_URL misconfiguration into every mutating action failing.
 function requireSameOriginRequest(): bool {
     global $config;
     $source = $_SERVER['HTTP_ORIGIN'] ?? ($_SERVER['HTTP_REFERER'] ?? null);
-    if (empty($source)) {
+    if (!is_string($source) || trim($source) === '' || strcasecmp(trim($source), 'null') === 0) {
+        return false;
+    }
+    $sourceScheme = strtolower((string) parse_url($source, PHP_URL_SCHEME));
+    if ($sourceScheme !== 'http' && $sourceScheme !== 'https') {
         return false;
     }
     $sourceHost = parse_url($source, PHP_URL_HOST);
@@ -1743,6 +1753,39 @@ function getUserStats($userId) {
     }
 
     return $stats;
+}
+
+// ---------------------------------------------------------------------
+// Session cookie hardening (CSRF finding)
+//
+// config.php is required before any session_start() in the app, so the
+// cookie parameters are fixed here, once: HttpOnly (no script access),
+// SameSite=Lax (the cookie is not sent on cross-site POSTs, iframes or
+// sub-resource requests) and Secure whenever the site is served over HTTPS
+// — decided from base_url or the request itself, so local dev over plain
+// http://localhost:8085 keeps working. Strict mode refuses session ids the
+// server never issued (session fixation), and only cookies carry the id.
+// Cross-site request forgery is additionally blocked per action by
+// requireSameOriginRequest() (defined above); this block is defence in depth.
+// ---------------------------------------------------------------------
+if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    $msSessionHttps = strcasecmp((string) parse_url((string) ($config['email']['base_url'] ?? ''), PHP_URL_SCHEME), 'https') === 0
+        || (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
+        || (string) ($_SERVER['SERVER_PORT'] ?? '') === '443';
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_trans_sid', '0');
+    session_set_cookie_params([
+        // Lifetime and domain keep whatever the host configured, so this
+        // does not change how long a login lasts or which host gets it.
+        'lifetime' => (int) ini_get('session.cookie_lifetime'),
+        'path' => '/',
+        'domain' => (string) ini_get('session.cookie_domain'),
+        'secure' => $msSessionHttps,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    unset($msSessionHttps);
 }
 
 // Sätt timezone

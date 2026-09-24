@@ -711,6 +711,93 @@ ms_test_same('R11. the feed token is cleared', null, $stmt->fetchColumn() ?: nul
 ms_test_same("R12. clearing the feed left the address' hook pause alone", 1, ms_wr_hooks_paused($pdo, $rfAddrOn));
 
 // ---------------------------------------------------------------------
+// CSRF: cross-origin and GET requests never reach a mutating action
+//
+// pro_profile.php lets only its pure reads through without a same-origin
+// POST; index.php requires a same-origin POST for every action. The
+// fixtures are the R-section's: $rfAddrOff has no feed token and is a live
+// personal address, so "nothing was written" is directly observable.
+// ---------------------------------------------------------------------
+
+ms_test_section('CSRF gates');
+
+/** One probe request as $userId with an explicit method and Origin. */
+$msForged = function (string $page, string $method, ?string $origin, array $fields, int $userId) use ($msRun): array {
+    $request = [
+        'page' => $page,
+        'method' => $method,
+        'user_id' => $userId,
+        'user_email' => 'user' . $userId . '@example.com',
+        'origin' => $origin,
+    ];
+    if ($method === 'GET') {
+        $request['get'] = $fields;
+    } else {
+        $request['post'] = $fields;
+    }
+    return $msRun($request);
+};
+$msFeedToken = function (int $addressId) use ($msSqlite): ?string {
+    $pdo = ms_test_refresh_db($msSqlite);
+    $stmt = $pdo->prepare('SELECT feed_token FROM temp_emails WHERE id = ?');
+    $stmt->execute([$addressId]);
+    $value = $stmt->fetchColumn();
+    return $value === false || $value === null || $value === '' ? null : (string) $value;
+};
+$msHookCount = function (int $userId) use ($msSqlite): int {
+    $pdo = ms_test_refresh_db($msSqlite);
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM pro_webhooks WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    return (int) $stmt->fetchColumn();
+};
+$msAddressExists = function (int $addressId) use ($msSqlite): bool {
+    $pdo = ms_test_refresh_db($msSqlite);
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM temp_emails WHERE id = ?');
+    $stmt->execute([$addressId]);
+    return (int) $stmt->fetchColumn() === 1;
+};
+
+$regen = ['action' => 'address_feed_regenerate', 'id' => $rfAddrOff];
+
+$res = ms_test_json('X1. a cross-origin address_feed_regenerate answers', $msForged('pro_profile.php', 'POST', 'https://evil.example', $regen, $rfUser));
+ms_test_same('X2. ... and is refused', 'Forbidden', $res['error'] ?? null);
+ms_test_same('X3. ... and mints no token', null, $msFeedToken($rfAddrOff));
+
+$res = ms_test_json('X4. an address_feed_regenerate without Origin answers', $msForged('pro_profile.php', 'POST', null, $regen, $rfUser));
+ms_test_same('X5. ... and is refused', 'Forbidden', $res['error'] ?? null);
+
+$res = ms_test_json('X6. an address_feed_regenerate with Origin: null answers', $msForged('pro_profile.php', 'POST', 'null', $regen, $rfUser));
+ms_test_same('X7. ... and is refused', 'Forbidden', $res['error'] ?? null);
+
+$res = ms_test_json('X8. a same-origin GET address_feed_regenerate answers', $msForged('pro_profile.php', 'GET', MS_TEST_ORIGIN, $regen, $rfUser));
+ms_test_same('X9. ... and is refused as the wrong method', 'Method not allowed', $res['error'] ?? null);
+ms_test_same('X10. no forged request minted a token', null, $msFeedToken($rfAddrOff));
+
+$res = ms_test_json('X11. a GET feed_get_token answers', $msForged('pro_profile.php', 'GET', MS_TEST_ORIGIN, ['action' => 'feed_get_token'], $rfUser));
+ms_test_same('X12. ... and is refused, since it can mint a token', 'Method not allowed', $res['error'] ?? null);
+
+$hooksBefore = $msHookCount($rfUser);
+$res = ms_test_json('X13. a cross-origin webhook_create answers', $msForged('pro_profile.php', 'POST', 'https://evil.example', [
+    'action' => 'webhook_create', 'name' => 'forged', 'url' => 'https://evil.example/hook', 'kind' => 'generic',
+], $rfUser));
+ms_test_same('X14. ... and is refused', 'Forbidden', $res['error'] ?? null);
+ms_test_same('X15. ... and creates no webhook', $hooksBefore, $msHookCount($rfUser));
+
+$res = ms_test_json('X16. a same-origin GET webhooks_list (a pure read) still answers', $msForged('pro_profile.php', 'GET', MS_TEST_ORIGIN, ['action' => 'webhooks_list'], $rfUser));
+ms_test_same('X17. ... successfully', true, $res['success'] ?? null);
+
+$res = ms_test_json('X18. a same-origin POST address_feed_regenerate still answers', $msForged('pro_profile.php', 'POST', MS_TEST_ORIGIN, $regen, $rfUser));
+ms_test_same('X19. ... successfully', true, $res['success'] ?? null);
+ms_test_check('X20. ... and mints a token', $msFeedToken($rfAddrOff) !== null);
+
+$res = ms_test_json('X21. a cross-origin index.php delete_personal answers', $msForged('index.php', 'POST', 'https://evil.example', ['action' => 'delete_personal', 'id' => $rfAddrOff], $rfUser));
+ms_test_same('X22. ... and is refused', 'Forbidden', $res['error'] ?? null);
+ms_test_check('X23. ... and the address still exists', $msAddressExists($rfAddrOff));
+
+$res = ms_test_json('X24. a cross-origin index.php generate answers', $msForged('index.php', 'POST', 'https://manjo.me.evil.example', ['action' => 'generate'], $rfUser));
+ms_test_same('X25. ... and is refused (host must match exactly)', 'Forbidden', $res['error'] ?? null);
+
+// ---------------------------------------------------------------------
 // The Pushover credential never leaves the server
 // ---------------------------------------------------------------------
 

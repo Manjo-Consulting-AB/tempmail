@@ -56,7 +56,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = function_exists('sanitizeAlphanumeric') 
         ? sanitizeAlphanumeric($rawAction, 50, true) ?? '' 
         : preg_replace('/[^a-zA-Z0-9_-]/', '', $rawAction);
-    
+
+    // CSRF: every action here is called only by the site's own same-origin
+    // jQuery POSTs (assets/js/app.js, pro.php, pro_profile_page.php), which
+    // always carry Origin, so the check covers every POST action rather than
+    // a hand-kept list of the mutating ones (generate, create_personal,
+    // delete_personal, ...) that a new case could silently fall outside of.
+    if (!requireSameOriginRequest()) {
+        logMessage('WARNING', 'Cross-origin POST rejected', [
+            'action' => mb_substr((string) $action, 0, 50),
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+        ]);
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Forbidden']);
+        exit;
+    }
+
     error_log('AJAX POST action: ' . $action);
     error_log('AJAX POST data: ' . json_encode($_POST));
     try {
