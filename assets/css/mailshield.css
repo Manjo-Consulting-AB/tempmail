@@ -4865,3 +4865,27 @@ a:hover {
     gap: var(--ms-space-3);
     margin-top: var(--ms-space-7);
 }
+
+/* ==========================================================================
+   gg. Mail frame — the sandboxed iframe an HTML message is shown in
+       (assets/js/app.js renderHtmlEmail(), inbox.php / pro.php modal).
+       Fixed height: without allow-same-origin the page cannot measure the
+       frame's content, so long mail scrolls inside the frame, not the page.
+   ========================================================================== */
+
+.ms-mail-frame {
+    display: block;
+    width: 100%;
+    height: 60vh;
+    min-height: calc(var(--ms-space-16) * 3);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-bg-raised);
+}
+
+.ms-mail-frame__note {
+    margin: 0 0 var(--ms-space-2);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}

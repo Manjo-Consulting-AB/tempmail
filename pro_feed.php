@@ -15,48 +15,9 @@ if (php_sapi_name() === 'cli') {
     exit(2);
 }
 
-/**
- * Sanitize inbound email HTML (fully attacker-controlled, no login required to
- * trigger) down to a safe formatting/image allowlist using HTMLPurifier, so
- * RSS readers still get bold/links/images without the XSS / CDATA-breakout
- * risk that came from embedding raw HTML (see git history on this file).
- * Falls back to the plain-text flatten if the library isn't installed.
- */
-function purifyEmailHtml(string $html): ?string {
-    if (!class_exists('HTMLPurifier') || !class_exists('HTMLPurifier_Config')) {
-        return null;
-    }
-
-    static $purifier = null;
-    if ($purifier === null) {
-        $config = HTMLPurifier_Config::createDefault();
-        // No writable cache dir is guaranteed on shared hosting; recomputing
-        // the (small) definition per-request is cheap enough for a feed that
-        // browsers/readers already cache for 60s (see Cache-Control below).
-        $config->set('Cache.DefinitionImpl', null);
-        $config->set('HTML.Allowed', implode(',', [
-            'p[style]', 'br', 'b', 'strong', 'i', 'em', 'u', 's',
-            'a[href|title]', 'img[src|alt|title|width|height]',
-            'ul', 'ol', 'li', 'blockquote', 'hr',
-            'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-            'span[style]', 'div[style]', 'font[color|size|face]',
-            'table[style]', 'thead', 'tbody', 'tr',
-            'td[style|colspan|rowspan]', 'th[style|colspan|rowspan]',
-        ]));
-        $config->set('CSS.AllowedProperties', [
-            'color', 'background-color', 'font-size', 'font-weight', 'font-style',
-            'text-align', 'text-decoration', 'padding', 'margin', 'border',
-            'width', 'height', 'max-width',
-        ]);
-        // Only allow schemes that can't execute script content (blocks
-        // javascript:, data:, vbscript:, etc.).
-        $config->set('URI.AllowedSchemes', ['http' => true, 'https' => true, 'mailto' => true]);
-        $config->set('HTML.TargetBlank', true);
-        $purifier = new HTMLPurifier($config);
-    }
-
-    return $purifier->purify($html);
-}
+// purifyEmailHtml() - the HTMLPurifier allowlist shared with the inbox
+// (index.php get_email) - lives in email_html_sanitizer.php.
+require_once __DIR__ . '/email_html_sanitizer.php';
 
 /**
  * Reject a feed request. Every token failure - unknown token, degraded
