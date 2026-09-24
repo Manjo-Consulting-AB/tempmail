@@ -136,8 +136,8 @@ function sendLoginEmail($email, $token) {
     // Logga i systemloggen — undvik att skriva ut token i produktion.
     if ($sent) {
         $logContext = ['to' => $email];
-        if (!empty($config['app']['debug_mode'])) {
-            // Only include token in debug/development mode
+        if (!empty($config['app']['debug_mode']) && !appIsProduction()) {
+            // Only include token in debug/development mode, never in production
             $logContext['token'] = $token;
         }
         logMessage('INFO', 'Magic link sent', $logContext);
@@ -188,8 +188,8 @@ function sendVerificationEmail(string $email, string $token): bool {
 
     if ($sent) {
         $logContext = ['to' => $email];
-        if (!empty($config['app']['debug_mode'])) {
-            // Only include token in debug/development mode
+        if (!empty($config['app']['debug_mode']) && !appIsProduction()) {
+            // Only include token in debug/development mode, never in production
             $logContext['token'] = $token;
         }
         logMessage('INFO', 'Verification email sent', $logContext);
@@ -519,7 +519,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Rate limiting: without this, an attacker can mail-bomb any inbox by
     // repeatedly requesting login links for it (measured by IP only, same
     // pattern as password_login's brute-force guard below).
-    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $ip = getVisitorIp();
     $rateLimited = false;
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS magic_link_requests (
@@ -592,7 +592,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Return a generic success response so callers cannot enumerate accounts.
     $response = ['success' => true];
     // In debug mode, optionally expose the login URL when a token was generated.
-    if (!empty($config['app']['debug_mode']) && $token) {
+    // Never in production: the link is a working login for the account.
+    if (!empty($config['app']['debug_mode']) && !appIsProduction() && $token) {
         $response['login_url'] = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
     }
     echo json_encode($response);
@@ -641,7 +642,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $password = (string) ($_POST['password'] ?? '');
     $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
     $code = trim((string) ($_POST['code'] ?? ''));
-    $ip = function_exists('getVisitorIp') ? getVisitorIp() : ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+    $ip = getVisitorIp();
 
     // 2. Detektera misstänkta mönster i e-posten, precis som index.php gör på
     // sina POST-actions, innan input används till något.
@@ -651,8 +652,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             'patterns' => $suspicious,
             'ip' => $ip,
         ]);
-        if (function_exists('flagMaliciousActivity')) {
-            flagMaliciousActivity($ip, 'Suspicious register_account input: ' . implode(',', $suspicious));
+        // base64_payload alone is logged and rejected, but never blocks the IP.
+        $flagPatterns = patternsWarrantingIpFlag($suspicious);
+        if ($flagPatterns && function_exists('flagMaliciousActivity')) {
+            flagMaliciousActivity($ip, 'Suspicious register_account input: ' . implode(',', $flagPatterns));
         }
         echo json_encode(['success' => false, 'error' => 'Invalid request']);
         exit;
@@ -860,6 +863,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Endpoint: lösenordsinloggning (email + password)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'password_login') {
+    // Login CSRF: a cross-site form could otherwise sign the victim's browser
+    // into an attacker's account, whose inbox then collects what they create.
+    // Same guard, and same answer, as verify_2fa below.
+    if (!requireSameOriginRequest()) {
+        logMessage('WARNING', 'Rejected cross-origin password_login request');
+        echo json_encode(['success' => false, 'error' => 'Invalid request origin']);
+        exit;
+    }
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
     if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '') {
@@ -868,7 +879,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     // Rate limiting / brute-force protection (measure by IP only)
     try {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $ip = getVisitorIp();
         $windowMinutes = 15;
         $maxFails = 5;
 

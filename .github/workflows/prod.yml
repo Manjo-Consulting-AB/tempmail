@@ -142,6 +142,11 @@ jobs:
           # sätter ALLA filers mtime till "nu" - utan --checksum tror rsync då
           # att varenda fil ändrats (även de som är identiska) och laddar upp
           # allt igen varje gång, i stället för bara det som faktiskt ändrats.
+          # Excludes: repo-/utvecklarfiler hör inte hemma i webroten. OBS att
+          # blog/*.md MÅSTE laddas upp (blog.php renderar dem), så *.md
+          # utesluts bara på namngivna ställen. '.env.*' täcker även
+          # .env.example. Utan --delete ligger redan uppladdade kopior kvar -
+          # root-.htaccess nekar dem över HTTP.
           rsync -rltzv --checksum --no-perms --omit-dir-times $DRY_RUN \
             --exclude='.git/' \
             --exclude='.github/' \
@@ -153,6 +158,11 @@ jobs:
             --exclude='composer.lock' \
             --exclude='.env.*' \
             --exclude='*.log' \
+            --exclude='/.claude/' \
+            --exclude='/tests/' \
+            --exclude='/AGENTS.md' \
+            --exclude='/SECURITY.md' \
+            --exclude='/client/**.md' \
             -e "ssh -i $HOME/.ssh/deploy_key -p $SSH_PORT -o IdentitiesOnly=yes -o BatchMode=yes" \
             ./ "$SSH_USER@$SSH_HOST:$REMOTE_DIR/"
       - name: Städa bort SSH-nyckeln

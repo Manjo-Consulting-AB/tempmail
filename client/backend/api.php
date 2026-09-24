@@ -10,6 +10,17 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
+
+// CSRF: this API is session-authenticated and accepts form-encoded POST, so a
+// cross-site page could otherwise drive it with the user's cookie. Its only
+// caller is client_agent_manage.php's same-origin fetch(), which sends Origin
+// on every non-GET request; anything else that mutates is refused.
+if (!in_array(strtoupper((string) $method), ['GET', 'HEAD'], true) && !requireSameOriginRequest()) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Forbidden']);
+    exit;
+}
+
 $path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '', '/');
 $segments = $path === '' ? [] : explode('/', $path);
 $userId = clientBackendGetCurrentUserId();
@@ -45,7 +56,7 @@ if ($method === 'POST' && ($segments[0] ?? '') === 'api' && ($segments[1] ?? '')
     exit;
 }
 
-if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($segments[2] ?? '') === 'scripts' || isset($segments[2]))) {
+if (($segments[0] ?? '') === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($segments[2] ?? '') === 'scripts' || isset($segments[2]))) {
     if (($segments[2] ?? '') === 'scripts') {
         $scripts = clientBackendGetScriptsForUser($userId);
         $summaries = [];
@@ -85,15 +96,14 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
     }
 
     if ($method === 'DELETE' && ($segments[3] ?? '') === '') {
-        $scripts = clientBackendGetScripts();
-        if (!isset($scripts[$scriptId])) {
+        // Deletes this one row, and only while $userId still owns it; no other
+        // script is read or written.
+        if (!clientBackendDeleteScript($scriptId, $userId)) {
             http_response_code(404);
             echo json_encode(['status' => 'error', 'message' => 'Script not found']);
             exit;
         }
 
-        unset($scripts[$scriptId]);
-        clientBackendSaveScripts($scripts);
         echo json_encode(['status' => 'ok', 'deleted_script_id' => $scriptId]);
         exit;
     }

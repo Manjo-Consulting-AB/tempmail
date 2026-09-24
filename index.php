@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         logMessage('WARNING', 'Suspicious POST action attempted', [
             'patterns' => $suspicious,
             'action' => mb_substr($rawAction, 0, 200),
-            'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+            'ip' => getVisitorIp()
         ]);
         echo json_encode(['success' => false, 'error' => 'Ogiltig förfrågan']);
         exit;
@@ -56,7 +56,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = function_exists('sanitizeAlphanumeric') 
         ? sanitizeAlphanumeric($rawAction, 50, true) ?? '' 
         : preg_replace('/[^a-zA-Z0-9_-]/', '', $rawAction);
-    
+
+    // CSRF: every action here is called only by the site's own same-origin
+    // jQuery POSTs (assets/js/app.js, pro.php, pro_profile_page.php), which
+    // always carry Origin, so the check covers every POST action rather than
+    // a hand-kept list of the mutating ones (generate, create_personal,
+    // delete_personal, ...) that a new case could silently fall outside of.
+    if (!requireSameOriginRequest()) {
+        logMessage('WARNING', 'Cross-origin POST rejected', [
+            'action' => mb_substr((string) $action, 0, 50),
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+        ]);
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Forbidden']);
+        exit;
+    }
+
     error_log('AJAX POST action: ' . $action);
     error_log('AJAX POST data: ' . json_encode($_POST));
     try {
@@ -144,9 +159,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'error' => 'Invalid local part']);
                     break;
                 }
-                // Blacklisted local parts that users may NOT choose
-                $blacklist = ['jj', 'roland', 'investering'];
-                if (in_array($local, $blacklist, true)) {
+                // A new address must also be a valid unquoted dot-atom: no
+                // leading/trailing ".", "-" or "_" and no "..". Only creation
+                // is checked; existing addresses keep receiving mail.
+                require_once __DIR__ . '/reserved_local_parts.php';
+                if (!isValidNewLocalPartSyntax($local)) {
+                    echo json_encode(['success' => false, 'error' => 'Invalid local part']);
+                    break;
+                }
+                // Role, system and brand names (postmaster@, admin@, noreply@ ...)
+                // may not be claimed - see reserved_local_parts.php.
+                if (isReservedLocalPart($local)) {
+                    logMessage('INFO', 'create_personal denied: reserved local part', ['user_id' => $_SESSION['pro_user_id'], 'local' => $local]);
                     echo json_encode(['success' => false, 'error' => 'This local part is not allowed']);
                     break;
                 }

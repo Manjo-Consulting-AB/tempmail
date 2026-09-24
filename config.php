@@ -210,6 +210,19 @@ function detectEnvironment() {
 
 $environment = detectEnvironment();
 
+/**
+ * True when the detected environment is production. Security-sensitive
+ * debug conveniences (login links in responses, tokens in logs, verbose DB
+ * errors) must check this in addition to debug_mode, so a misconfigured
+ * DEBUG_MODE can never expose them in production.
+ */
+function appIsProduction(): bool {
+    // Falls back to detecting again when config.php was included from inside
+    // a function (then $environment is not a global), so this never fails open.
+    $environment = $GLOBALS['environment'] ?? detectEnvironment();
+    return $environment === 'production';
+}
+
 // Capture the detection source (set inside detectEnvironment)
 $env_source = $GLOBALS['__env_detect_source'] ?? 'unknown';
 // Log a concise line for diagnostics
@@ -365,10 +378,10 @@ $environmentConfigs = [
             'server' => $_ENV['IMAP_SERVER'] ?? '{imap.websupport.se:993/imap/ssl}INBOX',
             'user' => $_ENV['IMAP_USER'] ?? 'catch-all@manjo.me',
             'password' => $_ENV['IMAP_PASSWORD'] ?? '',
-            'enabled' => $_ENV['IMAP_ENABLED'] ?? true
+            'enabled' => filter_var($_ENV['IMAP_ENABLED'] ?? true, FILTER_VALIDATE_BOOLEAN)
         ],
         'app' => [
-            'debug_mode' => $_ENV['DEBUG_MODE'] ?? true,
+            'debug_mode' => filter_var($_ENV['DEBUG_MODE'] ?? true, FILTER_VALIDATE_BOOLEAN),
             'log_level' => $_ENV['LOG_LEVEL'] ?? 'debug'
         ]
     ],
@@ -386,10 +399,10 @@ $environmentConfigs = [
             'server' => $_ENV['IMAP_SERVER'] ?? '',
             'user' => $_ENV['IMAP_USER'] ?? '',
             'password' => $_ENV['IMAP_PASSWORD'] ?? '',
-            'enabled' => $_ENV['IMAP_ENABLED'] ?? true
+            'enabled' => filter_var($_ENV['IMAP_ENABLED'] ?? true, FILTER_VALIDATE_BOOLEAN)
         ],
         'app' => [
-            'debug_mode' => $_ENV['DEBUG_MODE'] ?? false,
+            'debug_mode' => filter_var($_ENV['DEBUG_MODE'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'log_level' => $_ENV['LOG_LEVEL'] ?? 'error'
         ]
     ]
@@ -726,7 +739,8 @@ try {
         error_log('Database connection failed (pipe intake, deferring): ' . $e->getMessage());
         exit(75);
     }
-    if ($config['app']['debug_mode']) {
+    // Never print connection details in production, whatever DEBUG_MODE says.
+    if ($config['app']['debug_mode'] && !appIsProduction()) {
         die("Databasanslutning misslyckades i {$environment}-miljö: " . $e->getMessage() . 
             "<br>Host: {$config['db']['host']}, DB: {$config['db']['name']}, User: {$config['db']['user']}");
     } else {
@@ -769,57 +783,9 @@ $IP_WHITELIST = [
     // '203.0.113.50',
 ];
 
-/**
- * Kontrollera om en IP-adress matchar ett CIDR-block.
- * 
- * @param string $ip IP-adress att kontrollera
- * @param string $cidr CIDR-notation (t.ex. "192.168.0.0/16")
- * @return bool True om IP:n är inom CIDR-blocket
- */
-function ipMatchesCidr(string $ip, string $cidr): bool {
-    // Hantera exakt matchning (ingen slash)
-    if (strpos($cidr, '/') === false) {
-        return $ip === $cidr;
-    }
-    
-    list($subnet, $mask) = explode('/', $cidr, 2);
-    $mask = (int)$mask;
-    
-    // Avgör om det är IPv6 eller IPv4
-    $isIpv6 = strpos($ip, ':') !== false;
-    $isSubnetIpv6 = strpos($subnet, ':') !== false;
-    
-    // Blanda inte IPv4 och IPv6
-    if ($isIpv6 !== $isSubnetIpv6) {
-        return false;
-    }
-    
-    if ($isIpv6) {
-        // IPv6-hantering
-        $ipBin = inet_pton($ip);
-        $subnetBin = inet_pton($subnet);
-        if ($ipBin === false || $subnetBin === false) {
-            return false;
-        }
-        // Skapa mask för IPv6 (128 bitar)
-        $maskBin = str_repeat("\xff", (int)($mask / 8));
-        if ($mask % 8 > 0) {
-            $maskBin .= chr(256 - pow(2, 8 - ($mask % 8)));
-        }
-        $maskBin = str_pad($maskBin, 16, "\x00");
-        
-        return ($ipBin & $maskBin) === ($subnetBin & $maskBin);
-    } else {
-        // IPv4-hantering
-        $ipLong = ip2long($ip);
-        $subnetLong = ip2long($subnet);
-        if ($ipLong === false || $subnetLong === false) {
-            return false;
-        }
-        $maskLong = -1 << (32 - $mask);
-        return ($ipLong & $maskLong) === ($subnetLong & $maskLong);
-    }
-}
+// ipMatchesCidr(), getVisitorIp() and the other pure IP helpers live in
+// ip_utils.php (dependency-free, so tests/visitor_ip_test.php can load them).
+require_once __DIR__ . '/ip_utils.php';
 
 /**
  * Kontrollera om en IP-adress är vitlistad.
@@ -835,41 +801,15 @@ function isIpWhitelisted(string $ip): bool {
             return true;
         }
     }
-    return false;
-}
-
-/**
- * Hämta besökarens riktiga IP-adress med stöd för proxys.
- * Hanterar både IPv4 och IPv6.
- * 
- * @return string IP-adress
- */
-function getVisitorIp(): string {
-    // Proxy-headers att kontrollera (i prioritetsordning)
-    $proxyHeaders = [
-        'HTTP_CF_CONNECTING_IP',    // Cloudflare
-        'HTTP_X_REAL_IP',           // Nginx proxy
-        'HTTP_X_FORWARDED_FOR',     // Standard proxy header
-        'HTTP_X_CLIENT_IP',         // Annan proxy
-        'HTTP_CLIENT_IP',           // Annan proxy
-    ];
-    
-    foreach ($proxyHeaders as $header) {
-        if (!empty($_SERVER[$header])) {
-            // X-Forwarded-For kan innehålla flera IP:er (klient, proxy1, proxy2...)
-            // Ta första (klientens ursprungliga IP)
-            $ips = explode(',', $_SERVER[$header]);
-            $ip = trim($ips[0]);
-            
-            // Validera att det är en giltig IP-adress
-            if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                return $ip;
-            }
-        }
+    // Safety net: never block a proxy. If the site sits behind Cloudflare (or
+    // a configured proxy) but TRUST_CLOUDFLARE / TRUSTED_PROXIES is missing,
+    // getVisitorIp() returns the proxy's address for every visitor, and one
+    // block on it would lock everyone out.
+    if (ipInAnyRange($ip, cloudflareIpRanges())
+        || ipInAnyRange($ip, parseTrustedProxies(visitorIpEnv('TRUSTED_PROXIES')))) {
+        return true;
     }
-    
-    // Fallback till REMOTE_ADDR
-    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    return false;
 }
 
 /**
@@ -965,9 +905,9 @@ function handleBlockedVisitor(array $blockInfo): void {
 /**
  * Flagga en IP-adress för misstänkt aktivitet.
  * Implementerar eskaleringslogik:
- * - 1 försök: Logga i ip_blacklist
- * - 1+ försök: Blockera i 24 timmar
- * - 5+ försök: Permanent blockering
+ * - 1-2 försök: Logga i ip_blacklist
+ * - 3+ försök: Blockera i 24 timmar
+ * - 10+ försök: Permanent blockering
  * 
  * @param string $ip IP-adress att flagga
  * @param string $reason Anledning till flaggning
@@ -985,8 +925,10 @@ function flagMaliciousActivity(string $ip, string $reason, ?PDO $pdoConnection =
     }
     
     // Tröskelvärden för blockering
-    $TEMP_BLOCK_THRESHOLD = 1;    // Försök innan tillfällig blockering
-    $PERMANENT_THRESHOLD = 5;      // Försök innan permanent blockering
+    // Raised from 1/5: a single false positive (or a shared NAT/proxy IP)
+    // must not lock a visitor out for 24 hours on the first flag.
+    $TEMP_BLOCK_THRESHOLD = 3;    // Försök innan tillfällig blockering
+    $PERMANENT_THRESHOLD = 10;     // Försök innan permanent blockering
     $TEMP_BLOCK_HOURS = 24;        // Timmar för tillfällig blockering
     
     try {
@@ -1471,10 +1413,20 @@ function resolveUrlToPublicTarget(string $url): ?array {
 // Modern browsers reliably send Origin on same-origin POST/XHR/fetch requests
 // (how this app's own JS makes these calls), so this shouldn't affect
 // legitimate use.
+//
+// Fail-closed: no Origin and no Referer, an opaque `Origin: null` (sandboxed
+// iframes, data: URLs, some redirects) or a non-http(s) source all answer
+// false. Only the host is compared, deliberately: the site is served from one
+// host (base_url's), and comparing scheme/port as well would turn a small
+// BASE_URL misconfiguration into every mutating action failing.
 function requireSameOriginRequest(): bool {
     global $config;
     $source = $_SERVER['HTTP_ORIGIN'] ?? ($_SERVER['HTTP_REFERER'] ?? null);
-    if (empty($source)) {
+    if (!is_string($source) || trim($source) === '' || strcasecmp(trim($source), 'null') === 0) {
+        return false;
+    }
+    $sourceScheme = strtolower((string) parse_url($source, PHP_URL_SCHEME));
+    if ($sourceScheme !== 'http' && $sourceScheme !== 'https') {
         return false;
     }
     $sourceHost = parse_url($source, PHP_URL_HOST);
@@ -1482,7 +1434,10 @@ function requireSameOriginRequest(): bool {
     if (empty($sourceHost) || empty($expectedHost)) {
         return false;
     }
-    return strcasecmp($sourceHost, $expectedHost) === 0;
+    // www.<host> and the bare host are the same site (both resolve to this
+    // server), so a visitor on either name must not see every POST refused.
+    $strip = static fn(string $h): string => preg_replace('/^www\./', '', strtolower($h));
+    return $strip((string) $sourceHost) === $strip((string) $expectedHost);
 }
 
 /**
@@ -1743,6 +1698,39 @@ function getUserStats($userId) {
     }
 
     return $stats;
+}
+
+// ---------------------------------------------------------------------
+// Session cookie hardening (CSRF finding)
+//
+// config.php is required before any session_start() in the app, so the
+// cookie parameters are fixed here, once: HttpOnly (no script access),
+// SameSite=Lax (the cookie is not sent on cross-site POSTs, iframes or
+// sub-resource requests) and Secure whenever the site is served over HTTPS
+// — decided from base_url or the request itself, so local dev over plain
+// http://localhost:8085 keeps working. Strict mode refuses session ids the
+// server never issued (session fixation), and only cookies carry the id.
+// Cross-site request forgery is additionally blocked per action by
+// requireSameOriginRequest() (defined above); this block is defence in depth.
+// ---------------------------------------------------------------------
+if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    $msSessionHttps = strcasecmp((string) parse_url((string) ($config['email']['base_url'] ?? ''), PHP_URL_SCHEME), 'https') === 0
+        || (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
+        || (string) ($_SERVER['SERVER_PORT'] ?? '') === '443';
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_trans_sid', '0');
+    session_set_cookie_params([
+        // Lifetime and domain keep whatever the host configured, so this
+        // does not change how long a login lasts or which host gets it.
+        'lifetime' => (int) ini_get('session.cookie_lifetime'),
+        'path' => '/',
+        'domain' => (string) ini_get('session.cookie_domain'),
+        'secure' => $msSessionHttps,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    unset($msSessionHttps);
 }
 
 // Sätt timezone

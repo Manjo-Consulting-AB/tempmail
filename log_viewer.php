@@ -71,6 +71,10 @@ if (isset($_REQUEST['action'])) {
         }
 
         if ($action === 'set_hidden' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+            // CSRF: only this page's own same-origin fetch() may change state.
+            if (!requireSameOriginRequest()) {
+                jsonResponse(['success' => false, 'error' => 'Forbidden'], 403);
+            }
             $logKey = isset($_POST['log_key']) ? mb_substr(str_replace("\0", '', trim($_POST['log_key'])), 0, 255) : null;
             $hidden = isset($_POST['hidden']) && (int)$_POST['hidden'] ? 1 : 0;
             $description = isset($_POST['description']) ? mb_substr(str_replace("\0", '', trim($_POST['description'])), 0, 500) : null;

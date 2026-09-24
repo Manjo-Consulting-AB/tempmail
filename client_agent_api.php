@@ -1,4 +1,8 @@
 <?php
+// config.php first: it fixes the session cookie parameters (HttpOnly,
+// SameSite, Secure), which only apply to a session started after it.
+require_once __DIR__ . '/config.php';
+
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
