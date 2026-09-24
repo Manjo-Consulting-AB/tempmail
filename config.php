@@ -787,6 +787,14 @@ function isIpWhitelisted(string $ip): bool {
             return true;
         }
     }
+    // Safety net: never block a proxy. If the site sits behind Cloudflare (or
+    // a configured proxy) but TRUST_CLOUDFLARE / TRUSTED_PROXIES is missing,
+    // getVisitorIp() returns the proxy's address for every visitor, and one
+    // block on it would lock everyone out.
+    if (ipInAnyRange($ip, cloudflareIpRanges())
+        || ipInAnyRange($ip, parseTrustedProxies(visitorIpEnv('TRUSTED_PROXIES')))) {
+        return true;
+    }
     return false;
 }
 
