@@ -293,6 +293,18 @@ $baseConfig = [
         // caller changes behavior based on it yet.
         'self_signup_enabled' => filter_var($_ENV['PRO_SELF_SIGNUP_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)
     ],
+    'paddle' => [
+        // Deliberately no defaults: paddleClientSettings() refuses to run when
+        // either is missing, so pricing.php can never silently talk to the
+        // wrong Paddle account. Only the client-side token lives here — a
+        // server-side API key must never reach this array, it is rendered
+        // into the page.
+        'environment'  => $_ENV['PADDLE_ENVIRONMENT'] ?? null,
+        'client_token' => $_ENV['PADDLE_CLIENT_TOKEN'] ?? null,
+        // Secret of the notification destination that points at
+        // paddle_webhook.php (pdl_ntfset_…). Server-side only.
+        'webhook_secret' => $_ENV['PADDLE_WEBHOOK_SECRET'] ?? null
+    ],
     // 60-day Pro trial for new Regular accounts, one trial per email address,
     // ever (epic #267). hash_key must never change once set: it is the HMAC
     // key that turns a normalised address into pro_trial_claims.email_hash,
@@ -305,6 +317,34 @@ $baseConfig = [
         'claim_retention_days' => 1825,
     ],
 ];
+
+/**
+ * Validated Paddle.js settings for the browser, or a RuntimeException naming
+ * what is wrong. Checks that the environment is set and known, and that the
+ * token is a client-side token for that same environment (test_ = sandbox,
+ * live_ = production).
+ */
+function paddleClientSettings(array $config): array
+{
+    $environment = strtolower(trim((string) ($config['paddle']['environment'] ?? '')));
+    $token       = trim((string) ($config['paddle']['client_token'] ?? ''));
+
+    if ($environment === '') {
+        throw new RuntimeException('PADDLE_ENVIRONMENT is not set (expected "sandbox" or "production")');
+    }
+    $prefixes = ['sandbox' => 'test_', 'production' => 'live_'];
+    if (!isset($prefixes[$environment])) {
+        throw new RuntimeException('PADDLE_ENVIRONMENT must be "sandbox" or "production", got "' . $environment . '"');
+    }
+    if ($token === '') {
+        throw new RuntimeException('PADDLE_CLIENT_TOKEN is not set');
+    }
+    if (strpos($token, $prefixes[$environment]) !== 0 || strlen($token) <= strlen($prefixes[$environment])) {
+        throw new RuntimeException('PADDLE_CLIENT_TOKEN is not a ' . $environment . ' client-side token (must start with ' . $prefixes[$environment] . ')');
+    }
+
+    return ['environment' => $environment, 'token' => $token];
+}
 
 // Miljöspecifika konfigurationer
 $environmentConfigs = [

@@ -102,6 +102,12 @@ kontot Regular trots betald eller inlöst Pro:
 - `pro_auth.php` — voucher-inlösen, både uppdaterings- och nyskapandegrenen.
 - `bmac_handler.php` — Buy Me a Coffee-webhooken, både uppdaterings- och
   nyskapandegrenen.
+- `paddle_webhook.php` (logiken i `paddle_sync.php`) — Paddle Billing. Sätter
+  `account_type = 'pro'` och `pro_expires_at` = slutet på betald period
+  (prenumeration) eller `NULL` (lifetime). Skapar aldrig konton: en betalning
+  som inte kan kopplas till en befintlig rad (via `custom_data.pro_user_id`
+  eller kundens e-post) sparas okopplad. Kortar aldrig tid som Paddle inte
+  själv gav — voucher/BMAC-tiden är ett golv.
 
 ## 3. Entitlement-matris
 
