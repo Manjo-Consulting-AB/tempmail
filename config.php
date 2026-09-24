@@ -210,6 +210,16 @@ function detectEnvironment() {
 
 $environment = detectEnvironment();
 
+/**
+ * True when the detected environment is production. Security-sensitive
+ * debug conveniences (login links in responses, tokens in logs, verbose DB
+ * errors) must check this in addition to debug_mode, so a misconfigured
+ * DEBUG_MODE can never expose them in production.
+ */
+function appIsProduction(): bool {
+    return ($GLOBALS['environment'] ?? null) === 'production';
+}
+
 // Capture the detection source (set inside detectEnvironment)
 $env_source = $GLOBALS['__env_detect_source'] ?? 'unknown';
 // Log a concise line for diagnostics
@@ -365,10 +375,10 @@ $environmentConfigs = [
             'server' => $_ENV['IMAP_SERVER'] ?? '{imap.websupport.se:993/imap/ssl}INBOX',
             'user' => $_ENV['IMAP_USER'] ?? 'catch-all@manjo.me',
             'password' => $_ENV['IMAP_PASSWORD'] ?? '',
-            'enabled' => $_ENV['IMAP_ENABLED'] ?? true
+            'enabled' => filter_var($_ENV['IMAP_ENABLED'] ?? true, FILTER_VALIDATE_BOOLEAN)
         ],
         'app' => [
-            'debug_mode' => $_ENV['DEBUG_MODE'] ?? true,
+            'debug_mode' => filter_var($_ENV['DEBUG_MODE'] ?? true, FILTER_VALIDATE_BOOLEAN),
             'log_level' => $_ENV['LOG_LEVEL'] ?? 'debug'
         ]
     ],
@@ -386,10 +396,10 @@ $environmentConfigs = [
             'server' => $_ENV['IMAP_SERVER'] ?? '',
             'user' => $_ENV['IMAP_USER'] ?? '',
             'password' => $_ENV['IMAP_PASSWORD'] ?? '',
-            'enabled' => $_ENV['IMAP_ENABLED'] ?? true
+            'enabled' => filter_var($_ENV['IMAP_ENABLED'] ?? true, FILTER_VALIDATE_BOOLEAN)
         ],
         'app' => [
-            'debug_mode' => $_ENV['DEBUG_MODE'] ?? false,
+            'debug_mode' => filter_var($_ENV['DEBUG_MODE'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'log_level' => $_ENV['LOG_LEVEL'] ?? 'error'
         ]
     ]
@@ -726,7 +736,8 @@ try {
         error_log('Database connection failed (pipe intake, deferring): ' . $e->getMessage());
         exit(75);
     }
-    if ($config['app']['debug_mode']) {
+    // Never print connection details in production, whatever DEBUG_MODE says.
+    if ($config['app']['debug_mode'] && !appIsProduction()) {
         die("Databasanslutning misslyckades i {$environment}-miljö: " . $e->getMessage() . 
             "<br>Host: {$config['db']['host']}, DB: {$config['db']['name']}, User: {$config['db']['user']}");
     } else {
