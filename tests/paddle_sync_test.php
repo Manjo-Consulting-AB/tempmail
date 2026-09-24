@@ -164,14 +164,14 @@ $pdo->prepare('UPDATE pro_users SET pro_expires_at = ? WHERE id = 42')->execute(
 run($pdo, subEvent('canceled', ['canceled_at' => iso(NOW + 60)], NOW + 60), $prices);
 check('voucher expiry kept', user($pdo, 42)['pro_expires_at'] === $voucherUntil, (string) user($pdo, 42)['pro_expires_at']);
 
-echo "\n8. A subscription extends an existing shorter voucher expiry\n";
+echo "\n8. Remaining voucher time is stacked on top of the paid period\n";
 $pdo = freshDb();
 $short = local(NOW + 10 * 86400);
 addUser($pdo, 42, 'buyer@example.com', 'pro', $short);
 run($pdo, subEvent('active'), $prices);
-check('extended to period end', user($pdo, 42)['pro_expires_at'] === $periodEnd);
+check('period end + the 10 voucher days', user($pdo, 42)['pro_expires_at'] === local(NOW + 375 * 86400), (string) user($pdo, 42)['pro_expires_at']);
 run($pdo, subEvent('canceled', ['canceled_at' => iso(NOW + 60)], NOW + 60), $prices);
-check('cancel falls back to the voucher expiry, not below it', user($pdo, 42)['pro_expires_at'] === $short, (string) user($pdo, 42)['pro_expires_at']);
+check('after cancel the 10 days run from the end of paid time', user($pdo, 42)['pro_expires_at'] === local(NOW + 60 + 10 * 86400), (string) user($pdo, 42)['pro_expires_at']);
 
 echo "\n9. Unlimited voucher/BMAC account (NULL) is never touched\n";
 $pdo = freshDb();
@@ -239,6 +239,60 @@ check('granted to the email match', user($pdo, 7)['pro_expires_at'] === $periodE
 echo "\n17. Unknown event types are acknowledged, not failed\n";
 $out = run($pdo, ['event_id' => 'evt_x', 'event_type' => 'payout.paid', 'occurred_at' => iso(NOW), 'data' => ['id' => 'x']], $prices);
 check('ignored', strpos($out, 'ignored') === 0, $out);
+
+// ---------------------------------------------------------------------
+echo "\n18. Paid time is stacked on top of a running Pro trial\n";
+$month = 30 * 86400;
+$trialLeft = 60 * 86400;
+$monthly = function (int $periodEnd, array $over = [], int $occurred = NOW) {
+    return subEvent('active', array_replace([
+        'custom_data' => ['pro_user_id' => '105'],
+        'current_billing_period' => ['starts_at' => iso($periodEnd - 30 * 86400), 'ends_at' => iso($periodEnd)],
+        'items' => [['price' => ['id' => PRICE_MONTH]]],
+    ], $over), $occurred);
+};
+$canceled = function (int $at, string $id = 'sub_1') {
+    return subEvent('canceled', ['id' => $id, 'custom_data' => ['pro_user_id' => '105'], 'canceled_at' => iso($at), 'items' => [['price' => ['id' => PRICE_MONTH]]]], $at);
+};
+$pdo = freshDb();
+addUser($pdo, 105, 'trial@example.com', 'pro', local(NOW + $trialLeft));   // proTrialGrantOnVerification()
+run($pdo, $monthly(NOW + $month), $prices);
+check('month + 60 trial days', user($pdo, 105)['pro_expires_at'] === local(NOW + $month + $trialLeft), (string) user($pdo, 105)['pro_expires_at']);
+run($pdo, $monthly(NOW + $month), $prices);
+check('subscription.activated for the same period changes nothing', user($pdo, 105)['pro_expires_at'] === local(NOW + $month + $trialLeft));
+
+echo "\n19. Renewals move the paid end; the trial days are not added twice\n";
+run($pdo, $monthly(NOW + 2 * $month, [], NOW + $month + 5), $prices, NOW + $month + 5);
+check('two months + 60 days', user($pdo, 105)['pro_expires_at'] === local(NOW + 2 * $month + $trialLeft), (string) user($pdo, 105)['pro_expires_at']);
+run($pdo, $monthly(NOW + 3 * $month, [], NOW + 2 * $month + 5), $prices, NOW + 2 * $month + 5);
+check('three months + 60 days', user($pdo, 105)['pro_expires_at'] === local(NOW + 3 * $month + $trialLeft), (string) user($pdo, 105)['pro_expires_at']);
+
+echo "\n20. Cancel at period end: the trial days still follow the paid time\n";
+$cancelAt = NOW + 3 * $month;
+run($pdo, $canceled($cancelAt), $prices, $cancelAt);
+check('paid end + 60 days', user($pdo, 105)['pro_expires_at'] === local($cancelAt + $trialLeft), (string) user($pdo, 105)['pro_expires_at']);
+run($pdo, $canceled($cancelAt), $prices, $cancelAt + 10 * 86400);
+check('re-delivered cancel 10 days later does not shrink it', user($pdo, 105)['pro_expires_at'] === local($cancelAt + $trialLeft), (string) user($pdo, 105)['pro_expires_at']);
+
+echo "\n21. Re-subscribing inside the bonus window keeps only what is left of it\n";
+$back = $cancelAt + 20 * 86400;   // 20 of the 60 bonus days used
+run($pdo, $monthly($back + $month, ['id' => 'sub_2'], $back), $prices, $back);
+check('new month + the 40 days left', user($pdo, 105)['pro_expires_at'] === local($back + $month + 40 * 86400), (string) user($pdo, 105)['pro_expires_at']);
+
+echo "\n22. Once the bonus is used up, a later subscription gets no bonus again\n";
+$pdo = freshDb();
+addUser($pdo, 105, 'trial@example.com', 'pro', local(NOW + $trialLeft));
+run($pdo, $monthly(NOW + $month), $prices);
+run($pdo, $canceled(NOW + $month), $prices, NOW + $month);
+$later = NOW + $month + $trialLeft + 30 * 86400;   // everything expired a month ago
+run($pdo, $monthly($later + $month, ['id' => 'sub_3'], $later), $prices, $later);
+check('just the new paid month', user($pdo, 105)['pro_expires_at'] === local($later + $month), (string) user($pdo, 105)['pro_expires_at']);
+
+echo "\n23. An expired Regular account (no time left) gets exactly the paid period\n";
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active'), $prices);
+check('period end, no bonus', user($pdo, 42)['pro_expires_at'] === $periodEnd);
 
 echo "\n" . ($failures === 0 ? "All checks passed.\n" : "{$failures} check(s) FAILED.\n");
 exit($failures === 0 ? 0 : 1);

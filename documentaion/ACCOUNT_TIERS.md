@@ -106,8 +106,11 @@ kontot Regular trots betald eller inlöst Pro:
   `account_type = 'pro'` och `pro_expires_at` = slutet på betald period
   (prenumeration) eller `NULL` (lifetime). Skapar aldrig konton: en betalning
   som inte kan kopplas till en befintlig rad (via `custom_data.pro_user_id`
-  eller kundens e-post) sparas okopplad. Kortar aldrig tid som Paddle inte
-  själv gav — voucher/BMAC-tiden är ett golv.
+  eller kundens e-post) sparas okopplad. Betald tid läggs ovanpå
+  den Pro-tid kontot redan hade (trial, voucher, BMAC): återstående tid vid
+  övertagandet sparas som bonus och `pro_expires_at` = betald period + bonus.
+  Förnyelser lägger inte till bonusen igen, och den förbrukas när den betalda
+  tiden har upphört.
 
 ## 3. Entitlement-matris
 

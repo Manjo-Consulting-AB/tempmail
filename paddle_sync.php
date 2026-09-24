@@ -22,15 +22,25 @@
  * A user's Paddle target is lifetime if any completed lifetime purchase is
  * linked to them, else the latest granted_until over their subscriptions.
  *
- * Coexisting with vouchers and Buy Me a Coffee — "Paddle never takes away
- * time it did not grant": paddle_entitlements remembers, per user, the value
- * this file last wrote and the baseline it found before taking over (the
- * voucher/BMAC expiry at that moment). The written value is
- * max(baseline, Paddle target), so a cancellation can bring the expiry back
- * down to the baseline but never below it. If something else changed
- * pro_expires_at since Paddle last wrote it, that new value becomes the
- * baseline. A NULL (unlimited) is never touched unless a Paddle lifetime
- * purchase is what makes it NULL.
+ * Coexisting with the Pro trial, vouchers and Buy Me a Coffee — paid time is
+ * stacked ON TOP of the Pro time the account already had. When Paddle takes
+ * over an account, the time left on its existing expiry (a trial's remaining
+ * days, a voucher, BMAC) is stored as bonus_seconds, and what gets written is
+ *
+ *     pro_expires_at = Paddle target + bonus_seconds
+ *
+ * so a buyer on day 1 of a 60-day trial who pays for a month keeps Pro for a
+ * month plus 60 days. Renewals move the target, never re-add the bonus.
+ * After a cancellation the bonus runs from the end of the paid time. The bonus
+ * is consumed once paid coverage has ended (no subscription active, trialing
+ * or past_due): when a new subscription then moves the target, only what is
+ * left of the bonus (last written expiry - now) carries over, so it cannot be
+ * re-granted by re-subscribing. Renewals of a running subscription never
+ * consume it, however late the renewal event arrives. If something else extends pro_expires_at after Paddle wrote
+ * it (a voucher redeemed later), that added time joins the bonus. Paddle
+ * also never writes below the expiry it found at takeover (baseline), and a
+ * NULL (unlimited) is never touched unless a Paddle lifetime purchase is what
+ * makes it NULL. State per user lives in paddle_entitlements.
  *
  * Linking a payment to an account: custom_data.pro_user_id (set by
  * assets/js/pricing.js for a signed-in buyer) when it names an existing row,
@@ -145,6 +155,9 @@ function paddleSchemaStatements(string $driver): array
             pro_user_id {$int} NOT NULL PRIMARY KEY,
             applied_expires_at {$dt} NULL,
             baseline_expires_at {$dt} NULL,
+            bonus_seconds {$int} NOT NULL DEFAULT 0,
+            last_target {$dt} NULL,
+            coverage_ended {$bool} NOT NULL DEFAULT 0,
             applied_lifetime {$bool} NOT NULL DEFAULT 0,
             updated_at {$dt} NOT NULL
         ){$suffix}",
@@ -435,8 +448,11 @@ function paddleApplyEntitlement(PDO $pdo, int $userId, array $options): string
     }
 
     $current = $user['pro_expires_at'];
-    $applied = paddleFetch($pdo, 'SELECT applied_expires_at, baseline_expires_at, applied_lifetime FROM paddle_entitlements WHERE pro_user_id = ?', [$userId]);
+    $applied = paddleFetch($pdo, 'SELECT applied_expires_at, baseline_expires_at, bonus_seconds, last_target, coverage_ended, applied_lifetime FROM paddle_entitlements WHERE pro_user_id = ?', [$userId]);
+    // Paid coverage is running while any subscription is still billing.
+    $running = (bool) paddleFetch($pdo, "SELECT 1 FROM paddle_subscriptions WHERE pro_user_id = ? AND status IN ('active', 'trialing', 'past_due')", [$userId]);
 
+    $bonus = 0;
     if ($lifetime) {
         $new = null;
         $baseline = null;
@@ -445,11 +461,33 @@ function paddleApplyEntitlement(PDO $pdo, int $userId, array $options): string
         // lifetime purchase is not revoked here, so nothing to do either way.
         return 'already unlimited';
     } else {
-        // Still the value Paddle wrote → keep the baseline found at takeover.
-        // Changed by something else since (voucher, BMAC) → that is the new baseline.
-        $owned = $applied && !$applied['applied_lifetime'] && $applied['applied_expires_at'] === $current;
-        $baseline = $owned ? $applied['baseline_expires_at'] : $current;
-        $new = $baseline !== null ? max($baseline, $target) : $target;
+        $bonus = $applied ? (int) $applied['bonus_seconds'] : 0;
+        $lastTarget = $applied['last_target'] ?? null;
+        $lastApplied = $applied['applied_expires_at'] ?? null;
+
+        // Consumption: paid coverage had ended (every subscription canceled
+        // or paused), the bonus has been running since, and now the target
+        // moves (a new subscription) — only what is left of the bonus stays.
+        // A plain renewal never gets here: its subscription stayed active.
+        if ($applied && !empty($applied['coverage_ended']) && $lastTarget !== null
+            && $target !== $lastTarget && strtotime($lastTarget) < $now && $lastApplied !== null) {
+            $bonus = max(0, strtotime($lastApplied) - $now);
+        }
+
+        $owned = $applied && !$applied['applied_lifetime'] && $lastApplied === $current;
+        if ($owned) {
+            $baseline = $applied['baseline_expires_at'];
+        } else {
+            // Takeover, or something else changed the expiry since Paddle
+            // wrote it: the time it adds beyond what Paddle had written (or
+            // beyond now) joins the bonus, and becomes the new floor.
+            $from = max($now, $lastApplied !== null ? strtotime($lastApplied) : 0);
+            $bonus += max(0, strtotime($current) - $from);
+            $baseline = $current;
+        }
+
+        $stacked = date('Y-m-d H:i:s', strtotime($target) + $bonus);
+        $new = $baseline !== null ? max($baseline, $stacked) : $stacked;
     }
 
     $grants = $new === null || strtotime($new) >= $now;
@@ -461,12 +499,15 @@ function paddleApplyEntitlement(PDO $pdo, int $userId, array $options): string
     paddleUpsert($pdo, 'paddle_entitlements', 'pro_user_id', $userId, [
         'applied_expires_at' => $new,
         'baseline_expires_at' => $baseline,
+        'bonus_seconds' => $bonus,
+        'last_target' => $lifetime ? null : $target,
+        'coverage_ended' => $running ? 0 : 1,
         'applied_lifetime' => $lifetime ? 1 : 0,
         'updated_at' => date('Y-m-d H:i:s', $now),
     ], (bool) $applied);
 
     paddleLog($options, 'INFO', 'Paddle entitlement applied', [
-        'user_id' => $userId, 'old_expires' => $current, 'new_expires' => $new, 'lifetime' => $lifetime,
+        'user_id' => $userId, 'old_expires' => $current, 'new_expires' => $new, 'lifetime' => $lifetime, 'bonus_seconds' => $bonus,
     ]);
     return 'pro_expires_at ' . ($current ?? 'NULL') . ' -> ' . ($new ?? 'NULL');
 }
