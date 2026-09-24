@@ -198,27 +198,24 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
                     </div>
                 </div>
 
-                <!-- Statistik: en fotnot, inte en funktion. Siffrorna kommer från
-                     den systemövergripande email_stats-tabellen, inte från den
-                     inloggades konto - därför visas de bara för utloggade
-                     besökare, som inte kan förväxla dem med sin egen användning. -->
-                <?php if (empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                <div class="ms-inbox__stats">
+                <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
+                <!-- Statistik: the signed-in account's own numbers (get_stats in index.php). A logged-out visitor gets none - the system-wide totals live on the landing page. -->
+                <div class="ms-inbox__stats" id="userStats">
                     <div class="ms-inbox__stat">
-                        <span class="ms-inbox__stat-n" id="statsTotal">0</span>
-                        <span class="ms-inbox__stat-l">Total emails</span>
+                        <span class="ms-inbox__stat-n" id="statsEmails">0</span>
+                        <span class="ms-inbox__stat-l">Emails in your inbox</span>
                     </div>
                     <div class="ms-inbox__stat">
-                        <span class="ms-inbox__stat-n" id="statsProcessed">0</span>
-                        <span class="ms-inbox__stat-l">Emails processed</span>
+                        <span class="ms-inbox__stat-n" id="statsReceived24h">0</span>
+                        <span class="ms-inbox__stat-l">Received last 24 h</span>
                     </div>
                     <div class="ms-inbox__stat">
-                        <span class="ms-inbox__stat-n" id="statsCreated">0</span>
-                        <span class="ms-inbox__stat-l">Addresses created</span>
+                        <span class="ms-inbox__stat-n" id="statsAddresses">0</span>
+                        <span class="ms-inbox__stat-l">Active addresses</span>
                     </div>
                     <div class="ms-inbox__stat">
-                        <span class="ms-inbox__stat-n" id="statsAttachments">0</span>
-                        <span class="ms-inbox__stat-l">Attachments processed</span>
+                        <span class="ms-inbox__stat-n" id="statsStorage">&ndash;</span>
+                        <span class="ms-inbox__stat-l">Storage used</span>
                     </div>
                 </div>
                 <?php endif; ?>

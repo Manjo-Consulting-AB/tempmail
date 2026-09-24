@@ -885,11 +885,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'get_stats':
-                // Hämta systemstatistik
-                $stats = getStats();
+                // The signed-in account's own numbers. The system-wide
+                // email_stats counters are rendered server-side on the
+                // landing page (partials/landing/stats.php), not here.
+                $statsUserId = (int)($_SESSION['pro_user_id'] ?? 0);
+                if ($statsUserId <= 0) {
+                    echo json_encode(['success' => false, 'error' => 'Not signed in']);
+                    break;
+                }
                 echo json_encode([
                     'success' => true,
-                    'stats' => $stats
+                    'stats' => getUserStats($statsUserId)
                 ]);
                 break;
                 
@@ -981,6 +987,7 @@ foreach ([
     'automation',
     'cleanup',
     'external',
+    'stats',
     'plans',
     'cta',
 ] as $msSection) {

@@ -543,6 +543,10 @@ class TempMailApp {
                 
                 // Uppdatera tidsstämpel
                 $('#lastUpdate').text(this.formatTime(new Date()));
+
+                // The personal counters follow the inbox, so new mail moves them
+                // straight away instead of on the next once-a-minute tick.
+                this.loadStats();
             } else {
                     if ((response.error || '').toLowerCase().includes('ogiltig adress')) {
                         this.showNotification('Invalid address, new address created', 'info');
@@ -988,56 +992,58 @@ class TempMailApp {
      * Hämta och uppdatera statistik
      */
     async loadStats() {
-        // Statistiken är systemövergripande siffror som bara visas för utloggade
-        // besökare (inbox.php), så markupen avgör om det finns något att fylla i.
-        // Går inte på window.tempMailConfig.isPro: den är true även på pro.php,
-        // som har kvar blocket och ska fortsätta ladda siffrorna.
-        if (!document.getElementById('statsTotal')) {
+        // The signed-in account's own numbers (get_stats in index.php). The
+        // block is rendered only for a signed-in user on inbox.php/pro.php, so
+        // the markup decides whether there is anything to fill in. The
+        // system-wide totals are server-rendered on the landing page.
+        if (!document.getElementById('userStats')) {
+            return;
+        }
+        if (this.statsRequest) {
             return;
         }
 
         try {
-            const response = await $.ajax({
+            this.statsRequest = $.ajax({
                 url: 'index.php',
-                method: 'POST', 
+                method: 'POST',
                 data: { action: 'get_stats' },
                 dataType: 'json'
             });
-            
+            const response = await this.statsRequest;
+
             if (response.success && response.stats) {
                 const stats = response.stats;
-                
-                // Uppdatera statistik på sidan med animation
-                this.animateStatNumber('#statsTotal', stats.emails_total || 0);
-                this.animateStatNumber('#statsProcessed', stats.emails_processed || 0);
-                this.animateStatNumber('#statsCreated', stats.emails_created || 0);
-                this.animateStatNumber('#statsAttachments', stats.attachments_processed || 0);
+
+                this.animateStatNumber('#statsEmails', stats.emails || 0);
+                this.animateStatNumber('#statsReceived24h', stats.received_24h || 0);
+                this.animateStatNumber('#statsAddresses', stats.addresses || 0);
+                $('#statsStorage').text(
+                    this.formatBytes(stats.storage_bytes || 0) + ' / ' + this.formatBytes(stats.quota_bytes || 0)
+                );
             }
         } catch (error) {
             console.error('Error loading stats:', error);
+        } finally {
+            this.statsRequest = null;
         }
     }
-    
+
     /**
-     * Animera sifferuppdatering för statistik
+     * Human-readable byte count for the storage stat.
      */
-    animateStatNumber(selector, newValue) {
-        const $element = $(selector);
-        const currentValue = parseInt($element.text()) || 0;
-        
-        if (currentValue !== newValue) {
-            $element.prop('Counter', currentValue).animate({
-                Counter: newValue
-            }, {
-                duration: 1000,
-                easing: 'swing',
-                step: function (now) {
-                    $element.text(Math.ceil(now).toLocaleString('sv-SE'));
-                }
-            });
+    formatBytes(bytes) {
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let value = Number(bytes) || 0;
+        let i = 0;
+        while (value >= 1024 && i < units.length - 1) {
+            value /= 1024;
+            i++;
         }
+        const digits = (i === 0 || value >= 10) ? 0 : 1;
+        return value.toLocaleString('sv-SE', { maximumFractionDigits: digits }) + ' ' + units[i];
     }
-    
+
     // Theme removed: no toggleTheme/loadTheme methods
 
     updateImageToggleButton() {
@@ -1057,13 +1063,14 @@ class TempMailApp {
             if (icon) icon.className = 'fas fa-image';
         }
     }
-    
+
     /**
      * Animera sifferuppdatering för statistik
      */
     animateStatNumber(selector, newValue) {
         const $element = $(selector);
-        const currentValue = parseInt($element.text()) || 0;
+        $element.stop(true);
+        const currentValue = parseInt($element.text().replace(/\D/g, ''), 10) || 0;
         
         if (currentValue !== newValue) {
             $element.prop('Counter', currentValue).animate({
