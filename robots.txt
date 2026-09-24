@@ -29,6 +29,7 @@ Disallow: /client_agent_install_download.php
 Disallow: /client_agent_manage.php
 Disallow: /log_viewer.php
 Disallow: /bmac_handler.php
+Disallow: /paddle_webhook.php
 Disallow: /parse.php
 Disallow: /run_imap_processor.php
 Disallow: /documentaion/
