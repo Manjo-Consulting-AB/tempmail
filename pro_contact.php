@@ -23,6 +23,14 @@ $userId = $_SESSION['pro_user_id'];
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
+
+    // CSRF: the form is submitted by this page's own same-origin $.post; a
+    // cross-site form must not send support mail in the user's name.
+    if (!requireSameOriginRequest()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Forbidden']);
+        exit;
+    }
     
     $category = $_POST['category'] ?? '';
     $message = trim($_POST['message'] ?? '');

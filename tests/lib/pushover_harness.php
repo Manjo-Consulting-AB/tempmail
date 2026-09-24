@@ -373,7 +373,7 @@ function ms_test_probe_build(string $repoRoot): string {
         throw new RuntimeException("Could not create probe docroot at {$root}");
     }
 
-    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'TwoFactorAuth.php', 'php_imap_processor.php', 'reserved_local_parts.php'] as $page) {
+    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'TwoFactorAuth.php', 'php_imap_processor.php', 'paddle_sync.php', 'reserved_local_parts.php'] as $page) {
         if (!copy($repoRoot . '/' . $page, $root . '/' . $page)) {
             throw new RuntimeException("Could not copy {$page} into the probe docroot");
         }
@@ -405,7 +405,7 @@ function ms_test_probe_sqlite(string $root): string {
  * they answer a JSON action.
  *
  * @param array{page:string, method?:string, user_id?:int, user_email?:string,
- *              post?:array, get?:array, session?:string} $request
+ *              post?:array, get?:array, session?:string, origin?:?string} $request
  * @return array{stdout:string, stderr:string, exit:int, json:?array}
  */
 function ms_test_request(string $root, array $request): array {
@@ -416,7 +416,10 @@ function ms_test_request(string $root, array $request): array {
         'PROBE_USER_EMAIL' => (string) ($request['user_email'] ?? ''),
         'PROBE_POST' => (string) json_encode($request['post'] ?? []),
         'PROBE_GET' => (string) json_encode($request['get'] ?? []),
-        'PROBE_ORIGIN' => MS_TEST_ORIGIN,
+        // 'origin' => null sends no Origin header at all (and no Referer).
+        'PROBE_ORIGIN' => array_key_exists('origin', $request)
+            ? ($request['origin'] === null ? '-' : (string) $request['origin'])
+            : MS_TEST_ORIGIN,
         'PROBE_SQLITE' => ms_test_probe_sqlite($root),
         'PROBE_SESSION_ID' => (string) ($request['session'] ?? 'msprobe1'),
         'PATH' => (string) (getenv('PATH') ?: '/usr/bin:/bin'),
@@ -629,7 +632,9 @@ function proUserAccountType(int $userId): string {
 function requireSameOriginRequest(): bool {
     global $config;
     $source = $_SERVER['HTTP_ORIGIN'] ?? ($_SERVER['HTTP_REFERER'] ?? null);
-    if (empty($source)) return false;
+    if (!is_string($source) || trim($source) === '' || strcasecmp(trim($source), 'null') === 0) return false;
+    $sourceScheme = strtolower((string) parse_url($source, PHP_URL_SCHEME));
+    if ($sourceScheme !== 'http' && $sourceScheme !== 'https') return false;
     $sourceHost = parse_url((string) $source, PHP_URL_HOST);
     $expectedHost = parse_url((string) ($config['email']['base_url'] ?? ''), PHP_URL_HOST);
     if (empty($sourceHost) || empty($expectedHost)) return false;
@@ -685,7 +690,10 @@ $_SERVER['REQUEST_METHOD'] = (string) (getenv('PROBE_METHOD') ?: 'POST');
 $_SERVER['REQUEST_URI'] = '/' . $probePage;
 $_SERVER['SCRIPT_NAME'] = '/' . $probePage;
 $_SERVER['SCRIPT_FILENAME'] = __DIR__ . '/' . $probePage;
-$_SERVER['HTTP_ORIGIN'] = (string) (getenv('PROBE_ORIGIN') ?: 'http://localhost:8085');
+$probeOrigin = (string) (getenv('PROBE_ORIGIN') ?: 'http://localhost:8085');
+if ($probeOrigin !== '-') {
+    $_SERVER['HTTP_ORIGIN'] = $probeOrigin;
+}
 $_SERVER['HTTP_HOST'] = 'localhost:8085';
 $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 

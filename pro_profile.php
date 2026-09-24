@@ -42,6 +42,35 @@ if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
 $userId = (int)$_SESSION['pro_user_id'];
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
+// CSRF: only the pure reads below may be reached by GET or without a
+// same-origin Origin/Referer. Every other action — including any action
+// added later and the *_get_token actions, which mint a token on first use —
+// must be a POST from this site's own pages. The per-case checks further down
+// predate this gate and are kept; they are now redundant but harmless.
+$proProfileReadOnlyActions = [
+    'get_ttl',
+    'get_profile',
+    'get_digest_settings',
+    'totp_status',
+    'webhooks_list',
+    'webhook_deliveries',
+];
+if (!in_array($action, $proProfileReadOnlyActions, true)) {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        http_response_code(405);
+        header('Allow: POST');
+        send_json(['success' => false, 'error' => 'Method not allowed']);
+    }
+    if (!requireSameOriginRequest()) {
+        logMessage('WARNING', 'Cross-origin pro_profile request rejected', [
+            'user_id' => $userId,
+            'action' => is_string($action) ? mb_substr($action, 0, 50) : '',
+        ]);
+        http_response_code(403);
+        send_json(['success' => false, 'error' => 'Forbidden']);
+    }
+}
+
 // Helper: encrypt/decrypt webhook secret using environment key WEBHOOKS_KEY
 function encrypt_webhook_secret($plaintext) {
     if (empty($plaintext)) return null;

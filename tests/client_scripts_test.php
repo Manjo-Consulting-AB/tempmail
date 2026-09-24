@@ -88,6 +88,11 @@ if (!function_exists('logMessage')) {
 if (!function_exists('proUserIsPro')) {
     function proUserIsPro(int $userId): bool { return true; }
 }
+if (!function_exists('requireSameOriginRequest')) {
+    // The CSRF gate itself is covered by tests/webhook_routing_test.php; here
+    // every simulated request is the site's own same-origin call.
+    function requireSameOriginRequest(): bool { return true; }
+}
 PHP);
 
 // Runs the real api.php once as user $userId, in its own process (api.php
