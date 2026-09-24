@@ -17,6 +17,7 @@ class TempMailApp {
         this.allEmails = []; // senast hämtade, ofiltrerade meddelandelistan
         this.activeAddressFilter = null; // full mottagaradress att filtrera på (pro.php)
         this.knownPersonalAddresses = []; // kontots permanenta adresser, satta av pro.php
+        this.currentEmailHtml = null; // the open message's (server-purified) HTML body, for "Visa bilder"
 
         this.init();
 
@@ -186,51 +187,17 @@ class TempMailApp {
             this.openEmail(emailId);
         });
 
-        // Load external image when user clicks the placeholder button
-        $(document).on('click', '.tm-load-img', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            const $btn = $(this);
-            const $placeholder = $btn.closest('.tm-img-placeholder');
-            const src = $placeholder.data('src');
-            if (!src) return;
-            // Direct load into user's browser with privacy-preserving referrer policy
-            const $img = $(`<img src="${src}" referrerpolicy="no-referrer" loading="lazy" decoding="async" alt="image" class="tm-proxied-image"/>`);
-            $placeholder.empty().append($img);
-        });
-
-        // Modal-level 'Visa bilder' button: load all images inside the modal
+        // Modal-level 'Visa bilder' button: the message is shown in a
+        // sandboxed iframe without scripts, so images cannot be loaded one by
+        // one from inside it - re-render the open message with images on.
         $(document).on('click', '#modalShowImagesBtn', (e) => {
             e.preventDefault();
-            const $btn = $('#modalShowImagesBtn');
-            $btn.prop('disabled', true).text('Laddar...');
+            if (!this.currentEmailHtml) return;
             try {
-                const $modal = $('#emailModal');
-                // Trigger per-image buttons if present
-                $modal.find('.tm-img-placeholder').each(function() {
-                    const $ph = $(this);
-                    const $loadBtn = $ph.find('.tm-load-img');
-                    if ($loadBtn.length) {
-                        $loadBtn.trigger('click');
-                    } else {
-                        // If placeholder without button, attempt to load data-src directly
-                        const src = $ph.data('src');
-                        if (src) {
-                            const $img = $(`<img src="${src}" referrerpolicy="no-referrer" loading="lazy" decoding="async" alt="image" class="tm-proxied-image"/>`);
-                            $ph.empty().append($img);
-                        }
-                    }
-                });
-                // For any remaining plain <img> ensure referrerpolicy is set
-                $modal.find('#emailContent img').each(function() {
-                    if (!$(this).attr('referrerpolicy')) $(this).attr('referrerpolicy', 'no-referrer');
-                });
+                this.renderHtmlEmail($('#emailModal').find('#emailContent'), this.currentEmailHtml, false);
+                $('#modalShowImagesBtn').hide();
             } catch (err) {
                 console.error('Failed to load images in modal:', err);
-            } finally {
-                setTimeout(() => {
-                    $btn.prop('disabled', false).text('Visa bilder');
-                }, 800);
             }
         });
 
@@ -838,49 +805,15 @@ class TempMailApp {
         
         // Visa innehåll
         const contentContainer = modal.find('#emailContent');
+        // Forget the previous message's HTML so the modal-level "Visa bilder"
+        // button can never re-render a message other than the open one.
+        this.currentEmailHtml = null;
         if (email.body_html) {
-            // Sanera HTML-innehåll
-            const cleanHtml = this.sanitizeHtml(email.body_html || '');
-            // Decode any HTML entities so markup like &lt;strong&gt; becomes <strong>
-            const decodedHtml = this.decodeHtmlEntities(cleanHtml);
-            // Replace <img> with placeholders to avoid auto-loading external images
-            try {
-                const tmp = document.createElement('div');
-                tmp.innerHTML = decodedHtml;
-                const imgs = tmp.querySelectorAll('img');
-                const blockImages = (localStorage.getItem('block_images') === '1');
-                imgs.forEach(img => {
-                    const src = img.getAttribute('src') || img.getAttribute('data-src');
-                    const host = (function(u){try{return new URL(u).host}catch(e){return '';}})(src);
-                    if (!src) return;
-                    if (!blockImages) {
-                        // Allow browser to load image directly but strip referrer
-                        img.setAttribute('referrerpolicy', 'no-referrer');
-                        img.setAttribute('loading', 'lazy');
-                        img.setAttribute('decoding', 'async');
-                        img.classList.add('tm-proxied-image');
-                    } else {
-                        // Replace with placeholder and a per-image load button
-                        const placeholder = document.createElement('div');
-                        placeholder.className = 'tm-img-placeholder';
-                        if (host) {
-                            const hostSpan = document.createElement('small');
-                            hostSpan.className = 'tm-img-host';
-                            hostSpan.textContent = host;
-                            placeholder.appendChild(hostSpan);
-                        }
-                        const btn = document.createElement('button');
-                        btn.className = 'btn btn-sm btn-outline-secondary tm-load-img';
-                        btn.textContent = 'Ladda bild';
-                        placeholder.appendChild(btn);
-                        if (src) placeholder.setAttribute('data-src', src);
-                        img.parentNode.replaceChild(placeholder, img);
-                    }
-                });
-                contentContainer.html(tmp.innerHTML);
-            } catch (e) {
-                contentContainer.html(this.decodeHtmlEntities(cleanHtml));
-            }
+            // Rendered in a sandboxed iframe, never injected into this page:
+            // mail HTML is attacker-controlled (see renderHtmlEmail()).
+            this.currentEmailHtml = String(email.body_html);
+            const blockImages = (localStorage.getItem('block_images') === '1');
+            this.renderHtmlEmail(contentContainer, this.currentEmailHtml, blockImages);
         } else if (email.body_text) {
             // Escape HTML then parse simple Markdown-like markers (**bold**, *italic*, _italic_)
             const escaped = this.escapeHtml(email.body_text);
@@ -905,16 +838,14 @@ class TempMailApp {
         }
 
         // Visa modal
-        // Show or hide the modal-level "Visa bilder" button depending on content
-        const hasPlaceholders = contentContainer.find('.tm-img-placeholder').length > 0;
+        // The modal-level "Visa bilder" button is only useful while the open
+        // message has images held back by the block-images preference.
         const modalBtn = modal.find('#modalShowImagesBtn');
         if (modalBtn && modalBtn.length) {
-            if (hasPlaceholders) {
+            if (contentContainer.find('.ms-mail-frame').attr('data-blocked-images')) {
                 modalBtn.show();
             } else {
-                // If there are no placeholders but images exist, still show the button
-                const hasImages = contentContainer.find('img').length > 0;
-                if (hasImages) modalBtn.show(); else modalBtn.hide();
+                modalBtn.hide();
             }
         }
 
@@ -1396,17 +1327,6 @@ class TempMailApp {
     }
 
     /**
-     * Decode HTML entities (e.g. turn &lt;strong&gt; into <strong>)
-     */
-    decodeHtmlEntities(html) {
-        if (!html) return html;
-        const txt = document.createElement('textarea');
-        // Setting innerHTML allows the browser to decode entities
-        txt.innerHTML = html;
-        return txt.value;
-    }
-
-    /**
      * Parse a very small subset of Markdown in plain text: **bold**, *italic* or _italic_
      * The function first expects an already-escaped input (so HTML is safe), then
      * converts the markdown markers to <strong>/<em> tags and preserves paragraphs/line breaks.
@@ -1431,18 +1351,115 @@ class TempMailApp {
     }
     
     /**
-     * Sanera HTML-innehåll (grundläggande)
+     * Render an HTML mail body into `container` inside a sandboxed iframe.
+     *
+     * Mail HTML is attacker-controlled. The server already runs it through
+     * HTMLPurifier (get_email in index.php); this is the second layer:
+     *  - the markup is parsed with DOMParser, which runs no script and loads
+     *    no image, and is never assigned to innerHTML in this document;
+     *  - it is shown through `srcdoc` in an iframe whose sandbox has no
+     *    allow-scripts and no allow-same-origin, so even markup that slipped
+     *    past both filters cannot run script or reach this origin;
+     *  - a CSP inside the frame forbids script, plugins, frames and forms,
+     *    and - while images are blocked - every image load;
+     *  - links open in a new tab (<base target="_blank">) with no referrer.
+     *
+     * With `blockImages`, each <img> becomes a placeholder naming its host;
+     * the modal-level "Visa bilder" button re-renders with images on.
      */
-    sanitizeHtml(html) {
-        // Ta bort potentiellt skadliga taggar och attribut
-        const clean = html
-            .replace(/<script[^>]*>.*?<\/script>/gi, '')
-            .replace(/<iframe[^>]*>.*?<\/iframe>/gi, '')
-            .replace(/javascript:/gi, '')
-            .replace(/on\w+="[^"]*"/gi, '')
-            .replace(/on\w+='[^']*'/gi, '');
-        
-        return clean;
+    renderHtmlEmail(container, html, blockImages) {
+        const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+
+        // Belt and braces: the sandbox + CSP already neutralise these.
+        doc.querySelectorAll('script, iframe, frame, frameset, object, embed, applet, form, base, meta, link, noscript, template')
+            .forEach(el => el.remove());
+        doc.querySelectorAll('*').forEach(el => {
+            Array.from(el.attributes).forEach(attr => {
+                const name = attr.name.toLowerCase();
+                const value = String(attr.value || '').replace(/[\u0000- ]+/g, '').toLowerCase();
+                if (name.startsWith('on') || name === 'srcdoc' || name === 'formaction'
+                    || (/^(href|src|action|xlink:href|background|poster)$/.test(name)
+                        && /^(javascript|vbscript|data):/.test(value))) {
+                    el.removeAttribute(attr.name);
+                }
+            });
+        });
+
+        doc.querySelectorAll('a[href]').forEach(a => {
+            a.setAttribute('target', '_blank');
+            a.setAttribute('rel', 'noopener noreferrer');
+        });
+
+        let blocked = 0;
+        doc.querySelectorAll('img').forEach(img => {
+            const src = img.getAttribute('src') || '';
+            if (!blockImages) {
+                img.setAttribute('referrerpolicy', 'no-referrer');
+                img.setAttribute('loading', 'lazy');
+                img.setAttribute('decoding', 'async');
+                return;
+            }
+            blocked++;
+            const placeholder = doc.createElement('span');
+            placeholder.className = 'ms-mail-img-blocked';
+            let host = '';
+            try { host = src ? new URL(src, window.location.href).host : ''; } catch (e) { host = ''; }
+            placeholder.textContent = host ? ('Image blocked: ' + host) : 'Image blocked';
+            img.replaceWith(placeholder);
+        });
+
+        // The frame cannot see this page's stylesheets, so hand it the
+        // current --ms-* token values and style it with those.
+        const rootStyle = getComputedStyle(document.documentElement);
+        const tokens = ['--ms-font-sans', '--ms-text', '--ms-text-muted', '--ms-bg-raised',
+            '--ms-bg-sunken', '--ms-border', '--ms-accent', '--ms-fs-body', '--ms-fs-sm',
+            '--ms-lh-body', '--ms-space-1', '--ms-space-2', '--ms-space-4', '--ms-radius-sm']
+            .map(name => {
+                const value = rootStyle.getPropertyValue(name).trim().replace(/[;{}<>]/g, '');
+                return value ? `${name}:${value};` : '';
+            }).join('');
+
+        const imgSrc = blockImages ? "'none'" : 'https: http:';
+        const csp = `default-src 'none'; img-src ${imgSrc}; style-src 'unsafe-inline'; font-src 'none'; `
+            + "script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
+
+        const srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8">'
+            + `<meta http-equiv="Content-Security-Policy" content="${csp}">`
+            + '<meta name="referrer" content="no-referrer">'
+            + '<base target="_blank">'
+            + `<style>:root{${tokens}}`
+            + 'html,body{margin:0;background:var(--ms-bg-raised);color:var(--ms-text);}'
+            + 'body{padding:var(--ms-space-4);font-family:var(--ms-font-sans);font-size:var(--ms-fs-body);'
+            + 'line-height:var(--ms-lh-body);overflow-wrap:anywhere;}'
+            + 'a{color:var(--ms-accent);}img{max-width:100%;height:auto;}table{max-width:100%;}'
+            + '.ms-mail-img-blocked{display:inline-block;padding:var(--ms-space-1) var(--ms-space-2);'
+            + 'border:1px dashed var(--ms-border);border-radius:var(--ms-radius-sm);'
+            + 'background:var(--ms-bg-sunken);color:var(--ms-text-muted);font-size:var(--ms-fs-sm);}'
+            + '</style></head><body>'
+            + (doc.body ? doc.body.innerHTML : '')
+            + '</body></html>';
+
+        const frame = document.createElement('iframe');
+        frame.className = 'ms-mail-frame';
+        frame.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
+        frame.setAttribute('referrerpolicy', 'no-referrer');
+        frame.setAttribute('title', 'Message content');
+        if (blocked > 0) frame.setAttribute('data-blocked-images', String(blocked));
+        frame.srcdoc = srcdoc;
+
+        const nodes = [];
+        if (blocked > 0) {
+            const note = document.createElement('p');
+            note.className = 'ms-mail-frame__note';
+            note.textContent = blocked === 1
+                ? '1 external image is blocked. Use "Visa bilder" to load it.'
+                : `${blocked} external images are blocked. Use "Visa bilder" to load them.`;
+            nodes.push(note);
+        }
+        nodes.push(frame);
+        const target = container && container.jquery ? container[0] : container;
+        if (target) target.replaceChildren(...nodes);
+        return frame;
     }
 }
 

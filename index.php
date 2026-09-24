@@ -470,6 +470,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'count' => count($emails),
                     'addresses_included' => $addresses
                 ]);
+
+                // The list shows a text preview only: raw body_html is
+                // attacker-controlled and never leaves the server here.
+                require_once __DIR__ . '/email_html_sanitizer.php';
+                $emails = array_map('emailRowForList', $emails);
                 
                 echo json_encode([ // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                     'success' => true,
@@ -641,6 +646,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     logMessage('ERROR', 'Failed fetching emails after IMAP refresh', ['error' => $e->getMessage(), 'addresses' => $addresses]);
                     $emails = [];
                 }
+                // Same list shaping as get_emails: no raw body_html.
+                require_once __DIR__ . '/email_html_sanitizer.php';
+                $emails = array_map('emailRowForList', $emails);
                 $emailsAfterCount = count($emails);
                 $newEmailsFound = $newEmailsFromImap;
                 
@@ -899,6 +907,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         foreach ($attachments as $dbgAtt) {
                             error_log("[get_email] Attachment id=" . ($dbgAtt['id'] ?? '?') . " download_url=" . ($dbgAtt['download_url'] ?? 'NOT SET'));
                         }
+                    }
+
+                    // body_html is attacker-controlled: purify it (after the
+                    // cid: rewrite above) or drop it - fail closed - before
+                    // it is sent to the browser.
+                    require_once __DIR__ . '/email_html_sanitizer.php';
+                    if (is_array($email)) {
+                        $email = emailRowForDisplay($email);
                     }
 
                     echo json_encode([
