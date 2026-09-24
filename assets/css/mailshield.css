@@ -1756,6 +1756,58 @@ a:hover {
     }
 }
 
+/* --- Landing: system-wide numbers (partials/landing/stats.php) ------------ */
+
+/* The service-wide email_stats counters, moved here from the inbox footer.
+   A <dl>: the label is the <dt> and comes first in the source, so a screen
+   reader hears "Emails received, 3 130"; column-reverse puts the figure on
+   top visually. Static — no count-up, no scroll-triggered motion. */
+.ms-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--ms-space-5) 0;
+    margin: var(--ms-space-6) 0 0;
+}
+
+.ms-stats__item {
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-end;
+    padding-inline: var(--ms-space-5);
+    border-left: 1px solid var(--ms-border);
+}
+
+.ms-stats__item:first-child {
+    padding-left: 0;
+    border-left: 0;
+}
+
+.ms-stats__value {
+    margin: 0;
+    font-size: var(--ms-fs-h2);
+    line-height: var(--ms-lh-h2);
+    font-weight: var(--ms-fw-h2);
+    color: var(--ms-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.ms-stats__label {
+    margin: var(--ms-space-1) 0 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+@media (max-width: 767px) {
+    .ms-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ms-stats__item:nth-child(odd) {
+        padding-left: 0;
+        border-left: 0;
+    }
+}
+
 /* ==========================================================================
    r. Landing — external email (partials/landing/external.php)
    ========================================================================== */

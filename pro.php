@@ -312,23 +312,23 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                             </div>
                         </div>
 
-                        <!-- Statistik: en fotnot, inte en funktion -->
-                        <div class="ms-inbox__stats">
+                        <!-- Statistik: the signed-in account's own numbers (get_stats in index.php). The system-wide totals live on the landing page. -->
+                        <div class="ms-inbox__stats" id="userStats">
                             <div class="ms-inbox__stat">
-                                <span class="ms-inbox__stat-n" id="statsTotal">0</span>
-                                <span class="ms-inbox__stat-l">Total emails</span>
+                                <span class="ms-inbox__stat-n" id="statsEmails">0</span>
+                                <span class="ms-inbox__stat-l">Emails in your inbox</span>
                             </div>
                             <div class="ms-inbox__stat">
-                                <span class="ms-inbox__stat-n" id="statsProcessed">0</span>
-                                <span class="ms-inbox__stat-l">Emails processed</span>
+                                <span class="ms-inbox__stat-n" id="statsReceived24h">0</span>
+                                <span class="ms-inbox__stat-l">Received last 24 h</span>
                             </div>
                             <div class="ms-inbox__stat">
-                                <span class="ms-inbox__stat-n" id="statsCreated">0</span>
-                                <span class="ms-inbox__stat-l">Addresses created</span>
+                                <span class="ms-inbox__stat-n" id="statsAddresses">0</span>
+                                <span class="ms-inbox__stat-l">Active addresses</span>
                             </div>
                             <div class="ms-inbox__stat">
-                                <span class="ms-inbox__stat-n" id="statsAttachments">0</span>
-                                <span class="ms-inbox__stat-l">Attachments processed</span>
+                                <span class="ms-inbox__stat-n" id="statsStorage">&ndash;</span>
+                                <span class="ms-inbox__stat-l">Storage used</span>
                             </div>
                         </div>
                     </div>

@@ -1683,6 +1683,68 @@ function getStats() {
     }
 }
 
+/**
+ * One account's own numbers for the inbox footer (pro.php / inbox.php).
+ *
+ * Counted live from the rows themselves, not from email_stats: those counters
+ * are system-wide (they are shown on the landing page) and only ever grow.
+ * The scope is the one MailboxQuota uses — every address of the account,
+ * personal and temporary — so "storage used" is the figure the quota is
+ * enforced against. "Emails" applies the same visibility rule as get_emails in
+ * index.php, so the count matches what the inbox can show.
+ *
+ * @return array{emails:int, received_24h:int, addresses:int, storage_bytes:int, quota_bytes:int}
+ */
+function getUserStats($userId) {
+    global $pdo, $config;
+
+    $userId = (int)$userId;
+    $stats = [
+        'emails' => 0,
+        'received_24h' => 0,
+        'addresses' => 0,
+        'storage_bytes' => 0,
+        'quota_bytes' => (int)($config['email']['quota_bytes'] ?? 104857600),
+    ];
+    if ($userId <= 0) {
+        return $stats;
+    }
+
+    $scope = 'se.temp_email_id IN (SELECT id FROM temp_emails WHERE pro_user_id = ?)';
+
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT
+                COALESCE(SUM(CASE WHEN (se.expires_at IS NULL AND se.received_at > DATE_SUB(NOW(), INTERVAL ? HOUR))
+                                    OR (se.expires_at IS NOT NULL AND se.expires_at > NOW()) THEN 1 ELSE 0 END), 0) AS emails,
+                COALESCE(SUM(CASE WHEN se.received_at > DATE_SUB(NOW(), INTERVAL 24 HOUR) THEN 1 ELSE 0 END), 0) AS received_24h,
+                COALESCE(SUM(COALESCE(LENGTH(se.subject), 0) + COALESCE(LENGTH(se.body_text), 0) + COALESCE(LENGTH(se.body_html), 0)), 0) AS body_bytes
+             FROM stored_emails se
+             WHERE $scope"
+        );
+        $stmt->execute([(int)($config['app']['cleanup_hours'] ?? 24), $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $stats['emails'] = (int)($row['emails'] ?? 0);
+        $stats['received_24h'] = (int)($row['received_24h'] ?? 0);
+
+        $att = $pdo->prepare(
+            "SELECT COALESCE(SUM(ea.file_size), 0) FROM email_attachments ea
+             JOIN stored_emails se ON se.id = ea.email_id
+             WHERE $scope"
+        );
+        $att->execute([$userId]);
+        $stats['storage_bytes'] = (int)($row['body_bytes'] ?? 0) + (int)$att->fetchColumn();
+
+        $addr = $pdo->prepare("SELECT COUNT(*) FROM temp_emails WHERE pro_user_id = ? AND expires_at > NOW()");
+        $addr->execute([$userId]);
+        $stats['addresses'] = (int)$addr->fetchColumn();
+    } catch (PDOException $e) {
+        logMessage('ERROR', 'Kunde inte hämta användarstatistik: ' . $e->getMessage(), ['user_id' => $userId]);
+    }
+
+    return $stats;
+}
+
 // Sätt timezone
 date_default_timezone_set('Europe/Stockholm');
 
