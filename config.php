@@ -217,7 +217,10 @@ $environment = detectEnvironment();
  * DEBUG_MODE can never expose them in production.
  */
 function appIsProduction(): bool {
-    return ($GLOBALS['environment'] ?? null) === 'production';
+    // Falls back to detecting again when config.php was included from inside
+    // a function (then $environment is not a global), so this never fails open.
+    $environment = $GLOBALS['environment'] ?? detectEnvironment();
+    return $environment === 'production';
 }
 
 // Capture the detection source (set inside detectEnvironment)
