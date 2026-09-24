@@ -1492,7 +1492,10 @@ function requireSameOriginRequest(): bool {
     if (empty($sourceHost) || empty($expectedHost)) {
         return false;
     }
-    return strcasecmp($sourceHost, $expectedHost) === 0;
+    // www.<host> and the bare host are the same site (both resolve to this
+    // server), so a visitor on either name must not see every POST refused.
+    $strip = static fn(string $h): string => preg_replace('/^www\./', '', strtolower($h));
+    return $strip((string) $sourceHost) === $strip((string) $expectedHost);
 }
 
 /**
