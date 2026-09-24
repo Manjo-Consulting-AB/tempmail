@@ -540,3 +540,34 @@ function paddleLog(array $options, string $level, string $message, array $contex
         ($options['log'])($level, $message, $context);
     }
 }
+
+/**
+ * The Paddle customer and subscriptions to open the customer portal for, for
+ * one pro_users row — resolved only from rows the webhook linked to that
+ * account, never from anything the browser sends. Null when the account has
+ * no Paddle payment (nothing to manage yet).
+ *
+ * Returns ['customer_id' => 'ctm_…', 'subscription_ids' => ['sub_…', …]]:
+ * the customer of the most recently updated linked payment, and that
+ * customer's subscriptions that are not canceled (the portal returns a
+ * cancel / update-payment deep link per id).
+ */
+function paddlePortalTarget(PDO $pdo, int $userId): ?array
+{
+    $latest = paddleFetch($pdo,
+        'SELECT customer_id FROM (
+             SELECT customer_id, updated_at FROM paddle_subscriptions WHERE pro_user_id = ?
+             UNION ALL
+             SELECT customer_id, updated_at FROM paddle_transactions WHERE pro_user_id = ?
+         ) linked ORDER BY updated_at DESC LIMIT 1',
+        [$userId, $userId]);
+    if (!$latest || empty($latest['customer_id'])) {
+        return null;
+    }
+    $stmt = $pdo->prepare("SELECT subscription_id FROM paddle_subscriptions WHERE pro_user_id = ? AND customer_id = ? AND status <> 'canceled' ORDER BY updated_at DESC");
+    $stmt->execute([$userId, $latest['customer_id']]);
+    return [
+        'customer_id' => (string) $latest['customer_id'],
+        'subscription_ids' => array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN)),
+    ];
+}

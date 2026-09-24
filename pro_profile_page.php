@@ -34,6 +34,19 @@ if ($accountIsPro) {
     }
 }
 
+// Whether the account has a Paddle payment linked to it (paddle_webhook.php),
+// which is what the Plan card's "Manage billing" button needs: the portal is
+// opened for that payment's Paddle customer. Only existence is read here; the
+// portal URL itself is minted per click by pro_profile.php (billing_portal).
+// Fails closed — no Paddle tables yet, or an error, just hides the button.
+$hasPaddleBilling = false;
+try {
+    require_once __DIR__ . '/paddle_sync.php';
+    $hasPaddleBilling = paddlePortalTarget($pdo, (int) $_SESSION['pro_user_id']) !== null;
+} catch (Exception $e) {
+    logMessage('WARNING', 'Failed checking for Paddle billing', ['user_id' => (int) $_SESSION['pro_user_id'], 'error' => $e->getMessage()]);
+}
+
 // Whether the account owns any webhook at all — the existence check behind the
 // per-address Pause/Start control (#251 step 5). kind is deliberately not
 // consulted: Pushover is just another hook now, and a paused hook is still a
@@ -135,6 +148,12 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                 <p class="ms-card__note">You're on Pro.</p>
                                 <?php else : ?>
                                 <p class="ms-card__note">You're on the free plan.</p>
+                                <?php endif; ?>
+                                <?php if ($hasPaddleBilling) : ?>
+                                <div class="mb-3">
+                                    <p class="form-text">Cancel your subscription, change your payment method or download invoices on Paddle, which handles payments for Mail Shield.</p>
+                                    <button type="button" id="billingPortalBtn" class="btn btn-secondary">Manage billing</button>
+                                </div>
                                 <?php endif; ?>
                                 <div id="upgradeToProSection" class="d-none">
                                     <?php if ($accountProExpiresAt !== null) : ?>
@@ -861,6 +880,26 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
             });
 
             tfaLoadStatus();
+
+            // Paddle customer portal: the URL is one-time and short-lived, so it
+            // is minted on every click and never kept. Same tab, so the portal's
+            // own "back" link returns here.
+            $('#billingPortalBtn').on('click', function(e){
+                e.preventDefault();
+                var $btn = $(this).prop('disabled', true);
+                $('#proProfileAlert').html('<div class="alert alert-info">Opening the billing portal...</div>');
+                $.post('pro_profile.php', { action: 'billing_portal' }, function(res){
+                    if (res && res.success && typeof res.url === 'string' && res.url.indexOf('https://') === 0) {
+                        window.location.href = res.url;
+                        return;
+                    }
+                    $btn.prop('disabled', false);
+                    $('#proProfileAlert').html($('<div class="alert alert-danger"></div>').text(res && res.error ? res.error : 'Could not open the billing portal'));
+                }, 'json').fail(function(){
+                    $btn.prop('disabled', false);
+                    $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+                });
+            });
 
             $('#rotateSigningKeysBtn').on('click', function(e){
                 e.preventDefault();

@@ -425,6 +425,38 @@ try {
             }
             break;
 
+        case 'billing_portal':
+            // Mints a one-time Paddle customer portal URL for the signed-in
+            // account. Not Pro-gated: a degraded account must still be able to
+            // cancel, fix its card or fetch invoices. The customer id comes
+            // only from payments the webhook linked to this user id — nothing
+            // in the request can point it at another customer — and only the
+            // URL goes back to the browser, never the API key or session.
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin billing_portal request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Invalid request origin']);
+            }
+            require_once __DIR__ . '/paddle_sync.php';
+            require_once __DIR__ . '/paddle_api.php';
+            try {
+                $portalTarget = paddlePortalTarget($pdo, $userId);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'billing_portal: Paddle tables unavailable', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'The billing portal is not available right now.']);
+            }
+            if ($portalTarget === null) {
+                send_json(['success' => false, 'error' => 'There is no subscription or purchase on this account yet.']);
+            }
+            try {
+                $portalUrl = paddleCreatePortalUrl(paddleServerSettings($config), $portalTarget['customer_id'], $portalTarget['subscription_ids']);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'billing_portal: could not create a Paddle portal session', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => 'The billing portal is not available right now. Please try again later.']);
+            }
+            logMessage('INFO', 'Paddle customer portal session created', ['user_id' => $userId]);
+            send_json(['success' => true, 'url' => $portalUrl]);
+            break;
+
         case 'upgrade_with_voucher':
             // Deliberately NOT gated by require_pro() — this action exists so a
             // logged-in Regular account can become Pro. It also works on an

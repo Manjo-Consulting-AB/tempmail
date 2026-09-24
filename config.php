@@ -303,7 +303,10 @@ $baseConfig = [
         'client_token' => $_ENV['PADDLE_CLIENT_TOKEN'] ?? null,
         // Secret of the notification destination that points at
         // paddle_webhook.php (pdl_ntfset_…). Server-side only.
-        'webhook_secret' => $_ENV['PADDLE_WEBHOOK_SECRET'] ?? null
+        'webhook_secret' => $_ENV['PADDLE_WEBHOOK_SECRET'] ?? null,
+        // Server-side API key (pdl_sdbx_apikey_… / pdl_live_apikey_…) with only
+        // the customer-portal-session permission; read by paddle_api.php.
+        'api_key' => $_ENV['PADDLE_API_KEY'] ?? null
     ],
     // 60-day Pro trial for new Regular accounts, one trial per email address,
     // ever (epic #267). hash_key must never change once set: it is the HMAC

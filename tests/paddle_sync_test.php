@@ -294,5 +294,27 @@ addUser($pdo, 42, 'buyer@example.com');
 run($pdo, subEvent('active'), $prices);
 check('period end, no bonus', user($pdo, 42)['pro_expires_at'] === $periodEnd);
 
+// ---------------------------------------------------------------------
+echo "\n24. Customer portal target: only this account's own linked payments\n";
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+addUser($pdo, 7, 'other@example.com');
+check('no payments → null (no Manage billing button)', paddlePortalTarget($pdo, 42) === null);
+run($pdo, subEvent('active', ['id' => 'sub_a', 'customer_id' => 'ctm_a']), $prices);
+run($pdo, subEvent('active', ['id' => 'sub_other', 'customer_id' => 'ctm_other', 'custom_data' => ['pro_user_id' => '7']]), $prices);
+$t = paddlePortalTarget($pdo, 42);
+check('own customer and subscription', $t === ['customer_id' => 'ctm_a', 'subscription_ids' => ['sub_a']], json_encode($t));
+check('the other account gets only its own', paddlePortalTarget($pdo, 7) === ['customer_id' => 'ctm_other', 'subscription_ids' => ['sub_other']]);
+run($pdo, subEvent('canceled', ['id' => 'sub_a', 'customer_id' => 'ctm_a', 'canceled_at' => iso(NOW + 60)], NOW + 60), $prices, NOW + 60);
+$t = paddlePortalTarget($pdo, 42);
+check('canceled subscription: portal still opens (invoices), no deep link', $t === ['customer_id' => 'ctm_a', 'subscription_ids' => []], json_encode($t));
+
+echo "\n25. Customer portal target for a lifetime-only buyer\n";
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, lifetimeEvent(['customer_id' => 'ctm_life']), $prices);
+check('customer, no subscriptions', paddlePortalTarget($pdo, 42) === ['customer_id' => 'ctm_life', 'subscription_ids' => []]);
+check('unlinked payments never surface', paddlePortalTarget($pdo, 99) === null);
+
 echo "\n" . ($failures === 0 ? "All checks passed.\n" : "{$failures} check(s) FAILED.\n");
 exit($failures === 0 ? 0 : 1);
