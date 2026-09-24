@@ -362,7 +362,7 @@ try {
                 $expires = date('Y-m-d H:i:s', strtotime('+2 hours'));
                 $data = json_encode(['new_email' => $newEmail]);
                 $ins = $pdo->prepare("INSERT INTO pending_profile_changes (user_id, action, data, token, expires_at) VALUES (?, 'update_email', ?, ?, ?)");
-                $ins->execute([$userId, $data, $token, $expires]);
+                $ins->execute([$userId, $data, pendingChangeStoredToken($pdo, $token), $expires]);
 
                 // Send confirmation email to the new email address
                 $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
@@ -411,7 +411,7 @@ try {
                 $expires = date('Y-m-d H:i:s', strtotime('+2 hours'));
                 $data = json_encode(['password_hash' => $hash]);
                 $ins = $pdo->prepare("INSERT INTO pending_profile_changes (user_id, action, data, token, expires_at) VALUES (?, 'set_password', ?, ?, ?)");
-                $ins->execute([$userId, $data, $token, $expires]);
+                $ins->execute([$userId, $data, pendingChangeStoredToken($pdo, $token), $expires]);
 
                 // Send confirmation email to current user email
                 $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
@@ -793,7 +793,7 @@ try {
                 $token = bin2hex(random_bytes(24));
                 $expires = date('Y-m-d H:i:s', strtotime('+2 hours'));
                 $update = $pdo->prepare("UPDATE pending_profile_changes SET token = ?, expires_at = ? WHERE id = ?");
-                $update->execute([$token, $expires, $pid]);
+                $update->execute([pendingChangeStoredToken($pdo, $token), $expires, $pid]);
 
                 $action = $pc['action'];
                 $data = json_decode($pc['data'], true) ?: [];
@@ -1539,7 +1539,7 @@ try {
                 $expires = date('Y-m-d H:i:s', strtotime('+2 hours'));
                 $data = json_encode(['requested_by' => $userId]);
                 $ins = $pdo->prepare("INSERT INTO pending_profile_changes (user_id, action, data, token, expires_at) VALUES (?, 'delete_account', ?, ?, ?)");
-                $ins->execute([$userId, $data, $token, $expires]);
+                $ins->execute([$userId, $data, pendingChangeStoredToken($pdo, $token), $expires]);
 
                 // Send confirmation email with magic link
                 $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);

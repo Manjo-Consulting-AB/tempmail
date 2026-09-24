@@ -6,10 +6,11 @@
 require_once 'config.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
 require_once __DIR__ . '/pro_trial.php';
+require_once __DIR__ . '/login_tokens.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
-    return bin2hex(random_bytes($length / 2));
+    return authTokenGenerate((int) $length);
 }
 
 // Hjälpfunktion: hämta eller skapa användare
@@ -60,36 +61,21 @@ function recordProUserLogin(int $userId): void {
     }
 }
 
-// Hjälpfunktion: skapa och spara login-token
+// Hjälpfunktion: skapa och spara login-token. Returnerar den råa token som
+// ska in i e-postlänken; databasen lagrar bara dess hash (login_tokens.php).
 function createLoginToken($userId, $validMinutes = 30) {
     global $pdo;
-    $token = generateLoginToken();
-    $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validMinutes} minutes"));
-    $stmt = $pdo->prepare("INSERT INTO login_tokens (user_id, token, expires_at) VALUES (?, ?, ?)");
-    $stmt->execute([$userId, $token, $expiresAt]);
-    return $token;
+    return loginTokenCreate($pdo, (int) $userId, (int) $validMinutes);
 }
 
 // Hjälpfunktion: verifiera och förbruka en magic link-token i ett enda steg.
 // Delad av pro_login.php och GET-token-endpointen nedan så att formatvalidering,
 // engångsanvändning och utgångskontroll bara finns på ett ställe (se issue #12).
 // Returnerar ['user_id' => ..., 'email' => ...] vid en giltig, oanvänd token
-// (och markerar den som använd), annars null.
+// (och markerar den som använd, atomiskt), annars null. Se login_tokens.php.
 function consumeLoginToken(string $token): ?array {
     global $pdo;
-    // Tokenformat: hex-sträng, 48-96 tecken
-    if (!preg_match('/^[a-f0-9]+$/i', $token) || strlen($token) < 48 || strlen($token) > 96) {
-        return null;
-    }
-    $stmt = $pdo->prepare("SELECT lt.id, lt.user_id, lt.expires_at, lt.used, pu.email FROM login_tokens lt JOIN pro_users pu ON lt.user_id = pu.id WHERE lt.token = ? LIMIT 1");
-    $stmt->execute([$token]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row || $row['used'] || strtotime($row['expires_at']) < time()) {
-        return null;
-    }
-    $upd = $pdo->prepare("UPDATE login_tokens SET used = 1 WHERE id = ?");
-    $upd->execute([$row['id']]);
-    return ['user_id' => $row['user_id'], 'email' => $row['email']];
+    return loginTokenConsume($pdo, $token);
 }
 
 // Hjälpfunktion: skicka e-post med login-länk
@@ -1159,12 +1145,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['token'])) {
 
 // Endpoint: confirm pending profile change (password/email)
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'])) {
-    $token = $_GET['confirm_profile_change'];
+    $token = trim((string) $_GET['confirm_profile_change']);
     global $pdo;
     try {
-        $stmt = $pdo->prepare("SELECT id, user_id, action, data, expires_at, used FROM pending_profile_changes WHERE token = ? LIMIT 1");
-        $stmt->execute([$token]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Validates the format and matches the stored hash (login_tokens.php).
+        $row = pendingChangeFindByToken($pdo, $token);
         if (!$row) {
             echo "Invalid or expired link.";
             exit;
@@ -1173,7 +1158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             echo "This link has already been used.";
             exit;
         }
-        if (strtotime($row['expires_at']) < time()) {
+        if (authTokenIsExpired($row['expires_at'])) {
             echo "This link has expired.";
             exit;
         }
@@ -1186,9 +1171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
         // deadlock in MySQL - one request's transaction fails with "An
         // error occurred..." even though the other one already completed
         // the action (e.g. the account really was deleted).
-        $claim = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ? AND used = 0");
-        $claim->execute([$row['id']]);
-        if ($claim->rowCount() === 0) {
+        if (!pendingChangeClaim($pdo, (int) $row['id'])) {
             echo "This link has already been used.";
             exit;
         }
@@ -1428,7 +1411,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
         }
     } catch (Exception $e) {
         if (function_exists('logMessage')) {
-            logMessage('ERROR', 'Failed applying pending_profile_changes', ['error' => $e->getMessage(), 'token' => $token ?? null]);
+            logMessage('ERROR', 'Failed applying pending_profile_changes', ['error' => $e->getMessage(), 'pending_change_id' => $row['id'] ?? null]);
         } else {
             error_log('Failed applying pending_profile_changes: ' . $e->getMessage());
         }
@@ -1439,12 +1422,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
 
 // Endpoint: undo a recently applied profile change (from old-email notification)
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change'])) {
-    $token = $_GET['undo_profile_change'];
+    $token = trim((string) $_GET['undo_profile_change']);
     global $pdo;
     try {
-        $stmt = $pdo->prepare("SELECT id, user_id, action, data, expires_at, used FROM pending_profile_changes WHERE token = ? LIMIT 1");
-        $stmt->execute([$token]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Validates the format and matches the stored hash (login_tokens.php).
+        $row = pendingChangeFindByToken($pdo, $token);
         if (!$row) {
             echo "Invalid or expired link.";
             exit;
@@ -1453,7 +1435,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
             echo "This link has already been used or revoked.";
             exit;
         }
-        if (strtotime($row['expires_at']) < time()) {
+        if (authTokenIsExpired($row['expires_at'])) {
             echo "This link has expired.";
             exit;
         }
@@ -1469,12 +1451,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
                 echo "Invalid email in request.";
                 exit;
             }
+            // Atomically claim the undo token before reverting, so two
+            // concurrent requests cannot both apply the revert.
+            if (!pendingChangeClaim($pdo, (int) $row['id'])) {
+                echo "This link has already been used or revoked.";
+                exit;
+            }
             // Revert email back to oldEmail
             $u = $pdo->prepare("UPDATE pro_users SET email = ? WHERE id = ?");
             $u->execute([$oldEmail, $userId]);
-            // Mark undo token as used
-            $m = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ?");
-            $m->execute([$row['id']]);
             echo "Email change reverted. Your email is now: " . htmlspecialchars($oldEmail);
             exit;
         } elseif ($action === 'undo_set_password') {
@@ -1483,11 +1468,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
                 echo "Invalid request.";
                 exit;
             }
+            // Atomically claim the undo token before reverting (see above).
+            if (!pendingChangeClaim($pdo, (int) $row['id'])) {
+                echo "This link has already been used or revoked.";
+                exit;
+            }
             // Revert password hash
             $u = $pdo->prepare("UPDATE pro_users SET password_hash = ? WHERE id = ?");
             $u->execute([$oldHash, $userId]);
-            $m = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ?");
-            $m->execute([$row['id']]);
             echo "Password change reverted. You can log in with your previous password.";
             exit;
         } else {
@@ -1496,7 +1484,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
         }
     } catch (Exception $e) {
         if (function_exists('logMessage')) {
-            logMessage('ERROR', 'Failed applying undo pending_profile_changes', ['error' => $e->getMessage(), 'token' => $token ?? null]);
+            logMessage('ERROR', 'Failed applying undo pending_profile_changes', ['error' => $e->getMessage(), 'pending_change_id' => $row['id'] ?? null]);
         } else {
             error_log('Failed applying undo pending_profile_changes: ' . $e->getMessage());
         }
