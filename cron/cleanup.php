@@ -752,6 +752,52 @@ function cleanupOrphanWebhookAddressLinks() {
 }
 
 /**
+ * Städa gamla rader i pro_trial_claims (epic #267, #271).
+ *
+ * En claim-rad hålls i fem år efter first_seen_at
+ * ($config['trial']['claim_retention_days'], default 1825) och raderas
+ * därefter - adressen räknas då som aldrig sedd. Tabellen har medvetet
+ * ingen koppling till pro_users (se migrate_trial_claims.php), så den här
+ * svepningen är den enda platsen som tar bort rader ur den, och gör det
+ * bara på ålder.
+ *
+ * Idempotent och billig: en körning utan utgångna rader gör ingenting.
+ */
+function cleanupExpiredTrialClaims() {
+    global $pdo, $config;
+
+    if (!tableHasColumn('pro_trial_claims', 'email_hash')) {
+        logMessage('DEBUG', 'cleanupExpiredTrialClaims: pro_trial_claims saknas, hoppar över (migrationen är inte körd, se migrate_trial_claims.php)');
+        return 0;
+    }
+
+    $days = (int)($config['trial']['claim_retention_days'] ?? 1825);
+    if ($days < 1) {
+        $days = 1825;
+    }
+
+    try {
+        $stmt = $pdo->prepare(
+            "DELETE FROM pro_trial_claims WHERE first_seen_at < DATE_SUB(NOW(), INTERVAL ? DAY)"
+        );
+        $stmt->execute([$days]);
+        $deleted = $stmt->rowCount();
+
+        if ($deleted > 0) {
+            logMessage('INFO', 'Expired trial claims cleaned up', ['count' => $deleted]);
+        } else {
+            logMessage('DEBUG', 'No expired trial claims found');
+        }
+
+        return $deleted;
+
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Failed to cleanup expired trial claims: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Hämta databasstatistik
  */
 function getDatabaseStats() {
@@ -841,6 +887,12 @@ function runCleanup($options = []) {
     $orphanLinksResult = cleanupOrphanWebhookAddressLinks();
     if ($orphanLinksResult !== false) {
         $results['orphan_webhook_links_cleaned'] = $orphanLinksResult;
+    }
+
+    // Städa claims i pro_trial_claims som är äldre än fem år (epic #267)
+    $trialClaimsResult = cleanupExpiredTrialClaims();
+    if ($trialClaimsResult !== false) {
+        $results['trial_claims_cleaned'] = $trialClaimsResult;
     }
 
     // Rensa utgångna 2FA trusted-device-cookies

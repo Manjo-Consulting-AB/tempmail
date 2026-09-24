@@ -14,6 +14,7 @@
  */
 require_once 'config.php';
 require_once __DIR__ . '/pro_auth.php';
+require_once __DIR__ . '/pro_trial.php';
 require_once __DIR__ . '/partials/brand.php';
 
 session_start();
@@ -55,6 +56,8 @@ if ($token) {
                 // Only fires on the row's first verification (the WHERE clause
                 // above only matches when email_verified_at was still NULL) -
                 // never on a plain magic-link login by an already-verified user.
+                // Grant the 60-day Pro trial on first verification (epic #267).
+                proTrialGrantOnVerification($pdo, (int) $result['user_id'], (string) $result['email'], $config['trial'] ?? []);
                 sendAdminRegistrationNotification($result['email']);
             }
         }

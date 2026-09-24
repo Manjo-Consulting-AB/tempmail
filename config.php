@@ -292,7 +292,18 @@ $baseConfig = [
         // as it does today. This issue only introduces/reads the flag; no
         // caller changes behavior based on it yet.
         'self_signup_enabled' => filter_var($_ENV['PRO_SELF_SIGNUP_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)
-    ]
+    ],
+    // 60-day Pro trial for new Regular accounts, one trial per email address,
+    // ever (epic #267). hash_key must never change once set: it is the HMAC
+    // key that turns a normalised address into pro_trial_claims.email_hash,
+    // and rotating it makes every stored hash unmatchable, silently letting
+    // every address claim a trial again. days = 0 turns the trial off, but
+    // addresses are still recorded (decision 8) so a later flip-on is exact.
+    'trial' => [
+        'days' => max(0, (int)($_ENV['PRO_TRIAL_DAYS'] ?? 60)),
+        'hash_key' => (string)($_ENV['PRO_TRIAL_HASH_KEY'] ?? ''),
+        'claim_retention_days' => 1825,
+    ],
 ];
 
 // Miljöspecifika konfigurationer
