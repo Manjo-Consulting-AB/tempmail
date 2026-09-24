@@ -41,7 +41,14 @@ $msOgOrigin = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 $msOgUrl    = $msOgOrigin . '/register.php';
 $msOgImage  = $msOgOrigin . '/assets/images/og-mailshield.png';
 $msTitle    = 'Create your inbox · Mail Shield';
-$msDesc     = 'Create a free Mail Shield account and get a separate inbox for the email you don\'t want in your primary one. Personal and temporary addresses, with automatic clean-up.';
+
+// Every new account starts on Pro for this many days (epic #267). Read from
+// $config so the page never promises a trial the backend does not grant; at 0
+// the pre-trial copy is shown instead.
+$msTrialDays = max(0, (int) ($config['trial']['days'] ?? 0));
+$msDesc     = $msTrialDays > 0
+    ? 'Create a Mail Shield account and start with ' . $msTrialDays . ' days of Pro, free: a separate inbox for the email you don\'t want in your primary one, with personal and temporary addresses and automatic clean-up.'
+    : 'Create a free Mail Shield account and get a separate inbox for the email you don\'t want in your primary one. Personal and temporary addresses, with automatic clean-up.';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -101,7 +108,7 @@ $msDesc     = 'Create a free Mail Shield account and get a separate inbox for th
         <main class="ms-auth__main">
             <div class="ms-card ms-auth__card">
                 <h1 class="ms-auth__title">Create your inbox</h1>
-                <p class="ms-auth__sub">Free to start. No card needed.</p>
+                <p class="ms-auth__sub"><?php echo $msTrialDays > 0 ? 'Includes ' . $msTrialDays . ' days of Pro, free. No card needed.' : 'Free to start. No card needed.'; ?></p>
 
                 <div class="mb-3" id="registerModeToggle">
                     <div class="ms-auth__segment" role="group" aria-label="Account type">
@@ -113,7 +120,11 @@ $msDesc     = 'Create a free Mail Shield account and get a separate inbox for th
                     </div>
                 </div>
 
-                <p class="ms-auth__hint" id="regHintFree">One temporary address at a time. The address and its messages are deleted after 24 hours.</p>
+                <?php if ($msTrialDays > 0) : ?>
+                    <p class="ms-auth__hint" id="regHintFree">Your first <?php echo $msTrialDays; ?> days are on Pro &mdash; personal addresses, automation and 1&ndash;7 day temporary addresses. After that it's free: one temporary address, deleted after 24 hours. One trial per email address.</p>
+                <?php else : ?>
+                    <p class="ms-auth__hint" id="regHintFree">One temporary address at a time. The address and its messages are deleted after 24 hours.</p>
+                <?php endif; ?>
                 <p class="ms-auth__hint" id="regHintPro" style="display:none;">Stable personal addresses and automation. Incoming mail is still temporary and is cleaned up according to your retention settings. Requires a voucher code &mdash; online payment is on the way.</p>
 
                 <div id="registerBlock">

@@ -215,7 +215,8 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                     <div id="twoFactorMsg" class="mt-3"></div>
                 </div>
 
-                <p class="ms-auth__alt">New here? <a href="/register.php?plan=regular">Create your inbox</a>.</p>
+                <?php $msTrialDays = max(0, (int) ($config['trial']['days'] ?? 0)); ?>
+                <p class="ms-auth__alt">New here? <a href="/register.php?plan=regular">Create your inbox</a><?php if ($msTrialDays > 0) : ?> &mdash; it starts with <?php echo $msTrialDays; ?> days of Pro<?php endif; ?>.</p>
             </div>
         </main>
 

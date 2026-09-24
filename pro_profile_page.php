@@ -14,6 +14,26 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
 // lookup error states the free plan rather than claiming Pro.
 $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
 
+// When a Pro account's time runs out (the 60-day trial of epic #267, or a
+// voucher), for display only: entitlement is still decided by proUserIsPro()
+// above. A time-limited Pro account keeps the voucher field, because
+// redeemVoucherForEmail() adds a code's days after the current end date rather
+// than replacing it - without the field, a trial account could not stay on Pro.
+$accountProExpiresAt = null;
+if ($accountIsPro) {
+    try {
+        $stmt = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
+        $stmt->execute([(int) $_SESSION['pro_user_id']]);
+        $expires = $stmt->fetchColumn();
+        if (is_string($expires) && $expires !== '' && strtotime($expires) !== false) {
+            $accountProExpiresAt = $expires;
+        }
+    } catch (Exception $e) {
+        // Fall back to the plain "You're on Pro." note.
+        logMessage('WARNING', 'Failed reading pro_expires_at for the Plan card', ['user_id' => (int) $_SESSION['pro_user_id'], 'error' => $e->getMessage()]);
+    }
+}
+
 // Whether the account owns any webhook at all — the existence check behind the
 // per-address Pause/Start control (#251 step 5). kind is deliberately not
 // consulted: Pushover is just another hook now, and a paused hook is still a
@@ -109,16 +129,22 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Plan</h3>
                                 <p class="ms-card__desc">Temporary email is free. Pro adds permanent addresses, webhooks, digest emails, the RSS feed and the client agent.</p>
-                                <?php if ($accountIsPro) : ?>
+                                <?php if ($accountIsPro && $accountProExpiresAt !== null) : ?>
+                                <p class="ms-card__note">You're on Pro until <?php echo htmlspecialchars(date('j F Y', strtotime($accountProExpiresAt)), ENT_QUOTES, 'UTF-8'); ?>.</p>
+                                <?php elseif ($accountIsPro) : ?>
                                 <p class="ms-card__note">You're on Pro.</p>
                                 <?php else : ?>
                                 <p class="ms-card__note">You're on the free plan.</p>
                                 <?php endif; ?>
                                 <div id="upgradeToProSection" class="d-none">
+                                    <?php if ($accountProExpiresAt !== null) : ?>
+                                    <p class="form-text">Stay on Pro: redeem a voucher code and its time is added after your current end date. Online payment is on the way.</p>
+                                    <?php else : ?>
                                     <p class="form-text">Redeem a voucher code to switch to Pro. Online payment is on the way.</p>
+                                    <?php endif; ?>
                                     <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
                                         <input type="text" id="voucherCodeInput" class="form-control" placeholder="Voucher code" style="max-width:220px;" />
-                                        <button type="button" id="redeemVoucherBtn" class="btn btn-primary">Upgrade</button>
+                                        <button type="button" id="redeemVoucherBtn" class="btn btn-primary"><?php echo $accountProExpiresAt !== null ? 'Extend' : 'Upgrade'; ?></button>
                                     </div>
                                     <div id="voucherMsg" class="mt-2"></div>
                                 </div>
@@ -432,13 +458,19 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
             var personalAddresses = [];
             var lastWebhooks = [];
 
+            // Rendered from $accountProExpiresAt above: true for a Pro account
+            // with an end date, i.e. one that can still extend with a voucher.
+            var proHasExpiry = <?php echo $accountProExpiresAt !== null ? 'true' : 'false'; ?>;
+
             // Gray out the Pro-only sections for Regular accounts. Called once, from the
             // get_profile callback below, before anything else on the page runs its own
             // (independent) load calls.
             function applyProGating(isPro) {
                 isProAccount = isPro;
                 if (isPro) {
-                    $('#upgradeToProSection').addClass('d-none');
+                    // A time-limited Pro account (trial or voucher) keeps the
+                    // voucher field so it can extend; lifetime Pro has no use for it.
+                    $('#upgradeToProSection').toggleClass('d-none', !proHasExpiry);
                     return;
                 }
                 $('#upgradeToProSection').removeClass('d-none');
@@ -494,7 +526,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 $msg.html('<div class="alert alert-info">Checking code...</div>');
                 $.post('pro_profile.php', { action: 'upgrade_with_voucher', code: code }, function(res){
                     if (res && res.success) {
-                        $msg.html('<div class="alert alert-success">Upgraded to Pro! Reloading...</div>');
+                        $msg.html('<div class="alert alert-success">' + (proHasExpiry ? 'Pro extended! Reloading...' : 'Upgraded to Pro! Reloading...') + '</div>');
                         setTimeout(function(){ window.location.reload(); }, 1200);
                     } else {
                         $btn.prop('disabled', false);

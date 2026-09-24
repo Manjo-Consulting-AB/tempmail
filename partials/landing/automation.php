@@ -41,13 +41,16 @@
  */
 
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
+
+// Same trial note as the personal-addresses section (epic #267), signed-out only.
+$msAutoTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['trial']['days'] ?? 0)) : 0;
 ?>
 <section class="ms-section ms-section--sunken" id="automation">
     <div class="ms-container">
         <p class="ms-eyebrow">Automation</p>
         <h2 class="ms-h2">Email doesn't have to stay in your inbox.</h2>
         <p class="ms-automation__body">Connect Mail Shield to the tools you already use.</p>
-        <p class="ms-automation__tier">Automation is part of Pro.</p>
+        <p class="ms-automation__tier">Automation is part of Pro<?php if ($msAutoTrialDays > 0) : ?> &mdash; and included in your first <?php echo $msAutoTrialDays; ?> days<?php endif; ?>.</p>
 
         <ul class="ms-grid ms-grid--3 ms-automation__grid">
             <li class="ms-card ms-automation__card">
