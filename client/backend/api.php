@@ -10,6 +10,17 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
+
+// CSRF: this API is session-authenticated and accepts form-encoded POST, so a
+// cross-site page could otherwise drive it with the user's cookie. Its only
+// caller is client_agent_manage.php's same-origin fetch(), which sends Origin
+// on every non-GET request; anything else that mutates is refused.
+if (!in_array(strtoupper((string) $method), ['GET', 'HEAD'], true) && !requireSameOriginRequest()) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Forbidden']);
+    exit;
+}
+
 $path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '', '/');
 $segments = $path === '' ? [] : explode('/', $path);
 $userId = clientBackendGetCurrentUserId();

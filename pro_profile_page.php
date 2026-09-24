@@ -1754,7 +1754,9 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
 
             // Load or create feed token and wire UI (display full URL in the input)
             function loadFeedToken() {
-                $.getJSON('pro_profile.php?action=feed_get_token', function(res) {
+                // POST, not GET: feed_get_token mints a token on first use,
+                // so pro_profile.php treats it as a state-changing action.
+                $.post('pro_profile.php', { action: 'feed_get_token' }, function(res) {
                     if (res && res.success) {
                         var feedUrl = buildFeedUrl(res.token);
                         $('#feedUrlInput').val(feedUrl);
@@ -1763,7 +1765,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                         $('#feedUrlInput').val('Unavailable');
                         $('#openFeedBtn').removeAttr('data-feed');
                     }
-                }).fail(function(){ $('#feedUrlInput').val('Request failed'); $('#openFeedBtn').removeAttr('data-feed'); });
+                }, 'json').fail(function(){ $('#feedUrlInput').val('Request failed'); $('#openFeedBtn').removeAttr('data-feed'); });
             }
 
             $('#copyFeedToken').on('click', function(){

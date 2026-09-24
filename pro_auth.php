@@ -849,6 +849,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Endpoint: lösenordsinloggning (email + password)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'password_login') {
+    // Login CSRF: a cross-site form could otherwise sign the victim's browser
+    // into an attacker's account, whose inbox then collects what they create.
+    // Same guard, and same answer, as verify_2fa below.
+    if (!requireSameOriginRequest()) {
+        logMessage('WARNING', 'Rejected cross-origin password_login request');
+        echo json_encode(['success' => false, 'error' => 'Invalid request origin']);
+        exit;
+    }
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
     if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '') {

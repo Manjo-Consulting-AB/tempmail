@@ -1,12 +1,13 @@
 <?php
+// config.php first: it fixes the session cookie parameters (HttpOnly,
+// SameSite, Secure), which only apply to a session started after it.
+require_once __DIR__ . '/config.php';
 session_start();
 
 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
     header('Location: pro_login.php');
     exit;
 }
-
-require_once __DIR__ . '/config.php';
 
 if (!proUserIsPro((int)$_SESSION['pro_user_id'])) {
     http_response_code(403);
