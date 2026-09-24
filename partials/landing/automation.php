@@ -3,8 +3,8 @@
  * Landing — automation. Spec: documentaion/REDESIGN_BRIEF.md §8 (copy), §9
  * (the honest feature inventory), §11 (marketing pages load no icon font).
  *
- * The differentiating section: seven capabilities, laid out as one shelf. Six
- * of them ship and the seventh does not, and the whole section is only worth
+ * The differentiating section: six capabilities, laid out as one shelf. Five
+ * of them ship and the sixth does not, and the whole section is only worth
  * anything if it keeps those two apart (§9). So every card below is a claim
  * the code backs today:
  *
@@ -12,9 +12,15 @@
  *   Webhooks           ImapProcessor::dispatchWebhooks(), a generic JSON POST
  *   Pushover           a webhook kind, not push infrastructure of our own
  *   Digest emails      cron/send-digests.php
- *   External mailboxes the Client Agent subsystem
  *   Agent              client/agent/, RSA-signed webhooks from this backend
  *   API                does not exist — hence the Coming badge and nothing else
+ *
+ * There is deliberately no "External mailboxes" card. There used to be one
+ * ("Point Mail Shield at a mailbox you already run"), and it promised a feature
+ * the code lacks: nothing reads, fetches or receives mail from a mailbox the
+ * user runs. The Agent applies rules to that mailbox on the user's own server,
+ * and the only webhooks it gets carry those rules — no message from it ever
+ * reaches Mail Shield. The Agent card says exactly that much.
  *
  * Card 3 names Pushover, the service, because that is what exists: a message
  * reaches a phone through Pushover's own app, not through notification
@@ -26,7 +32,7 @@
  * (pro_profile_page.php, client_agent_manage.php — both ruled out by the
  * issue), so a card that looked clickable would be a hover affordance on
  * something that does nothing. Plain .ms-card, and the grid is a <ul> so the
- * seven still read as one list to a screen reader.
+ * six still read as one list to a screen reader.
  *
  * The icons are drawn here in the same register as the shield in
  * partials/brand.php — 20-unit box, 1.5 stroke, currentColor — rather than
@@ -34,10 +40,10 @@
  * font icon (§11); no third-party logo is reproduced, and no brand colour is
  * borrowed, because nothing here is drawn from the vendors' own marks.
  *
- * The seventh card is the only one with a badge, and it is the only card that
- * cannot fill a row on its own. Below 1096px (see mailshield.css) it is given
- * the full row so it reads as the deliberate note it is rather than as an
- * orphan of the auto-fit grid.
+ * The sixth card is the only one with a badge. Six cards fill one, two or
+ * three columns evenly, so the grid names those column counts itself (see
+ * .ms-automation__grid in mailshield.css) instead of leaving auto-fit to open a
+ * fourth column that would strand two cards on the last row.
  */
 
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
@@ -90,16 +96,6 @@ $msAutoTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['tria
                 </svg>
                 <h3 class="ms-h3 ms-automation__title">Digest emails</h3>
                 <p class="ms-automation__text">A periodic summary of what arrived, sent to your real inbox.</p>
-            </li>
-
-            <li class="ms-card ms-automation__card">
-                <svg class="ms-automation__icon" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                    <rect x="3" y="8.5" width="14" height="9" rx="2"/>
-                    <path d="M10 2.5V7.4"/>
-                    <path d="M7.8 5.2L10 7.4L12.2 5.2"/>
-                </svg>
-                <h3 class="ms-h3 ms-automation__title">External mailboxes</h3>
-                <p class="ms-automation__text">Point Mail Shield at a mailbox you already run.</p>
             </li>
 
             <li class="ms-card ms-automation__card">

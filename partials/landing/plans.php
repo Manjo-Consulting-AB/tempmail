@@ -22,7 +22,7 @@
  *                                     address_ttl_days to that range
  *   RSS, webhooks, Pushover, digests  pro_feed.php, ImapProcessor::dispatchWebhooks(),
  *                                     the Pushover webhook kind, cron/send-digests.php
- *   external mailboxes and Agent      the Client Agent subsystem (client/agent/)
+ *   the Agent                         the Client Agent subsystem (client/agent/)
  *   personal addresses are private    index.php's owner check on is_personal
  *                                     rows, plus pro_profile_page.php settings
  *   support                           pro_contact.php, open to any signed-in account
@@ -88,7 +88,7 @@ $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'
                     <li>Temporary address lifetime configurable from 1 to 7 days</li>
                     <li>Incoming mail is cleaned up automatically according to your retention settings</li>
                     <li>RSS, webhooks, Pushover and digest emails</li>
-                    <li>External mailboxes and the Agent</li>
+                    <li>The Agent, for sender rules on your own mail server</li>
                     <li>Personal addresses belong to your account</li>
                     <li>Priority support</li>
                 </ul>
