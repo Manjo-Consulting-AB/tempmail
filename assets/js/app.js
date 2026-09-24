@@ -963,7 +963,11 @@ class TempMailApp {
             return;
         }
         
-        const shareUrl = `${window.location.origin}${window.location.pathname}?address=${this.currentAddress}`;
+        // Always point at the public reader: built from the current page, a
+        // link shared from pro.php sent the recipient to the login instead.
+        const url = new URL('inbox.php', window.location.href);
+        url.searchParams.set('address', this.currentAddress);
+        const shareUrl = url.toString();
         
         try {
             await navigator.clipboard.writeText(shareUrl);

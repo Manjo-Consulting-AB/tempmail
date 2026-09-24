@@ -5,6 +5,17 @@
 require_once 'config.php';
 session_start();
 
+// Shared inbox links always open the public reader, never this dashboard.
+// app.js used to build the share link from the current page, so links shared
+// from here pointed at pro.php and sent recipients to the login. This page
+// never reads ?address=, so hand any such request to inbox.php - logged in or
+// not - to keep the links already sent working.
+if (isset($_GET['address']) && is_string($_GET['address'])
+    && preg_match('/^[a-f0-9]{8,16}$/i', $_GET['address'])) {
+    header('Location: inbox.php?address=' . urlencode($_GET['address']), true, 302);
+    exit;
+}
+
 if (!isset($_SESSION['pro_user_id'])) {
     header('Location: pro_login.php');
     exit;
