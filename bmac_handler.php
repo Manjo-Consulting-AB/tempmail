@@ -4,12 +4,17 @@
  * 
  * Receives webhook events from Buy Me a Coffee and grants PRO access.
  * Verifies signature using HMAC-SHA256.
- * 
+ *
+ * Only the payment events in bmacGrantEventTypes() (bmac_logic.php) with a
+ * positive amount, a paid status and - in production - live_mode=true grant
+ * Pro; every other signed event is answered 200 {"status":"ignored"}.
+ *
  * Webhook URL: https://manjo.me/bmac_handler.php
  */
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/pro_trial.php';
+require_once __DIR__ . '/bmac_logic.php';
 
 // Only accept POST requests
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -66,44 +71,60 @@ if (json_last_error() !== JSON_ERROR_NONE) {
     exit;
 }
 
-// Log incoming webhook for debugging
-logMessage('INFO', 'BMAC webhook received', [
-    'type' => $data['type'] ?? 'unknown',
-    'supporter_email' => $data['supporter_email'] ?? 'none'
-]);
-
-// Only process successful payment events
-// Buy Me a Coffee sends events like: payment.completed, membership.started, etc.
-$eventType = $data['type'] ?? '';
-$validEvents = ['payment.completed', 'one_time_support', 'membership.started'];
-
-if (!in_array($eventType, $validEvents) && !isset($data['supporter_email'])) {
-    // Some webhook formats just have supporter_email without explicit type
-    // Accept if we have required fields
-    if (empty($data['supporter_email'])) {
-        logMessage('INFO', 'BMAC webhook ignored - unsupported event type', ['type' => $eventType]);
-        http_response_code(200);
-        echo json_encode(['status' => 'ignored', 'reason' => 'unsupported event type']);
-        exit;
-    }
+if (!is_array($data)) {
+    logMessage('WARNING', 'BMAC webhook payload is not a JSON object');
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid JSON']);
+    exit;
 }
 
-// Extract supporter email
-$email = trim($data['supporter_email'] ?? $data['email'] ?? '');
-if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    logMessage('WARNING', 'BMAC webhook missing or invalid email', ['data' => $data]);
+// Read the event out of the envelope (fields nested under "data", per the
+// Buy Me a Coffee webhook spec) or the legacy flat shape - see bmac_logic.php.
+$event = bmacParseEvent($data, $payload);
+$eventType = $event['type'];
+
+logMessage('INFO', 'BMAC webhook received', [
+    'type' => $eventType !== '' ? $eventType : 'unknown',
+    'live_mode' => $event['live_mode'],
+    'nested' => $event['nested'],
+    'supporter_email' => $event['email'] !== '' ? $event['email'] : 'none'
+]);
+
+// Strict allowlist: only paid, live, positive-amount payment events grant Pro.
+// Refunds, cancellations, pauses, updates, test events and unknown types are
+// acknowledged with 200 (so BMAC does not retry them) and never grant.
+$decision = bmacClassifyEvent($event, (string) ($environment ?? ''));
+if ($decision['action'] === 'ignore') {
+    logMessage('INFO', 'BMAC webhook ignored', [
+        'type' => $eventType,
+        'reason' => $decision['reason'],
+        'bmac_id' => $event['bmac_id'],
+        'amount' => $event['amount'],
+        'currency' => $event['currency'],
+        'live_mode' => $event['live_mode']
+    ]);
+    http_response_code(200);
+    echo json_encode(['status' => 'ignored', 'reason' => $decision['reason']]);
+    exit;
+}
+if ($decision['action'] !== 'grant') {
+    logMessage('WARNING', 'BMAC webhook missing or invalid email', ['type' => $eventType, 'bmac_id' => $event['bmac_id']]);
     http_response_code(400);
     echo json_encode(['error' => 'Invalid or missing email']);
     exit;
 }
 
+// Supporter email, already trimmed and lowercased by bmacNormalizeEmail().
+$email = $event['email'];
+
 // PRO duration to add (30 days)
 $durationDays = 30;
 
-// Replay protection: dedupe on the provider's event/payment id (falling back to a
-// hash of the exact payload if the event has no id) so a captured valid
-// (payload, signature) pair can't be resent to repeatedly grant free PRO time.
-$eventId = (string) ($data['id'] ?? $data['payment_id'] ?? hash('sha256', $payload));
+// Replay protection: dedupe on the event type + payment/subscription id (falling
+// back to a hash of the payload if the event has no id, see bmacParseEvent()) so
+// neither a BMAC retry nor a captured valid (payload, signature) pair can be
+// resent to repeatedly grant free PRO time.
+$eventId = $event['dedupe_key'];
 
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS bmac_webhook_events (
@@ -131,7 +152,7 @@ try {
     }
 
     // Lock or fetch user
-    $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email = ? FOR UPDATE");
+    $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE LOWER(email) = ? FOR UPDATE");
     $stmt->execute([$email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -174,9 +195,14 @@ try {
         $parts = explode('@', $email);
         $domainPart = isset($parts[1]) ? strtolower($parts[1]) : '';
         if ($domainPart === $forbiddenDomain) {
+            // Do not create the account. Roll back so nothing - not even the
+            // dedupe row - is kept (a retry reaches this same answer), and
+            // acknowledge with 200 so BMAC does not keep retrying.
+            $pdo->rollBack();
             logMessage('WARNING', 'Attempt to create PRO account using forbidden domain', ['email' => $email]);
-            // Do not create account; return early
-            return;
+            http_response_code(200);
+            echo json_encode(['status' => 'ignored', 'reason' => 'forbidden domain']);
+            exit;
         }
 
         $newExpires = date('Y-m-d H:i:s', strtotime("+{$durationDays} days"));
@@ -201,10 +227,11 @@ try {
         'duration_days' => $durationDays,
         'old_expires' => $oldExpires,
         'new_expires' => $newExpires,
-        'amount' => $data['amount'] ?? $data['total_amount'] ?? null,
-        'currency' => $data['currency'] ?? null,
-        'supporter_name' => $data['supporter_name'] ?? $data['name'] ?? null,
-        'bmac_id' => $data['id'] ?? $data['payment_id'] ?? null
+        'type' => $eventType,
+        'amount' => $event['amount'],
+        'currency' => $event['currency'],
+        'supporter_name' => $event['supporter_name'],
+        'bmac_id' => $event['bmac_id']
     ]);
 
     $pdo->commit();
@@ -215,12 +242,7 @@ try {
     }
 
     http_response_code(200);
-    echo json_encode([
-        'success' => true,
-        'email' => $email,
-        'pro_expires_at' => $newExpires,
-        'duration_added' => $durationDays
-    ]);
+    echo json_encode(['success' => true, 'status' => 'granted']);
 
 } catch (Exception $e) {
     if ($pdo->inTransaction()) {

@@ -64,6 +64,7 @@ php tests/webhook_config_test.php # CLI regression suite for how a hook's config
 php tests/client_scripts_test.php # CLI regression suite for the client-agent script persistence in client/backend/bootstrap.php: one-row reads/writes, owner-scoped listing and delete, and the real api.php DELETE handler run as a subprocess; SQLite, no MySQL (the MySQL-only FOR UPDATE lock is not exercised)
 php migrate_paddle_billing.php   # one-time/idempotent migration: creates the paddle_customers/paddle_subscriptions/paddle_transactions/paddle_entitlements mirror tables that paddle_webhook.php writes
 php tests/paddle_sync_test.php   # CLI regression suite for the Paddle → pro_users sync (paddle_sync.php) on an in-memory SQLite database; exits non-zero on any failed check
+php tests/bmac_handler_test.php  # CLI regression suite for the Buy Me a Coffee webhook decision logic (bmac_logic.php): strict grant allowlist, nested-envelope vs flat payloads, email normalisation, amount/status checks, live_mode test events, dedupe key — pure functions, no database
 ```
 
 `php -S 127.0.0.1:8085` is the local preview the redesign work was done against: when there is no `.env` override, `config.php` defaults `$config['email']['base_url']` to `http://localhost:8085/` outside production, so the port is not arbitrary. Check your work in a browser at that origin before calling a frontend change done — and at 375 / 768 / 1024 / 1440px (see Frontend conventions). `php -l <file>` must pass on every PHP file you touch (brief §12.7); there is no linter config to run instead.
