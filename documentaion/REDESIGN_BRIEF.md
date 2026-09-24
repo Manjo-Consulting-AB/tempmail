@@ -42,8 +42,7 @@ feature among several.
 
 The core idea: *one place for all the email you don't want cluttering your
 primary inbox* — shopping, newsletters, registrations, forums, services you
-want to try, temporary email, projects, secondary identities, automated email,
-external mailboxes.
+want to try, temporary email, projects, secondary identities, automated email.
 
 Mental model to sell: **"my second inbox"**, not "a disposable address".
 
@@ -88,8 +87,8 @@ Decided: **utility base with a discreet shield mark.**
 ### 3.2 The "spine" mental model
 
 Mail Shield is the spine between the user and all their secondary email.
-Addresses, temporary mail, external mailboxes, webhooks, RSS and notifications
-are branches leading into one inbox.
+Addresses, temporary mail, webhooks, RSS and notifications are branches leading
+into one inbox.
 
 Use this **subtly** — thin connector lines, small nodes, a hub-and-branch
 rhythm in a diagram at most. Do not build a literal sci-fi network graphic.
@@ -332,14 +331,13 @@ when `<N>` is 0 every line falls back to its pre-trial wording (here:
 - Eyebrow: `Automation`
 - H2: `Email doesn't have to stay in your inbox.`
 - Body: `Connect Mail Shield to the tools you already use.`
-- Cards (exactly these seven, in this order):
+- Cards (exactly these six, in this order):
   1. `RSS` — `Read your inbox in any feed reader, through a private token-protected feed.`
   2. `Webhooks` — `POST every incoming message as JSON to your own endpoint.`
   3. `Pushover` — `Get incoming mail as a push notification on your phone.`
   4. `Digest emails` — `A periodic summary of what arrived, sent to your real inbox.`
-  5. `External mailboxes` — `Point Mail Shield at a mailbox you already run.`
-  6. `Agent` — `Run filtering on your own mail server, driven by signed webhooks.`
-  7. `API` — badge `Coming` — `Programmatic access to your addresses and messages.`
+  5. `Agent` — `Run filtering on your own mail server, driven by signed webhooks.`
+  6. `API` — badge `Coming` — `Programmatic access to your addresses and messages.`
 - Tier note: `Automation is part of Pro — and included in your first <N> days.` (signed in: `Automation is part of Pro.`)
 
 `API` is the **only** roadmap item and must carry the `Coming` badge and no
@@ -359,11 +357,17 @@ link. Browser push notifications do not exist — never mention them.
 ### External email
 
 - Eyebrow: `Power user`
-- H2: `Bring other mailboxes into the picture.`
-- Body: `Connect external email infrastructure and let Mail Shield handle it alongside your other addresses.`
+- H2: `Your rules, on your own mail server.`
+- Body: `Keep the mailbox you already run, and manage its sender rules from Mail Shield.`
 - Technical detail (this section may be more technical than the rest and does
   not need to be fully understandable to a casual visitor):
   `The Agent runs on your own mail server, verifies RSA-signed webhooks from Mail Shield, and applies your filter scripts and sender lists locally.`
+- Flow (three steps): `you edit your rules` → `signed update to your server` → `your server filters your mailbox`
+
+Never say the user's own mailbox is brought into, connected to or handled by
+Mail Shield: the Agent filters it in place, and no message from it reaches
+Mail Shield. The signed webhook carries rule updates, sent when the user saves
+or syncs them — never "when a message arrives".
 
 ### Free and Pro
 
@@ -396,7 +400,8 @@ Copy may only promise what this table says exists.
 | Pushover | Pro, a webhook kind | ships |
 | Digest emails | Pro (`cron/send-digests.php`) | ships |
 | Sender allow/block lists | Client Agent subsystem | ships, tied to Agent |
-| External mailboxes / Agent | Client Agent on the user's own server | ships, power-user framing |
+| Agent | Client Agent on the user's own server: rules managed here, applied to the user's own IMAP mailbox there | ships, power-user framing |
+| External mailboxes | Does not exist — nothing reads, fetches or receives mail from a mailbox the user runs | never offer it as a feature; the Agent section may name "the mailbox you already run" only as the place its rules apply |
 | Attachments | Signed, time-limited download links | ships |
 | 2FA | TOTP on password login | ships |
 | Public REST API | **does not exist** | `Coming` badge only |

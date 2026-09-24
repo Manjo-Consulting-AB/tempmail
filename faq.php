@@ -127,7 +127,7 @@ HTML,
                 'q' => 'What\'s the difference between Free and Pro?',
                 'a' => <<<HTML
 <p>A free account covers temporary email: one temporary address at a time, deleted 24 hours after you create it.</p>
-<p>Pro adds the permanent side of the product and the automation — up to 10 personal addresses, a temporary-address lifetime of 1 to 7 days that you choose, RSS, webhooks, Pushover, digest emails, external mailboxes and the Agent.</p>
+<p>Pro adds the permanent side of the product and the automation — up to 10 personal addresses, a temporary-address lifetime of 1 to 7 days that you choose, RSS, webhooks, Pushover, digest emails and the Agent.</p>
 HTML . ($msT > 0 ? <<<HTML
 <p>Every new account gets Pro for its first {$msT} days, so you can try all of it before you decide.</p>
 HTML : ''),
@@ -206,18 +206,17 @@ HTML,
 <li>Webhooks that POST each incoming message as JSON to an endpoint you control.</li>
 <li>Pushover, for incoming mail as a notification on your phone.</li>
 <li>Digest emails, a periodic summary of what arrived.</li>
-<li>External mailboxes you already run.</li>
-<li>The Agent, which runs on your own mail server and applies your filter scripts locally.</li>
 </ul>
+<p>If you run your own mail server, the Agent is there too: you manage sender lists and filter rules in Mail Shield, and the Agent applies them to a mailbox on your server. That mail stays on your server — it doesn't come into Mail Shield.</p>
 <p>A public API is coming; it isn't available yet.</p>
 HTML,
             ],
             [
                 'q' => 'Is automation included in a free account?',
                 'a' => $msT > 0 ? <<<HTML
-<p>For the first {$msT} days, yes — every new account starts on Pro, automation included. After the trial, RSS, webhooks, Pushover, digests, external mailboxes and the Agent are part of Pro, and a free account covers temporary email.</p>
+<p>For the first {$msT} days, yes — every new account starts on Pro, automation included. After the trial, RSS, webhooks, Pushover, digests and the Agent are part of Pro, and a free account covers temporary email.</p>
 HTML : <<<HTML
-<p>No. RSS, webhooks, Pushover, digests, external mailboxes and the Agent are all part of Pro. A free account covers temporary email.</p>
+<p>No. RSS, webhooks, Pushover, digests and the Agent are all part of Pro. A free account covers temporary email.</p>
 HTML,
             ],
         ],
