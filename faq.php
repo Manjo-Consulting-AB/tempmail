@@ -69,6 +69,11 @@ $msEsc = function ($value): string {
 
 $msDomain = $msEsc($domain);
 
+// Every new account starts on Pro for this many days (epic #267). Read from
+// $config, never written into copy; at 0 every answer below falls back to its
+// pre-trial wording and the trial question is left out.
+$msT = max(0, (int) ($config['trial']['days'] ?? 0));
+
 /**
  * The whole page as data: six groups, in page order, each holding its questions.
  *
@@ -107,7 +112,9 @@ HTML,
             ],
             [
                 'q' => 'Does it cost anything?',
-                'a' => <<<HTML
+                'a' => $msT > 0 ? <<<HTML
+<p>A free account costs nothing and needs no card, and every new account starts with <strong>{$msT} days of Pro</strong> at no cost. After that, Pro is unlocked with a voucher code — online payment is on the way — and no prices have been published yet.</p>
+HTML : <<<HTML
 <p>A free account costs nothing and needs no card. Pro is unlocked with a voucher code today — online payment is on the way — and no prices have been published yet.</p>
 HTML,
             ],
@@ -121,8 +128,18 @@ HTML,
                 'a' => <<<HTML
 <p>A free account covers temporary email: one temporary address at a time, deleted 24 hours after you create it.</p>
 <p>Pro adds the permanent side of the product and the automation — up to 10 personal addresses, a temporary-address lifetime of 1 to 7 days that you choose, RSS, webhooks, Pushover, digest emails, external mailboxes and the Agent.</p>
-HTML,
+HTML . ($msT > 0 ? <<<HTML
+<p>Every new account gets Pro for its first {$msT} days, so you can try all of it before you decide.</p>
+HTML : ''),
             ],
+            ...($msT > 0 ? [[
+                'q' => "How does the {$msT}-day Pro trial work?",
+                'a' => <<<HTML
+<p>Every new account gets Pro for its first {$msT} days, starting when you confirm your email address. There's no card to enter and nothing to cancel.</p>
+<p>The trial is once per email address. If you delete your account and sign up again with the same address, the clock keeps running from your first sign-up — it doesn't start over.</p>
+<p>When the trial ends, your account carries on as a free one. Automation is switched off, and personal addresses — with the mail in them — are deleted 7 days later, so move anything you still need first. To stay on Pro, redeem a voucher code in your profile; online payment is on the way.</p>
+HTML,
+            ]] : []),
             [
                 'q' => 'How many addresses can I create?',
                 'a' => <<<HTML
@@ -132,7 +149,9 @@ HTML,
             ],
             [
                 'q' => 'How do I create a Pro account?',
-                'a' => <<<HTML
+                'a' => $msT > 0 ? <<<HTML
+<p>Create an account — it starts on Pro for its first {$msT} days. To keep Pro after that, redeem a voucher code in your profile; redeemed during the trial, the code's time is added after the trial ends. There is no online checkout yet; payment is on the way. Accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
+HTML : <<<HTML
 <p>Register with a voucher code — pick Pro on the sign-up page and enter the code. There is no online checkout yet; payment is on the way. Pro accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
 HTML,
             ],
@@ -195,7 +214,9 @@ HTML,
             ],
             [
                 'q' => 'Is automation included in a free account?',
-                'a' => <<<HTML
+                'a' => $msT > 0 ? <<<HTML
+<p>For the first {$msT} days, yes — every new account starts on Pro, automation included. After the trial, RSS, webhooks, Pushover, digests, external mailboxes and the Agent are part of Pro, and a free account covers temporary email.</p>
+HTML : <<<HTML
 <p>No. RSS, webhooks, Pushover, digests, external mailboxes and the Agent are all part of Pro. A free account covers temporary email.</p>
 HTML,
             ],
