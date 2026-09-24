@@ -640,6 +640,7 @@ function requireSameOriginRequest(): bool {
 function detectSuspiciousPatterns(string $input): array { return []; }
 function getVisitorIp() { return $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'; }
 function flagMaliciousActivity(...$args) { return true; }
+function patternsWarrantingIpFlag(array $patterns): array { return $patterns; }
 function deleteDirectAdminForwarder(...$args) { return true; }
 function createDirectAdminForwarder(...$args) { return true; }
 function generateUniqueString($length = null) { return bin2hex(random_bytes(8)); }

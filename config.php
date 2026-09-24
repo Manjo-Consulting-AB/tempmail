@@ -769,57 +769,9 @@ $IP_WHITELIST = [
     // '203.0.113.50',
 ];
 
-/**
- * Kontrollera om en IP-adress matchar ett CIDR-block.
- * 
- * @param string $ip IP-adress att kontrollera
- * @param string $cidr CIDR-notation (t.ex. "192.168.0.0/16")
- * @return bool True om IP:n är inom CIDR-blocket
- */
-function ipMatchesCidr(string $ip, string $cidr): bool {
-    // Hantera exakt matchning (ingen slash)
-    if (strpos($cidr, '/') === false) {
-        return $ip === $cidr;
-    }
-    
-    list($subnet, $mask) = explode('/', $cidr, 2);
-    $mask = (int)$mask;
-    
-    // Avgör om det är IPv6 eller IPv4
-    $isIpv6 = strpos($ip, ':') !== false;
-    $isSubnetIpv6 = strpos($subnet, ':') !== false;
-    
-    // Blanda inte IPv4 och IPv6
-    if ($isIpv6 !== $isSubnetIpv6) {
-        return false;
-    }
-    
-    if ($isIpv6) {
-        // IPv6-hantering
-        $ipBin = inet_pton($ip);
-        $subnetBin = inet_pton($subnet);
-        if ($ipBin === false || $subnetBin === false) {
-            return false;
-        }
-        // Skapa mask för IPv6 (128 bitar)
-        $maskBin = str_repeat("\xff", (int)($mask / 8));
-        if ($mask % 8 > 0) {
-            $maskBin .= chr(256 - pow(2, 8 - ($mask % 8)));
-        }
-        $maskBin = str_pad($maskBin, 16, "\x00");
-        
-        return ($ipBin & $maskBin) === ($subnetBin & $maskBin);
-    } else {
-        // IPv4-hantering
-        $ipLong = ip2long($ip);
-        $subnetLong = ip2long($subnet);
-        if ($ipLong === false || $subnetLong === false) {
-            return false;
-        }
-        $maskLong = -1 << (32 - $mask);
-        return ($ipLong & $maskLong) === ($subnetLong & $maskLong);
-    }
-}
+// ipMatchesCidr(), getVisitorIp() and the other pure IP helpers live in
+// ip_utils.php (dependency-free, so tests/visitor_ip_test.php can load them).
+require_once __DIR__ . '/ip_utils.php';
 
 /**
  * Kontrollera om en IP-adress är vitlistad.
@@ -836,40 +788,6 @@ function isIpWhitelisted(string $ip): bool {
         }
     }
     return false;
-}
-
-/**
- * Hämta besökarens riktiga IP-adress med stöd för proxys.
- * Hanterar både IPv4 och IPv6.
- * 
- * @return string IP-adress
- */
-function getVisitorIp(): string {
-    // Proxy-headers att kontrollera (i prioritetsordning)
-    $proxyHeaders = [
-        'HTTP_CF_CONNECTING_IP',    // Cloudflare
-        'HTTP_X_REAL_IP',           // Nginx proxy
-        'HTTP_X_FORWARDED_FOR',     // Standard proxy header
-        'HTTP_X_CLIENT_IP',         // Annan proxy
-        'HTTP_CLIENT_IP',           // Annan proxy
-    ];
-    
-    foreach ($proxyHeaders as $header) {
-        if (!empty($_SERVER[$header])) {
-            // X-Forwarded-For kan innehålla flera IP:er (klient, proxy1, proxy2...)
-            // Ta första (klientens ursprungliga IP)
-            $ips = explode(',', $_SERVER[$header]);
-            $ip = trim($ips[0]);
-            
-            // Validera att det är en giltig IP-adress
-            if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                return $ip;
-            }
-        }
-    }
-    
-    // Fallback till REMOTE_ADDR
-    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 }
 
 /**
@@ -965,9 +883,9 @@ function handleBlockedVisitor(array $blockInfo): void {
 /**
  * Flagga en IP-adress för misstänkt aktivitet.
  * Implementerar eskaleringslogik:
- * - 1 försök: Logga i ip_blacklist
- * - 1+ försök: Blockera i 24 timmar
- * - 5+ försök: Permanent blockering
+ * - 1-2 försök: Logga i ip_blacklist
+ * - 3+ försök: Blockera i 24 timmar
+ * - 10+ försök: Permanent blockering
  * 
  * @param string $ip IP-adress att flagga
  * @param string $reason Anledning till flaggning
@@ -985,8 +903,10 @@ function flagMaliciousActivity(string $ip, string $reason, ?PDO $pdoConnection =
     }
     
     // Tröskelvärden för blockering
-    $TEMP_BLOCK_THRESHOLD = 1;    // Försök innan tillfällig blockering
-    $PERMANENT_THRESHOLD = 5;      // Försök innan permanent blockering
+    // Raised from 1/5: a single false positive (or a shared NAT/proxy IP)
+    // must not lock a visitor out for 24 hours on the first flag.
+    $TEMP_BLOCK_THRESHOLD = 3;    // Försök innan tillfällig blockering
+    $PERMANENT_THRESHOLD = 10;     // Försök innan permanent blockering
     $TEMP_BLOCK_HOURS = 24;        // Timmar för tillfällig blockering
     
     try {
