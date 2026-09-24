@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         logMessage('WARNING', 'Suspicious POST action attempted', [
             'patterns' => $suspicious,
             'action' => mb_substr($rawAction, 0, 200),
-            'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+            'ip' => getVisitorIp()
         ]);
         echo json_encode(['success' => false, 'error' => 'Ogiltig förfrågan']);
         exit;
