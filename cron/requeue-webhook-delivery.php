@@ -6,6 +6,11 @@
  * Security: this script should be run locally or by an admin; it does not expose network endpoints.
  */
 
+require_once __DIR__ . '/_guard.php';
+// Admin tool driven by $argv: never reachable over HTTP. Checked before
+// config.php so a web request does not even open the database.
+cronRequireCli();
+
 require_once __DIR__ . '/../config.php';
 
 if ($argc < 2) {
