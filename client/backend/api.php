@@ -45,7 +45,7 @@ if ($method === 'POST' && ($segments[0] ?? '') === 'api' && ($segments[1] ?? '')
     exit;
 }
 
-if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($segments[2] ?? '') === 'scripts' || isset($segments[2]))) {
+if (($segments[0] ?? '') === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($segments[2] ?? '') === 'scripts' || isset($segments[2]))) {
     if (($segments[2] ?? '') === 'scripts') {
         $scripts = clientBackendGetScriptsForUser($userId);
         $summaries = [];
@@ -85,15 +85,14 @@ if ($segments[0] ?? '' === 'api' && ($segments[1] ?? '') === 'mailfilter' && (($
     }
 
     if ($method === 'DELETE' && ($segments[3] ?? '') === '') {
-        $scripts = clientBackendGetScripts();
-        if (!isset($scripts[$scriptId])) {
+        // Deletes this one row, and only while $userId still owns it; no other
+        // script is read or written.
+        if (!clientBackendDeleteScript($scriptId, $userId)) {
             http_response_code(404);
             echo json_encode(['status' => 'error', 'message' => 'Script not found']);
             exit;
         }
 
-        unset($scripts[$scriptId]);
-        clientBackendSaveScripts($scripts);
         echo json_encode(['status' => 'ok', 'deleted_script_id' => $scriptId]);
         exit;
     }

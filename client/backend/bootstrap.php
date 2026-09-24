@@ -14,6 +14,14 @@ function clientBackendGetDb(): ?PDO {
     return isset($pdo) && $pdo instanceof PDO ? $pdo : null;
 }
 
+function clientBackendDbDriver(PDO $db): string {
+    try {
+        return strtolower((string) $db->getAttribute(PDO::ATTR_DRIVER_NAME));
+    } catch (Throwable $e) {
+        return '';
+    }
+}
+
 function clientBackendHasDbTable(string $tableName): bool {
     static $cache = [];
 
@@ -28,7 +36,11 @@ function clientBackendHasDbTable(string $tableName): bool {
     }
 
     try {
-        $stmt = $db->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?');
+        // SQLite branch: the CLI regression suite (tests/client_scripts_test.php)
+        // runs this file against an in-memory SQLite database.
+        $stmt = $db->prepare(clientBackendDbDriver($db) === 'sqlite'
+            ? "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?"
+            : 'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?');
         $stmt->execute([$tableName]);
         $cache[$tableName] = ((int) $stmt->fetchColumn()) > 0;
     } catch (Throwable $e) {
@@ -53,7 +65,9 @@ function clientBackendHasDbColumn(string $tableName, string $columnName): bool {
     }
 
     try {
-        $stmt = $db->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
+        $stmt = $db->prepare(clientBackendDbDriver($db) === 'sqlite'
+            ? 'SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?'
+            : 'SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
         $stmt->execute([$tableName, $columnName]);
         $cache[$cacheKey] = ((int) $stmt->fetchColumn()) > 0;
     } catch (Throwable $e) {
@@ -64,21 +78,29 @@ function clientBackendHasDbColumn(string $tableName, string $columnName): bool {
 }
 
 function clientBackendEnsureSpamFiltersColumn(): bool {
+    // Memoised per request: writes are per row now, so without this an install
+    // whose ALTER fails would retry it on every single-script write.
+    static $result = null;
+    if ($result !== null) {
+        return $result;
+    }
+
     $db = clientBackendGetDb();
     if (!$db || !clientBackendHasDbTable('client_scripts')) {
         return false;
     }
 
     if (clientBackendHasDbColumn('client_scripts', 'spam_filters_json')) {
-        return true;
+        return $result = true;
     }
 
     try {
         $db->exec('ALTER TABLE client_scripts ADD COLUMN IF NOT EXISTS spam_filters_json LONGTEXT NULL AFTER blacklist_json');
-        return true;
+        $result = true;
     } catch (Throwable $e) {
-        return false;
+        $result = false;
     }
+    return $result;
 }
 
 function clientBackendUseDatabase(): bool {
@@ -291,16 +313,12 @@ function clientBackendHydrateScriptRow(array $row): array {
     ];
 }
 
-function clientBackendDbFetchScripts(): array {
-    $db = clientBackendGetDb();
-    if (!$db || !clientBackendUseDatabase()) {
-        return [];
-    }
-
-    $stmt = $db->query('SELECT * FROM client_scripts ORDER BY id DESC');
-    $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+function clientBackendHydrateScriptRows(array $rows): array {
     $scripts = [];
     foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
         $script = clientBackendHydrateScriptRow($row);
         if ($script['script_id'] !== '') {
             $scripts[$script['script_id']] = $script;
@@ -310,115 +328,194 @@ function clientBackendDbFetchScripts(): array {
     return $scripts;
 }
 
-function clientBackendDbSaveScripts(array $scripts): void {
+/**
+ * Every script of every user. Only for jobs that legitimately walk all scripts
+ * (clientBackendRunPendingSyncs()); request handlers use the per-row and
+ * per-owner reads below. There is deliberately no matching "save all": writes
+ * are always one row, so a stale snapshot can never delete or overwrite a
+ * script it did not mean to touch.
+ */
+function clientBackendDbFetchScripts(): array {
     $db = clientBackendGetDb();
     if (!$db || !clientBackendUseDatabase()) {
-        return;
+        return [];
     }
 
-    $hasSpamFiltersColumn = clientBackendHasDbColumn('client_scripts', 'spam_filters_json') || clientBackendEnsureSpamFiltersColumn();
+    $stmt = $db->query('SELECT * FROM client_scripts ORDER BY id DESC');
+    return clientBackendHydrateScriptRows($stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
+}
 
-    $db->beginTransaction();
+function clientBackendDbFetchScriptsForOwner(int $ownerId): array {
+    $db = clientBackendGetDb();
+    if (!$db || !clientBackendUseDatabase()) {
+        return [];
+    }
+
+    $stmt = $db->prepare('SELECT * FROM client_scripts WHERE owner_pro_user_id = ? ORDER BY id DESC');
+    $stmt->execute([$ownerId]);
+    return clientBackendHydrateScriptRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+/**
+ * One script by script_id. With $forUpdate the row is locked (SELECT ... FOR
+ * UPDATE) for the caller's open transaction; SQLite has no row locks and
+ * serialises writers on its own, so the clause is left out there.
+ */
+function clientBackendDbFetchScript(string $scriptId, bool $forUpdate = false): ?array {
+    $db = clientBackendGetDb();
+    if (!$db || !clientBackendUseDatabase() || $scriptId === '') {
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        $forUpdate && clientBackendDbDriver($db) === 'mysql'
+            ? 'SELECT * FROM client_scripts WHERE script_id = ? LIMIT 1 FOR UPDATE'
+            : 'SELECT * FROM client_scripts WHERE script_id = ? LIMIT 1'
+    );
+    $stmt->execute([$scriptId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($row)) {
+        return null;
+    }
+
+    $script = clientBackendHydrateScriptRow($row);
+    return $script['script_id'] !== '' ? $script : null;
+}
+
+/**
+ * Column => bound value for one script, shared by the INSERT and the UPDATE.
+ * The keys are a fixed list of column names, never taken from input.
+ * spam_filters_json is included only when the column exists (older installs
+ * predate it; clientBackendEnsureSpamFiltersColumn() adds it when it can).
+ */
+function clientBackendScriptDbValues(array $script): array {
+    $whitelist = is_array($script['whitelist'] ?? null) ? $script['whitelist'] : [];
+    $blacklist = is_array($script['blacklist'] ?? null) ? $script['blacklist'] : [];
+    $spamFilters = is_array($script['spam_filters'] ?? null) ? $script['spam_filters'] : [];
+    $lastWebhookResult = $script['last_webhook_result'] ?? null;
+
+    $values = [
+        'owner_pro_user_id' => array_key_exists('owner_pro_user_id', $script) && $script['owner_pro_user_id'] !== null ? (int) $script['owner_pro_user_id'] : null,
+        'label' => (string) ($script['label'] ?? 'New script'),
+        'target_host' => ($script['target_host'] ?? null) !== null && (string) $script['target_host'] !== '' ? (string) $script['target_host'] : null,
+        'target_path' => (string) ($script['target_path'] ?? '/client/agent/agent.php'),
+        'greylist_days' => (int) ($script['greylist_days'] ?? 30),
+        'whitelist_json' => clientBackendEncodeJsonList($whitelist),
+        'blacklist_json' => clientBackendEncodeJsonList($blacklist),
+        'pending_sync_at' => ($script['pending_sync_at'] ?? null) !== null && (string) $script['pending_sync_at'] !== '' ? (string) $script['pending_sync_at'] : null,
+        'last_webhook_sent_at' => ($script['last_webhook_sent_at'] ?? null) !== null && (string) $script['last_webhook_sent_at'] !== '' ? (string) $script['last_webhook_sent_at'] : null,
+        'sync_status' => (string) ($script['sync_status'] ?? 'idle'),
+        'sync_message' => ($script['sync_message'] ?? null) !== null && (string) $script['sync_message'] !== '' ? (string) $script['sync_message'] : null,
+        'last_webhook_result_json' => $lastWebhookResult !== null ? json_encode($lastWebhookResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null,
+        'dry_run' => !empty($script['dry_run']) ? 1 : 0,
+    ];
+
+    if (clientBackendHasDbColumn('client_scripts', 'spam_filters_json') || clientBackendEnsureSpamFiltersColumn()) {
+        $values['spam_filters_json'] = clientBackendEncodeJsonObjects($spamFilters);
+    }
+
+    return $values;
+}
+
+/**
+ * Inserts one new script row. A plain INSERT, not an upsert: if a freshly
+ * generated script_id ever collided with an existing one, the unique key makes
+ * this fail instead of silently taking over someone else's script.
+ */
+function clientBackendDbInsertScript(array $script): bool {
+    $db = clientBackendGetDb();
+    $scriptId = (string) ($script['script_id'] ?? '');
+    if (!$db || !clientBackendUseDatabase() || $scriptId === '') {
+        return false;
+    }
+
+    $values = ['script_id' => $scriptId] + clientBackendScriptDbValues($script);
+    $columns = array_keys($values);
+    $params = [];
+    foreach ($values as $column => $value) {
+        $params[':' . $column] = $value;
+    }
+    $stmt = $db->prepare('INSERT INTO client_scripts (' . implode(', ', $columns) . ') VALUES (' . implode(', ', array_keys($params)) . ')');
+    $stmt->execute($params);
+    return true;
+}
+
+/**
+ * Writes one existing script row back. Touches only the row named by
+ * script_id, and never its owner: ownership is set once, at creation.
+ */
+function clientBackendDbUpdateScriptRow(array $script): bool {
+    $db = clientBackendGetDb();
+    $scriptId = (string) ($script['script_id'] ?? '');
+    if (!$db || !clientBackendUseDatabase() || $scriptId === '') {
+        return false;
+    }
+
+    $values = clientBackendScriptDbValues($script);
+    unset($values['owner_pro_user_id']);
+    $assignments = [];
+    $params = [];
+    foreach ($values as $column => $value) {
+        $assignments[] = $column . ' = :' . $column;
+        $params[':' . $column] = $value;
+    }
+    $assignments[] = 'updated_at = CURRENT_TIMESTAMP';
+    $params[':script_id'] = $scriptId;
+
+    $stmt = $db->prepare('UPDATE client_scripts SET ' . implode(', ', $assignments) . ' WHERE script_id = :script_id');
+    $stmt->execute($params);
+    return true;
+}
+
+/**
+ * Deletes one script, and only if $ownerId owns it. Returns whether a row went.
+ */
+function clientBackendDbDeleteScript(string $scriptId, int $ownerId): bool {
+    $db = clientBackendGetDb();
+    if (!$db || !clientBackendUseDatabase() || $scriptId === '') {
+        return false;
+    }
+
+    $stmt = $db->prepare('DELETE FROM client_scripts WHERE script_id = ? AND owner_pro_user_id = ?');
+    $stmt->execute([$scriptId, $ownerId]);
+    return $stmt->rowCount() > 0;
+}
+
+/**
+ * Read-modify-write of one script under a row lock. $mutator receives the
+ * current row and returns the new script array, or null to abort without
+ * writing. Returns the script as written, or null when the script does not
+ * exist or the mutator aborted. Two concurrent edits of the same script are
+ * serialised, so neither loses the other's list items.
+ */
+function clientBackendMutateScript(string $scriptId, callable $mutator): ?array {
+    $db = clientBackendGetDb();
+    if (!$db || !clientBackendUseDatabase()) {
+        return null;
+    }
+
+    $ownTransaction = !$db->inTransaction();
+    if ($ownTransaction) {
+        $db->beginTransaction();
+    }
     try {
-        $existingStmt = $db->query('SELECT script_id FROM client_scripts');
-        $existingIds = $existingStmt ? array_map(static fn($value): string => (string) $value, $existingStmt->fetchAll(PDO::FETCH_COLUMN)) : [];
-        $keepIds = [];
-
-        if ($hasSpamFiltersColumn) {
-            $sql = 'INSERT INTO client_scripts (
-                script_id, owner_pro_user_id, label, target_host, target_path, greylist_days,
-                whitelist_json, blacklist_json, spam_filters_json, pending_sync_at, last_webhook_sent_at,
-                sync_status, sync_message, last_webhook_result_json, dry_run
-            ) VALUES (
-                :script_id, :owner_pro_user_id, :label, :target_host, :target_path, :greylist_days,
-                :whitelist_json, :blacklist_json, :spam_filters_json, :pending_sync_at, :last_webhook_sent_at,
-                :sync_status, :sync_message, :last_webhook_result_json, :dry_run
-            ) ON DUPLICATE KEY UPDATE
-                owner_pro_user_id = VALUES(owner_pro_user_id),
-                label = VALUES(label),
-                target_host = VALUES(target_host),
-                target_path = VALUES(target_path),
-                greylist_days = VALUES(greylist_days),
-                whitelist_json = VALUES(whitelist_json),
-                blacklist_json = VALUES(blacklist_json),
-                spam_filters_json = VALUES(spam_filters_json),
-                pending_sync_at = VALUES(pending_sync_at),
-                last_webhook_sent_at = VALUES(last_webhook_sent_at),
-                sync_status = VALUES(sync_status),
-                sync_message = VALUES(sync_message),
-                last_webhook_result_json = VALUES(last_webhook_result_json),
-                dry_run = VALUES(dry_run),
-                updated_at = CURRENT_TIMESTAMP';
+        $current = clientBackendDbFetchScript($scriptId, true);
+        $next = $current !== null ? $mutator($current) : null;
+        if (is_array($next)) {
+            // Identity and ownership come from the locked row, never the mutator.
+            $next['script_id'] = $current['script_id'];
+            $next['owner_pro_user_id'] = $current['owner_pro_user_id'];
+            $next['updated_at'] = gmdate('c');
+            clientBackendDbUpdateScriptRow($next);
         } else {
-            $sql = 'INSERT INTO client_scripts (
-                script_id, owner_pro_user_id, label, target_host, target_path, greylist_days,
-                whitelist_json, blacklist_json, pending_sync_at, last_webhook_sent_at,
-                sync_status, sync_message, last_webhook_result_json, dry_run
-            ) VALUES (
-                :script_id, :owner_pro_user_id, :label, :target_host, :target_path, :greylist_days,
-                :whitelist_json, :blacklist_json, :pending_sync_at, :last_webhook_sent_at,
-                :sync_status, :sync_message, :last_webhook_result_json, :dry_run
-            ) ON DUPLICATE KEY UPDATE
-                owner_pro_user_id = VALUES(owner_pro_user_id),
-                label = VALUES(label),
-                target_host = VALUES(target_host),
-                target_path = VALUES(target_path),
-                greylist_days = VALUES(greylist_days),
-                whitelist_json = VALUES(whitelist_json),
-                blacklist_json = VALUES(blacklist_json),
-                pending_sync_at = VALUES(pending_sync_at),
-                last_webhook_sent_at = VALUES(last_webhook_sent_at),
-                sync_status = VALUES(sync_status),
-                sync_message = VALUES(sync_message),
-                last_webhook_result_json = VALUES(last_webhook_result_json),
-                dry_run = VALUES(dry_run),
-                updated_at = CURRENT_TIMESTAMP';
+            $next = null;
         }
-        $stmt = $db->prepare($sql);
-
-        foreach ($scripts as $scriptId => $script) {
-            $scriptId = (string) $scriptId;
-            $keepIds[] = $scriptId;
-            $whitelist = is_array($script['whitelist'] ?? null) ? $script['whitelist'] : [];
-            $blacklist = is_array($script['blacklist'] ?? null) ? $script['blacklist'] : [];
-            $spamFilters = is_array($script['spam_filters'] ?? null) ? $script['spam_filters'] : [];
-            $lastWebhookResult = $script['last_webhook_result'] ?? null;
-
-            $params = [
-                ':script_id' => $scriptId,
-                ':owner_pro_user_id' => array_key_exists('owner_pro_user_id', $script) && $script['owner_pro_user_id'] !== null ? (int) $script['owner_pro_user_id'] : null,
-                ':label' => (string) ($script['label'] ?? 'New script'),
-                ':target_host' => ($script['target_host'] ?? null) !== null && (string) $script['target_host'] !== '' ? (string) $script['target_host'] : null,
-                ':target_path' => (string) ($script['target_path'] ?? '/client/agent/agent.php'),
-                ':greylist_days' => (int) ($script['greylist_days'] ?? 30),
-                ':whitelist_json' => clientBackendEncodeJsonList($whitelist),
-                ':blacklist_json' => clientBackendEncodeJsonList($blacklist),
-                ':pending_sync_at' => ($script['pending_sync_at'] ?? null) !== null && (string) $script['pending_sync_at'] !== '' ? (string) $script['pending_sync_at'] : null,
-                ':last_webhook_sent_at' => ($script['last_webhook_sent_at'] ?? null) !== null && (string) $script['last_webhook_sent_at'] !== '' ? (string) $script['last_webhook_sent_at'] : null,
-                ':sync_status' => (string) ($script['sync_status'] ?? 'idle'),
-                ':sync_message' => ($script['sync_message'] ?? null) !== null && (string) $script['sync_message'] !== '' ? (string) $script['sync_message'] : null,
-                ':last_webhook_result_json' => $lastWebhookResult !== null ? json_encode($lastWebhookResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null,
-                ':dry_run' => !empty($script['dry_run']) ? 1 : 0,
-            ];
-            if ($hasSpamFiltersColumn) {
-                $params[':spam_filters_json'] = clientBackendEncodeJsonObjects($spamFilters);
-            }
-
-            $stmt->execute($params);
+        if ($ownTransaction) {
+            $db->commit();
         }
-
-        if (!empty($existingIds)) {
-            $idsToDelete = array_values(array_diff($existingIds, $keepIds));
-            if (!empty($idsToDelete)) {
-                $placeholders = implode(',', array_fill(0, count($idsToDelete), '?'));
-                $deleteStmt = $db->prepare('DELETE FROM client_scripts WHERE script_id IN (' . $placeholders . ')');
-                $deleteStmt->execute($idsToDelete);
-            }
-        }
-
-        $db->commit();
+        return $next;
     } catch (Throwable $e) {
-        if ($db->inTransaction()) {
+        if ($ownTransaction && $db->inTransaction()) {
             $db->rollBack();
         }
         throw $e;
@@ -427,10 +524,6 @@ function clientBackendDbSaveScripts(array $scripts): void {
 
 function clientBackendGetScripts(): array {
     return clientBackendDbFetchScripts();
-}
-
-function clientBackendSaveScripts(array $scripts): void {
-    clientBackendDbSaveScripts($scripts);
 }
 
 function clientBackendGenerateScriptId(): string {
@@ -483,14 +576,15 @@ function clientBackendCanAccessScript(array $script, ?int $userId): bool {
 }
 
 function clientBackendGetScriptsForUser(int $userId): array {
-    $scripts = clientBackendGetScripts();
+    // Owner-scoped query, then the same access check as a single-script read,
+    // so this can never list more than clientBackendCanAccessScript() allows.
+    $scripts = clientBackendDbFetchScriptsForOwner($userId);
     return array_filter($scripts, static function (array $script) use ($userId): bool {
         return clientBackendCanAccessScript($script, $userId);
-    }, ARRAY_FILTER_USE_BOTH);
+    });
 }
 
 function clientBackendCreateScript(array $input): array {
-    $scripts = clientBackendGetScripts();
     $scriptId = clientBackendGenerateScriptId();
     $targetHost = clientBackendNormalizeTargetHost($input['target_host'] ?? null);
     $targetPath = clientBackendNormalizeTargetPath($input['target_path'] ?? '/client/agent/agent.php');
@@ -514,22 +608,24 @@ function clientBackendCreateScript(array $input): array {
         'updated_at' => gmdate('c'),
     ];
 
-    $scripts[$scriptId] = $script;
-    clientBackendSaveScripts($scripts);
+    clientBackendDbInsertScript($script);
     return $script;
 }
 
 function clientBackendGetScript(string $scriptId): ?array {
-    $scripts = clientBackendGetScripts();
-    return $scripts[$scriptId] ?? null;
+    return clientBackendDbFetchScript($scriptId);
+}
+
+/**
+ * Deletes one script on behalf of $userId. Same rule as
+ * clientBackendCanAccessScript(): only the owner may delete, and the owner
+ * check is part of the DELETE itself.
+ */
+function clientBackendDeleteScript(string $scriptId, int $userId): bool {
+    return clientBackendDbDeleteScript($scriptId, $userId);
 }
 
 function clientBackendUpdateScript(string $scriptId, array $changes): ?array {
-    $scripts = clientBackendGetScripts();
-    if (!isset($scripts[$scriptId])) {
-        return null;
-    }
-
     // Always route target_host/target_path through normalization, regardless of
     // caller, so no code path can set an unvalidated SSRF target (e.g. a private
     // or loopback address) on the script record.
@@ -539,26 +635,21 @@ function clientBackendUpdateScript(string $scriptId, array $changes): ?array {
     if (array_key_exists('target_path', $changes)) {
         $changes['target_path'] = clientBackendNormalizeTargetPath($changes['target_path']);
     }
-    // script_id is the array key and must not be overwritten via a generic update.
-    unset($changes['script_id']);
+    // script_id identifies the row and must not be overwritten via a generic
+    // update; ownership is fixed at creation (clientBackendMutateScript also
+    // pins both to the stored row).
+    unset($changes['script_id'], $changes['owner_pro_user_id']);
 
-    foreach ($changes as $key => $value) {
-        $scripts[$scriptId][$key] = $value;
-    }
-
-    $scripts[$scriptId]['updated_at'] = gmdate('c');
-    clientBackendSaveScripts($scripts);
-    return $scripts[$scriptId];
+    return clientBackendMutateScript($scriptId, static function (array $script) use ($changes): array {
+        foreach ($changes as $key => $value) {
+            $script[$key] = $value;
+        }
+        return $script;
+    });
 }
 
 function clientBackendScheduleSync(string $scriptId): ?array {
-    $script = clientBackendGetScript($scriptId);
-    if ($script === null) {
-        return null;
-    }
-
-    $script['pending_sync_at'] = gmdate('c', time() + 60);
-    return clientBackendUpdateScript($scriptId, ['pending_sync_at' => $script['pending_sync_at']]);
+    return clientBackendUpdateScript($scriptId, ['pending_sync_at' => gmdate('c', time() + 60)]);
 }
 
 function clientBackendCancelSync(string $scriptId): ?array {
@@ -566,123 +657,101 @@ function clientBackendCancelSync(string $scriptId): ?array {
 }
 
 function clientBackendAddListItem(string $scriptId, string $type, string $pattern): ?array {
-    $script = clientBackendGetScript($scriptId);
-    if ($script === null) {
-        return null;
-    }
-
     $listKey = $type === 'blacklist' ? 'blacklist' : 'whitelist';
     $pattern = clientBackendNormalizeListPattern($pattern);
     if ($pattern === null) {
         return null;
     }
-    $list = $script[$listKey] ?? [];
-    if (!in_array($pattern, $list, true)) {
-        $list[] = $pattern;
+
+    $updated = clientBackendMutateScript($scriptId, static function (array $script) use ($listKey, $pattern): array {
+        $list = is_array($script[$listKey] ?? null) ? $script[$listKey] : [];
+        if (!in_array($pattern, $list, true)) {
+            $list[] = $pattern;
+        }
         $script[$listKey] = $list;
-        $script['updated_at'] = gmdate('c');
-        $scripts = clientBackendGetScripts();
-        $scripts[$scriptId] = $script;
-        clientBackendSaveScripts($scripts);
-        return clientBackendPersistAndDispatch($scriptId, [$listKey => $list]);
-    }
-
-    return clientBackendPersistAndDispatch($scriptId, []);
-}
-
-function clientBackendAddSpamFilter(string $scriptId, array $rule): ?array {
-    $script = clientBackendGetScript($scriptId);
-    if ($script === null) {
+        return $script;
+    });
+    if ($updated === null) {
         return null;
     }
 
-    $rules = is_array($script['spam_filters'] ?? null) ? $script['spam_filters'] : [];
+    return clientBackendDispatchAndDescribe($scriptId, $updated);
+}
+
+function clientBackendAddSpamFilter(string $scriptId, array $rule): ?array {
     $normalized = clientBackendNormalizeSpamFilterRule($rule);
     if (!is_array($normalized)) {
         return null;
     }
-    if (count($rules) >= 100) {
+
+    $updated = clientBackendMutateScript($scriptId, static function (array $script) use ($normalized): ?array {
+        $rules = is_array($script['spam_filters'] ?? null) ? $script['spam_filters'] : [];
+        if (count($rules) >= 100) {
+            return null;
+        }
+        $rules[] = $normalized;
+        $script['spam_filters'] = $rules;
+        return $script;
+    });
+    if ($updated === null) {
         return null;
     }
-    $rules[] = $normalized;
-    $script['spam_filters'] = $rules;
-    $script['updated_at'] = gmdate('c');
-    $scripts = clientBackendGetScripts();
-    $scripts[$scriptId] = $script;
-    clientBackendSaveScripts($scripts);
 
-    return clientBackendPersistAndDispatch($scriptId, ['spam_filters' => $rules]);
+    return clientBackendDispatchAndDescribe($scriptId, $updated);
 }
 
 function clientBackendRemoveSpamFilter(string $scriptId, string $ruleId): ?array {
-    $script = clientBackendGetScript($scriptId);
-    if ($script === null) {
+    $updated = clientBackendMutateScript($scriptId, static function (array $script) use ($ruleId): array {
+        $rules = is_array($script['spam_filters'] ?? null) ? $script['spam_filters'] : [];
+        $script['spam_filters'] = array_values(array_filter($rules, static function ($rule) use ($ruleId): bool {
+            return !is_array($rule) || (string) ($rule['rule_id'] ?? '') !== $ruleId;
+        }));
+        return $script;
+    });
+    if ($updated === null) {
         return null;
     }
 
-    $rules = is_array($script['spam_filters'] ?? null) ? $script['spam_filters'] : [];
-    $rules = array_values(array_filter($rules, static function ($rule) use ($ruleId): bool {
-        return !is_array($rule) || (string) ($rule['rule_id'] ?? '') !== $ruleId;
-    }));
-    $script['spam_filters'] = $rules;
-    $script['updated_at'] = gmdate('c');
-    $scripts = clientBackendGetScripts();
-    $scripts[$scriptId] = $script;
-    clientBackendSaveScripts($scripts);
-
-    return clientBackendPersistAndDispatch($scriptId, ['spam_filters' => $rules]);
+    return clientBackendDispatchAndDescribe($scriptId, $updated);
 }
 
 function clientBackendRemoveListItem(string $scriptId, string $type, string $pattern): ?array {
-    $script = clientBackendGetScript($scriptId);
-    if ($script === null) {
-        return null;
-    }
-
     $listKey = $type === 'blacklist' ? 'blacklist' : 'whitelist';
     $pattern = clientBackendNormalizeListPattern($pattern);
     if ($pattern === null) {
         return null;
     }
-    $list = $script[$listKey] ?? [];
-    $script[$listKey] = array_values(array_filter($list, static function ($value) use ($pattern): bool {
-        return $value !== $pattern;
-    }));
-    $script['updated_at'] = gmdate('c');
-    $scripts = clientBackendGetScripts();
-    $scripts[$scriptId] = $script;
-    clientBackendSaveScripts($scripts);
-    return clientBackendPersistAndDispatch($scriptId, [$listKey => $script[$listKey]]);
-}
 
-function clientBackendUpdateSettings(string $scriptId, array $changes): ?array {
-    $script = clientBackendGetScript($scriptId);
-    if ($script === null) {
+    $updated = clientBackendMutateScript($scriptId, static function (array $script) use ($listKey, $pattern): array {
+        $list = is_array($script[$listKey] ?? null) ? $script[$listKey] : [];
+        $script[$listKey] = array_values(array_filter($list, static function ($value) use ($pattern): bool {
+            return $value !== $pattern;
+        }));
+        return $script;
+    });
+    if ($updated === null) {
         return null;
     }
 
+    return clientBackendDispatchAndDescribe($scriptId, $updated);
+}
+
+function clientBackendUpdateSettings(string $scriptId, array $changes): ?array {
     $changesToApply = [];
     if (isset($changes['greylist_days'])) {
-        $script['greylist_days'] = (int) $changes['greylist_days'];
-        $changesToApply['greylist_days'] = $script['greylist_days'];
+        $changesToApply['greylist_days'] = (int) $changes['greylist_days'];
     }
     if (isset($changes['label'])) {
-        $script['label'] = (string) $changes['label'];
-        $changesToApply['label'] = $script['label'];
+        $changesToApply['label'] = (string) $changes['label'];
     }
+    // target_host/target_path are normalised by clientBackendUpdateScript().
     if (isset($changes['target_host'])) {
-        $script['target_host'] = clientBackendNormalizeTargetHost($changes['target_host']);
-        $changesToApply['target_host'] = $script['target_host'];
+        $changesToApply['target_host'] = $changes['target_host'];
     }
     if (isset($changes['target_path'])) {
-        $script['target_path'] = clientBackendNormalizeTargetPath($changes['target_path']);
-        $changesToApply['target_path'] = $script['target_path'];
+        $changesToApply['target_path'] = $changes['target_path'];
     }
 
-    $script['updated_at'] = gmdate('c');
-    $scripts = clientBackendGetScripts();
-    $scripts[$scriptId] = $script;
-    clientBackendSaveScripts($scripts);
     return clientBackendPersistAndDispatch($scriptId, $changesToApply);
 }
 
@@ -1113,6 +1182,15 @@ function clientBackendPersistAndDispatch(string $scriptId, array $changes): ?arr
         return null;
     }
 
+    return clientBackendDispatchAndDescribe($scriptId, $updated);
+}
+
+/**
+ * Sends the already-persisted state of one script to its agent and returns the
+ * script as it now stands, with the dispatch outcome as sync status/message.
+ * $updated is what the caller wrote, returned when the row has since vanished.
+ */
+function clientBackendDispatchAndDescribe(string $scriptId, array $updated): array {
     $dispatch = clientBackendDispatchWebhookToScript($scriptId);
     $script = clientBackendGetScript($scriptId);
     if ($script === null) {
@@ -1147,19 +1225,21 @@ function clientBackendDispatchWebhookToScript(string $scriptId): array {
     $payload = clientBackendBuildWebhookPayload($script);
     $result = clientBackendSendJsonRequest($url, $payload, $script);
 
-    $scripts = clientBackendGetScripts();
-    $scripts[$scriptId]['pending_sync_at'] = null;
-    $scripts[$scriptId]['last_webhook_sent_at'] = gmdate('c');
-    $scripts[$scriptId]['updated_at'] = gmdate('c');
-    $scripts[$scriptId]['last_webhook_result'] = [
-        'success' => $result['success'],
-        'http_code' => $result['http_code'],
-        'response_body' => $result['response_body'],
-        'error' => $result['error'],
-    ];
-    $scripts[$scriptId]['sync_status'] = $result['success'] ? 'sent' : 'failed';
-    $scripts[$scriptId]['sync_message'] = clientBackendBuildSyncMessage($result);
-    clientBackendSaveScripts($scripts);
+    // Record the outcome on this one row only, re-read under lock so list edits
+    // made while the request was in flight are kept.
+    clientBackendMutateScript($scriptId, static function (array $current) use ($result): array {
+        $current['pending_sync_at'] = null;
+        $current['last_webhook_sent_at'] = gmdate('c');
+        $current['last_webhook_result'] = [
+            'success' => $result['success'],
+            'http_code' => $result['http_code'],
+            'response_body' => $result['response_body'],
+            'error' => $result['error'],
+        ];
+        $current['sync_status'] = $result['success'] ? 'sent' : 'failed';
+        $current['sync_message'] = clientBackendBuildSyncMessage($result);
+        return $current;
+    });
 
     return [
         'script_id' => $scriptId,
