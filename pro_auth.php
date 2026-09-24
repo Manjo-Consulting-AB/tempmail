@@ -136,8 +136,8 @@ function sendLoginEmail($email, $token) {
     // Logga i systemloggen — undvik att skriva ut token i produktion.
     if ($sent) {
         $logContext = ['to' => $email];
-        if (!empty($config['app']['debug_mode'])) {
-            // Only include token in debug/development mode
+        if (!empty($config['app']['debug_mode']) && !appIsProduction()) {
+            // Only include token in debug/development mode, never in production
             $logContext['token'] = $token;
         }
         logMessage('INFO', 'Magic link sent', $logContext);
@@ -188,8 +188,8 @@ function sendVerificationEmail(string $email, string $token): bool {
 
     if ($sent) {
         $logContext = ['to' => $email];
-        if (!empty($config['app']['debug_mode'])) {
-            // Only include token in debug/development mode
+        if (!empty($config['app']['debug_mode']) && !appIsProduction()) {
+            // Only include token in debug/development mode, never in production
             $logContext['token'] = $token;
         }
         logMessage('INFO', 'Verification email sent', $logContext);
@@ -592,7 +592,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Return a generic success response so callers cannot enumerate accounts.
     $response = ['success' => true];
     // In debug mode, optionally expose the login URL when a token was generated.
-    if (!empty($config['app']['debug_mode']) && $token) {
+    // Never in production: the link is a working login for the account.
+    if (!empty($config['app']['debug_mode']) && !appIsProduction() && $token) {
         $response['login_url'] = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
     }
     echo json_encode($response);
