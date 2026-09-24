@@ -239,6 +239,27 @@ class ImapProcessor
     }
 
     /**
+     * The mail body as plain text for a Pushover notification. strip_tags()
+     * alone keeps the text inside <style>, <script> and <head>, so an HTML
+     * mail arrived as a wall of CSS; those elements, comments and CDATA go
+     * first, block-level tags become line breaks, entities are decoded and
+     * whitespace is collapsed to at most one blank line.
+     */
+    public static function pushoverBodyText(string $body): string
+    {
+        $text = preg_replace('/<!--.*?(-->|$)/s', ' ', $body) ?? $body;
+        $text = preg_replace('/<!\[CDATA\[.*?(\]\]>|$)/s', ' ', $text) ?? $text;
+        $text = preg_replace('#<(style|script|head|title|noscript|template|svg)\b[^>]*>.*?(</\1\s*>|$)#is', ' ', $text) ?? $text;
+        $text = preg_replace('#<br\s*/?>|</?(p|div|tr|li|h[1-6]|table|ul|ol|blockquote|section|article|header|footer)\b[^>]*>#i', "\n", $text) ?? $text;
+        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = str_replace(["\r\n", "\r", "\xC2\xA0"], ["\n", "\n", ' '], $text);
+        $text = preg_replace('/[ \t\f]+/', ' ', $text) ?? $text;
+        $text = preg_replace('/ *\n */', "\n", $text) ?? $text;
+        $text = preg_replace('/\n{3,}/', "\n\n", $text) ?? $text;
+        return trim($text);
+    }
+
+    /**
      * JSON body for a generic hook: the mail payload with the config's
      * top-level keys merged over it, so a key in the config replaces ours.
      * `headers` is the one reserved key - it becomes HTTP headers (see
@@ -335,8 +356,8 @@ class ImapProcessor
             $token = $cfg['token'] ?? null;
             $user = $cfg['user'] ?? null;
             if (empty($token) || empty($user)) throw new Exception('Pushover config missing');
-            $message = ($payload['subject'] ?? '(No subject)') . "\n\n" . trim(strip_tags($payload['body'] ?? ''));
-            if (strlen($message) > 4096) $message = substr($message, 0, 4000) . '...';
+            $message = ($payload['subject'] ?? '(No subject)') . "\n\n" . self::pushoverBodyText((string)($payload['body'] ?? ''));
+            if (strlen($message) > 4096) $message = mb_strcut($message, 0, 4000, 'UTF-8') . '...';
             $post = self::pushoverPostFields($cfg, $message, (string)($payload['to'] ?? 'Mail Shield'));
 
             if (function_exists('curl_init')) {

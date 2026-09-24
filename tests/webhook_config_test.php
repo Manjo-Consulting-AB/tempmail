@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /**
  * Regression coverage for how a hook's config JSON shapes what is sent:
- * ImapProcessor::pushoverPostFields(), genericWebhookBody() and
+ * ImapProcessor::pushoverPostFields(), pushoverBodyText(), genericWebhookBody() and
  * webhookHeaders() - the helpers shared by the real delivery and the test
  * send on creation.
  *
@@ -70,6 +70,20 @@ same('P4. booleans become 1/0', 1, $fields['html'] ?? null);
 same('P5. the config may override message', 'Own text', $fields['message'] ?? null);
 same('P6. the config may override title', 'Own title', $fields['title'] ?? null);
 check('P7. nested values are dropped', !array_key_exists('nested', $fields));
+
+// ---------------------------------------------------------------------------
+// Pushover body text
+// ---------------------------------------------------------------------------
+
+$html = '<html><head><title>T</title><style type="text/css">body{color:red} .x{margin:0}</style></head>'
+    . '<body><!-- hidden --><script>var a=1;</script><p>Hello&nbsp;there</p>'
+    . '<div style="color:blue">Line &amp; two</div><br><style>.y{}</style>End</body></html>';
+same('PB1. CSS, scripts, head and comments are stripped', "Hello there\n\nLine & two\n\nEnd",
+    ImapProcessor::pushoverBodyText($html));
+same('PB2. plain text is left as is', "Hi\n\nBye", ImapProcessor::pushoverBodyText("Hi\r\n\r\n\r\n\r\nBye  "));
+same('PB3. an unclosed style block is dropped to the end', 'Before', ImapProcessor::pushoverBodyText('Before<style>a{b:c}'));
+check('PB4. no CSS survives an uppercase STYLE tag',
+    strpos(ImapProcessor::pushoverBodyText('<STYLE media="all">p{x:y}</STYLE >ok'), '{') === false);
 
 // ---------------------------------------------------------------------------
 // Generic body
