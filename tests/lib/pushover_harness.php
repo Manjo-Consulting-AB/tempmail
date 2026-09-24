@@ -3,18 +3,21 @@
 declare(strict_types=1);
 
 /**
- * Shared harness for the per-address Pushover routing tests (#176), in the
- * same spirit as the repository's check_*.php CLI scripts — but where those are
+ * Shared harness for the webhook routing and email storage suites
+ * (tests/webhook_routing_test.php, tests/email_storage_test.php), in the same
+ * spirit as the repository's check_*.php CLI scripts — but where those are
  * read-only diagnostics that need a live MySQL, this one runs anywhere PHP
  * does, because it brings its own database.
  *
  * Two mechanisms, both aimed at exercising the code that ships rather than a
  * copy of its decisions:
  *
- *  1. A SQLite database carrying the columns the routing reads
- *     (temp_emails.pushover_enabled, pro_webhooks.filter_mode,
- *     pro_webhook_deliveries). The dispatch scenarios drive the *real*
- *     ImapProcessor::dispatchWebhooks() against it.
+ *  1. A SQLite database carrying the columns those paths read
+ *     (temp_emails.is_personal, pro_webhooks.filter_mode,
+ *     pro_webhook_deliveries, plus the per-hook routing tables
+ *     ms_test_webhook_address_schema() adds for the suites that need them). The
+ *     dispatch scenarios drive the *real* ImapProcessor::dispatchWebhooks()
+ *     against it.
  *
  *  2. A throwaway docroot (the "probe") holding copies of the real pages under
  *     test plus a stub config.php backed by the same SQLite file, so
@@ -28,8 +31,8 @@ declare(strict_types=1);
  * mirrored; where it is incidental (logMessage, flagMaliciousActivity) it is a
  * no-op. Nothing here is loaded by the deployed site.
  *
- * Usage: see tests/pushover_routing_test.php — run it with
- * `php tests/pushover_routing_test.php`.
+ * Usage: see tests/webhook_routing_test.php — run it with
+ * `php tests/webhook_routing_test.php`.
  */
 
 const MS_TEST_ORIGIN = 'http://localhost:8085';
@@ -93,9 +96,13 @@ function ms_test_summary(): int {
 // ---------------------------------------------------------------------
 
 /**
- * DDL for the tables the per-address Pushover routing touches, translated to
- * SQLite. Only the columns these paths read are modelled; the real schema has
- * more (see migrate_address_pushover_state.php and friends).
+ * DDL for the tables the webhook routing and the storage paths touch,
+ * translated to SQLite. Only the columns these paths read are modelled; the
+ * real schema has more (see migrate_webhook_addresses.php and friends).
+ *
+ * temp_emails.pushover_enabled is the one exception — nothing reads it since
+ * #251 step 6 retired it, but it is still in the deployed schema, so it stays
+ * here too.
  */
 function ms_test_schema(): string {
     return <<<'SQL'
@@ -148,6 +155,32 @@ CREATE TABLE pending_profile_changes (
     user_id INTEGER NOT NULL,
     used INTEGER NOT NULL DEFAULT 0
 );
+SQL;
+}
+
+/**
+ * DDL for the per-hook address routing schema (epic #251, step 2), translated
+ * to SQLite from migrate_webhook_addresses.php.
+ *
+ * Suites that exercise the per-hook routing apply this *on top of*
+ * ms_test_schema() — it is an ALTER against two of ms_test_schema()'s tables,
+ * so it cannot stand alone. ms_test_schema() is deliberately left without it:
+ * the suites that shipped before the routing exist to keep the pre-migration
+ * path honest (no pro_webhook_addresses, no pro_webhooks.include_temporary and
+ * no temp_emails.hooks_paused), and they keep getting exactly that.
+ */
+function ms_test_webhook_address_schema(): string {
+    return <<<'SQL'
+CREATE TABLE pro_webhook_addresses (
+    webhook_id INTEGER NOT NULL,
+    temp_email_id INTEGER NOT NULL,
+    created_at TEXT NULL,
+    PRIMARY KEY (webhook_id, temp_email_id)
+);
+
+ALTER TABLE pro_webhooks ADD COLUMN include_temporary INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE temp_emails ADD COLUMN hooks_paused INTEGER NOT NULL DEFAULT 0;
 SQL;
 }
 
@@ -220,6 +253,14 @@ function ms_test_deliveries(PDO $pdo, int $userId): array {
     return $out;
 }
 
+/**
+ * One address' temp_emails.pushover_enabled, or null when the row is gone.
+ *
+ * The column is retired (#251 step 6): no code reads it and no suite asserts on
+ * it any more. The helper and its DDL stay so the schema keeps matching the
+ * deployed one — the column is still there, unread, and a rollback of the code
+ * has to find it.
+ */
 function ms_test_pushover_flag(PDO $pdo, int $addressId): ?int {
     $stmt = $pdo->prepare('SELECT pushover_enabled FROM temp_emails WHERE id = ?');
     $stmt->execute([$addressId]);
@@ -332,7 +373,7 @@ function ms_test_probe_build(string $repoRoot): string {
         throw new RuntimeException("Could not create probe docroot at {$root}");
     }
 
-    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'TwoFactorAuth.php'] as $page) {
+    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'TwoFactorAuth.php', 'php_imap_processor.php'] as $page) {
         if (!copy($repoRoot . '/' . $page, $root . '/' . $page)) {
             throw new RuntimeException("Could not copy {$page} into the probe docroot");
         }
@@ -607,7 +648,8 @@ function isValidLocalPart($localPart) { return isValidAddress($localPart); }
 function generateSignedAttachmentUrl(...$args) { return ''; }
 function hasSessionAddressAccess(...$args) { return false; }
 function grantSessionAddressAccess(...$args) { return true; }
-function shouldRunGlobalImapRefresh(PDO $pdo, int $cooldownSeconds = 5): bool { return true; }
+function deleteStoredEmailsForTempEmail(PDO $pdo, int $tempEmailId): array { return []; }
+function unlinkAttachmentFiles(array $paths): void {}
 function getStats() { return []; }
 function resolveUrlToPublicTarget(...$args) { return ['ip' => '127.0.0.1', 'host' => 'localhost']; }
 PHP;

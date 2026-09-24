@@ -28,7 +28,7 @@
  * the copy names.
  *
  * Treatment: deliberately not a card grid. automation.php immediately above is
- * already seven boxes on a sunken band, and a second grid would flatten two
+ * already six boxes on a sunken band, and a second grid would flatten two
  * sections into one texture. This is a flat two-column list — one column on
  * mobile — divided by hairlines, with a small check mark per point.
  *

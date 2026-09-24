@@ -14,6 +14,7 @@
  */
 require_once 'config.php';
 require_once __DIR__ . '/pro_auth.php';
+require_once __DIR__ . '/pro_trial.php';
 require_once __DIR__ . '/partials/brand.php';
 
 session_start();
@@ -55,6 +56,8 @@ if ($token) {
                 // Only fires on the row's first verification (the WHERE clause
                 // above only matches when email_verified_at was still NULL) -
                 // never on a plain magic-link login by an already-verified user.
+                // Grant the 60-day Pro trial on first verification (epic #267).
+                proTrialGrantOnVerification($pdo, (int) $result['user_id'], (string) $result['email'], $config['trial'] ?? []);
                 sendAdminRegistrationNotification($result['email']);
             }
         }
@@ -212,7 +215,8 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                     <div id="twoFactorMsg" class="mt-3"></div>
                 </div>
 
-                <p class="ms-auth__alt">New here? <a href="/register.php?plan=regular">Create your inbox</a>.</p>
+                <?php $msTrialDays = max(0, (int) ($config['trial']['days'] ?? 0)); ?>
+                <p class="ms-auth__alt">New here? <a href="/register.php?plan=regular">Create your inbox</a><?php if ($msTrialDays > 0) : ?> &mdash; it starts with <?php echo $msTrialDays; ?> days of Pro<?php endif; ?>.</p>
             </div>
         </main>
 

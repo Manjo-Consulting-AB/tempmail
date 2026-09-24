@@ -25,11 +25,20 @@
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 
 $msCtaSignedIn = !empty($_SESSION['pro_user_id']);
+
+// The closing sentence carries the trial for signed-out visitors (epic #267),
+// so the last thing read before the button is the reason to press it. Still one
+// sentence: the section's rule above holds.
+$msCtaTrialDays = $msCtaSignedIn ? 0 : max(0, (int) ($config['trial']['days'] ?? 0));
 ?>
 <section class="ms-section ms-section--sunken ms-cta" id="get-started">
     <div class="ms-container--narrow ms-cta__inner">
         <h2 class="ms-h2">Give your inbox some breathing room.</h2>
-        <p class="ms-cta__body">Keep your primary inbox for what matters. Let Mail Shield handle everything else.</p>
+        <?php if ($msCtaTrialDays > 0) : ?>
+            <p class="ms-cta__body">Keep your primary inbox for what matters &mdash; and start with <?php echo $msCtaTrialDays; ?> days of Pro, free.</p>
+        <?php else : ?>
+            <p class="ms-cta__body">Keep your primary inbox for what matters. Let Mail Shield handle everything else.</p>
+        <?php endif; ?>
         <?php if ($msCtaSignedIn) : ?>
             <a class="ms-btn ms-btn--primary ms-btn--lg" href="/pro.php">Go to your inbox</a>
         <?php else : ?>

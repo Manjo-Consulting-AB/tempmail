@@ -223,7 +223,11 @@ $baseConfig = [
     'email' => [
         'domain' => $_ENV['EMAIL_DOMAIN'] ?? 'manjo.me',
         // Use primary domain for generated links in production (no subdomain)
-        'base_url' => $_ENV['BASE_URL'] ?? ($environment === 'production' ? 'https://manjo.me/' : 'http://localhost:8085/')
+        'base_url' => $_ENV['BASE_URL'] ?? ($environment === 'production' ? 'https://manjo.me/' : 'http://localhost:8085/'),
+        // Largest raw message parse.php accepts, in bytes (#212). 10 MB.
+        'max_message_bytes' => (int)($_ENV['MAX_MESSAGE_BYTES'] ?? 10485760),
+        // Stored-mail quota per user account, or per anonymous address, in bytes (#212). 100 MB.
+        'quota_bytes' => (int)($_ENV['MAILBOX_QUOTA_BYTES'] ?? 104857600),
     ],
     'app' => [
         'cleanup_hours' => 24,
@@ -249,6 +253,15 @@ $baseConfig = [
         'smtp_batch_size' => (int)($_ENV['SMTP_BATCH_SIZE'] ?? 50),
         'smtp_per_minute' => (int)($_ENV['SMTP_PER_MINUTE'] ?? 200)
     ],
+    'webhooks' => [
+        // Send Pro webhooks from parse.php as soon as the email is stored, instead
+        // of waiting for cron/process-webhook-deliveries.php (which still retries
+        // failures). WEBHOOK_DELIVER_IMMEDIATELY=false restores queue-only.
+        'deliver_immediately' => filter_var($_ENV['WEBHOOK_DELIVER_IMMEDIATELY'] ?? true, FILTER_VALIDATE_BOOLEAN),
+        // Upper bound on deliveries sent inline per email, so slow targets cannot
+        // hold the Exim pipe for long; the rest go to the cron worker.
+        'immediate_limit' => (int)($_ENV['WEBHOOK_IMMEDIATE_LIMIT'] ?? 5),
+    ],
     'bmac' => [
         // Buy Me a Coffee webhook secret for signature verification
         'webhook_secret' => $_ENV['BMAC_WEBHOOK_SECRET'] ?? null
@@ -259,9 +272,10 @@ $baseConfig = [
         'user' => $_ENV['DA_USER'] ?? '',
         'api_key' => $_ENV['DA_API_KEY'] ?? '',
         'domain' => $_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me'),
-        // Kill switch: keep disabled until the forwarder integration (#32/#33)
-        // has been verified end-to-end (#35). Off by default in all environments.
-        'forwarder_enabled' => filter_var($_ENV['DA_FORWARDER_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        // The forwarder is the only mail intake (#212): on by default in production,
+        // off by default elsewhere (no DirectAdmin credentials in local dev). An
+        // explicit DA_FORWARDER_ENABLED always wins.
+        'forwarder_enabled' => filter_var($_ENV['DA_FORWARDER_ENABLED'] ?? ($environment === 'production'), FILTER_VALIDATE_BOOLEAN),
         // Pipe destination new forwarders are created with. Path confirmed via SSH
         // against the real Inleed server in #35 — username s174280, webroot under
         // domains/<domain>/public_html. Override with DA_FORWARDER_DESTINATION if
@@ -290,7 +304,18 @@ $baseConfig = [
         // Secret of the notification destination that points at
         // paddle_webhook.php (pdl_ntfset_…). Server-side only.
         'webhook_secret' => $_ENV['PADDLE_WEBHOOK_SECRET'] ?? null
-    ]
+    ],
+    // 60-day Pro trial for new Regular accounts, one trial per email address,
+    // ever (epic #267). hash_key must never change once set: it is the HMAC
+    // key that turns a normalised address into pro_trial_claims.email_hash,
+    // and rotating it makes every stored hash unmatchable, silently letting
+    // every address claim a trial again. days = 0 turns the trial off, but
+    // addresses are still recorded (decision 8) so a later flip-on is exact.
+    'trial' => [
+        'days' => max(0, (int)($_ENV['PRO_TRIAL_DAYS'] ?? 60)),
+        'hash_key' => (string)($_ENV['PRO_TRIAL_HASH_KEY'] ?? ''),
+        'claim_retention_days' => 1825,
+    ],
 ];
 
 /**
@@ -691,6 +716,13 @@ try {
     }
 
     if (!isset($pdo) || !($pdo instanceof PDO)) {
+    // The DirectAdmin/Exim pipe intake (parse.php) must not print here: any
+    // output makes Exim bounce the mail permanently. Defer instead — exit 75
+    // (EX_TEMPFAIL), silent, so the transport retries the delivery later.
+    if (defined('TEMPMAIL_PIPE_INTAKE')) {
+        error_log('Database connection failed (pipe intake, deferring): ' . $e->getMessage());
+        exit(75);
+    }
     if ($config['app']['debug_mode']) {
         die("Databasanslutning misslyckades i {$environment}-miljö: " . $e->getMessage() . 
             "<br>Host: {$config['db']['host']}, DB: {$config['db']['name']}, User: {$config['db']['user']}");
@@ -1207,18 +1239,20 @@ function generateUniqueString($length = null) {
 }
 
 /**
- * Best-effort creation of the DirectAdmin mail forwarder for a newly
- * created temp address (alias@domain -> parse.php pipe). Fail-open: any
- * failure (misconfiguration, API error, network timeout) is logged but
- * never prevents the address from being usable, so an outage on the
- * DirectAdmin side can't block address generation (#32). No-op while
- * $config['directadmin']['forwarder_enabled'] is off (the default).
+ * Creation of the DirectAdmin mail forwarder for a newly created temp
+ * address (alias@domain -> parse.php pipe). Fail-closed since #212: the
+ * forwarder is the only way mail reaches the address, so when it cannot be
+ * created the address must not be created either. Returns false when
+ * createForwarder() fails or throws (both logged at ERROR), true when it
+ * succeeds. No-op returning true while
+ * $config['directadmin']['forwarder_enabled'] is off (there is no forwarder
+ * to create in that configuration, so creation proceeds as before).
  */
-function createDirectAdminForwarder(string $alias): void {
+function createDirectAdminForwarder(string $alias): bool {
     global $config;
 
     if (empty($config['directadmin']['forwarder_enabled'])) {
-        return;
+        return true;
     }
 
     require_once __DIR__ . '/DirectAdminClient.php';
@@ -1227,10 +1261,13 @@ function createDirectAdminForwarder(string $alias): void {
         $client = new DirectAdminClient($config['directadmin']);
         $ok = $client->createForwarder($alias, $config['directadmin']['forwarder_destination']);
         if (!$ok) {
-            logMessage('WARNING', 'DirectAdmin forwarder creation failed; address remains usable without it', ['alias' => $alias]);
+            logMessage('ERROR', 'DirectAdmin forwarder creation failed; address creation is refused', ['alias' => $alias]);
+            return false;
         }
+        return true;
     } catch (Throwable $e) {
-        logMessage('ERROR', 'DirectAdmin forwarder creation threw an exception', ['alias' => $alias, 'error' => $e->getMessage()]);
+        logMessage('ERROR', 'DirectAdmin forwarder creation failed; address creation is refused', ['alias' => $alias, 'error' => $e->getMessage()]);
+        return false;
     }
 }
 
@@ -1300,9 +1337,15 @@ function saveNewAddress($address, $proUserId = null, $isPersonal = 0) {
         }
 
         if ($result) {
+            // The forwarder is the only intake path for mail, so an address
+            // whose forwarder could not be created is removed again instead of
+            // being handed to the user, and counts no stats (#212).
+            if (!createDirectAdminForwarder($address)) {
+                $pdo->prepare("DELETE FROM temp_emails WHERE unique_address = ?")->execute([$address]);
+                return false;
+            }
             updateStat('emails_created', 1);
             updateStat('total_users', 1);
-            createDirectAdminForwarder($address);
         }
         return $result;
     } catch (PDOException $e) {
@@ -1439,26 +1482,40 @@ function requireSameOriginRequest(): bool {
     return strcasecmp($sourceHost, $expectedHost) === 0;
 }
 
-// refresh_emails triggers a full IMAP fetch/parse/DB-write cycle across every
-// currently valid address, not just the one requested, with no per-request
-// cost. Without a global cooldown, anyone can hammer that action to force
-// repeated full-mailbox syncs (cost-amplification DoS against the mail
-// server and DB). The UPDATE below only succeeds for one caller at a time
-// once the cooldown has elapsed, so concurrent requests can't all pass.
-function shouldRunGlobalImapRefresh(PDO $pdo, int $cooldownSeconds = 5): bool {
-    try {
-        $pdo->exec("CREATE TABLE IF NOT EXISTS imap_refresh_state (
-            id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
-            last_run_at DATETIME NULL
-        ) ENGINE=InnoDB");
-        $pdo->exec("INSERT IGNORE INTO imap_refresh_state (id, last_run_at) VALUES (1, NULL)");
+/**
+ * Delete every stored email of one temp_emails row and their attachment rows.
+ * Returns the absolute paths of the attachment files, which the caller must
+ * unlink with unlinkAttachmentFiles() only AFTER its transaction commits.
+ * Does not delete the temp_emails row itself.
+ */
+function deleteStoredEmailsForTempEmail(PDO $pdo, int $tempEmailId): array {
+    $stmt = $pdo->prepare("SELECT ea.file_path FROM email_attachments ea JOIN stored_emails se ON se.id = ea.email_id WHERE se.temp_email_id = ?");
+    $stmt->execute([$tempEmailId]);
+    $filePaths = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-        $upd = $pdo->prepare("UPDATE imap_refresh_state SET last_run_at = NOW() WHERE id = 1 AND (last_run_at IS NULL OR last_run_at <= DATE_SUB(NOW(), INTERVAL ? SECOND))");
-        $upd->execute([$cooldownSeconds]);
-        return $upd->rowCount() > 0;
-    } catch (Exception $e) {
-        logMessage('WARNING', 'IMAP refresh cooldown check failed, allowing run', ['error' => $e->getMessage()]);
-        return true;
+    $delAttachments = $pdo->prepare("DELETE FROM email_attachments WHERE email_id IN (SELECT id FROM stored_emails WHERE temp_email_id = ?)");
+    $delAttachments->execute([$tempEmailId]);
+
+    $delStoredEmails = $pdo->prepare("DELETE FROM stored_emails WHERE temp_email_id = ?");
+    $delStoredEmails->execute([$tempEmailId]);
+
+    $paths = [];
+    foreach ($filePaths as $filePath) {
+        // basename() so a stored path can never point outside attachments/
+        $paths[] = __DIR__ . '/attachments/' . basename($filePath);
+    }
+    return $paths;
+}
+
+/** Unlink attachment files collected by deleteStoredEmailsForTempEmail(). Never throws. */
+function unlinkAttachmentFiles(array $paths): void {
+    foreach ($paths as $path) {
+        if (!is_file($path)) {
+            continue;
+        }
+        if (!@unlink($path)) {
+            logMessage('WARNING', 'Failed to delete attachment file', ['file' => basename($path)]);
+        }
     }
 }
 
@@ -1620,48 +1677,6 @@ function getStats() {
             'total_users' => 0,
             'attachments_processed' => 0
         ];
-    }
-}
-
-/**
- * Rensa gamla data (anropas av cleanup.php)
- */
-function cleanupOldData() {
-    global $pdo, $config;
-    
-    try {
-        $pdo->beginTransaction();
-        
-        // Radera gamla adresser (aldrig personliga Pro-adresser - matchar
-        // filtret i cron/cleanup.php, som är den faktiska aktiva cleanup-koden)
-        $stmt = $pdo->prepare("DELETE FROM temp_emails WHERE is_personal = 0 AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)");
-        $stmt->execute([$config['app']['cleanup_hours']]);
-        $deletedAddresses = $stmt->rowCount();
-        
-        // Radera gamla e-postmeddelanden
-            $stmt = $pdo->prepare("DELETE FROM stored_emails WHERE (expires_at IS NOT NULL AND expires_at < NOW()) OR (expires_at IS NULL AND received_at < DATE_SUB(NOW(), INTERVAL ? HOUR))");
-        $stmt->execute([$config['app']['cleanup_hours']]);
-        $deletedEmails = $stmt->rowCount();
-        
-        // Radera gamla loggar (behåll 7 dagar)
-        $stmt = $pdo->prepare("DELETE FROM system_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)");
-        $stmt->execute([$config['cleanup']['log_retention_days']]);
-        $deletedLogs = $stmt->rowCount();
-        
-        $pdo->commit();
-        
-        logMessage('INFO', 'Cleanup completed successfully', [
-            'deleted_addresses' => $deletedAddresses,
-            'deleted_emails' => $deletedEmails, 
-            'deleted_logs' => $deletedLogs
-        ]);
-        
-        return true;
-        
-    } catch (PDOException $e) {
-        $pdo->rollBack();
-        logMessage('ERROR', 'Cleanup failed: ' . $e->getMessage());
-        return false;
     }
 }
 

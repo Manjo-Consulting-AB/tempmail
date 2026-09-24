@@ -32,6 +32,10 @@ $msAddrDomain = htmlspecialchars(
     ENT_QUOTES,
     'UTF-8'
 );
+
+// The tier note doubles as the trial pitch for signed-out visitors (epic #267):
+// this is where personal addresses start to look worth having.
+$msAddrTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['trial']['days'] ?? 0)) : 0;
 ?>
 <section class="ms-section" id="features">
     <div class="ms-container">
@@ -41,7 +45,7 @@ $msAddrDomain = htmlspecialchars(
                 <h2 class="ms-h2">One account. Multiple addresses.</h2>
                 <p class="ms-addresses__body">Create up to 10 personal email addresses and manage them from one inbox. Keep the addresses you want to use, without turning this into another inbox you have to maintain.</p>
                 <p class="ms-addresses__kicker">Multiple identities. One inbox.</p>
-                <p class="ms-addresses__tier">Personal addresses are part of Pro.</p>
+                <p class="ms-addresses__tier">Personal addresses are part of Pro<?php if ($msAddrTrialDays > 0) : ?> &mdash; and included in your first <?php echo $msAddrTrialDays; ?> days<?php endif; ?>.</p>
             </div>
 
             <div class="ms-addresses__routing">

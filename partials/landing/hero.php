@@ -13,6 +13,11 @@ if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 
 $msHeroSignedIn = !empty($_SESSION['pro_user_id']);
 
+// Every new account starts on Pro for this many days (epic #267). Read from
+// $config rather than written into copy, so the page cannot promise a trial the
+// backend no longer grants; 0 turns the trial off and the plain note returns.
+$msHeroTrialDays = max(0, (int) ($config['trial']['days'] ?? 0));
+
 // index.php sets $domain; the config fallback keeps the partial self-contained.
 $msHeroDomain = htmlspecialchars(
     (string) ($domain ?? ($config['email']['domain'] ?? '')),
@@ -34,7 +39,11 @@ $msHeroDomain = htmlspecialchars(
                 <a class="ms-btn ms-btn--secondary ms-btn--lg" href="#how-it-works">See how it works</a>
             </div>
             <?php if (!$msHeroSignedIn) : ?>
-                <p class="ms-hero__note">Free to start. No card needed.</p>
+                <?php if ($msHeroTrialDays > 0) : ?>
+                    <p class="ms-hero__note">Includes <?php echo $msHeroTrialDays; ?> days of Pro, free. No card needed.</p>
+                <?php else : ?>
+                    <p class="ms-hero__note">Free to start. No card needed.</p>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
 

@@ -5,15 +5,15 @@ declare(strict_types=1);
 /**
  * parse.php — STDIN entrypoint for the DirectAdmin pipe-forwarder mail intake.
  *
- * This replaces IMAP polling (php_imap_processor.php / cron/run_imap_once.php)
- * for addresses whose DirectAdmin forwarder has been switched over: instead of
- * this app fetching mail from a catch-all inbox, DirectAdmin pipes each
- * incoming message directly to `php parse.php`, which reads the raw RFC822
- * message from php://stdin and saves it the same way ImapProcessor does today
- * (see php_imap_processor.php's saveEmail()/saveAttachmentsFromMessage()).
- * IMAP polling is kept running in parallel as a fallback until #35 verifies
- * this path end-to-end in production; DA_FORWARDER_ENABLED gates whether any
- * forwarder actually points here (see DirectAdminClient.php / config.php).
+ * This is the only intake path for incoming mail: a DirectAdmin forwarder per
+ * address pipes each incoming message directly to `php parse.php`, which reads
+ * the raw RFC822 message from php://stdin, parses it with MailParser and hands
+ * it to the Email Storage service (EmailStorage::store(), epic #169). There is
+ * no shared mailbox and nothing polls one — the other intake paths this
+ * replaced were removed in #212. Intake stays here: reading stdin, deriving and validating
+ * the recipient, the MIME parse and the body sanitizing. DA_FORWARDER_ENABLED
+ * gates whether any forwarder actually points here (see DirectAdminClient.php /
+ * config.php).
  *
  * Deriving the recipient: DirectAdmin's forwarder destination is configured
  * (config.php, $config['directadmin']['forwarder_destination']) as the static
@@ -62,15 +62,17 @@ declare(strict_types=1);
 // triggered a bounce. Redirect PHP's error_log destination to a file before
 // config.php runs so this pipe-delivery path stays completely silent.
 ini_set('error_log', __DIR__ . '/debug_logs/parse_php_errors.log');
+ini_set('display_errors', '0');
+// Tells config.php that a DB connection failure must defer (exit 75,
+// silent) instead of printing, which Exim would turn into a bounce.
+define('TEMPMAIL_PIPE_INTAKE', true);
 
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/config.php';
 
 // MailParser::parseRawMessage() needs ZBateson\MailMimeParser, which only
-// exists via Composer's autoloader. Nothing else in this script's require
-// chain loads it — the IMAP path (php_imap_processor.php) never needs it for
-// headers/body because it parses those itself via ext/imap, only relying on
-// MailParser for attachments. Confirmed live in #35: without this require,
+// exists via Composer's autoloader, and nothing else in this script's require
+// chain loads it. Confirmed live in #35: without this require,
 // class_exists() inside parseRawMessage() silently returns the empty-stub
 // result (from/subject/body_text/body_html all null), so the pipe delivered
 // successfully but every field except to_address/received_at was blank.
@@ -94,6 +96,14 @@ if (php_sapi_name() === 'cli') {
     exit(1);
 }
 
+// Nothing below here is allowed to reach Exim: an uncaught Throwable would be
+// printed by PHP (if display_errors were ever on) and the delivery would bounce.
+// Log it and exit 75 (EX_TEMPFAIL) so the transport defers and retries instead.
+set_exception_handler(static function (Throwable $e): void {
+    error_log('parse.php: uncaught ' . get_class($e) . ': ' . $e->getMessage());
+    exit(75);
+});
+
 /**
  * Log + exit(1): a permanent rejection (bad/unknown/expired recipient).
  * Non-zero so DirectAdmin/Exim can bounce the message if configured to.
@@ -106,14 +116,21 @@ function parseReject(string $reason, array $context = []): void
 }
 
 /**
- * Log + exit(2): an internal failure (parsing/DB), distinct from a
- * permanent rejection so bounce behavior can be tuned differently later.
+ * Log + exit(75): a *temporary* failure (parsing/DB). 75 is EX_TEMPFAIL, the
+ * conventional code a pipe transport lists in temp_errors: Exim defers the
+ * delivery and retries later rather than bouncing it. Nothing may be written to
+ * stdout or stderr — output alone makes Exim treat the delivery as permanently
+ * failed, whatever the exit code (see this file's header).
  */
 function parseFail(string $reason, array $context = []): void
 {
-    logMessage('ERROR', 'parse.php: ' . $reason, $context);
-    fwrite(STDERR, $reason . "\n");
-    exit(2);
+    try {
+        logMessage('ERROR', 'parse.php: ' . $reason, $context);
+    } catch (\Throwable $_) {
+        // The database may be exactly what failed, so logging can fail too.
+        error_log('parse.php: ' . $reason);
+    }
+    exit(75);
 }
 
 /** Read one env var, trying $_SERVER first (per the issue's example) then getenv(). */
@@ -131,9 +148,30 @@ function parseEnvOrServer(string $key): ?string
 
 // --- 1. Read the raw RFC822 message from stdin ------------------------------
 
-$raw = stream_get_contents(STDIN);
+// A message larger than the configured limit is a permanent rejection, decided
+// here — on the raw message as delivered, before the recipient is even derived
+// and before any database lookup. Read one byte past the limit so an oversize
+// message is detected without ever holding the whole of it in memory.
+$maxBytes = (int)($config['email']['max_message_bytes'] ?? 10485760);
+if ($maxBytes <= 0) {
+    $maxBytes = 10485760;
+}
+
+$raw = stream_get_contents(STDIN, $maxBytes + 1);
 if ($raw === false || $raw === '') {
     parseReject('Empty or unreadable message on stdin');
+}
+
+if (strlen($raw) > $maxBytes) {
+    // Drain the rest without keeping it: the pipe's writer must not see a
+    // broken pipe, or Exim reports the delivery differently than this exit
+    // code says.
+    while (!feof(STDIN)) {
+        if (fread(STDIN, 65536) === false) {
+            break;
+        }
+    }
+    parseReject('Message exceeds the maximum size of ' . $maxBytes . ' bytes', ['to_source' => 'stdin']);
 }
 
 // --- 2. Derive the recipient local part --------------------------------------
@@ -176,6 +214,12 @@ if (sanitizeLocalPart($localPart, 1, 64) === null) {
 logMessage('DEBUG', 'parse.php: derived recipient local part', ['local_part' => $localPart, 'source' => $source]);
 
 // --- 3. Look up the receiving temp_emails row --------------------------------
+//
+// This lookup is the authority on whether the recipient is deliverable at all:
+// a missing or expired row is a permanent rejection here, *before* the message
+// is parsed, which is the behavior this path has always had. The ownership
+// context it resolves also travels in the DTO below as the service's fallback
+// (Email Storage API §7.3).
 
 try {
     $stmt = $pdo->prepare('SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1');
@@ -183,7 +227,7 @@ try {
     $tempEmail = $stmt->fetch(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
     parseFail('temp_emails lookup threw', ['error' => $e->getMessage(), 'local_part' => $localPart]);
-    exit(2); // unreachable, keeps static analysis happy
+    exit(75); // unreachable, keeps static analysis happy
 }
 
 if (!$tempEmail) {
@@ -197,14 +241,14 @@ if (strtotime((string)$tempEmail['expires_at']) < time()) {
 $domain = $config['email']['domain'] ?? 'manjo.me';
 $toAddress = $localPart . '@' . $domain;
 
-// --- 4. Parse the MIME message (reuses MailParser, same as ImapProcessor) ---
+// --- 4. Parse the MIME message (MailParser, the same parser the intake always used) ---
 
 try {
-    $parser = new MailParser($pdo, $config, !empty($config['app']['debug_mode']));
+    $parser = new MailParser($config, !empty($config['app']['debug_mode']));
     $parsed = $parser->parseRawMessage($raw);
 } catch (Throwable $e) {
     parseFail('MailParser threw while parsing message', ['error' => $e->getMessage(), 'to' => $toAddress]);
-    exit(2); // unreachable
+    exit(75); // unreachable
 }
 
 $fromAddress = $parsed['from'] ?? '';
@@ -215,9 +259,9 @@ if ($bodyHtml === null && $bodyText === null) {
     $bodyText = '';
 }
 
-// Mirrors ImapProcessor::sanitizeSavedBody(): strip inline data: URIs before
-// storage so embedded images/attachments (already saved separately, above)
-// don't get duplicated as base64 bloat in the stored body.
+// Strip inline data: URIs before storage so embedded images/attachments
+// (persisted separately by the service, below) don't get duplicated as base64
+// bloat in the stored body.
 $stripDataUris = static function (?string $body): ?string {
     if ($body === null || $body === '') {
         return $body;
@@ -227,79 +271,133 @@ $stripDataUris = static function (?string $body): ?string {
 $bodyHtml = $stripDataUris($bodyHtml);
 $bodyText = $stripDataUris($bodyText);
 
-// --- 5. Save to stored_emails (+ email_attachments) --------------------------
+// --- 5. Store through the Email Storage service ------------------------------
+//
+// The service (epic #169, #191) now owns everything that turns this message
+// into rows: the ownership lookup, the Pro retention calculation, the
+// transactional stored_emails insert, attachment persistence and the
+// emails_processed / attachments_processed counters. What stays here is intake
+// — the stdin read, the recipient derivation and validation, the MIME parse and
+// the body sanitizing above. Pro webhooks are downstream of storage and run
+// from inside the service, through the consumer registered below (#196).
 
-$receivedAt = date('Y-m-d H:i:s');
-$expiresAt = $tempEmail['expires_at'];
-$proUserId = $tempEmail['pro_user_id'] ?? null;
+require_once __DIR__ . '/EmailStorage/IncomingEmail.php';
+require_once __DIR__ . '/EmailStorage/StorageResult.php';
+require_once __DIR__ . '/EmailStorage/EmailStorage.php';
 
-// Pro users can have a longer retention window than the address's own
-// expiry; same lookup ImapProcessor::saveEmail() does.
-if (!empty($proUserId)) {
-    try {
-        $pstmt = $pdo->prepare('SELECT COALESCE(address_ttl_days, 1) AS ttl_days FROM pro_users WHERE id = ? LIMIT 1');
-        $pstmt->execute([(int)$proUserId]);
-        $prow = $pstmt->fetch(PDO::FETCH_ASSOC);
-        if ($prow && isset($prow['ttl_days'])) {
-            $ttl = max(1, min(365 * 50, (int)$prow['ttl_days']));
-            $expiresAt = date('Y-m-d H:i:s', strtotime("+{$ttl} days", strtotime($receivedAt) ?: time()));
-        }
-    } catch (Throwable $e) {
-        logMessage('WARNING', 'parse.php: pro_users TTL lookup failed', ['error' => $e->getMessage(), 'pro_user_id' => $proUserId]);
+// `received_at` on this path is the pipe's own clock, not the message's Date:
+// header — unchanged from before the migration (architecture doc §2.2).
+$receivedAt = new DateTimeImmutable();
+
+// Ownership context resolved by step 3, passed to the DTO as the service's
+// fallback. $tempEmail['id'] is an int already: config.php opens PDO with
+// ATTR_EMULATE_PREPARES => false, so native types come back from the fetch.
+$tempEmailId = (int)$tempEmail['id'];
+$proUserId = !empty($tempEmail['pro_user_id']) ? (int)$tempEmail['pro_user_id'] : null;
+$addressExpiresAt = new DateTimeImmutable((string)$tempEmail['expires_at']);
+
+// MailParser's decoded attachments travel in the DTO; the service persists
+// them with the email and reports a per-attachment failure as a warning rather
+// than failing the store.
+$attachments = [];
+foreach ($parsed['attachments'] as $attachment) {
+    if (is_array($attachment)) {
+        $attachments[] = EmailAttachment::fromArray($attachment);
     }
 }
+
+$emailStorage = new EmailStorage($pdo, !empty($config['app']['debug_mode']));
+
+// Post-storage processing (#196): the Pro webhook consumer is registered on the
+// service, so it runs from inside store() once the email is committed, instead
+// of being dispatched by this script afterwards.
+require_once __DIR__ . '/EmailStorage/PostStorageWebhooks.php';
+PostStorageWebhooks::attach($emailStorage, $config, $pdo, !empty($config['app']['debug_mode']));
+
+// The stored-mail quota (#227) is a second post-storage listener. Registered
+// after the webhooks on purpose: registration order is run order, so every
+// webhook is queued before this one deletes an over-quota row.
+require_once __DIR__ . '/EmailStorage/MailboxQuota.php';
+MailboxQuota::attach($emailStorage, $pdo, __DIR__ . '/attachments', (int)($config['email']['quota_bytes'] ?? 104857600));
 
 try {
-    $sql = 'INSERT INTO stored_emails (to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-    $stmt = $pdo->prepare($sql);
-    $ok = $stmt->execute([$toAddress, $fromAddress, $subject, $bodyText, $bodyHtml, $receivedAt, $expiresAt, $tempEmail['id']]);
+    $result = $emailStorage->store(
+        new IncomingEmail(
+            toAddress: $toAddress,
+            receivedAt: $receivedAt,
+            fromAddress: $fromAddress,
+            subject: $subject,
+            bodyText: $bodyText,
+            bodyHtml: $bodyHtml,
+            tempEmailId: $tempEmailId,
+            proUserId: $proUserId,
+            expiresAt: $addressExpiresAt,
+            messageId: $parsed['message_id'] ?? null,
+            attachments: $attachments
+        ),
+        // The pipe's permanent-bounce behavior: the service refuses (and we
+        // exit 1) unless the recipient still resolves to a live, unexpired
+        // address row. Step 3 already enforced this; passing it here keeps the
+        // two verdicts in agreement if the row disappears in between.
+        //
+        // The Message-ID duplicate rule (#212, step 18) rides along: this pipe
+        // exits 75 on a temporary failure, and Exim then redelivers the same
+        // message — which must not be stored twice.
+        [
+            EmailStorage::OPTION_REJECT_UNKNOWN_RECIPIENT => true,
+            EmailStorage::OPTION_DEDUPLICATE_MESSAGE_ID => true,
+        ]
+    );
 } catch (Throwable $e) {
-    parseFail('stored_emails INSERT threw', ['error' => $e->getMessage(), 'to' => $toAddress]);
-    exit(2); // unreachable
+    parseFail('EmailStorage::store() threw', ['error' => $e->getMessage(), 'to' => $toAddress]);
+    exit(75); // unreachable, keeps static analysis happy
 }
 
-if (!$ok) {
-    parseFail('stored_emails INSERT failed', ['pdo_error' => $stmt->errorInfo(), 'to' => $toAddress]);
+logMessage('DEBUG', 'parse.php: EmailStorage store result', [
+    'status' => $result->status,
+    'message' => $result->message,
+    'stored_email_id' => $result->storedEmailId,
+    'to' => $toAddress,
+]);
+
+switch ($result->status) {
+    case StorageResult::STATUS_STORED:
+        break;
+
+    case StorageResult::STATUS_REJECTED:
+        parseReject('Email Storage rejected the message: ' . ($result->message ?? 'unspecified'), ['to' => $toAddress]);
+        break; // unreachable
+
+    case StorageResult::STATUS_DUPLICATE:
+        // A redelivery of a message already stored for this recipient
+        // (Message-ID, #212): nothing was written and nothing failed, so it is
+        // accepted (exit 0) and not bounced.
+        logMessage('INFO', 'parse.php: Email Storage reported a duplicate, nothing was written', ['to' => $toAddress]);
+        exit(0);
+
+    case StorageResult::STATUS_FAILED:
+    default:
+        parseFail('Email Storage could not store the message: ' . ($result->message ?? 'unspecified'), ['to' => $toAddress]);
+        break; // unreachable
 }
 
-$emailId = (int)$pdo->lastInsertId();
-updateStat('emails_processed', 1);
+$emailId = (int)$result->storedEmailId;
 
-$attachmentsSaved = 0;
-if (!empty($parsed['attachments'])) {
-    try {
-        $result = $parser->saveAttachments($parsed['attachments'], $emailId);
-        $attachmentsSaved = (int)($result['count'] ?? 0);
-        if ($attachmentsSaved > 0) {
-            updateStat('attachments_processed', $attachmentsSaved);
-        }
-    } catch (Throwable $e) {
-        // Attachment failures don't invalidate the already-saved email.
-        logMessage('WARNING', 'parse.php: saveAttachments failed', ['error' => $e->getMessage(), 'email_id' => $emailId]);
-    }
+// Attachment failures are warnings, exactly as before: the email is already
+// stored and must not bounce. The service counted whatever it did store.
+if ($result->hasAttachmentWarnings()) {
+    logMessage('WARNING', 'parse.php: attachment(s) not stored', [
+        'email_id' => $emailId,
+        'to' => $toAddress,
+        'warnings' => $result->attachmentWarnings,
+    ]);
 }
+$attachmentsSaved = count($attachments) - count($result->attachmentWarnings);
 
-// Pro webhook dispatch, ported from ImapProcessor::saveEmail() (#34 only
-// covered saving to stored_emails/email_attachments; this path went live
-// with DA_FORWARDER_ENABLED=true without it, so no Pro webhook — Pushover
-// included — fired for any address whose forwarder had switched over).
-if (!empty($proUserId)) {
-    require_once __DIR__ . '/php_imap_processor.php';
-    try {
-        $processor = new ImapProcessor($config, $pdo, !empty($config['app']['debug_mode']));
-        $payload = [
-            'to' => $toAddress,
-            'from' => $fromAddress,
-            'subject' => $subject,
-            'body' => ($bodyHtml ?? $bodyText),
-            'received_at' => $receivedAt,
-            'temp_email_id' => $tempEmail['id'],
-        ];
-        $processor->dispatchWebhooks((int)$proUserId, $payload);
-    } catch (Throwable $e) {
-        logMessage('WARNING', 'parse.php: dispatchWebhooks threw', ['error' => $e->getMessage(), 'to' => $toAddress]);
-    }
-}
+// Pro webhooks are dispatched by the service's post-storage listener, which was
+// registered above and runs after the commit (#196). This path used to build
+// that payload itself — the call #34 left out, which took every Pro webhook
+// down for switched-over addresses until #188 added it back.
 
 logMessage('INFO', 'parse.php: saved incoming email', [
     'email_id' => $emailId,

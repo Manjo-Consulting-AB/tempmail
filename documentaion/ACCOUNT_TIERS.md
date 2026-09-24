@@ -281,6 +281,10 @@ Pro-registrering och betalflödet tar vid.
 `bmac_handler.php` fortsätter fungera som idag för befintliga köpare, med
 tillägget att den nu även sätter `account_type = 'pro'`.
 
+Provperioden (avsnitt 10) är påslagen redan nu, oberoende av
+`PRO_SELF_SIGNUP_ENABLED` - betallösningen ska finnas på plats innan de första
+provperioderna löper ut, inte innan provperioden själv får börja ge Pro.
+
 ## 9. Utrullningsordning
 
 Ordningen är säkerhetskritisk i ett avseende: gating utan migration skulle
@@ -294,3 +298,66 @@ degradera samtliga användare.
 3. Registrering och UI-ingångar. Här blir registreringen publik.
 4. Degradering och inaktivitetsstädning.
 5. Uppgraderingsvägen, när betallösningen närmar sig.
+
+## 10. Provperiod för Pro (#267)
+
+Varje nytt Regular-konto får **60 dagar Pro** för att hinna vänja sig vid
+systemet, men bara **en gång per e-postadress, någonsin**. Att radera kontot
+och registrera samma adress igen startar inte om provperioden - de 60 dagarna
+räknas alltid från den dag adressen **först** sågs. Ett konto som raderas dag
+20 och registreras om dag 30 får därför 30 dagars Pro kvar; registreras det om
+dag 70 får det ingen alls.
+
+Fyra vägar registrerar en adress i `pro_trial_claims`, via
+`proTrialRecordClaim()` i `pro_trial.php`:
+
+- första verifieringen i `pro_login.php`, när `email_verified_at` går från
+  NULL till satt;
+- ett kontos skapande via voucher (`redeemVoucherForEmail()` i `pro_auth.php`),
+  eftersom kontot då redan är verifierat;
+- ett kontos skapande via Buy Me a Coffee (`bmac_handler.php`), av samma skäl;
+- en bekräftad e-postbytesbegäran (`update_email`-flödet i `pro_auth.php`).
+
+**Bara den första av dessa - första verifieringen - beviljar en provperiod**
+(`proTrialGrantOnVerification()`). De övriga tre registrerar bara adressen, så
+att den räknas som sedd utan att ge Pro. En adress registreras aldrig bara för
+att ett formulär skickas in - annars skulle vem som helst kunna göra slut på
+någon annans provperiod genom att fylla i deras adress.
+
+Det lagrade värdet är aldrig adressen själv utan en engångshash:
+`hash_hmac('sha256', normaliserad_adress, PRO_TRIAL_HASH_KEY)`, 64 gemena
+hexadecimala tecken. Normaliseringen (`proTrialNormalizeEmail()`) trimmar,
+gör om till gemener, delar på **sista** `@`, klipper lokaldelen vid första
+`+` och tar bort **alla** punkter ur lokaldelen innan den sätts ihop igen -
+samma regel oavsett domän, och resultatet behöver inte vara en levererbar
+adress. `PRO_TRIAL_HASH_KEY` måste vara minst 32 tecken och får **aldrig
+ändras** efter att den satts: en ny nyckel gör alla lagrade hashar
+omatchningsbara, vilket tyst skulle låta samma adresser göra anspråk på en ny
+provperiod.
+
+`PRO_TRIAL_DAYS` (default 60) styr längden på provperioden. `0` slår av
+provperioden helt, men adresser registreras fortfarande i
+`pro_trial_claims` (så att en senare påslagning räknar rätt från början).
+
+En beviljad provperiod är bara `account_type = 'pro'` med `pro_expires_at`
+satt till `first_seen_at + PRO_TRIAL_DAYS` - samma fält som allt annat Pro.
+Den löper därför ut genom den befintliga degraderingen i §6.1
+(`cleanupExpiredProUsers()`); ingen ny utgångskod behövdes.
+
+`pro_trial_claims` (skapad av `migrate_trial_claims.php`) har medvetet
+**ingen koppling** till `pro_users` - varken främmande nyckel eller annan
+länk - så att raden överlever kontoradering. En claim-rad hålls i **fem år**
+efter `first_seen_at` (`$config['trial']['claim_retention_days']`, default
+1825) och städas därefter av `cleanupExpiredTrialClaims()` i
+`cron/cleanup.php`; efter det räknas adressen som aldrig sedd.
+
+Provperioden är **fail-closed**: en saknad eller för kort
+`PRO_TRIAL_HASH_KEY`, en saknad `pro_trial_claims`-tabell eller ett
+databasfel registrerar ingen adress och beviljar ingen provperiod, men
+blockerar aldrig en inloggning eller verifiering (fail-open på
+inloggningen, precis som §5).
+
+Utrullningsordning: kör `migrate_trial_claims.php` och sätt
+`PRO_TRIAL_HASH_KEY` **innan** steg 2-koden (första verifieringen beviljar
+provperioder) driftsätts. Utan dem loggas ett fel och ingen provperiod
+beviljas, men inget annat går sönder.

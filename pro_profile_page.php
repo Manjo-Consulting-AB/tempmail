@@ -14,20 +14,48 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
 // lookup error states the free plan rather than claiming Pro.
 $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
 
-// Whether the account owns any Pushover webhook at all — the existence check
-// behind the per-address PO control (#173). filter_mode is deliberately not
-// consulted: a paused webhook is still a configured one, so the control stays
-// visible. Only the existence of the row is read here, never its config: the
-// token and user key are not touched.
-$hasPushoverWebhook = false;
+// When a Pro account's time runs out (the 60-day trial of epic #267, or a
+// voucher), for display only: entitlement is still decided by proUserIsPro()
+// above. A time-limited Pro account keeps the voucher field, because
+// redeemVoucherForEmail() adds a code's days after the current end date rather
+// than replacing it - without the field, a trial account could not stay on Pro.
+$accountProExpiresAt = null;
+if ($accountIsPro) {
+    try {
+        $stmt = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
+        $stmt->execute([(int) $_SESSION['pro_user_id']]);
+        $expires = $stmt->fetchColumn();
+        if (is_string($expires) && $expires !== '' && strtotime($expires) !== false) {
+            $accountProExpiresAt = $expires;
+        }
+    } catch (Exception $e) {
+        // Fall back to the plain "You're on Pro." note.
+        logMessage('WARNING', 'Failed reading pro_expires_at for the Plan card', ['user_id' => (int) $_SESSION['pro_user_id'], 'error' => $e->getMessage()]);
+    }
+}
+
+// Whether the account owns any webhook at all — the existence check behind the
+// per-address Pause/Start control (#251 step 5). kind is deliberately not
+// consulted: Pushover is just another hook now, and a paused hook is still a
+// configured one, so the control stays visible. Only the existence of a row is
+// read here, never any hook's config or secret.
+$hasAnyWebhook = false;
 try {
-    $stmt = $pdo->prepare("SELECT 1 FROM pro_webhooks WHERE user_id = ? AND kind = 'pushover' LIMIT 1");
+    $stmt = $pdo->prepare("SELECT 1 FROM pro_webhooks WHERE user_id = ? LIMIT 1");
     $stmt->execute([(int) $_SESSION['pro_user_id']]);
-    $hasPushoverWebhook = (bool) $stmt->fetchColumn();
+    $hasAnyWebhook = (bool) $stmt->fetchColumn();
 } catch (Exception $e) {
     // Fail closed: better no control than one whose toggle cannot work.
-    logMessage('ERROR', 'Failed checking for Pushover webhooks', ['user_id' => (int) $_SESSION['pro_user_id'], 'error' => $e->getMessage()]);
+    logMessage('ERROR', 'Failed checking for webhooks', ['user_id' => (int) $_SESSION['pro_user_id'], 'error' => $e->getMessage()]);
 }
+
+// Whether the per-hook address routing exists yet (#251). All three columns
+// arrive together with migrate_webhook_addresses.php; until they do, the page
+// shows neither the per-hook checkboxes nor the per-address control, and says
+// so in one line under the webhook list.
+$hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
+    && tableHasColumn('pro_webhooks', 'include_temporary')
+    && tableHasColumn('temp_emails', 'hooks_paused');
 
 ?>
 <!DOCTYPE html>
@@ -101,16 +129,22 @@ try {
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Plan</h3>
                                 <p class="ms-card__desc">Temporary email is free. Pro adds permanent addresses, webhooks, digest emails, the RSS feed and the client agent.</p>
-                                <?php if ($accountIsPro) : ?>
+                                <?php if ($accountIsPro && $accountProExpiresAt !== null) : ?>
+                                <p class="ms-card__note">You're on Pro until <?php echo htmlspecialchars(date('j F Y', strtotime($accountProExpiresAt)), ENT_QUOTES, 'UTF-8'); ?>.</p>
+                                <?php elseif ($accountIsPro) : ?>
                                 <p class="ms-card__note">You're on Pro.</p>
                                 <?php else : ?>
                                 <p class="ms-card__note">You're on the free plan.</p>
                                 <?php endif; ?>
                                 <div id="upgradeToProSection" class="d-none">
+                                    <?php if ($accountProExpiresAt !== null) : ?>
+                                    <p class="form-text">Stay on Pro: redeem a voucher code and its time is added after your current end date. Online payment is on the way.</p>
+                                    <?php else : ?>
                                     <p class="form-text">Redeem a voucher code to switch to Pro. Online payment is on the way.</p>
+                                    <?php endif; ?>
                                     <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
                                         <input type="text" id="voucherCodeInput" class="form-control" placeholder="Voucher code" style="max-width:220px;" />
-                                        <button type="button" id="redeemVoucherBtn" class="btn btn-primary">Upgrade</button>
+                                        <button type="button" id="redeemVoucherBtn" class="btn btn-primary"><?php echo $accountProExpiresAt !== null ? 'Extend' : 'Upgrade'; ?></button>
                                     </div>
                                     <div id="voucherMsg" class="mt-2"></div>
                                 </div>
@@ -217,6 +251,7 @@ try {
                                 <div class="mb-2">
                                     <label class="form-label">Config (JSON)</label>
                                     <input id="whConfig" class="form-control" placeholder='{"token":"...","user":"..."}' />
+                                    <div class="form-text">A JSON object, sent as-is. Pushover: every key goes to the Pushover API — <code>token</code> and <code>user</code> are required, add e.g. <code>device</code>, <code>sound</code> or <code>priority</code>. Generic: the keys are merged into the JSON body and replace ours where the names match, except <code>headers</code>, an object sent as HTTP headers, e.g. <code>{"headers":{"Authorization":"Bearer ..."}}</code>.</div>
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label">Secret (optional)</label>
@@ -403,13 +438,29 @@ try {
             // and matches today's reality where existing accounts are Pro).
             var isProAccount = true;
 
-            // Whether the account has a Pushover webhook at all (#173), rendered
-            // server-side. This is the existence check, not the paused state, and
-            // it is not the address's own on/off state — that comes per row from
-            // list_personal. It is kept in step with the webhook list afterwards
-            // (#175), so creating or deleting the account's Pushover webhook on
+            // Whether the account has any webhook at all (#251 step 5), rendered
+            // server-side. This is the existence check, not any hook's paused
+            // state, and it is not the address's own pause — that comes per row
+            // from list_personal. It is kept in step with the webhook list
+            // afterwards, so creating or deleting the account's last webhook on
             // this page shows or hides the address controls without a reload.
-            var hasPushoverWebhook = <?php echo $hasPushoverWebhook ? 'true' : 'false'; ?>;
+            var hasAnyWebhook = <?php echo $hasAnyWebhook ? 'true' : 'false'; ?>;
+
+            // Whether the routing schema is in place, also rendered server-side.
+            // With it off the page renders no checkboxes and no row control, and
+            // says why under the webhook list.
+            var hookRoutingAvailable = <?php echo $hookRoutingAvailable ? 'true' : 'false'; ?>;
+
+            // The two lists the page renders from, shared because each one's
+            // markup embeds the other's state: a hook's "Triggers for" group
+            // lists the personal addresses, and each of those rows shows the
+            // address' pause hint. Either arriving alone re-renders both.
+            var personalAddresses = [];
+            var lastWebhooks = [];
+
+            // Rendered from $accountProExpiresAt above: true for a Pro account
+            // with an end date, i.e. one that can still extend with a voucher.
+            var proHasExpiry = <?php echo $accountProExpiresAt !== null ? 'true' : 'false'; ?>;
 
             // Gray out the Pro-only sections for Regular accounts. Called once, from the
             // get_profile callback below, before anything else on the page runs its own
@@ -417,7 +468,9 @@ try {
             function applyProGating(isPro) {
                 isProAccount = isPro;
                 if (isPro) {
-                    $('#upgradeToProSection').addClass('d-none');
+                    // A time-limited Pro account (trial or voucher) keeps the
+                    // voucher field so it can extend; lifetime Pro has no use for it.
+                    $('#upgradeToProSection').toggleClass('d-none', !proHasExpiry);
                     return;
                 }
                 $('#upgradeToProSection').removeClass('d-none');
@@ -442,10 +495,12 @@ try {
                 $('.ms-address-row__feed').prop('disabled', true);
                 $('#personalFeedProNote').removeClass('d-none');
 
-                // Per-address Pushover opt-in (#173): same Pro-only rule, same
-                // two paths — rows already in the DOM are caught here, later
-                // ones read isProAccount.
-                $('.ms-address-row__po').prop('disabled', true);
+                // Per-address hook control (#251 step 5): same Pro-only rule,
+                // same two paths — rows already in the DOM are caught here,
+                // later ones read isProAccount. The per-hook address checkboxes
+                // are built by renderWebhooks(), which reads isProAccount too.
+                $('.ms-address-row__hooks').prop('disabled', true);
+                $('.ms-hook-routing input').prop('disabled', true);
 
                 // Webhooks
                 $('#whName, #whKind, #whUrl, #whConfig, #whSecret, #whCreateBtn').prop('disabled', true);
@@ -471,7 +526,7 @@ try {
                 $msg.html('<div class="alert alert-info">Checking code...</div>');
                 $.post('pro_profile.php', { action: 'upgrade_with_voucher', code: code }, function(res){
                     if (res && res.success) {
-                        $msg.html('<div class="alert alert-success">Upgraded to Pro! Reloading...</div>');
+                        $msg.html('<div class="alert alert-success">' + (proHasExpiry ? 'Pro extended! Reloading...' : 'Upgraded to Pro! Reloading...') + '</div>');
                         setTimeout(function(){ window.location.reload(); }, 1200);
                     } else {
                         $btn.prop('disabled', false);
@@ -952,6 +1007,12 @@ try {
             // Personal addresses handlers (moved from main page)
             var MAX_PERSONAL_ADDRESSES = 10;
             function renderPersonalList(items) {
+                personalAddresses = items || [];
+                // The hook list embeds these addresses, so it is re-rendered
+                // from whatever was loaded last — including the empty case,
+                // which swaps a hook's checkboxes for "No personal addresses
+                // yet." the moment the last address is deleted.
+                renderWebhooks(lastWebhooks);
                 var $container = $('#personalList');
                 if (!items || items.length === 0) {
                     $container.html('<p class="text-muted">No personal addresses yet.</p>');
@@ -961,13 +1022,16 @@ try {
                 var html = '<div class="list-group">';
                 items.forEach(function(it){
                     var feedOn = !!it.feed_enabled;
-                    var poOn = !!it.pushover_enabled;
-                    // The PO control exists only when the account has a Pushover
-                    // webhook; its own on/off state is the address's preference.
-                    var poButton = '';
-                    if (hasPushoverWebhook) {
-                        poButton = '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__po'+(poOn ? ' is-on' : '')+'" aria-pressed="'+(poOn ? 'true' : 'false')+'" aria-label="PO — Pushover notifications for this address" title="'+escapeHtml(addressPushoverTitle(poOn))+'"'+(isProAccount ? '' : ' disabled')+'>\n'
-                        + '                                                <i class="fas fa-bell" aria-hidden="true"></i> <span class="ms-address-row__po-state">'+(poOn ? 'Hook on' : 'Hook')+'</span>\n'
+                    var hooksPaused = !!it.hooks_paused;
+                    // The Pause/Start control exists only when the account has a
+                    // webhook at all and the routing schema is in place; which
+                    // addresses its hooks fire for is decided per hook. It is
+                    // hidden while no hook is linked to this address, since there
+                    // is nothing to pause — see syncAddressHooksButtons().
+                    var hooksButton = '';
+                    if (hasAnyWebhook && hookRoutingAvailable) {
+                        hooksButton = '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__hooks'+(hooksPaused ? '' : ' is-on')+(addressHasLinkedHook(it.id) ? '' : ' d-none')+'" aria-pressed="'+(hooksPaused ? 'true' : 'false')+'" title="'+escapeHtml(addressHooksTitle(hooksPaused))+'"'+(isProAccount ? '' : ' disabled')+'>\n'
+                        + '                                                <i class="fas '+(hooksPaused ? 'fa-bell-slash' : 'fa-bell')+'" aria-hidden="true"></i> <span class="ms-address-row__hooks-state">'+(hooksPaused ? 'Hooks paused' : 'Hooks on')+'</span>\n'
                         + '                                            </button>\n';
                     }
                     html += '\n                                <div class="list-group-item ms-address-row" data-id="'+escapeHtml(it.id)+'">\n'
@@ -979,7 +1043,7 @@ try {
                         + '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__feed'+(feedOn ? ' is-on' : '')+'" aria-expanded="false" aria-controls="addressFeedPanel'+escapeHtml(it.id)+'" title="RSS feed for this address"'+(isProAccount ? '' : ' disabled')+'>\n'
                         + '                                                <i class="fas fa-rss" aria-hidden="true"></i> <span class="ms-address-row__feed-state">'+(feedOn ? 'RSS on' : 'RSS')+'</span>\n'
                         + '                                            </button>\n'
-                        + poButton
+                        + hooksButton
                         + '                                            <button class="btn btn-sm btn-danger personal-delete" data-id="'+escapeHtml(it.id)+'" title="Delete">\n'
                         + '                                                <i class="fas fa-trash"></i>\n'
                         + '                                            </button>\n'
@@ -1118,64 +1182,100 @@ try {
                 }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
             });
 
-            // --- Per-address Pushover opt-in (#173). The control is only rendered
-            // when the account has a Pushover webhook, and toggling it writes the
-            // address's own pushover_enabled flag through the Pro-gated actions —
-            // the webhook's URL, config and paused state are never touched. ---
+            // --- Per-address hook pause (#251 step 5). One control per address,
+            // shown whenever the account has any webhook at all, whatever its
+            // kind: it silences every hook linked to that address without
+            // touching the links themselves, so pausing and resuming is
+            // reversible and loses nothing. ---
 
-            // Follow the account's Pushover configuration (#175). Called after the
-            // webhook list loads, so deleting the last Pushover webhook takes the
-            // address controls away on this page and creating one brings them back.
-            // Nothing is written to the addresses here: the rows are re-rendered
-            // from list_personal, which still reports each address's stored flag,
-            // so an address enabled before the webhook was deleted returns as
-            // enabled. Pausing a webhook is not a configuration change for this
-            // purpose — the webhook row still exists — so the controls stay.
-            function syncAddressPushoverControl(hasPushover) {
-                if (hasPushover === hasPushoverWebhook) return;
-                hasPushoverWebhook = hasPushover;
+            // Follow the account's webhook count. Called after the webhook list
+            // loads, so deleting the last webhook takes the address controls away
+            // on this page and creating one brings them back. Nothing is written
+            // to the addresses here: the rows are re-rendered from list_personal,
+            // which still reports each address's stored pause, so an address
+            // paused before the webhook was deleted returns as paused. Pausing a
+            // webhook is not a configuration change for this purpose — the
+            // webhook row still exists — so the controls stay.
+            function syncAddressHooksControl(hasAny) {
+                if (hasAny === hasAnyWebhook) return;
+                hasAnyWebhook = hasAny;
                 if ($('#personalList').length) loadPersonalList();
             }
 
-            function addressPushoverTitle(on) {
-                return on
-                    ? 'Pushover notifications are on for this address. Click to turn them off.'
-                    : 'Pushover notifications are off for this address. Click to turn them on.';
+            // Is any hook linked to this personal address? A paused hook still
+            // counts: the link exists and the address' own pause still applies
+            // when the hook is resumed.
+            function addressHasLinkedHook(addressId) {
+                var target = String(addressId);
+                return lastWebhooks.some(function(w){
+                    return (w.address_ids || []).some(function(id){ return String(id) === target; });
+                });
             }
 
-            function setAddressPushoverState($row, on) {
-                var state = !!on;
-                $row.find('.ms-address-row__po')
-                    .toggleClass('is-on', state)
-                    .attr('aria-pressed', state ? 'true' : 'false')
-                    .attr('title', addressPushoverTitle(state))
-                    .find('.ms-address-row__po-state').text(state ? 'Hook on' : 'Hook');
+            // Show or hide each row's Pause/Start button from the current links,
+            // without re-rendering the rows (which would collapse an open feed
+            // panel). Called whenever lastWebhooks changes.
+            function syncAddressHooksButtons() {
+                $('#personalList .ms-address-row').each(function(){
+                    var $row = $(this);
+                    $row.find('.ms-address-row__hooks').toggleClass('d-none', !addressHasLinkedHook($row.data('id')));
+                });
             }
 
-            $(document).on('click', '.ms-address-row__po', function(e){
+            function addressHooksTitle(paused) {
+                return paused
+                    ? 'Hooks are paused for this address. Click to start them.'
+                    : 'Hooks are active for this address. Click to pause them.';
+            }
+
+            // aria-pressed tracks the *paused* state, which is what the button
+            // does; `is-on` tracks the accent tint, which is what the address is.
+            function setAddressHooksState($row, paused) {
+                var isPaused = !!paused;
+                var $btn = $row.find('.ms-address-row__hooks')
+                    .toggleClass('is-on', !isPaused)
+                    .attr('aria-pressed', isPaused ? 'true' : 'false')
+                    .attr('title', addressHooksTitle(isPaused));
+                $btn.find('.ms-address-row__hooks-state').text(isPaused ? 'Hooks paused' : 'Hooks on');
+                // The icon carries the same state as the label, so it flips with
+                // it — a slashed bell beside "Hooks paused", a plain one beside
+                // "Hooks on".
+                $btn.find('i')
+                    .toggleClass('fa-bell', !isPaused)
+                    .toggleClass('fa-bell-slash', isPaused);
+            }
+
+            $(document).on('click', '.ms-address-row__hooks', function(e){
                 e.stopPropagation();
                 var $btn = $(this);
                 if ($btn.prop('disabled')) return;
                 var $row = $btn.closest('.ms-address-row');
-                var wasOn = $btn.hasClass('is-on');
+                var wasPaused = $btn.attr('aria-pressed') === 'true';
                 // Flip on the click so the state reads immediately, then let the
                 // response confirm it or put it back.
-                setAddressPushoverState($row, !wasOn);
+                setAddressHooksState($row, !wasPaused);
                 $btn.prop('disabled', true);
                 $.post('pro_profile.php', {
-                    action: wasOn ? 'address_pushover_disable' : 'address_pushover_enable',
+                    action: wasPaused ? 'address_hooks_resume' : 'address_hooks_pause',
                     id: $row.data('id')
                 }, function(res){
                     $btn.prop('disabled', false);
                     if (res && res.success) {
-                        setAddressPushoverState($row, res.pushover_enabled);
+                        setAddressHooksState($row, res.hooks_paused);
+                        // The hook lists carry this address' "(hooks paused)"
+                        // hint, so they are re-rendered from the new state.
+                        var rowId = String($row.data('id'));
+                        personalAddresses.forEach(function(a){
+                            if (String(a.id) === rowId) a.hooks_paused = !!res.hooks_paused;
+                        });
+                        renderWebhooks(lastWebhooks);
                     } else {
-                        setAddressPushoverState($row, wasOn);
-                        alert((res && res.error) ? res.error : 'Could not update Pushover settings');
+                        setAddressHooksState($row, wasPaused);
+                        alert((res && res.error) ? res.error : 'Could not update the hooks for this address');
                     }
                 }, 'json').fail(function(){
                     $btn.prop('disabled', false);
-                    setAddressPushoverState($row, wasOn);
+                    setAddressHooksState($row, wasPaused);
                     alert('Request failed');
                 });
             });
@@ -1291,39 +1391,143 @@ try {
                 items.forEach(function(w){
                     var cfg = w.config ? JSON.stringify(w.config) : '';
                     var isPaused = w.filter_mode === 'paused';
-                    var statusBadge = isPaused 
-                        ? '<span class="badge bg-warning text-dark ms-2">Paused</span>' 
+                    var statusBadge = isPaused
+                        ? '<span class="badge bg-warning text-dark ms-2">Paused</span>'
                         : '<span class="badge bg-success ms-2">Active</span>';
                     var pauseBtn = isPaused
-                        ? '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+w.id+'" data-mode="all" title="Resume webhook" aria-label="Resume webhook"><i class="fas fa-play text-success"></i></button>'
-                        : '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+w.id+'" data-mode="paused" title="Pause webhook" aria-label="Pause webhook"><i class="fas fa-pause text-warning"></i></button>';
+                        ? '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+escapeHtml(w.id)+'" data-mode="all" title="Resume webhook" aria-label="Resume webhook"><i class="fas fa-play text-success"></i></button>'
+                        : '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+escapeHtml(w.id)+'" data-mode="paused" title="Pause webhook" aria-label="Pause webhook"><i class="fas fa-pause text-warning"></i></button>';
+                    // The routing group is the item's third child, not a wrapper
+                    // around the other two: style.css styles `.me-3` and
+                    // `.btn-group` as *direct* children of `#webhookList
+                    // .list-group-item` (which it makes a wrapping flex
+                    // container), and an extra wrapper would drop both rules and
+                    // let the hook's URL set the row's minimum width. As a third
+                    // flex item it takes a line of its own — see .ms-hook-routing
+                    // in mailshield.css.
                     html += '<div class="list-group-item d-flex justify-content-between align-items-start">'
-                        + '<div class="me-3"><strong>' + (w.name || ('#'+w.id)) + '</strong>' + statusBadge + '<div class="text-muted small">' + w.kind + ' — ' + w.url + '</div>'
-                        + (cfg ? '<div class="text-muted small">Config: ' + cfg + '</div>' : '')
+                        + '<div class="me-3"><strong>' + escapeHtml(w.name || ('#'+w.id)) + '</strong>' + statusBadge + '<div class="text-muted small">' + escapeHtml(w.kind) + ' — ' + escapeHtml(w.url) + '</div>'
+                        + (cfg ? '<div class="text-muted small">Config: ' + escapeHtml(cfg) + '</div>' : '')
                         + '</div>'
                         + '<div class="btn-group">'
                         + pauseBtn
-                        + '<button class="btn btn-sm btn-outline-secondary wh-deliveries" data-id="'+w.id+'">Deliveries</button>'
-                        + '<button class="btn btn-sm btn-danger wh-delete" data-id="'+w.id+'" title="Delete webhook" aria-label="Delete webhook"><i class="fas fa-trash"></i></button>'
-                        + '</div></div>';
+                        + '<button class="btn btn-sm btn-outline-secondary wh-deliveries" data-id="'+escapeHtml(w.id)+'">Deliveries</button>'
+                        + '<button class="btn btn-sm btn-danger wh-delete" data-id="'+escapeHtml(w.id)+'" title="Delete webhook" aria-label="Delete webhook"><i class="fas fa-trash"></i></button>'
+                        + '</div>'
+                        + (hookRoutingAvailable ? renderHookRouting(w) : '')
+                        + '</div>';
                 });
                 html += '</div>';
+                if (!hookRoutingAvailable) {
+                    // One line for the whole page rather than one per hook: the
+                    // migration is an account-wide fact, not a per-hook one.
+                    html += '<p class="text-muted small mb-0 mt-2">Address routing is not available yet.</p>';
+                }
                 $c.html(html);
+            }
+
+            // The "Triggers for" group under one hook: every personal address as
+            // a checkbox (checked = linked), plus the hook's Temporary addresses
+            // switch. Empty means the hook fires for nothing, which is worth
+            // saying out loud rather than leaving as an all-unchecked group.
+            function renderHookRouting(w) {
+                var linked = w.address_ids || [];
+                // Whether any *rendered* box is checked — not whether the hook
+                // has link rows. Deleting an address takes its link rows with it,
+                // but the hook list in memory is not refetched, so a stale id
+                // here would keep the warning hidden on a hook that now fires for
+                // nothing.
+                var anyLinked = false;
+                var out = '<fieldset class="ms-hook-routing" data-hook="'+escapeHtml(w.id)+'">'
+                    + '<legend class="ms-hook-routing__legend">Triggers for</legend>';
+                if (personalAddresses.length === 0) {
+                    out += '<p class="form-text text-muted mb-0">No personal addresses yet.</p>';
+                } else {
+                    personalAddresses.forEach(function(a){
+                        var boxId = 'hookAddr' + escapeHtml(w.id) + '_' + escapeHtml(a.id);
+                        // Compared as numbers: the ids come back from PHP as
+                        // strings in the list and as ints in the response.
+                        var on = false;
+                        var target = parseInt(a.id, 10);
+                        for (var i = 0; i < linked.length; i++) {
+                            if (parseInt(linked[i], 10) === target) { on = true; break; }
+                        }
+                        if (on) anyLinked = true;
+                        out += '<div class="form-check">'
+                            + '<input class="form-check-input ms-hook-routing__addr" type="checkbox" id="'+boxId+'" value="'+escapeHtml(a.id)+'"'+(on ? ' checked' : '')+(isProAccount ? '' : ' disabled')+'>'
+                            + '<label class="form-check-label" for="'+boxId+'">'+escapeHtml(a.full_address)
+                            + (a.hooks_paused ? ' <span class="ms-hook-routing__paused">(hooks paused)</span>' : '')
+                            + '</label>'
+                            + '</div>';
+                    });
+                }
+                var tempId = 'hookTemp' + escapeHtml(w.id);
+                out += '<div class="form-check">'
+                    + '<input class="form-check-input ms-hook-routing__temp" type="checkbox" id="'+tempId+'"'+(w.include_temporary ? ' checked' : '')+(isProAccount ? '' : ' disabled')+'>'
+                    + '<label class="form-check-label" for="'+tempId+'">Temporary addresses</label>'
+                    + '</div>'
+                    + '<p class="ms-hook-routing__empty'+((anyLinked || w.include_temporary) ? ' d-none' : '')+'">This hook is not triggered for any address.</p>'
+                    + '</fieldset>';
+                return out;
             }
 
             function loadWebhooks() {
                 $.getJSON('pro_profile.php?action=webhooks_list', function(res){
                     if (res && res.success) {
-                        var hooks = res.webhooks || [];
-                        renderWebhooks(hooks);
-                        // Only the kind is read here — never the config, which holds
-                        // the Pushover token and user key.
-                        syncAddressPushoverControl(hooks.some(function(w){ return w.kind === 'pushover'; }));
+                        lastWebhooks = res.webhooks || [];
+                        renderWebhooks(lastWebhooks);
+                        syncAddressHooksButtons();
+                        // Only whether any hook exists is read here — never a
+                        // config, which can hold a Pushover token and user key.
+                        syncAddressHooksControl(lastWebhooks.length > 0);
                     } else {
                         $('#webhookList').html('<p class="text-danger">Could not load webhooks</p>');
                     }
                 }).fail(function(){ $('#webhookList').html('<p class="text-danger">Request failed</p>'); });
             }
+
+            // --- Per-hook address routing (#251 step 5). One change saves the
+            // hook's *whole* set — what should be linked, not a diff — so a
+            // concurrent edit on another tab cannot merge into a set nobody
+            // asked for. The response is authoritative and re-renders the list.
+            $(document).on('change', '.ms-hook-routing__addr, .ms-hook-routing__temp', function(){
+                var $box = $(this);
+                var $group = $box.closest('.ms-hook-routing');
+                var hookId = $group.data('hook');
+                if (!hookId && hookId !== 0) return;
+                var ids = [];
+                $group.find('.ms-hook-routing__addr:checked').each(function(){
+                    ids.push($(this).val());
+                });
+                var includeTemp = $group.find('.ms-hook-routing__temp').is(':checked');
+                $group.find('input').prop('disabled', true);
+                $.post('pro_profile.php', {
+                    action: 'webhook_set_addresses',
+                    id: hookId,
+                    address_ids: ids,
+                    include_temporary: includeTemp ? '1' : '0'
+                }, function(res){
+                    if (res && res.success) {
+                        var target = String(hookId);
+                        lastWebhooks.forEach(function(w){
+                            if (String(w.id) === target) {
+                                w.address_ids = res.address_ids || [];
+                                w.include_temporary = !!res.include_temporary;
+                            }
+                        });
+                        renderWebhooks(lastWebhooks);
+                        syncAddressHooksButtons();
+                    } else {
+                        $box.prop('checked', !$box.prop('checked'));
+                        $group.find('input').prop('disabled', !isProAccount);
+                        alert((res && res.error) ? res.error : 'Could not save the address selection');
+                    }
+                }, 'json').fail(function(){
+                    $box.prop('checked', !$box.prop('checked'));
+                    $group.find('input').prop('disabled', !isProAccount);
+                    alert('Request failed');
+                });
+            });
 
             $('#whCreateBtn').on('click', function(){
                 var name = $('#whName').val().trim();
@@ -1344,7 +1548,7 @@ try {
                         $('#whName,#whUrl,#whConfig,#whSecret').val('');
                         loadWebhooks();
                     } else {
-                        $('#whMsg').html('<div class="text-danger">'+(r && r.error ? r.error : 'Failed')+'</div>');
+                        $('#whMsg').html('<div class="text-danger">'+escapeHtml(r && r.error ? r.error : 'Failed')+'</div>');
                     }
                 }, 'json').fail(function(xhr, status, err){
                     $('#whCreateBtn').prop('disabled', false);
@@ -1410,7 +1614,7 @@ try {
                         if (!r.deliveries || r.deliveries.length === 0) out += 'No deliveries yet.';
                         else {
                             r.deliveries.forEach(function(d){
-                                out += '<div class="mb-2">['+d.status+'] attempts='+d.attempts+' created='+d.created_at+'<div class="text-muted small">error: '+(d.last_error||'')+'</div></div>';
+                                out += '<div class="mb-2">['+escapeHtml(d.status)+'] attempts='+escapeHtml(d.attempts)+' created='+escapeHtml(d.created_at)+'<div class="text-muted small">error: '+escapeHtml(d.last_error||'')+'</div></div>';
                             });
                         }
                         out += '</div>';

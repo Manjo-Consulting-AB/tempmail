@@ -42,8 +42,7 @@ feature among several.
 
 The core idea: *one place for all the email you don't want cluttering your
 primary inbox* — shopping, newsletters, registrations, forums, services you
-want to try, temporary email, projects, secondary identities, automated email,
-external mailboxes.
+want to try, temporary email, projects, secondary identities, automated email.
 
 Mental model to sell: **"my second inbox"**, not "a disposable address".
 
@@ -88,8 +87,8 @@ Decided: **utility base with a discreet shield mark.**
 ### 3.2 The "spine" mental model
 
 Mail Shield is the spine between the user and all their secondary email.
-Addresses, temporary mail, external mailboxes, webhooks, RSS and notifications
-are branches leading into one inbox.
+Addresses, temporary mail, webhooks, RSS and notifications are branches leading
+into one inbox.
 
 Use this **subtly** — thin connector lines, small nodes, a hub-and-branch
 rhythm in a diagram at most. Do not build a literal sci-fi network graphic.
@@ -289,6 +288,13 @@ Legal:    © <year> Manjo Consulting AB · Mail Shield v<version>
 - Lede: `Keep your primary inbox for what matters. Use Mail Shield for everything else.`
 - Primary CTA: `Create your inbox`
 - Secondary CTA: `See how it works`
+- Note (signed out): `Includes <N> days of Pro, free. No card needed.`
+
+`<N>` throughout this deck is the Pro trial length, rendered from
+`$config['trial']['days']` (env `PRO_TRIAL_DAYS`, default 60, epic #267) and
+never written into copy. Trial copy is shown to signed-out visitors only, and
+when `<N>` is 0 every line falls back to its pre-trial wording (here:
+`Free to start. No card needed.`).
 
 ### Problem
 
@@ -310,7 +316,7 @@ Legal:    © <year> Manjo Consulting AB · Mail Shield v<version>
 - Body: `Create up to 10 personal email addresses and manage them from one inbox.`
 - Examples: `shopping@`, `news@`, `projects@` (+ configured domain)
 - Kicker: `Multiple identities. One inbox.`
-- Tier note: `Personal addresses are part of Pro.`
+- Tier note: `Personal addresses are part of Pro — and included in your first <N> days.` (signed in: `Personal addresses are part of Pro.`)
 
 ### Temporary email
 
@@ -325,15 +331,14 @@ Legal:    © <year> Manjo Consulting AB · Mail Shield v<version>
 - Eyebrow: `Automation`
 - H2: `Email doesn't have to stay in your inbox.`
 - Body: `Connect Mail Shield to the tools you already use.`
-- Cards (exactly these seven, in this order):
+- Cards (exactly these six, in this order):
   1. `RSS` — `Read your inbox in any feed reader, through a private token-protected feed.`
   2. `Webhooks` — `POST every incoming message as JSON to your own endpoint.`
   3. `Pushover` — `Get incoming mail as a push notification on your phone.`
   4. `Digest emails` — `A periodic summary of what arrived, sent to your real inbox.`
-  5. `External mailboxes` — `Point Mail Shield at a mailbox you already run.`
-  6. `Agent` — `Run filtering on your own mail server, driven by signed webhooks.`
-  7. `API` — badge `Coming` — `Programmatic access to your addresses and messages.`
-- Tier note: `Automation is part of Pro.`
+  5. `Agent` — `Run filtering on your own mail server, driven by signed webhooks.`
+  6. `API` — badge `Coming` — `Programmatic access to your addresses and messages.`
+- Tier note: `Automation is part of Pro — and included in your first <N> days.` (signed in: `Automation is part of Pro.`)
 
 `API` is the **only** roadmap item and must carry the `Coming` badge and no
 link. Browser push notifications do not exist — never mention them.
@@ -352,24 +357,31 @@ link. Browser push notifications do not exist — never mention them.
 ### External email
 
 - Eyebrow: `Power user`
-- H2: `Bring other mailboxes into the picture.`
-- Body: `Connect external email infrastructure and let Mail Shield handle it alongside your other addresses.`
+- H2: `Your rules, on your own mail server.`
+- Body: `Keep the mailbox you already run, and manage its sender rules from Mail Shield.`
 - Technical detail (this section may be more technical than the rest and does
   not need to be fully understandable to a casual visitor):
   `The Agent runs on your own mail server, verifies RSA-signed webhooks from Mail Shield, and applies your filter scripts and sender lists locally.`
+- Flow (three steps): `you edit your rules` → `signed update to your server` → `your server filters your mailbox`
+
+Never say the user's own mailbox is brought into, connected to or handled by
+Mail Shield: the Agent filters it in place, and no message from it reaches
+Mail Shield. The signed webhook carries rule updates, sent when the user saves
+or syncs them — never "when a message arrives".
 
 ### Free and Pro
 
 - H2: `Free and Pro`
-- Body: `A free account covers temporary email. Pro adds permanent addresses and automation.`
-- Note: `Pro currently requires a voucher code — online payment is on the way.`
-- CTAs: `Create your inbox` → `/register.php?plan=regular`,
+- Body: `Every new account starts with <N> days of Pro, free — personal addresses and automation included. When the trial ends, you keep a free account, or stay on Pro.`
+- Pro card chip: `First <N> days free`
+- Note: `No card needed, and nothing to cancel. One trial per email address. After the trial, Pro continues with a voucher code — online payment is on the way.`
+- CTAs: `Start with <N> days of Pro` → `/register.php?plan=regular`,
   `Get Pro with a code` → `/register.php?plan=pro`
 
 ### Final CTA
 
 - H2: `Give your inbox some breathing room.`
-- Body: `Keep your primary inbox for what matters. Let Mail Shield handle everything else.`
+- Body: `Keep your primary inbox for what matters — and start with <N> days of Pro, free.`
 - CTA: `Create your inbox`
 
 ---
@@ -388,12 +400,14 @@ Copy may only promise what this table says exists.
 | Pushover | Pro, a webhook kind | ships |
 | Digest emails | Pro (`cron/send-digests.php`) | ships |
 | Sender allow/block lists | Client Agent subsystem | ships, tied to Agent |
-| External mailboxes / Agent | Client Agent on the user's own server | ships, power-user framing |
+| Agent | Client Agent on the user's own server: rules managed here, applied to the user's own IMAP mailbox there | ships, power-user framing |
+| External mailboxes | Does not exist — nothing reads, fetches or receives mail from a mailbox the user runs | never offer it as a feature; the Agent section may name "the mailbox you already run" only as the place its rules apply |
 | Attachments | Signed, time-limited download links | ships |
 | 2FA | TOTP on password login | ships |
 | Public REST API | **does not exist** | `Coming` badge only |
 | Browser/web push | **does not exist** (no VAPID) | never mention |
-| Online payment for Pro | **does not exist**; voucher code only | "requires a voucher code" |
+| Pro trial | Every new account, `<N>` days (default 60) from first email verification, once per email address (`pro_trial.php`, epic #267); afterwards the account is Free and personal addresses go 7 days later | "`<N>` days of Pro, free" — never "free forever", never a trial for signed-in users |
+| Online payment for Pro | **does not exist**; voucher code only | "after the trial, Pro continues with a voucher code" |
 | Pricing | no prices defined | no Pricing page, no price claims |
 
 ---

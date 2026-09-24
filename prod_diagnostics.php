@@ -1,8 +1,7 @@
 <?php
 // Production diagnostics script — run via CLI: php src/prod_diagnostics.php
-// This script prints environment detection, DB status, IMAP connectivity,
-// attachments dir checks, vendor/autoload presence and runs a dry-run of the
-// ImapProcessor. It is safe to run (processor runs in dry-run mode by default).
+// This script prints environment detection, DB status,
+// attachments dir checks and vendor/autoload presence. It is safe to run.
 
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -84,28 +83,6 @@ try {
     echo "[ERROR] Database checks failed: " . $e->getMessage() . "\n";
 }
 
-echo "\n-- IMAP check --\n";
-// 2) IMAP connection check using config values
-try {
-    $imapServer = $config['imap']['server'] ?? ($_ENV['IMAP_SERVER'] ?? '');
-    $imapUser = $config['imap']['user'] ?? ($_ENV['IMAP_USER'] ?? '');
-    $imapPass = $config['imap']['password'] ?? ($_ENV['IMAP_PASSWORD'] ?? '');
-    if (empty($imapServer) || empty($imapUser)) {
-        echo "IMAP config incomplete: server or user missing.\n";
-    } else {
-        echo "Attempting imap_open to: {$imapServer} user={$imapUser}\n";
-        $imap = @imap_open($imapServer, $imapUser, $imapPass);
-        if ($imap) {
-            echo "imap_open success. Message count: " . imap_num_msg($imap) . "\n";
-            imap_close($imap);
-        } else {
-            echo "imap_open failed: " . imap_last_error() . "\n";
-        }
-    }
-} catch (Throwable $e) {
-    echo "IMAP check exception: " . $e->getMessage() . "\n";
-}
-
 echo "\n-- Attachments dir check --\n";
 $attachmentsDir = realpath(__DIR__ . '/attachments') ?: (__DIR__ . '/attachments');
 echo "attachments path: {$attachmentsDir}\n";
@@ -163,18 +140,6 @@ try {
     }
 } catch (Throwable $e) {
     echo "2FA check exception: " . $e->getMessage() . "\n";
-}
-
-// 3) Dry-run processing test
-echo "\n-- Dry-run IMAP processor test --\n";
-try {
-    require_once __DIR__ . '/php_imap_processor.php';
-    $processor = new ImapProcessor($config, $pdo, true);
-    $processor->setDryRun(true);
-    $res = $processor->processEmails();
-    echo "processEmails() returned:\n" . var_export($res, true) . "\n";
-} catch (Throwable $e) {
-    echo "Processor dry-run failed: " . $e->getMessage() . "\n";
 }
 
 echo "\n-- Diagnostics complete --\n";

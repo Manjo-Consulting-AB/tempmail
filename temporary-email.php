@@ -96,6 +96,8 @@ require 'partials/public_nav.php';
 $msDocSignedIn = !empty($_SESSION['pro_user_id']);
 $msDocCtaHref  = $msDocSignedIn ? '/pro.php' : '/register.php?plan=regular';
 $msDocCtaLabel = $msDocSignedIn ? 'Go to your inbox' : 'Create your inbox';
+// Every new account starts on Pro for this many days (epic #267); signed-out only.
+$msDocTrialDays = $msDocSignedIn ? 0 : max(0, (int) ($config['trial']['days'] ?? 0));
 
 $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
 ?>
@@ -159,7 +161,7 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
             </section>
 
             <div class="ms-doc__cta">
-                <p class="ms-doc__cta-line">It takes about a minute, and it's free.</p>
+                <p class="ms-doc__cta-line"><?php echo $msDocTrialDays > 0 ? 'It takes about a minute, and your first ' . $msDocTrialDays . ' days include Pro, free.' : 'It takes about a minute, and it\'s free.'; ?></p>
                 <a class="ms-btn ms-btn--primary ms-btn--lg" href="<?php echo htmlspecialchars($msDocCtaHref, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($msDocCtaLabel, ENT_QUOTES, 'UTF-8'); ?></a>
             </div>
 

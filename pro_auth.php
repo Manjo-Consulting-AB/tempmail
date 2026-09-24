@@ -5,6 +5,7 @@
  */
 require_once 'config.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
+require_once __DIR__ . '/pro_trial.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
@@ -384,6 +385,7 @@ function redeemVoucherForEmail(string $email, string $code): array {
         $ustmt->execute([$email]);
         $u = $ustmt->fetch(PDO::FETCH_ASSOC);
         $now = time();
+        $created = false;
         if ($u) {
             $userId = $u['id'];
             $currentExpires = $u['pro_expires_at'];
@@ -427,6 +429,7 @@ function redeemVoucherForEmail(string $email, string $code): array {
             }
             $ins->execute([$email, $newExpires, $defaultTtl]);
             $userId = $pdo->lastInsertId();
+            $created = true;
         }
 
         // Increment voucher usage
@@ -446,6 +449,11 @@ function redeemVoucherForEmail(string $email, string $code): array {
         $rstmt->execute([$userId, $v['id']]);
 
         $pdo->commit();
+
+        if ($created) {
+            // #267: a voucher-created account is verified on creation - record the address.
+            proTrialRecordClaim($pdo, $email, (string)($config['trial']['hash_key'] ?? ''));
+        }
 
         return ['success' => true, 'error_code' => null, 'user_id' => (int)$userId];
     } catch (Exception $e) {
@@ -1201,6 +1209,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             // (Token already marked used by the atomic claim above.)
             $u = $pdo->prepare("UPDATE pro_users SET email = ? WHERE id = ?");
             $u->execute([$newEmail, $userId]);
+
+            // #267: a confirmed email change proves the new address - record it (no trial granted).
+            proTrialRecordClaim($pdo, $newEmail, (string)($config['trial']['hash_key'] ?? ''));
 
             // Notify old email that account email has changed (no undo link)
             try {

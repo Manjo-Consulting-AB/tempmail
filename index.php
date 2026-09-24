@@ -178,7 +178,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $ins = $pdo->prepare("INSERT INTO temp_emails (unique_address, expires_at, pro_user_id, is_personal) VALUES (?, ?, ?, 1)");
                     $ins->execute([$local, $expiresAt, $_SESSION['pro_user_id']]);
-                    createDirectAdminForwarder($local);
+                    if (!createDirectAdminForwarder($local)) {
+                        $pdo->prepare("DELETE FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? AND is_personal = 1")
+                            ->execute([$local, $_SESSION['pro_user_id']]);
+                        echo json_encode(['success' => false, 'error' => 'Mail delivery could not be set up for this address, so it was not created. Please try again in a moment.']);
+                        break;
+                    }
                     logMessage('INFO', 'Personal address created', ['user_id' => $_SESSION['pro_user_id'], 'address' => $local]);
                     echo json_encode(['success' => true, 'address' => $local, 'full_address' => $local . '@' . $config['email']['domain'], 'expires_at' => $expiresAt]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                 } catch (Exception $e) {
@@ -201,13 +206,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // only ever returned by the Pro-gated address_feed_* actions
                     // in pro_profile.php.
                     $feedEnabledCol = tableHasColumn('temp_emails', 'feed_token') ? ", (feed_token IS NOT NULL) AS feed_enabled" : "";
-                    // pushover_enabled exposed (#172) for the same reason, and it
-                    // is even less sensitive: unlike feed_token this is a plain
-                    // preference with no credential behind it — the Pushover token
-                    // and user key stay in pro_webhooks.config and are never read
-                    // or returned here.
-                    $pushoverCol = tableHasColumn('temp_emails', 'pushover_enabled') ? ", (pushover_enabled = 1) AS pushover_enabled" : "";
-                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$pushoverCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
+                    // hooks_paused exposed (#251 step 4) on the same terms: it is
+                    // a preference, not a credential — no address, no hook and no
+                    // URL travels with it, only whether the address' routing is
+                    // silenced. The links themselves stay in pro_profile.php.
+                    $hooksPausedCol = tableHasColumn('temp_emails', 'hooks_paused') ? ", (hooks_paused = 1) AS hooks_paused" : "";
+                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$hooksPausedCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
                     $stmt->execute([$_SESSION['pro_user_id']]);
                     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     $list = [];
@@ -219,8 +223,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'expires_at' => $r['expires_at'],
                             'feed_enabled' => !empty($r['feed_enabled']),
                             // Absent when the migration hasn't run, and empty()
-                            // reads an undefined key as false, i.e. disabled.
-                            'pushover_enabled' => !empty($r['pushover_enabled'])
+                            // reads an undefined key as false, i.e. not paused.
+                            'hooks_paused' => !empty($r['hooks_paused'])
                         ];
                     }
                     echo json_encode(['success' => true, 'personal' => $list]);
@@ -242,21 +246,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 try {
                     // Ensure the address belongs to this pro user and is a personal address
-                    $stmt = $pdo->prepare("SELECT unique_address FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                    $stmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                     $stmt->execute([$id, $_SESSION['pro_user_id']]);
                     $row = $stmt->fetch(PDO::FETCH_ASSOC);
                     if (!$row) {
                         echo json_encode(['success' => false, 'error' => 'Address not found or not owned by user']);
                         break;
                     }
+                    $id = (int)$row['id'];
                     $unique = $row['unique_address'];
 
                     $pdo->beginTransaction();
-                    // Delete the personal address row (DB FK will cascade stored_emails)
+                    // Delete the stored emails and attachment rows explicitly: there is
+                    // no guaranteed FK cascade from temp_emails. The attachment files
+                    // are unlinked only after the commit, so a rollback cannot leave
+                    // rows pointing at deleted files.
+                    $attachmentFiles = deleteStoredEmailsForTempEmail($pdo, $id);
+                    // The routing links have no foreign key either (#251 step 4),
+                    // so they go with the address; a surviving row would keep
+                    // routing this now-reusable id to hooks that are not its own.
+                    if (tableHasColumn('pro_webhook_addresses', 'webhook_id')) {
+                        $dl = $pdo->prepare("DELETE FROM pro_webhook_addresses WHERE temp_email_id = ?");
+                        $dl->execute([$id]);
+                    }
                     $d2 = $pdo->prepare("DELETE FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
                     $d2->execute([$id, $_SESSION['pro_user_id']]);
 
                     $pdo->commit();
+                    unlinkAttachmentFiles($attachmentFiles);
                     deleteDirectAdminForwarder($unique);
                     logMessage('INFO', 'Personal address deleted', ['user_id' => $_SESSION['pro_user_id'], 'address' => $unique]);
                     echo json_encode(['success' => true, 'deleted_address' => $unique]);
@@ -294,25 +311,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // If this is a pro user, ensure they only have one non-personal temp address at a time.
                 if ($proUserId) {
                     $replacedAddresses = [];
+                    $replacedAttachmentFiles = [];
                     try {
                         $pdo->beginTransaction();
                         // Look up the address(es) about to be replaced so their DirectAdmin
                         // forwarder can be removed after the transaction commits.
-                        $oldStmt = $pdo->prepare("SELECT unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
+                        $oldStmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
                         $oldStmt->execute([$proUserId]);
-                        $replacedAddresses = $oldStmt->fetchAll(PDO::FETCH_COLUMN);
-                        // Delete any existing non-personal temp addresses for this pro user (will cascade stored_emails)
+                        $oldRows = $oldStmt->fetchAll(PDO::FETCH_ASSOC);
+                        foreach ($oldRows as $oldRow) {
+                            $replacedAddresses[] = $oldRow['unique_address'];
+                            // Delete the stored emails and attachment rows explicitly:
+                            // there is no guaranteed FK cascade from temp_emails.
+                            $replacedAttachmentFiles = array_merge(
+                                $replacedAttachmentFiles,
+                                deleteStoredEmailsForTempEmail($pdo, (int)$oldRow['id'])
+                            );
+                        }
+                        // Delete any existing non-personal temp addresses for this pro user
                         $del = $pdo->prepare("DELETE FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
                         $del->execute([$proUserId]);
                         // Now insert new address
                         $saved = saveNewAddress($address, $proUserId);
-                        $pdo->commit();
+                        if ($saved) {
+                            $pdo->commit();
+                        } else {
+                            // The new address could not be set up, so the previous
+                            // one is kept: rolling back undoes the delete above,
+                            // leaving its rows, its mail and its forwarder intact
+                            // (#212).
+                            $pdo->rollBack();
+                        }
                     } catch (Exception $e) {
                         if ($pdo->inTransaction()) $pdo->rollBack();
                         throw $e;
                     }
-                    foreach ($replacedAddresses as $replacedAddress) {
-                        deleteDirectAdminForwarder($replacedAddress);
+                    if ($saved) {
+                        // Files are unlinked only after the commit, so a rollback cannot
+                        // leave rows pointing at deleted files.
+                        unlinkAttachmentFiles($replacedAttachmentFiles);
+                        foreach ($replacedAddresses as $replacedAddress) {
+                            deleteDirectAdminForwarder($replacedAddress);
+                        }
                     }
                 } else {
                     $saved = saveNewAddress($address, $proUserId);
@@ -329,7 +369,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 } else {
                     unset($GLOBALS['__custom_expires_at']);
-                    throw new Exception('Could not create address');
+                    throw new Exception('Mail delivery could not be set up for a new address, so none was created. Please try again in a moment.');
                 }
                 break;
                 
@@ -534,58 +574,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } catch (Exception $_) {
                     // ignore logging failures
                 }
-                // Note: we run IMAP first, then fetch DB results to ensure newly fetched messages are returned
-                
-                // Anropa Production PHP IMAP-processor direkt
-                try {
-                    // Kontrollera om PHP IMAP extension finns
-                    if (!extension_loaded('imap')) {
-                        // Fallback: Använd cURL-baserad lösning eller logga varning
-                        logMessage('WARNING', 'PHP IMAP extension saknas - emails kan inte processas automatiskt', [
-                            'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown',
-                            'php_version' => PHP_VERSION
-                        ]);
-                        
-                        $imapResult = [
-                            'success' => false,
-                            'new_emails' => 0,
-                            'message' => 'PHP IMAP extension saknas på servern'
-                        ];
-                    } elseif (!shouldRunGlobalImapRefresh($pdo)) {
-                        // A sync ran very recently (triggered by this or another
-                        // caller) - skip re-fetching from IMAP and just return
-                        // whatever's already stored, same as get_emails would.
-                        $imapResult = [
-                            'success' => true,
-                            'new_emails' => 0,
-                            'message' => 'A refresh already ran recently'
-                        ];
-                    } else {
-                        require_once __DIR__ . '/php_imap_processor.php';
+                // Mail arrives through the DirectAdmin pipe (parse.php) as it is delivered;
+                // there is no mailbox to poll, so a refresh only re-reads the database.
+                $imapSuccess = true;
+                $newEmailsFromImap = 0;
+                $imapMessage = '';
 
-                        $imapProcessor = new ImapProcessor($config, $pdo, $config['app']['debug_mode']);
-                        $imapResult = $imapProcessor->processEmails();
-                    }
-                    
-                    $imapSuccess = $imapResult['success'] ?? false;
-                    $newEmailsFromImap = $imapResult['new_emails'] ?? 0;
-                    $imapMessage = $imapResult['message'] ?? 'Unknown response';
-                    
-                    logMessage('DEBUG', 'Production IMAP processor completed', [
-                        'success' => $imapSuccess,
-                        'new_emails_from_imap' => $newEmailsFromImap,
-                        'message' => $imapMessage
-                    ]);
-                    
-                } catch (Exception $e) {
-                    $imapSuccess = false;
-                    $newEmailsFromImap = 0;
-                    $imapMessage = 'IMAP-processor fel: ' . $e->getMessage();
-                    logMessage('ERROR', 'Production IMAP processing failed', [
-                        'error' => $e->getMessage()
-                    ]);
-                }
-                
                 // Hämta e-post från databasen efter IMAP-körning
                 // Use the same address-set logic as in 'get_emails' so pro users see personal addresses too
                 $fullAddress = $address . '@' . $config['email']['domain'];

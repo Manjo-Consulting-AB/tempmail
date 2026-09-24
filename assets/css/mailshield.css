@@ -1603,13 +1603,28 @@ a:hover {
     color: var(--ms-text-muted);
 }
 
-/* The columns come from .ms-grid--3; this only resets the list semantics the
-   <ul> carries, so the auto-fit collapse stays the grid's own behaviour — the
-   same division of labour as .ms-steps above. */
+/* Named column counts rather than .ms-grid--3's auto-fit, for the same reason
+   as .ms-steps above. Six cards fill one, two or three columns evenly, but
+   auto-fit opens a fourth column at wide widths and strands two cards on the
+   last row. So: one column on a phone, two from 600px, three from 1024px. The
+   <ul> keeps the six one list to a screen reader; its semantics are reset here. */
 .ms-automation__grid {
+    grid-template-columns: minmax(0, 1fr);
     margin: var(--ms-space-8) 0 0;
     padding: 0;
     list-style: none;
+}
+
+@media (min-width: 600px) {
+    .ms-automation__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1024px) {
+    .ms-automation__grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 .ms-automation__card {
@@ -1620,7 +1635,7 @@ a:hover {
 /* 20px on a 20-unit viewBox, so the coordinates drawn in the partial are the
    pixels they render at and the 1.5 stroke is a real 1.5. Muted: the glyph
    marks the card and the title names it, so the row of icons reads as a
-   rhythm rather than as seven more headings. */
+   rhythm rather than as six more headings. */
 .ms-automation__icon {
     color: var(--ms-text-muted);
 }
@@ -1634,10 +1649,10 @@ a:hover {
     margin-top: var(--ms-space-4);
 }
 
-/* Full strength, unlike the card bodies elsewhere on the page: these seven are
+/* Full strength, unlike the card bodies elsewhere on the page: these six are
    the section's argument, and the one card that is deliberately quieter (below)
-   only reads as quieter against them. max-width only ever applies to that wide
-   card — everywhere else the grid column is narrower than the measure. */
+   only reads as quieter against them. max-width only applies on the one-column
+   phone layout — everywhere else the grid column is narrower than the measure. */
 .ms-automation__text {
     max-width: 46ch;
     margin: var(--ms-space-3) 0 0;
@@ -1648,7 +1663,7 @@ a:hover {
 /* Two small differences: the body copy drops to --ms-text-muted and the
    hairline is mixed back towards the card it outlines. Together they say "not
    yet" without hiding it — this is a roadmap note, not a disabled control, so
-   it stays as legible as the six around it. Nothing else changes: the shadow,
+   it stays as legible as the five around it. Nothing else changes: the shadow,
    the radius and the padding are the other cards'. */
 .ms-automation__card--soon {
     border-color: color-mix(in srgb, var(--ms-border) 45%, var(--ms-bg-raised));
@@ -1656,20 +1671,6 @@ a:hover {
 
 .ms-automation__card--soon .ms-automation__text {
     color: var(--ms-text-muted);
-}
-
-/* Below the width at which auto-fit fits four columns, seven cards leave the
-   seventh alone on a row — two columns at 768px, three at 1024px. It is the
-   roadmap card, so it takes the whole row instead: a deliberate closing note
-   rather than a card that looks like it fell out of the grid. The 1096px
-   threshold is where four columns first fit (container 1120px, 2rem gutters,
-   4 x 240px + 3 x 24px gaps = 1032px of content); above it the card is one of
-   four, and 4 + 3 fills both rows with nobody stranded. At one column the span
-   is a no-op. Nothing here moves on hover — these cards do nothing. */
-@media (max-width: 1095px) {
-    .ms-automation__card--soon {
-        grid-column: 1 / -1;
-    }
 }
 
 /* The closing line: the section's own summary, at footnote size. */
@@ -3981,12 +3982,12 @@ a:hover {
     line-height: var(--ms-lh-xs);
 }
 
-/* --- A personal address row, its feed panel (#162) and its Pushover
-   control (#173) ------------------------------------------------------------
+/* --- A personal address row, its feed panel (#162) and its per-address hook
+   control (#251 step 5) ------------------------------------------------------
    Each row is a Bootstrap `.list-group-item`, but it now carries two more
-   buttons — the feed's, and the per-address Pushover one when the account has
-   a Pushover webhook — and, under it, a panel that opens in place rather than
-   a modal or a page of its own.
+   buttons — the feed's, and the per-address Pause/Start one whenever the
+   account has any webhook — and, under it, a panel that opens in place rather
+   than a modal or a page of its own.
 
    The panel stacks its URL above its actions. That order is what keeps a phone
    from scrolling sideways (§12.8): the feed URL is the one unbreakable string
@@ -3998,10 +3999,10 @@ a:hover {
     gap: var(--ms-space-3);
 }
 
-/* A row that carries the per-address Pushover control (#173) has three buttons
-   where this block's layout was measured for two: at 375px the address column
-   is already down to ~90px, and the third control takes the rest, leaving the
-   local part a one-character-wide column hundreds of pixels tall.
+/* A row that carries the per-address hook control has three buttons where this
+   block's layout was measured for two: at 375px the address column is already
+   down to ~90px, and the third control takes the rest, leaving the local part a
+   one-character-wide column hundreds of pixels tall.
 
    So on those rows the controls take a line of their own and the address keeps
    the full width above them. The rule is scoped with `:has()` to the row that
@@ -4009,11 +4010,11 @@ a:hover {
    did before — and it only fires once the two no longer fit together, so wide
    viewports are unchanged. `flex-wrap` on the controls is the floor for the
    narrowest phones (320px), where the three no longer fit even alone. */
-.ms-address-row__main:has(.ms-address-row__po) {
+.ms-address-row__main:has(.ms-address-row__hooks:not(.d-none)) {
     flex-wrap: wrap;
 }
 
-.ms-address-row__main:has(.ms-address-row__po) .ms-address-row__actions {
+.ms-address-row__main:has(.ms-address-row__hooks:not(.d-none)) .ms-address-row__actions {
     flex-wrap: wrap;
     justify-content: flex-end;
 }
@@ -4032,10 +4033,11 @@ a:hover {
     gap: var(--ms-space-2);
 }
 
-/* "RSS on" and "PO on" are states, not second calls to action — the accent tint
-   tells them apart from the muted outline every other secondary button wears. */
+/* "RSS on" and "Hooks on" are states, not second calls to action — the accent
+   tint tells them apart from the muted outline every other secondary button
+   wears. */
 .ms-address-row__feed.is-on,
-.ms-address-row__po.is-on {
+.ms-address-row__hooks.is-on {
     color: var(--ms-accent);
     border-color: var(--ms-accent);
     background: var(--ms-accent-soft);
@@ -4043,8 +4045,8 @@ a:hover {
 
 .ms-address-row__feed.is-on:hover,
 .ms-address-row__feed.is-on:focus-visible,
-.ms-address-row__po.is-on:hover,
-.ms-address-row__po.is-on:focus-visible {
+.ms-address-row__hooks.is-on:hover,
+.ms-address-row__hooks.is-on:focus-visible {
     color: var(--ms-accent-hover);
     border-color: var(--ms-accent-hover);
     background: var(--ms-accent-soft);
@@ -4072,6 +4074,62 @@ a:hover {
     flex-wrap: wrap;
     gap: var(--ms-space-2);
     margin-top: var(--ms-space-2);
+}
+
+/* --- The "Triggers for" group under one webhook (#251 step 5) --------------
+   Each hook lists the personal addresses it fires for, plus a Temporary
+   addresses switch, below the hook's own row inside the same
+   `.list-group-item` — a rule separates the two so they read as one block.
+
+   That item is a wrapping flex container (legacy style.css makes it one), so
+   the group has to claim a line of its own rather than sit beside the hook's
+   name and buttons: `flex-basis: 100%` is what puts it there. The declarations
+   are inert if the group is ever rendered outside such a container.
+
+   The full address is the one long string here and it has to wrap rather than
+   widen the card: `min-width: 0` lets the group shrink inside the list item,
+   and `overflow-wrap: anywhere` breaks the address itself, which carries no
+   space to break at. Otherwise a long address pushes the card past 375px and
+   the page scrolls sideways (§12.8).
+
+   The legend is restyled because Bootstrap's reboot gives every `legend` a
+   responsive display size; this one is a label for a small group, not a
+   heading. */
+
+.ms-hook-routing {
+    flex: 1 1 100%;
+    min-width: 0;
+    margin-top: var(--ms-space-3);
+    padding-top: var(--ms-space-3);
+    border-top: 1px solid var(--ms-border);
+}
+
+.ms-hook-routing__legend {
+    float: none;
+    width: auto;
+    margin-bottom: var(--ms-space-2);
+    padding: 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    font-weight: 600;
+    color: var(--ms-text);
+}
+
+.ms-hook-routing .form-check-label {
+    overflow-wrap: anywhere;
+}
+
+.ms-hook-routing__paused {
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+}
+
+.ms-hook-routing__empty {
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-warning);
 }
 
 /* ==========================================================================

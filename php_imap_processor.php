@@ -1,13 +1,26 @@
 <?php
 defined('TEMPMAIL_APP') or define('TEMPMAIL_APP', true);
 
+/**
+ * Pro webhook dispatch.
+ *
+ * The name is historical: this class was the IMAP intake, and the IMAP intake
+ * it is named after was removed in #212. What is left is Pro webhook dispatch
+ * only - dispatchWebhooks() queues deliveries, dispatchDelivery() sends them,
+ * deliverNow() sends fresh ones straight away from the intake.
+ * Mail arrives only through parse.php and the Email Storage service.
+ *
+ * Routing is per hook and per address (epic #251): which hooks a message
+ * queues for is decided by the destination address' own row, so
+ * migrate_webhook_addresses.php has to have run. It has no fallback - see
+ * dispatchWebhooks() and hooksForDestination().
+ */
 class ImapProcessor
 {
     private array $config;
     private PDO $pdo;
     private bool $debugMode = false;
-    private bool $dryRun = false;
-    private ?bool $tempEmailsHasPushoverColumn = null;
+    private ?bool $hasHookRouting = null;
 
     public function __construct(array $config, PDO $pdo, bool $debugMode = false)
     {
@@ -16,434 +29,319 @@ class ImapProcessor
         $this->debugMode = $debugMode;
     }
 
-    public function setDryRun(bool $dry): void
+    /**
+     * Queue one delivery per webhook that the destination address routes to.
+     *
+     * The hooks come from hooksForDestination(), i.e. only the ones the
+     * destination address actually routes to. Every hook kind is routed the
+     * same way; Pushover gets no special case.
+     *
+     * Fail-closed: without the routing schema there is no way to tell which
+     * hooks an address routes to, so a message queues nothing at all rather
+     * than falling back to a rule that would send mail the user never asked
+     * for. migrate_webhook_addresses.php is what makes it available.
+     *
+     * @return int[] ids of the pro_webhook_deliveries rows queued, so a caller
+     *               can attempt them right away (see deliverNow()).
+     */
+    public function dispatchWebhooks(int $proUserId, array $payload): array
     {
-        $this->dryRun = (bool)$dry;
-    }
-
-    public function processEmails(): array
-    {
-        try {
-            // Only emit the startup message when the configured app log level is not INFO
-            $configuredLevel = strtoupper($this->config['app']['log_level'] ?? ($GLOBALS['config']['app']['log_level'] ?? 'INFO'));
-            if ($configuredLevel !== 'INFO') {
-                if (function_exists('logMessage')) {
-                    logMessage('INFO', 'Starting IMAP processor');
-                } else {
-                    error_log("[INFO] Production IMAP: Starting IMAP processor");
-                }
-            }
-
-            if (!extension_loaded('imap')) {
-                return $this->processEmailsWithCurl();
-            }
-
-            $addresses = $this->getValidAddresses();
-            // Log number of addresses being processed and a short sample to aid debugging
-            try {
-                $count = is_array($addresses['full']) ? count($addresses['full']) : 0;
-                $sample = [];
-                if ($count > 0) {
-                    $sample = array_slice($addresses['full'], 0, 10);
-                }
-                $this->log('DEBUG', 'IMAP will process addresses', ['count' => $count, 'sample' => $sample]);
-            } catch (Exception $_) {
-                // ignore logging errors
-            }
-            if (empty($addresses['full'])) {
-                return ['success' => true, 'new_emails' => 0, 'message' => 'No active addresses'];
-            }
-
-            $imap = $this->connectToImap();
-            if (!$imap) throw new Exception('Unable to connect to IMAP');
-
-            $count = $this->fetchEmailsFromServer($imap, $addresses);
-            imap_close($imap);
-
-            $this->log('INFO', "IMAP processing complete: {$count} new emails");
-            return ['success' => true, 'new_emails' => $count, 'message' => "Fetched {$count} messages"];
-        } catch (Exception $e) {
-            $this->log('ERROR', 'IMAP processor failed: ' . $e->getMessage());
-            return ['success' => false, 'new_emails' => 0, 'message' => $e->getMessage()];
-        }
-    }
-
-    private function getValidAddresses(): array
-    {
-        $sql = 'SELECT unique_address FROM temp_emails WHERE expires_at > NOW() ORDER BY created_at DESC';
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute();
-        $unique = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-        $full = array_map(fn($u) => $u . '@manjo.me', $unique);
-        return ['unique' => $unique, 'full' => $full];
-    }
-
-    private function connectToImap()
-    {
-        // Prefer new `imap` config block, fall back to legacy `mail` config
-        $imapCfg = $this->config['imap'] ?? [];
-        if (empty($imapCfg)) {
-            $imapCfg = $this->config['mail'] ?? [];
-        }
-
-        // If a full mailbox string is provided (eg {host:993/imap/ssl}INBOX), use it directly
-        $server = $imapCfg['server'] ?? null;
-        $user = $imapCfg['user'] ?? ($imapCfg['imap_user'] ?? null);
-        $pass = $imapCfg['password'] ?? ($imapCfg['imap_pass'] ?? null);
-
-        if (!empty($server)) {
-            if (empty($user) || empty($pass)) return false;
-            $conn = @imap_open($server, $user, $pass, 0);
-            return $conn ?: false;
-        }
-
-        // Fallback: build mailbox from host + flags
-        $host = $imapCfg['host'] ?? ($imapCfg['imap_host'] ?? 'localhost');
-        $flags = $imapCfg['flags'] ?? ($imapCfg['imap_flags'] ?? '/imap/ssl/novalidate-cert');
-        if (empty($user) || empty($pass)) return false;
-        $mailbox = '{' . $host . $flags . '}INBOX';
-        $conn = @imap_open($mailbox, $user, $pass, 0);
-        return $conn ?: false;
-    }
-
-    private function fetchEmailsFromServer($imapConnection, array $addresses): int
-    {
-        $new = 0;
-        $mc = @imap_search($imapConnection, 'ALL');
-        if (!$mc) return 0;
-        foreach ($mc as $num) {
-            try {
-                $header = @imap_headerinfo($imapConnection, $num);
-                $toAddresses = [];
-                foreach ($header->to ?? [] as $t) {
-                    $toAddresses[] = strtolower(($t->mailbox ?? '') . '@' . ($t->host ?? ''));
-                }
-                $matching = array_values(array_intersect($toAddresses, $addresses['full']));
-                if (!empty($matching)) {
-                    $body = $this->getMessageBody($imapConnection, $num);
-                    $saved = $this->saveEmail($header, $body, $matching[0], $imapConnection, $num);
-                    if ($saved) {
-                        $new++;
-                        $this->log('INFO', 'Saved email for: ' . $matching[0]);
-                    }
-                    if (!$this->dryRun) @imap_delete($imapConnection, $num);
-                    $this->updateStat('emails_total', 1);
-                } else {
-                    $this->log('INFO', 'Deleting email without valid match: ' . implode(', ', $toAddresses));
-                    if (!$this->dryRun) @imap_delete($imapConnection, $num);
-                    $this->updateStat('emails_total', 1);
-                }
-            } catch (Exception $e) {
-                $this->log('ERROR', 'Error processing message ' . $num . ': ' . $e->getMessage());
-            }
-        }
-        if (!$this->dryRun) @imap_expunge($imapConnection);
-        return $new;
-    }
-
-    private function getMessageBody($imapConnection, $messageNumber): string
-    {
-        // Robust recursive extraction: prefer HTML, fall back to plain text
-        $structure = @imap_fetchstructure($imapConnection, $messageNumber);
-        $result = ['html' => null, 'text' => null];
-
-        // Helper to fetch and decode a part by part number
-        $fetchDecode = function($partNo, $partObj) use ($imapConnection, $messageNumber) {
-            $data = @imap_fetchbody($imapConnection, $messageNumber, $partNo);
-            if ($data === false) return null;
-            $encoding = $partObj->encoding ?? null;
-            if ($encoding == 3) return base64_decode($data);
-            if ($encoding == 4) return quoted_printable_decode($data);
-            return $data;
-        };
-
-        // Recursive traversal to find text/html or text/plain parts
-        $traverse = function($parts, $prefix = '') use (&$traverse, &$result, $fetchDecode) {
-            foreach ($parts as $idx => $part) {
-                $partNo = $prefix === '' ? ($idx + 1) : ($prefix . '.' . ($idx + 1));
-                $type = strtoupper($part->subtype ?? '');
-                $major = $part->type ?? null;
-
-                // If this part is itself multipart, recurse
-                if (!empty($part->parts) && is_array($part->parts)) {
-                    $traverse($part->parts, $partNo);
-                }
-
-                // Check for text/plain or text/html
-                if ($major == 0 && in_array($type, ['PLAIN', 'HTML'])) {
-                    $data = $fetchDecode($partNo, $part);
-                    if ($data !== null) {
-                        if ($type === 'HTML' && $result['html'] === null) $result['html'] = $data;
-                        if ($type === 'PLAIN' && $result['text'] === null) $result['text'] = $data;
-                    }
-                }
-            }
-        };
-
-        if ($structure && !empty($structure->parts) && is_array($structure->parts)) {
-            $traverse($structure->parts);
-        } else {
-            // Singlepart message
-            $data = @imap_fetchbody($imapConnection, $messageNumber, 1);
-            if ($data === false || $data === '') $data = @imap_body($imapConnection, $messageNumber);
-            if ($structure && ($structure->encoding == 3)) $data = base64_decode($data);
-            elseif ($structure && ($structure->encoding == 4)) $data = quoted_printable_decode($data);
-            $result['text'] = $data;
-        }
-
-        // Prefer HTML if present
-        $out = $result['html'] ?? $result['text'] ?? '';
-        return (string)$out;
-    }
-
-    private function saveEmail($header, $body, $toAddress, $imapConnection = null, $messageNumber = null): bool
-    {
-        try {
-            $fromAddress = '';
-            if (!empty($header->from[0])) {
-                $f = $header->from[0];
-                if (isset($f->mailbox, $f->host)) $fromAddress = $f->mailbox . '@' . $f->host;
-            }
-
-            $subject = isset($header->subject) ? $this->decodeMimeHeader($header->subject) : '(no subject)';
-            $receivedDate = date('Y-m-d H:i:s', $header->udate ?? time());
-            $bodyClean = $this->sanitizeSavedBody($body);
-
-            // Determine if body is HTML and split into body_html / body_text
-            $bodyHtml = null;
-            $bodyText = null;
-            if (preg_match('/<[^>]+>/', $bodyClean)) {
-                // Treat as HTML
-                $bodyHtml = $bodyClean;
-                $bodyText = trim(html_entity_decode(strip_tags($bodyClean), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-                // Normalize excessive whitespace
-                $bodyText = preg_replace('/[ \t]+/', ' ', $bodyText);
-                $bodyText = preg_replace('/(\r?\n){3,}/', "\n\n", $bodyText);
-            } else {
-                // Plain text
-                $bodyText = $bodyClean;
-            }
-
-            $expiresAt = null;
-            $proUserId = null;
-            $tempEmailId = null;
-
-            try {
-                $local = explode('@', strtolower($toAddress))[0] ?? null;
-                if ($local) {
-                    $lookup = $this->pdo->prepare('SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1');
-                    $lookup->execute([$local]);
-                    $r = $lookup->fetch(PDO::FETCH_ASSOC);
-                    if ($r) {
-                        $tempEmailId = $r['id'] ?? null;
-                        $proUserId = $r['pro_user_id'] ?? null;
-                        if (!empty($r['pro_user_id'])) {
-                            $pstmt = $this->pdo->prepare('SELECT COALESCE(address_ttl_days, 1) AS ttl_days FROM pro_users WHERE id = ? LIMIT 1');
-                            $pstmt->execute([(int)$r['pro_user_id']]);
-                            $prow = $pstmt->fetch(PDO::FETCH_ASSOC);
-                            if ($prow && isset($prow['ttl_days'])) {
-                                $ttl = max(1, min(365 * 50, (int)$prow['ttl_days']));
-                                $expiresAt = date('Y-m-d H:i:s', strtotime("+{$ttl} days", strtotime($receivedDate) ?: time()));
-                            }
-                        }
-                        if (empty($expiresAt) && !empty($r['expires_at'])) $expiresAt = $r['expires_at'];
-                    }
-                }
-            } catch (Exception $e) {
-                $this->log('WARNING', 'Lookup temp_emails failed: ' . $e->getMessage());
-            }
-
-            $sql = 'INSERT INTO stored_emails (to_address, from_address, subject, body_text, body_html, received_at, expires_at, temp_email_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-            $stmt = $this->pdo->prepare($sql);
-            $ok = $stmt->execute([$toAddress, $fromAddress, $subject, $bodyText, $bodyHtml, $receivedDate, $expiresAt, $tempEmailId]);
-            
-            // IMPORTANT: Get lastInsertId IMMEDIATELY after INSERT, BEFORE any other DB operations
-            $emailId = $ok ? (int)$this->pdo->lastInsertId() : 0;
-            
-            // Debug: log INSERT result and any errors
-            $insertError = $ok ? 'none' : implode(',', $stmt->errorInfo());
-            if (function_exists('safeDebugLog')) {
-                safeDebugLog('DEBUG', 'stored_emails INSERT', [
-                    'ok' => $ok,
-                    'error' => $insertError,
-                    'emailId' => $emailId,
-                    'subject' => substr($subject, 0, 30)
-                ]);
-            }
-            
-            $this->updateStat('emails_processed', 1);
-
-            // Save attachments for ALL emails (not just PRO users)
-            if ($ok && $emailId > 0) {
-                
-                // Debug: log lastInsertId immediately after stored_emails INSERT
-                if (function_exists('safeDebugLog')) {
-                    safeDebugLog('DEBUG', 'saveEmail lastInsertId', [
-                        'emailId' => $emailId,
-                        'to' => $toAddress,
-                        'subject' => substr($subject, 0, 30)
-                    ]);
-                }
-                
-                if ($imapConnection && $messageNumber) {
-                    try {
-                        $this->log('DEBUG', 'Calling saveAttachmentsFromMessage: ' . json_encode(['message_number' => $messageNumber, 'email_id' => $emailId, 'temp_email_id' => $tempEmailId]));
-                        $attachResult = $this->saveAttachmentsFromMessage($imapConnection, $messageNumber, $emailId);
-                        $attachMapping = is_array($attachResult) ? ($attachResult['mapping'] ?? []) : [];
-                        $this->log('DEBUG', 'saveAttachmentsFromMessage result: ' . json_encode(['saved' => $attachResult['saved'] ?? 0, 'mapping' => $attachMapping]));
-                        // NOTE: We intentionally do NOT replace cid: references here.
-                        // The cid: references are preserved in the database and replaced with
-                        // freshly signed URLs at display time in index.php. This ensures that
-                        // both inline images and attachment list use the same signature timestamp,
-                        // avoiding the issue where inline images and attachment downloads had
-                        // different (and potentially invalid) signatures.
-                    } catch (Exception $e) {
-                        $this->log('WARNING', 'Saving attachments failed: ' . $e->getMessage());
-                    }
-                }
-
-                // Webhooks remain PRO-only (entitlement is checked inside dispatchWebhooks())
-                if (!empty($proUserId)) {
-                    $payload = ['to' => $toAddress, 'from' => $fromAddress, 'subject' => $subject, 'body' => ($bodyHtml ?? $bodyText), 'received_at' => $receivedDate, 'temp_email_id' => $tempEmailId];
-                    $this->dispatchWebhooks((int)$proUserId, $payload);
-                }
-            }
-
-            return (bool)$ok;
-        } catch (Exception $e) {
-            $this->log('ERROR', 'Save email failed: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    private function updateStat($statName, $increment = 1): bool
-    {
-        try {
-            $sql = 'INSERT INTO email_stats (stat_name, stat_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE stat_value = stat_value + VALUES(stat_value), last_updated = CURRENT_TIMESTAMP';
-            $stmt = $this->pdo->prepare($sql);
-            return (bool)$stmt->execute([$statName, $increment]);
-        } catch (PDOException $e) {
-            $this->log('ERROR', 'Update stat failed: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    private function decodeMimeHeader($text): string
-    {
-        if (function_exists('imap_mime_header_decode')) {
-            $decoded = imap_mime_header_decode($text);
-            $out = '';
-            foreach ($decoded as $el) $out .= $el->text;
-            return $out;
-        }
-        return $text;
-    }
-
-    public function dispatchWebhooks(int $proUserId, array $payload): void
-    {
+        $queued = [];
         try {
             // Entitlement check lives here (not in the caller) so every current and future
-            // caller of dispatchWebhooks() is covered. function_exists() guards against running
-            // from entrypoints (run_imap_processor.php, cron/run_imap_once.php) that construct
-            // this class without loading config.php.
+            // caller of dispatchWebhooks() is covered. function_exists() guards against a caller
+            // that constructs this class without loading config.php.
             if (function_exists('proUserIsPro') && !proUserIsPro($proUserId)) {
                 $this->log('DEBUG', 'Skipping webhook dispatch for non-pro account', ['user_id' => $proUserId]);
-                return;
+                return $queued;
             }
 
-            // Only select webhooks that are not paused
-            $stmt = $this->pdo->prepare('SELECT id, name, url, kind, config, secret, filter_mode FROM pro_webhooks WHERE user_id = ? AND filter_mode = \'all\'');
-            $stmt->execute([$proUserId]);
-            $hooks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            if (empty($hooks)) return;
-
-            $ins = $this->pdo->prepare('INSERT INTO pro_webhook_deliveries (webhook_id, user_id, payload, attempts, status, next_attempt_at, created_at) VALUES (?, ?, ?, 0, \'pending\', ?, NOW())');
-            $now = date('Y-m-d H:i:s');
-            // Pushover is opt-in per destination address (#174). Resolved on the
-            // first Pushover hook and memoised in the loop, so a user without any
-            // Pushover webhook pays no extra query per message.
-            $pushoverEligible = null;
-            foreach ($hooks as $h) {
-                if (($h['kind'] ?? 'generic') === 'pushover') {
-                    if ($pushoverEligible === null) {
-                        $pushoverEligible = $this->pushoverEnabledForAddress($proUserId, $payload['to'] ?? null);
-                    }
-                    if (!$pushoverEligible) {
-                        // Expected, routine state: Pushover is off for this address
-                        // (the default). Generic webhooks are unaffected.
-                        $this->log('DEBUG', 'Skipping Pushover webhook: destination address has Pushover disabled', [
-                            'webhook_id' => $h['id'],
-                            'user_id' => $proUserId,
-                            'to' => $payload['to'] ?? null
-                        ]);
-                        continue;
-                    }
-                }
-                try {
-                    $ins->execute([$h['id'], $proUserId, json_encode($payload, JSON_UNESCAPED_UNICODE), $now]);
-                    $this->log('INFO', 'Webhook queued', [
-                        'webhook_id' => $h['id'],
-                        'webhook_name' => $h['name'] ?? null,
-                        'kind' => $h['kind'],
-                        'user_id' => $proUserId,
-                        'subject' => $payload['subject'] ?? null
-                    ]);
-                } catch (Exception $e) {
-                    $this->log('ERROR', 'Enqueue webhook failed: ' . $e->getMessage());
-                }
+            if (!$this->hookRoutingAvailable()) {
+                $this->log('WARNING', 'Webhook routing tables missing; run migrate_webhook_addresses.php', [
+                    'user_id' => $proUserId
+                ]);
+                return $queued;
             }
+
+            return $this->enqueueHooks($this->hooksForDestination($proUserId, $payload['to'] ?? null), $proUserId, $payload);
         } catch (Exception $e) {
             $this->log('ERROR', 'Dispatch webhooks error: ' . $e->getMessage());
+        }
+        return $queued;
+    }
+
+    /**
+     * Is the per-hook address routing schema in place? (epic #251)
+     *
+     * True only when all three objects migrate_webhook_addresses.php adds
+     * exist, so a half-migrated database - or an entrypoint that did not load
+     * config.php and so has no tableHasColumn() - reads as "not routed", and
+     * dispatchWebhooks() queues nothing. Cached: the answer cannot change while
+     * one process runs, and this is consulted on every stored message.
+     */
+    private function hookRoutingAvailable(): bool
+    {
+        if ($this->hasHookRouting === null) {
+            $this->hasHookRouting = function_exists('tableHasColumn')
+                && tableHasColumn('pro_webhook_addresses', 'webhook_id')
+                && tableHasColumn('pro_webhooks', 'include_temporary')
+                && tableHasColumn('temp_emails', 'hooks_paused');
+        }
+        return $this->hasHookRouting;
+    }
+
+    /**
+     * Which of the user's active hooks does a message to $toAddress route to?
+     *
+     * $toAddress is the recipient the intake resolved from the message headers
+     * and stored on stored_emails.to_address, so it is the address the message
+     * is filed under. The address' own row decides, and it must belong to
+     * $proUserId:
+     *
+     *  - Personal address (is_personal = 1): its hooks_paused = 1 queues
+     *    nothing at all; otherwise exactly the user's active hooks
+     *    (filter_mode = 'all') with a pro_webhook_addresses row for this
+     *    address. New personal addresses start unlinked, so they start silent.
+     *  - Temporary address (is_personal = 0): the user's active hooks with
+     *    include_temporary = 1. The one switch covers all of the user's
+     *    temporary addresses, so no link row is involved.
+     *
+     * Anything unproven reads as "queue nothing": a missing row, an address not
+     * owned by $proUserId and a lookup exception all return [].
+     *
+     * @param string|null $toAddress full recipient address (local@domain)
+     * @return list<array<string,mixed>>
+     */
+    private function hooksForDestination(int $proUserId, $toAddress): array
+    {
+        if (empty($toAddress) || !is_string($toAddress)) return [];
+        $local = explode('@', strtolower(trim($toAddress)))[0];
+        if ($local === '') return [];
+
+        try {
+            $stmt = $this->pdo->prepare('SELECT id, is_personal, hooks_paused FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? LIMIT 1');
+            $stmt->execute([$local, $proUserId]);
+            $address = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($address === false) {
+                $this->log('DEBUG', 'No webhook routing: destination address not owned by this user', [
+                    'user_id' => $proUserId,
+                    'to' => $toAddress
+                ]);
+                return [];
+            }
+
+            if ((int)$address['is_personal'] === 1) {
+                if ((int)$address['hooks_paused'] === 1) {
+                    // Expected, routine state, and reversible from the profile
+                    // page: the address keeps its links while it is paused.
+                    $this->log('DEBUG', 'Skipping webhooks: hooks are paused for this address', [
+                        'user_id' => $proUserId,
+                        'temp_email_id' => (int)$address['id'],
+                        'to' => $toAddress
+                    ]);
+                    return [];
+                }
+
+                $stmt = $this->pdo->prepare('SELECT w.id, w.name, w.url, w.kind, w.config, w.secret, w.filter_mode FROM pro_webhooks w JOIN pro_webhook_addresses l ON l.webhook_id = w.id WHERE w.user_id = ? AND w.filter_mode = \'all\' AND l.temp_email_id = ?');
+                $stmt->execute([$proUserId, (int)$address['id']]);
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            $stmt = $this->pdo->prepare('SELECT id, name, url, kind, config, secret, filter_mode FROM pro_webhooks WHERE user_id = ? AND filter_mode = \'all\' AND include_temporary = 1');
+            $stmt->execute([$proUserId]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            $this->log('WARNING', 'Webhook routing lookup failed: ' . $e->getMessage(), [
+                'user_id' => $proUserId
+            ]);
+            return [];
         }
     }
 
     /**
-     * Is Pushover enabled for the address this message was delivered to? (#174)
+     * Insert one pending delivery per hook, and return the new delivery ids.
      *
-     * `$toAddress` is the recipient the intake resolved from the message headers
-     * and stored on stored_emails.to_address, so this is the same address the
-     * message is filed under - a temporary address (is_personal = 0) can never
-     * inherit a personal address' opt-in, because the flag is read off that
-     * address' own row.
-     *
-     * The lookup is scoped to $proUserId as well, so a destination that somehow
-     * does not belong to the user being dispatched for reads as "off" rather
-     * than borrowing another account's preference.
-     *
-     * One enabled address enables every active Pushover webhook of the user:
-     * the Pushover token and user key live on the webhook (pro_webhooks.config),
-     * never on the address, so there is no per-address selection of individual
-     * Pushover configurations. Paused webhooks stay excluded by the
-     * filter_mode = 'all' filter on the webhook query, not here.
-     *
-     * Anything we cannot prove is enabled reads as disabled: a missing row, a
-     * missing column (migration not run - no address can have opted in yet) and
-     * a missing tableHasColumn() helper (entrypoint without config.php) all mean
-     * "no push", never "push anyway".
+     * The hook set is already routed by address (see hooksForDestination()), so
+     * no kind-specific rule applies here: a hook that is in the list is queued.
      */
-    private function pushoverEnabledForAddress(int $proUserId, $toAddress): bool
+    private function enqueueHooks(array $hooks, int $proUserId, array $payload): array
     {
-        if (empty($toAddress) || !is_string($toAddress)) return false;
-        $local = explode('@', strtolower(trim($toAddress)))[0];
-        if ($local === '') return false;
+        $queued = [];
+        if (empty($hooks)) return $queued;
 
-        try {
-            if ($this->tempEmailsHasPushoverColumn === null) {
-                $this->tempEmailsHasPushoverColumn = function_exists('tableHasColumn')
-                    && tableHasColumn('temp_emails', 'pushover_enabled');
+        $ins = $this->pdo->prepare('INSERT INTO pro_webhook_deliveries (webhook_id, user_id, payload, attempts, status, next_attempt_at, created_at) VALUES (?, ?, ?, 0, \'pending\', ?, NOW())');
+        $now = date('Y-m-d H:i:s');
+        foreach ($hooks as $h) {
+            try {
+                $ins->execute([$h['id'], $proUserId, json_encode($payload, JSON_UNESCAPED_UNICODE), $now]);
+                $queued[] = (int)$this->pdo->lastInsertId();
+                $this->log('INFO', 'Webhook queued', [
+                    'webhook_id' => $h['id'],
+                    'webhook_name' => $h['name'] ?? null,
+                    'kind' => $h['kind'],
+                    'user_id' => $proUserId,
+                    'subject' => $payload['subject'] ?? null
+                ]);
+            } catch (Exception $e) {
+                $this->log('ERROR', 'Enqueue webhook failed: ' . $e->getMessage());
             }
-            if (!$this->tempEmailsHasPushoverColumn) return false;
-
-            $stmt = $this->pdo->prepare('SELECT pushover_enabled FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1');
-            $stmt->execute([$local, $proUserId]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            return $row !== false && (int)$row['pushover_enabled'] === 1;
-        } catch (Exception $e) {
-            $this->log('WARNING', 'Pushover destination lookup failed: ' . $e->getMessage(), [
-                'user_id' => $proUserId
-            ]);
-            return false;
         }
+        return $queued;
+    }
+
+    /**
+     * Attempt freshly queued deliveries immediately, instead of leaving them
+     * for the next run of cron/process-webhook-deliveries.php.
+     *
+     * Best effort only: every delivery is already durable in the queue, so a
+     * failure here just leaves it for the cron worker's retry/backoff. At most
+     * $limit deliveries are attempted, which bounds how long the caller (the
+     * parse.php pipe, with Exim waiting on it) can be held up by slow targets.
+     * Never throws.
+     */
+    public function deliverNow(array $deliveryIds, int $limit = 5): void
+    {
+        foreach (array_slice($deliveryIds, 0, max(0, $limit)) as $id) {
+            try {
+                $this->dispatchDelivery((int)$id);
+            } catch (Throwable $e) {
+                $this->log('WARNING', 'Immediate webhook delivery failed, left for the worker: ' . $e->getMessage(), [
+                    'delivery_id' => (int)$id
+                ]);
+            }
+        }
+    }
+
+    /**
+     * The config JSON on a hook is the user's own, and it is applied as-is:
+     * webhooks are a technical feature, so the user gets full control over
+     * what is sent, our fixed fields included. What stays out of their reach
+     * is where it goes - Pushover always posts to api.pushover.net, a generic
+     * hook only to the URL that passed resolveUrlToPublicTarget() - and the
+     * config size, capped at creation in pro_profile.php.
+     *
+     * Form fields for a Pushover messages.json call: our defaults (message,
+     * title), then every scalar config key on top (token, user, device, sound,
+     * priority, url, html, ttl, ... or message/title themselves). Pushover
+     * validates the fields; its error lands in the delivery log. Nested values
+     * are dropped - the API takes flat form fields only.
+     */
+    public static function pushoverPostFields(array $cfg, string $message, string $defaultTitle): array
+    {
+        $post = ['message' => $message, 'title' => $defaultTitle];
+        foreach ($cfg as $key => $value) {
+            if (!is_string($key)) continue;
+            if (is_bool($value)) $value = $value ? 1 : 0;
+            if (!is_scalar($value)) continue;
+            $post[$key] = $value;
+        }
+        return $post;
+    }
+
+    /**
+     * The mail body as plain text for a Pushover notification. strip_tags()
+     * alone keeps the text inside <style>, <script> and <head>, so an HTML
+     * mail arrived as a wall of CSS; those elements, comments and CDATA go
+     * first, block-level tags become line breaks, entities are decoded and
+     * whitespace is collapsed to at most one blank line.
+     */
+    public static function pushoverBodyText(string $body): string
+    {
+        $text = preg_replace('/<!--.*?(-->|$)/s', ' ', $body) ?? $body;
+        $text = preg_replace('/<!\[CDATA\[.*?(\]\]>|$)/s', ' ', $text) ?? $text;
+        $text = preg_replace('#<(style|script|head|title|noscript|template|svg)\b[^>]*>.*?(</\1\s*>|$)#is', ' ', $text) ?? $text;
+        $text = preg_replace('#<br\s*/?>|</?(p|div|tr|li|h[1-6]|table|ul|ol|blockquote|section|article|header|footer)\b[^>]*>#i', "\n", $text) ?? $text;
+        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = str_replace(["\r\n", "\r", "\xC2\xA0"], ["\n", "\n", ' '], $text);
+        $text = preg_replace('/[ \t\f]+/', ' ', $text) ?? $text;
+        $text = preg_replace('/ *\n */', "\n", $text) ?? $text;
+        $text = preg_replace('/\n{3,}/', "\n\n", $text) ?? $text;
+        return trim($text);
+    }
+
+    /**
+     * JSON body for a generic hook: the mail payload with the config's
+     * top-level keys merged over it, so a key in the config replaces ours.
+     * `headers` is the one reserved key - it becomes HTTP headers (see
+     * webhookHeaders()) and never reaches the body.
+     */
+    public static function genericWebhookBody(array $cfg, array $payload): array
+    {
+        foreach ($cfg as $key => $value) {
+            if (is_string($key) && $key !== self::CONFIG_HEADERS_KEY) $payload[$key] = $value;
+        }
+        return $payload;
+    }
+
+    /** Config key whose object is sent as HTTP headers on a generic hook. */
+    public const CONFIG_HEADERS_KEY = 'headers';
+
+    /**
+     * Headers the config may not set: the ones that describe the request
+     * framing or the connection (setting them could smuggle a second request
+     * or confuse the transport), Host (the connection is pinned to the IP
+     * resolved for the URL's host, and the Host header must stay that host),
+     * and our own signature.
+     */
+    private const RESERVED_HEADERS = [
+        'host', 'content-length', 'transfer-encoding', 'connection', 'keep-alive',
+        'upgrade', 'te', 'trailer', 'expect', 'proxy-authorization', 'proxy-connection',
+        'x-tempmail-signature',
+    ];
+
+    private const MAX_CUSTOM_HEADERS = 20;
+    private const MAX_HEADER_VALUE_LENGTH = 2048;
+
+    /**
+     * The request headers for a generic hook: Content-Type: application/json,
+     * then the config's `headers` object ({"Authorization": "Bearer ..."}) -
+     * a config header replaces ours of the same name, case-insensitively - and
+     * last the signature when the hook has a secret, which the config cannot
+     * replace. Throws InvalidArgumentException naming the problem when the
+     * `headers` value is not an object of valid name => string/number pairs,
+     * so a broken config fails at creation and shows in the delivery log
+     * rather than being sent half-applied.
+     */
+    public static function webhookHeaders(array $cfg, ?string $signature = null): array
+    {
+        $headers = ['content-type' => 'Content-Type: application/json'];
+        $custom = $cfg[self::CONFIG_HEADERS_KEY] ?? [];
+        if (!is_array($custom) || ($custom !== [] && array_keys($custom) === range(0, count($custom) - 1))) {
+            throw new InvalidArgumentException('"headers" must be a JSON object of header name to value');
+        }
+        if (count($custom) > self::MAX_CUSTOM_HEADERS) {
+            throw new InvalidArgumentException('At most ' . self::MAX_CUSTOM_HEADERS . ' custom headers');
+        }
+        foreach ($custom as $name => $value) {
+            $name = (string)$name;
+            // RFC 9110 token characters only.
+            if (!preg_match('/^[!#$%&\'*+.^_`|~0-9A-Za-z-]{1,64}$/', $name)) {
+                throw new InvalidArgumentException('Invalid header name: ' . substr($name, 0, 64));
+            }
+            $lower = strtolower($name);
+            if (in_array($lower, self::RESERVED_HEADERS, true) || strpos($lower, 'proxy-') === 0) {
+                throw new InvalidArgumentException('Header cannot be set: ' . $name);
+            }
+            if (!is_string($value) && !is_int($value) && !is_float($value)) {
+                throw new InvalidArgumentException('Header value must be a string or number: ' . $name);
+            }
+            // No control characters other than tab - above all no CR/LF, which
+            // would let a value inject further headers. Checked before trimming,
+            // so a trailing CR/LF/NUL is refused rather than silently cut.
+            $value = (string)$value;
+            if (preg_match('/[\x00-\x08\x0A-\x1F\x7F]/', $value)) {
+                throw new InvalidArgumentException('Invalid header value: ' . $name);
+            }
+            $value = trim($value, " \t");
+            if (strlen($value) > self::MAX_HEADER_VALUE_LENGTH) {
+                throw new InvalidArgumentException('Invalid header value: ' . $name);
+            }
+            $headers[$lower] = $name . ': ' . $value;
+        }
+        if ($signature !== null) {
+            $headers['x-tempmail-signature'] = 'X-TempMail-Signature: ' . $signature;
+        }
+        return array_values($headers);
     }
 
     private function sendWebhookRequest(array $hook, array $payload): array
@@ -451,16 +349,16 @@ class ImapProcessor
         $kind = $hook['kind'] ?? 'generic';
         $url = $hook['url'] ?? '';
         if (empty($url)) throw new Exception('Webhook URL missing');
-        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        $cfg = !empty($hook['config']) ? json_decode($hook['config'], true) : [];
+        if (!is_array($cfg)) $cfg = [];
 
         if ($kind === 'pushover') {
-            $cfg = !empty($hook['config']) ? json_decode($hook['config'], true) : [];
             $token = $cfg['token'] ?? null;
             $user = $cfg['user'] ?? null;
             if (empty($token) || empty($user)) throw new Exception('Pushover config missing');
-            $message = ($payload['subject'] ?? '(No subject)') . "\n\n" . trim(strip_tags($payload['body'] ?? ''));
-            if (strlen($message) > 4096) $message = substr($message, 0, 4000) . '...';
-            $post = ['token' => $token, 'user' => $user, 'message' => $message, 'title' => ($payload['to'] ?? 'Mail Shield')];
+            $message = ($payload['subject'] ?? '(No subject)') . "\n\n" . self::pushoverBodyText((string)($payload['body'] ?? ''));
+            if (strlen($message) > 4096) $message = mb_strcut($message, 0, 4000, 'UTF-8') . '...';
+            $post = self::pushoverPostFields($cfg, $message, (string)($payload['to'] ?? 'Mail Shield'));
 
             if (function_exists('curl_init')) {
                 $ch = curl_init('https://api.pushover.net/1/messages.json');
@@ -484,11 +382,15 @@ class ImapProcessor
             return $resp === false ? ['code' => 0, 'body' => 'file_get_contents failed'] : ['code' => 200, 'body' => $resp];
         }
 
-        $headers = ['Content-Type: application/json'];
+        // Signed over the body as sent, config included.
+        $payloadJson = json_encode(self::genericWebhookBody($cfg, $payload), JSON_UNESCAPED_UNICODE);
+        $signature = null;
         if (!empty($hook['secret'])) {
             $secret = $this->decryptHookSecret($hook['secret']);
-            $headers[] = 'X-TempMail-Signature: sha256=' . hash_hmac('sha256', $payloadJson, $secret);
+            $signature = 'sha256=' . hash_hmac('sha256', $payloadJson, $secret);
         }
+        // Throws on an invalid headers config: a failed delivery, logged.
+        $headers = self::webhookHeaders($cfg, $signature);
 
         // This is the real, recurring webhook delivery path (fired on every new
         // email) - webhook_create's validation in pro_profile.php only gates what
@@ -536,94 +438,53 @@ class ImapProcessor
         return $plain === false ? $encoded : $plain;
     }
 
-    private function saveAttachmentsFromMessage($imapConnection, $messageNumber, $emailId): array
-    {
-        $rawHeaders = @imap_fetchheader($imapConnection, $messageNumber);
-        $rawBody = @imap_body($imapConnection, $messageNumber);
-        $raw = ($rawHeaders ?: '') . "\r\n" . ($rawBody ?: '');
-
-        $attachmentsDir = __DIR__ . '/attachments';
-        if (!is_dir($attachmentsDir)) @mkdir($attachmentsDir, 0755, true);
-
-        $cidMap = [];
-        $saved = 0;
-        $usedMailParser = false;
-
-        // Try MailParser first (requires ZBateson library)
-        if (file_exists(__DIR__ . '/MailParser.php')) {
-            require_once __DIR__ . '/MailParser.php';
-            try {
-                $parser = new MailParser($this->pdo, $this->config, $this->debugMode);
-                $parsed = $parser->parseRawMessage($raw);
-                if (!empty($parsed['attachments'])) {
-                    $ps = $parser->saveAttachments($parsed['attachments'], (int)$emailId);
-                    if (is_array($ps)) {
-                        $cidMap = $ps['mapping'] ?? [];
-                        $saved = (int)($ps['count'] ?? 0);
-                        $usedMailParser = true;
-                        $this->log('DEBUG', "MailParser saved {$saved} attachments for email_id={$emailId}");
-                    }
-                }
-            } catch (Exception $e) {
-                $this->log('WARNING', 'MailParser failed: ' . $e->getMessage());
-            }
-        }
-
-        // Always fall back to LegacyImapFallback if MailParser didn't save any attachments
-        if (!$usedMailParser || $saved === 0) {
-            $this->log('DEBUG', "Using LegacyImapFallback for email_id={$emailId}");
-            if (file_exists(__DIR__ . '/LegacyImapFallback.php')) {
-                require_once __DIR__ . '/LegacyImapFallback.php';
-            }
-            $structure = @imap_fetchstructure($imapConnection, $messageNumber);
-            if ($structure) {
-                $parts = $structure->parts ?? [];
-                if (!empty($parts)) {
-                    $legacySaved = 0;
-                    LegacyImapFallback::savePartsRecursive($this->pdo, $imapConnection, $messageNumber, $parts, '', $emailId, $attachmentsDir, $legacySaved, $cidMap);
-                    $saved += $legacySaved;
-                    $this->log('DEBUG', "LegacyImapFallback saved {$legacySaved} attachments for email_id={$emailId}");
-                }
-            }
-        }
-
-        // Update global stats for attachments processed
-        try {
-            if ($saved && function_exists('updateStat')) {
-                updateStat('attachments_processed', (int)$saved);
-            }
-        } catch (\Throwable $_) {
-            // Don't let stats failures break processing
-        }
-
-        return ['saved' => $saved, 'mapping' => $cidMap];
-    }
+    /**
+     * How long a claimed delivery is hidden from other workers while it is
+     * being sent. Longer than any request timeout in sendWebhookRequest(); if
+     * the process dies mid-send, the delivery becomes due again afterwards.
+     */
+    private const DELIVERY_LEASE_SECONDS = 120;
 
     public function dispatchDelivery(int $deliveryId): bool
     {
         try {
-            $this->pdo->beginTransaction();
-            $s = $this->pdo->prepare('SELECT * FROM pro_webhook_deliveries WHERE id = ? FOR UPDATE');
+            $s = $this->pdo->prepare('SELECT * FROM pro_webhook_deliveries WHERE id = ?');
             $s->execute([$deliveryId]);
             $d = $s->fetch(PDO::FETCH_ASSOC);
-            if (!$d) { $this->pdo->commit(); return false; }
-            if ($d['status'] !== 'pending') { $this->pdo->commit(); return false; }
-            if (!empty($d['next_attempt_at']) && strtotime($d['next_attempt_at']) > time()) { $this->pdo->commit(); return false; }
+            if (!$d) return false;
+            if ($d['status'] !== 'pending') return false;
+            if (!empty($d['next_attempt_at']) && strtotime($d['next_attempt_at']) > time()) return false;
+
+            // Claim the delivery before sending it. parse.php (immediate
+            // delivery) and the cron worker can reach the same pending row at
+            // the same time; only the process whose UPDATE moves next_attempt_at
+            // past now may send, so a delivery is never sent twice. The lease
+            // needs no schema change and expires by itself if we die mid-send.
+            $now = date('Y-m-d H:i:s');
+            $lease = date('Y-m-d H:i:s', time() + self::DELIVERY_LEASE_SECONDS);
+            $claim = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET next_attempt_at = ? WHERE id = ? AND status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)");
+            $claim->execute([$lease, $deliveryId, $now]);
+            if ($claim->rowCount() !== 1) return false;
+
             $hs = $this->pdo->prepare('SELECT * FROM pro_webhooks WHERE id = ? LIMIT 1');
             $hs->execute([$d['webhook_id']]);
             $hook = $hs->fetch(PDO::FETCH_ASSOC);
-            if (!$hook) { $u = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET status='failed', last_error=?, updated_at=NOW() WHERE id=?"); $u->execute(['Webhook not found', $deliveryId]); $this->pdo->commit(); return false; }
+            if (!$hook) { $u = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET status='failed', last_error=?, updated_at=NOW() WHERE id=?"); $u->execute(['Webhook not found', $deliveryId]); return false; }
             $payload = json_decode($d['payload'], true) ?: [];
-            $this->pdo->commit();
 
-            $res = $this->sendWebhookRequest($hook, $payload);
+            try {
+                $res = $this->sendWebhookRequest($hook, $payload);
+            } catch (Exception $e) {
+                // A broken hook config (e.g. missing Pushover keys) is a failed
+                // attempt like any other, so it backs off and ends as 'failed'
+                // instead of staying pending forever.
+                $res = ['code' => 0, 'body' => $e->getMessage()];
+            }
             $code = (int)($res['code'] ?? 0);
             $body = $res['body'] ?? null;
             if ($code >= 200 && $code < 300) {
-                $this->pdo->beginTransaction();
                 $u = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET status='succeeded', attempts=attempts+1, last_error=NULL, response_code=?, response_body=?, updated_at=NOW() WHERE id=?");
                 $u->execute([$code, $body, $deliveryId]);
-                $this->pdo->commit();
                 $this->log('INFO', 'Webhook delivered successfully', [
                     'delivery_id' => $deliveryId,
                     'webhook_id' => $hook['id'],
@@ -634,7 +495,6 @@ class ImapProcessor
                 return true;
             }
 
-            $this->pdo->beginTransaction();
             $attempts = (int)$d['attempts'] + 1;
             $max = 5;
             $backoff = min(86400, 60 * pow(2, max(0, $attempts - 1)));
@@ -644,7 +504,6 @@ class ImapProcessor
             if ($body) $lastError .= ' ' . (is_string($body) ? substr($body, 0, 2000) : '');
             $u = $this->pdo->prepare("UPDATE pro_webhook_deliveries SET attempts=?, last_error=?, next_attempt_at=?, status=?, response_code=?, response_body=?, updated_at=NOW() WHERE id=?");
             $u->execute([$attempts, $lastError, $next, $status, $code, $body, $deliveryId]);
-            $this->pdo->commit();
             $this->log('WARNING', 'Webhook delivery failed', [
                 'delivery_id' => $deliveryId,
                 'webhook_id' => $hook['id'],
@@ -657,81 +516,9 @@ class ImapProcessor
             ]);
             return false;
         } catch (Exception $e) {
-            try { $this->pdo->rollBack(); } catch (Exception $_) {}
             $this->log('ERROR', 'dispatchDelivery exception: ' . $e->getMessage());
             return false;
         }
-    }
-
-    private function findRealDestinationFromHeaders($imapConnection, $messageNumber, array $validUniqueAddresses)
-    {
-        try {
-            $rawHeaders = @imap_fetchheader($imapConnection, $messageNumber);
-            $lines = explode("\n", $rawHeaders);
-            foreach ($lines as $line) {
-                $line = trim($line);
-                if (preg_match('/^(To|X-Original-To|Delivered-To|Envelope-To):\s*(.+)/i', $line, $m)) {
-                    $headerValue = trim($m[2]);
-                    if (preg_match_all('/([a-zA-Z0-9_\-]+)@manjo\.me/', $headerValue, $matches)) {
-                        foreach ($matches[1] as $unique) {
-                            if (in_array($unique, $validUniqueAddresses)) return $unique . '@manjo.me';
-                        }
-                    }
-                }
-            }
-            $body = @imap_fetchbody($imapConnection, $messageNumber, 1);
-            if (preg_match_all('/([a-zA-Z0-9_\-]+)@manjo\.me/', $body, $bm)) {
-                foreach ($bm[1] as $u) {
-                    if (in_array($u, $validUniqueAddresses)) return $u . '@manjo.me';
-                }
-            }
-            return null;
-        } catch (Exception $e) {
-            $this->log('ERROR', 'Header parsing error: ' . $e->getMessage());
-            return null;
-        }
-    }
-
-    private function processEmailsWithCurl()
-    {
-        $this->log('INFO', 'Using Python IMAP fallback (no PHP imap extension)');
-        try {
-            $addresses = $this->getValidAddresses();
-            if (empty($addresses['full'])) return ['success' => true, 'new_emails' => 0, 'message' => 'No active addresses'];
-            $count = $this->runPythonImapScript($addresses);
-            return ['success' => true, 'new_emails' => $count, 'message' => "Python IMAP fetched {$count} messages"];
-        } catch (Exception $e) {
-            $this->log('ERROR', 'Python IMAP fallback failed: ' . $e->getMessage());
-            return ['success' => false, 'new_emails' => 0, 'message' => $e->getMessage()];
-        }
-    }
-
-    private function runPythonImapScript($addresses)
-    {
-        $tmp = tempnam(sys_get_temp_dir(), 'tempmail_addresses_');
-        file_put_contents($tmp, json_encode($addresses));
-        $python = $this->config['python_path'] ?? '/usr/bin/python3';
-        $script = $this->config['python_imap_script'] ?? '/usr/local/bin/python_imap_fallback.py';
-        $cmd = escapeshellcmd($python) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($tmp);
-        $out = shell_exec($cmd);
-        @unlink($tmp);
-        $res = json_decode(trim($out), true);
-        return $res['new_emails'] ?? 0;
-    }
-
-    private function sanitizeSavedBody($body)
-    {
-        if (empty($body) || !is_string($body)) return $body;
-        // Strip actual inline data: URIs (embedded images/attachments) before storage.
-        // A previous second pass here flagged *any* run of 200+ base64-alphabet
-        // characters anywhere in the body as "probably an embedded attachment" -
-        // with no awareness of HTML/URL context, this also matched long opaque
-        // tokens in legitimate links (e.g. mailing-list subscription-confirmation
-        // URLs), truncating them to "...[removed base64]" and breaking the link
-        // before it was even saved. Removed - the data: URI match above already
-        // covers the documented intent.
-        $body = preg_replace('/data:[^;\"]+;base64,[A-Za-z0-9+\/=\r\n]+/i', '[attachment removed]', $body);
-        return $body;
     }
 
     private function log($level, $message, $context = null)
