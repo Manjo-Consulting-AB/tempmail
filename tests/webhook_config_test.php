@@ -84,6 +84,9 @@ same('PB2. plain text is left as is', "Hi\n\nBye", ImapProcessor::pushoverBodyTe
 same('PB3. an unclosed style block is dropped to the end', 'Before', ImapProcessor::pushoverBodyText('Before<style>a{b:c}'));
 check('PB4. no CSS survives an uppercase STYLE tag',
     strpos(ImapProcessor::pushoverBodyText('<STYLE media="all">p{x:y}</STYLE >ok'), '{') === false);
+same('PB5. double-escaped entities (a preheader) decode to åäö', 'Värde & Momentum är en portfölj',
+    ImapProcessor::pushoverBodyText('<div>V&amp;auml;rde &amp;amp; Momentum &amp;auml;r en portf&amp;ouml;lj</div>'));
+same('PB6. numeric entities decode', 'Värde', ImapProcessor::pushoverBodyText('V&#228;rde'));
 
 // ---------------------------------------------------------------------------
 // Generic body

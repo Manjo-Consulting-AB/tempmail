@@ -244,6 +244,11 @@ class ImapProcessor
      * mail arrived as a wall of CSS; those elements, comments and CDATA go
      * first, block-level tags become line breaks, entities are decoded and
      * whitespace is collapsed to at most one blank line.
+     *
+     * Entities are decoded until the text stops changing (at most three
+     * passes): newsletter tools often escape their preheader twice, so the
+     * mail source holds `V&amp;auml;rde` and one pass left `V&auml;rde` in
+     * the notification. A browser hides that preheader; Pushover showed it.
      */
     public static function pushoverBodyText(string $body): string
     {
@@ -251,7 +256,12 @@ class ImapProcessor
         $text = preg_replace('/<!\[CDATA\[.*?(\]\]>|$)/s', ' ', $text) ?? $text;
         $text = preg_replace('#<(style|script|head|title|noscript|template|svg)\b[^>]*>.*?(</\1\s*>|$)#is', ' ', $text) ?? $text;
         $text = preg_replace('#<br\s*/?>|</?(p|div|tr|li|h[1-6]|table|ul|ol|blockquote|section|article|header|footer)\b[^>]*>#i', "\n", $text) ?? $text;
-        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = strip_tags($text);
+        for ($i = 0; $i < 3; $i++) {
+            $decoded = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($decoded === $text) break;
+            $text = $decoded;
+        }
         $text = str_replace(["\r\n", "\r", "\xC2\xA0"], ["\n", "\n", ' '], $text);
         $text = preg_replace('/[ \t\f]+/', ' ', $text) ?? $text;
         $text = preg_replace('/ *\n */', "\n", $text) ?? $text;
