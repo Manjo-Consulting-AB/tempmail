@@ -71,7 +71,6 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
         gtag('config', 'G-BFX6EC3575');
     </script>
 
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#FAFAF9">
@@ -96,7 +95,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
             <?php require 'partials/nav.php'; ?>
         </div>
 
-        <!-- Settings: five groups behind a rail of anchors — not a stack of
+        <!-- Settings: six groups behind a rail of anchors — not a stack of
              full-width cards, and deliberately not tabs. Anchored navigation
              keeps every section in the document flow, so no control that this
              page's own scripts bind by id can end up inside a panel that is
@@ -112,6 +111,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                         <li><a class="ms-settings__rail-link" href="#settings-automation">Automation</a></li>
                         <li><a class="ms-settings__rail-link" href="#settings-security">Security</a></li>
                         <li><a class="ms-settings__rail-link" href="#settings-agent">Client Agent</a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-delete">Delete account</a></li>
                     </ul>
                 </nav>
 
@@ -160,43 +160,6 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                 <button type="button" id="saveProfileEmailBtn" class="btn btn-primary">Save email</button>
                             </div>
 
-                            <div class="ms-card">
-                                <h3 class="ms-card__title">Password</h3>
-                                <p class="ms-card__desc">Set one to sign in without waiting for an email link.</p>
-                                <!-- Current-password field removed: users can change password without supplying previous password -->
-                                <div class="mb-3">
-                                    <label class="form-label">New password</label>
-                                    <div class="ms-password-field">
-                                        <input type="password" class="form-control" id="proPassword" />
-                                        <button type="button" class="ms-password-toggle" data-target="proPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
-                                    </div>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Confirm password</label>
-                                    <div class="ms-password-field">
-                                        <input type="password" class="form-control" id="proPasswordConfirm" />
-                                        <button type="button" class="ms-password-toggle" data-target="proPasswordConfirm" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
-                                    </div>
-                                </div>
-                                <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
-                            </div>
-
-                            <div class="ms-card">
-                                <h3 class="ms-card__title">Default lifetime</h3>
-                                <p class="ms-card__desc">How long a newly generated temporary address and its mail stay alive (1-7 days).</p>
-                                <div class="d-flex align-items-center">
-                                    <select id="ttlSelect" class="form-select" style="width:120px;"></select>
-                                    <div id="ttlMsg" style="margin-left:10px; color:#9ecbff;"></div>
-                                </div>
-                                <div id="ttlProNote" class="form-text text-muted d-none">Regular accounts use a fixed 24-hour address lifetime. Upgrade to Pro to choose 1-7 days.</div>
-                            </div>
-
-                            <div class="ms-card">
-                                <h3 class="ms-card__title">Delete account</h3>
-                                <p class="ms-card__desc">Permanently delete your account and all associated Pro settings. This cannot be undone.</p>
-                                <p class="ms-card__desc">A confirmation email with a deletion link is sent to your address first, so nothing happens until you click it.</p>
-                                <button type="button" id="deleteAccountBtn" class="btn btn-danger">Delete account</button>
-                            </div>
                         </section>
 
                         <section class="ms-settings__section" id="settings-addresses">
@@ -221,6 +184,16 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                 <div id="personalList" class="mt-3"></div>
                                 <div id="personalCreateProNote" class="form-text text-muted d-none">Creating personal addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
                                 <div id="personalFeedProNote" class="form-text text-muted d-none">A per-address RSS feed requires a Pro account. Deleting addresses stays available.</div>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Default lifetime</h3>
+                                <p class="ms-card__desc">How long a newly generated temporary address and its mail stay alive (1-7 days).</p>
+                                <div class="d-flex align-items-center">
+                                    <select id="ttlSelect" class="form-select" style="width:120px;"></select>
+                                    <div id="ttlMsg" style="margin-left:10px; color:#9ecbff;"></div>
+                                </div>
+                                <div id="ttlProNote" class="form-text text-muted d-none">Regular accounts use a fixed 24-hour address lifetime. Upgrade to Pro to choose 1-7 days.</div>
                             </div>
                         </section>
 
@@ -269,6 +242,21 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                             </div>
 
                             <div class="ms-card">
+                                <h3 class="ms-card__title">RSS feed</h3>
+                                <p class="ms-card__desc">A private RSS feed covering <strong>all</strong> of your addresses, read in any feed reader. For a feed limited to one address, use the RSS button on that address under Personal addresses.</p>
+                                <div class="input-group">
+                                    <input type="text" id="feedUrlInput" class="form-control" placeholder="(loading...)" readonly />
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Feed actions">
+                                        <button id="copyFeedToken" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                        <button id="openFeedBtn" class="btn btn-sm btn-outline-secondary">Open</button>
+                                        <button id="regenFeedToken" class="btn btn-sm btn-danger">Regenerate</button>
+                                    </div>
+                                </div>
+                                <div class="form-text">Keep the token part of the URL secret. Subscribe using the full URL shown above.</div>
+                                <div id="feedProNote" class="form-text text-muted d-none">The RSS feed requires a Pro account.</div>
+                            </div>
+
+                            <div class="ms-card">
                                 <h3 class="ms-card__title">Digest emails</h3>
                                 <p class="ms-card__desc">A periodic summary of what arrived, sent to your real inbox.</p>
                                 <div class="form-check form-switch">
@@ -295,21 +283,6 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                     Tip: To help ensure digest emails reach your inbox, add <strong>noreply@<?php echo htmlspecialchars($config['email']['domain']); ?></strong> to your address book or trusted senders list (this reduces the chance of digests being marked as spam).
                                 </div>
                             </div>
-
-                            <div class="ms-card">
-                                <h3 class="ms-card__title">RSS feed</h3>
-                                <p class="ms-card__desc">A private RSS feed covering <strong>all</strong> of your addresses, read in any feed reader. For a feed limited to one address, use the RSS button on that address under Personal addresses.</p>
-                                <div class="input-group">
-                                    <input type="text" id="feedUrlInput" class="form-control" placeholder="(loading...)" readonly />
-                                    <div class="btn-group btn-group-sm" role="group" aria-label="Feed actions">
-                                        <button id="copyFeedToken" class="btn btn-sm btn-outline-secondary">Copy</button>
-                                        <button id="openFeedBtn" class="btn btn-sm btn-outline-secondary">Open</button>
-                                        <button id="regenFeedToken" class="btn btn-sm btn-danger">Regenerate</button>
-                                    </div>
-                                </div>
-                                <div class="form-text">Keep the token part of the URL secret. Subscribe using the full URL shown above.</div>
-                                <div id="feedProNote" class="form-text text-muted d-none">The RSS feed requires a Pro account.</div>
-                            </div>
                         </section>
 
                         <section class="ms-settings__section" id="settings-security">
@@ -324,7 +297,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                     <p class="form-text">Protects password sign-in with a code from your authenticator app. Email sign-in links already require access to your inbox and keep working as before.</p>
                                     <p class="form-text">Lost your authenticator? You can always sign in with your email login link instead, then turn off two-factor authentication here.</p>
                                     <div id="tfaNoPasswordNote" class="alert alert-info d-none">
-                                        Two-factor authentication only takes effect once you have a password set — <a href="#proPassword">set one above</a> to activate protection after enrolling.
+                                        Two-factor authentication only takes effect once you have a password set — <a href="#proPassword">set one below</a> to activate protection after enrolling.
                                     </div>
                                     <div id="tfaAlert"></div>
 
@@ -406,6 +379,27 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Password</h3>
+                                <p class="ms-card__desc">Set one to sign in without waiting for an email link.</p>
+                                <!-- Current-password field removed: users can change password without supplying previous password -->
+                                <div class="mb-3">
+                                    <label class="form-label">New password</label>
+                                    <div class="ms-password-field">
+                                        <input type="password" class="form-control" id="proPassword" />
+                                        <button type="button" class="ms-password-toggle" data-target="proPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Confirm password</label>
+                                    <div class="ms-password-field">
+                                        <input type="password" class="form-control" id="proPasswordConfirm" />
+                                        <button type="button" class="ms-password-toggle" data-target="proPasswordConfirm" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                    </div>
+                                </div>
+                                <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
+                            </div>
                         </section>
 
                         <section class="ms-settings__section" id="settings-agent">
@@ -417,6 +411,16 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                 <p class="ms-card__desc">The agent verifies signed list-sync payloads against these keys. Rotate them if one may have leaked.</p>
                                 <button type="button" id="rotateSigningKeysBtn" class="btn btn-primary">Rotate signing keys</button>
                                 <div id="signingKeysProNote" class="form-text text-muted d-none">Client signing keys require a Pro account.</div>
+                            </div>
+                        </section>
+
+                        <section class="ms-settings__section" id="settings-delete">
+                            <h2 class="ms-settings__section-title">Delete account</h2>
+
+                            <div class="ms-card">
+                                <p class="ms-card__desc">Permanently delete your account and all associated Pro settings. This cannot be undone.</p>
+                                <p class="ms-card__desc">A confirmation email with a deletion link is sent to your address first, so nothing happens until you click it.</p>
+                                <button type="button" id="deleteAccountBtn" class="btn btn-danger">Delete account</button>
                             </div>
                         </section>
                     </form>
