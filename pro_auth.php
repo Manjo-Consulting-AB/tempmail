@@ -532,7 +532,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'error' => 'Invalid email address']);
         exit;
     }
-    $stayDays = proRememberNormaliseDays($_POST['stay_days'] ?? 0);
+    // Picked from the fixed list rather than derived from the request value:
+    // it ends up in the debug login_url echoed below (Semgrep echoed-request).
+    $stayDays = 0;
+    $stayRequested = proRememberNormaliseDays($_POST['stay_days'] ?? 0);
+    foreach (proRememberAllowedDays() as $stayAllowed) {
+        if ($stayRequested === $stayAllowed) {
+            $stayDays = $stayAllowed;
+        }
+    }
 
     // Rate limiting: without this, an attacker can mail-bomb any inbox by
     // repeatedly requesting login links for it (measured by IP only, same
