@@ -18,6 +18,7 @@ if (php_sapi_name() === 'cli') {
 // purifyEmailHtml() - the HTMLPurifier allowlist shared with the inbox
 // (index.php get_email) - lives in email_html_sanitizer.php.
 require_once __DIR__ . '/email_html_sanitizer.php';
+require_once __DIR__ . '/pii_crypto.php';
 
 /**
  * Reject a feed request. Every token failure - unknown token, degraded
@@ -135,7 +136,7 @@ try {
     // (account-wide, the original and unchanged behaviour) and
     // temp_emails.feed_token (one personal address, #160). The account-wide
     // lookup runs first so existing subscriptions resolve exactly as before.
-    $stmt = $pdo->prepare("SELECT id, email, pro_expires_at FROM pro_users WHERE feed_token = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE feed_token = ? LIMIT 1");
     $stmt->execute([$token]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -165,7 +166,9 @@ try {
         $q->execute();
         $emails = $q->fetchAll(PDO::FETCH_ASSOC);
 
-        $channelTitle = htmlspecialchars((string)($user['email'] ?? ''), ENT_XML1 | ENT_QUOTES, 'UTF-8') . ' · Inbox · Mail Shield';
+        // The owner's address titles the feed; left out if it cannot be decrypted (ERROR logged).
+        $ownerEmail = proUserEmail($pdo, $userId);
+        $channelTitle = ($ownerEmail !== null ? htmlspecialchars($ownerEmail, ENT_XML1 | ENT_QUOTES, 'UTF-8') . ' · ' : '') . 'Inbox · Mail Shield';
         $channelLink = $base . '/pro.php';
         $channelDescription = 'Recent messages for your Mail Shield account';
         $itemLink = $base . '/pro.php';

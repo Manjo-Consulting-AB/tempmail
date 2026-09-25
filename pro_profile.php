@@ -133,9 +133,7 @@ if (!function_exists('proWebhookRoutingAvailable')) {
 function send_2fa_notification_email(int $userId, string $event): void {
     global $pdo, $config;
     try {
-        $stmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
-        $stmt->execute([$userId]);
-        $email = $stmt->fetchColumn();
+        $email = proUserEmail($pdo, $userId);
         if (!$email) {
             return;
         }
@@ -172,14 +170,15 @@ try {
 
         case 'get_profile':
             // Return basic pro user profile (email and whether password is set)
-            $stmt = $pdo->prepare("SELECT email, pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
+            $stmt = $pdo->prepare("SELECT email_enc, pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
             $stmt->execute([$userId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) {
                     send_json(['success' => false, 'error' => 'User not found']);
             }
             $profile = [
-                'email' => $row['email'] ?? '',
+                // The owner's own address, decrypted for display ('' + ERROR if it cannot be).
+                'email' => piiEmailOpen($row['email_enc'], ['user_id' => $userId]) ?? '',
                 'pro_expires_at' => $row['pro_expires_at'] ?? null,
                 'account_type' => proUserAccountType($userId),
                 'is_pro' => proUserIsPro($userId)
@@ -318,9 +317,14 @@ try {
             if ($domainPart === $forbiddenDomain) {
                 send_json(['success' => false, 'error' => 'Using ' . $forbiddenDomain . ' addresses for accounts is not allowed']);
             }
+            // Without the keys the check below would find nothing and the
+            // change could never be applied (pii_crypto.php): refuse up front.
+            if (!piiEmailRequireKeys('update_email')) {
+                send_json(['success' => false, 'error' => 'Changing the email address is temporarily unavailable']);
+            }
             // Ensure no other pro_user uses this email
-            $stmt = $pdo->prepare("SELECT id FROM pro_users WHERE email = ? AND id <> ? LIMIT 1");
-            $stmt->execute([$newEmail, $userId]);
+            $stmt = $pdo->prepare("SELECT id FROM pro_users WHERE email_hash = ? AND id <> ? LIMIT 1");
+            $stmt->execute([piiEmailLookupHash((string) $newEmail), $userId]);
             if ($stmt->fetch()) {
                 send_json(['success' => false, 'error' => 'Email already in use']);
             }
@@ -470,9 +474,7 @@ try {
                 // Email must come from the session's own account, never from
                 // POST — otherwise a logged-in attacker could redeem a code
                 // against an arbitrary email address instead of their own.
-                $stmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
-                $stmt->execute([$userId]);
-                $email = $stmt->fetchColumn();
+                $email = proUserEmail($pdo, $userId);
                 if (!$email) {
                     send_json(['success' => false, 'error' => 'User not found']);
                 }

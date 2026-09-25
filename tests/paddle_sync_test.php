@@ -28,6 +28,13 @@ define('TEMPMAIL_APP', true);
 date_default_timezone_set('Europe/Stockholm');   // as config.php
 require dirname(__DIR__) . '/paddle_sync.php';
 
+// Both tables carry the blind index that linking by email matches on
+// (pii_crypto.php): fixed test keys, overridden per case in section 26.
+const PII_ENC_KEY = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+const PII_IDX_KEY = 'iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii';
+putenv('PII_ENCRYPTION_KEY=' . PII_ENC_KEY);
+putenv('PII_INDEX_KEY=' . PII_IDX_KEY);
+
 $failures = 0;
 function check(string $label, bool $ok, string $detail = ''): void
 {
@@ -51,16 +58,20 @@ $prices = paddlePlanPriceIds([
 function freshDb(): PDO
 {
     $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    $pdo->exec("CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT NOT NULL, account_type TEXT NOT NULL DEFAULT 'regular', pro_expires_at TEXT NULL)");
+    $pdo->exec("CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT NOT NULL, email_enc TEXT NULL, email_hash TEXT NULL UNIQUE, account_type TEXT NOT NULL DEFAULT 'regular', pro_expires_at TEXT NULL)");
     foreach (paddleSchemaStatements('sqlite') as $sql) {
         $pdo->exec($sql);
     }
+    // What migrate_email_encryption.php adds in production.
+    $pdo->exec('ALTER TABLE paddle_customers ADD COLUMN email_enc TEXT NULL');
+    $pdo->exec('ALTER TABLE paddle_customers ADD COLUMN email_hash TEXT NULL');
     return $pdo;
 }
 
 function addUser(PDO $pdo, int $id, string $email, string $type = 'regular', ?string $expires = '2020-01-01 00:00:00'): void
 {
-    $pdo->prepare('INSERT INTO pro_users (id, email, account_type, pro_expires_at) VALUES (?, ?, ?, ?)')->execute([$id, $email, $type, $expires]);
+    $pdo->prepare('INSERT INTO pro_users (id, email, email_enc, email_hash, account_type, pro_expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+        ->execute([$id, $email, piiEmailEncrypt($email), piiEmailHash($email), $type, $expires]);
 }
 
 function user(PDO $pdo, int $id): array
@@ -105,7 +116,7 @@ function lifetimeEvent(array $over = []): array
 
 function run(PDO $pdo, array $event, array $prices, int $now = NOW): string
 {
-    return paddleHandleEvent($pdo, $event, ['prices' => $prices, 'has_account_type' => true, 'now' => $now]);
+    return paddleHandleEvent($pdo, $event, ['prices' => $prices, 'has_account_type' => true, 'now' => $now, 'customer_email_pii' => true]);
 }
 
 $periodEnd = local(NOW + 365 * 86400);
@@ -316,23 +327,18 @@ run($pdo, lifetimeEvent(['customer_id' => 'ctm_life']), $prices);
 check('customer, no subscriptions', paddlePortalTarget($pdo, 42) === ['customer_id' => 'ctm_life', 'subscription_ids' => []]);
 check('unlinked payments never surface', paddlePortalTarget($pdo, 99) === null);
 
-echo "\n26. paddle_customers email_enc / email_hash dual-write (pii_crypto.php)\n";
-$encKey = str_repeat('e', 32);
-$idxKey = str_repeat('i', 32);
-putenv('PII_ENCRYPTION_KEY');
-putenv('PII_INDEX_KEY');
-unset($_ENV['PII_ENCRYPTION_KEY'], $_ENV['PII_INDEX_KEY']);
-function customerEvent(string $email, int $occurred = NOW): array
+echo "\n26. paddle_customers email_enc / email_hash, and linking by the blind index (pii_crypto.php)\n";
+function customerEvent(string $email, int $occurred = NOW, string $id = 'ctm_pii'): array
 {
-    return ['event_id' => 'evt_c' . $occurred, 'event_type' => 'customer.updated', 'occurred_at' => iso($occurred), 'data' => ['id' => 'ctm_pii', 'email' => $email]];
+    return ['event_id' => 'evt_c' . $occurred, 'event_type' => 'customer.updated', 'occurred_at' => iso($occurred), 'data' => ['id' => $id, 'email' => $email]];
 }
 function customerRow(PDO $pdo): array
 {
     return paddleFetch($pdo, 'SELECT * FROM paddle_customers WHERE customer_id = ?', ['ctm_pii']);
 }
 $piiLog = [];
-$piiOptions = function (bool $columns, ?array $keys) use ($prices, &$piiLog): array {
-    $options = ['prices' => $prices, 'has_account_type' => true, 'now' => NOW, 'customer_email_pii' => $columns,
+$piiOptions = function (?array $keys) use ($prices, &$piiLog): array {
+    $options = ['prices' => $prices, 'has_account_type' => true, 'now' => NOW, 'customer_email_pii' => true,
         'log' => function ($level, $message, $context) use (&$piiLog) { $piiLog[] = [$level, $message]; }];
     if ($keys !== null) {
         $options['pii_encryption_key'] = $keys[0];
@@ -341,46 +347,56 @@ $piiOptions = function (bool $columns, ?array $keys) use ($prices, &$piiLog): ar
     return $options;
 };
 
-// Columns absent (the default schema, migration not run): exactly today's row.
+// Keys configured: the pair is written, and linking matches on it.
 $pdo = freshDb();
 addUser($pdo, 42, 'buyer@example.com');
-paddleHandleEvent($pdo, customerEvent('Buyer@Example.com'), $piiOptions(false, [$encKey, $idxKey]));
+paddleHandleEvent($pdo, customerEvent(' Buyer@Example.com '), $piiOptions(null));
 $row = customerRow($pdo);
-check('no columns: the plaintext row is written as before', $row['email'] === 'Buyer@Example.com' && !array_key_exists('email_hash', $row), json_encode($row));
+check('the plaintext is still written (trimmed, as before)', $row['email'] === 'Buyer@Example.com', json_encode($row));
+check('email_hash is the blind index of the address', $row['email_hash'] === piiEmailHash('buyer@example.com', PII_IDX_KEY), json_encode($row));
+check('email_enc decrypts to the stored plaintext', piiEmailDecrypt($row['email_enc'], PII_ENC_KEY) === 'Buyer@Example.com');
 run($pdo, subEvent('active', ['custom_data' => null, 'customer_id' => 'ctm_pii']), $prices);
-check('no columns: linking by email still works', user($pdo, 42)['account_type'] === 'pro');
+check('linking by email matches on email_hash, case-insensitively as before', user($pdo, 42)['account_type'] === 'pro');
 
-// Columns present, keys configured.
+// Linking reads only the hash: a plaintext match with no hash does not link.
 $pdo = freshDb();
-$pdo->exec('ALTER TABLE paddle_customers ADD COLUMN email_enc TEXT NULL');
-$pdo->exec('ALTER TABLE paddle_customers ADD COLUMN email_hash CHAR(64) NULL');
 addUser($pdo, 42, 'buyer@example.com');
-paddleHandleEvent($pdo, customerEvent(' Buyer@Example.com '), $piiOptions(true, [$encKey, $idxKey]));
-$row = customerRow($pdo);
-check('with keys: the plaintext is still written (trimmed, as before)', $row['email'] === 'Buyer@Example.com', json_encode($row));
-check('with keys: email_hash is the blind index of the address', $row['email_hash'] === piiEmailHash('buyer@example.com', $idxKey), json_encode($row));
-check('with keys: email_enc decrypts to the stored plaintext', piiEmailDecrypt($row['email_enc'], $encKey) === 'Buyer@Example.com');
+$pdo->exec("UPDATE pro_users SET email_hash = NULL, email_enc = NULL WHERE id = 42");
+paddleHandleEvent($pdo, customerEvent('buyer@example.com'), $piiOptions(null));
 run($pdo, subEvent('active', ['custom_data' => null, 'customer_id' => 'ctm_pii']), $prices);
-check('with keys: linking by email is unchanged (still reads the plaintext)', user($pdo, 42)['account_type'] === 'pro');
-paddleHandleEvent($pdo, customerEvent('other@example.com', NOW + 5), $piiOptions(true, [$encKey, $idxKey]));
-$row = customerRow($pdo);
-check('with keys: a changed customer email updates the pair', $row['email_hash'] === piiEmailHash('other@example.com', $idxKey) && piiEmailDecrypt($row['email_enc'], $encKey) === 'other@example.com');
-paddleHandleEvent($pdo, customerEvent('', NOW + 10), $piiOptions(true, [$encKey, $idxKey]));
-$row = customerRow($pdo);
-check('with keys: an email removed at Paddle clears the pair too', $row['email'] === null && $row['email_enc'] === null && $row['email_hash'] === null, json_encode($row));
-check('with keys: no WARNING', $piiLog === [] || !in_array('WARNING', array_column($piiLog, 0), true), json_encode($piiLog));
+check('an account without email_hash is not linked by its plaintext email', user($pdo, 42)['account_type'] === 'regular');
 
-// Columns present, keys missing: plaintext, a null pair (never a stale one), one WARNING.
+// The plaintext column no longer decides: a stale plaintext does not link, the hash does.
 $pdo = freshDb();
-$pdo->exec('ALTER TABLE paddle_customers ADD COLUMN email_enc TEXT NULL');
-$pdo->exec('ALTER TABLE paddle_customers ADD COLUMN email_hash CHAR(64) NULL');
-paddleHandleEvent($pdo, customerEvent('buyer@example.com'), $piiOptions(true, [$encKey, $idxKey]));
+addUser($pdo, 42, 'buyer@example.com');
+$pdo->exec("UPDATE pro_users SET email = 'someone-else@example.com' WHERE id = 42");
+paddleHandleEvent($pdo, customerEvent('buyer@example.com'), $piiOptions(null));
+run($pdo, subEvent('active', ['custom_data' => null, 'customer_id' => 'ctm_pii']), $prices);
+check('linking follows email_hash, not the plaintext column', user($pdo, 42)['account_type'] === 'pro');
+
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+paddleHandleEvent($pdo, customerEvent('buyer@example.com'), $piiOptions(null));
+paddleHandleEvent($pdo, customerEvent('other@example.com', NOW + 5), $piiOptions(null));
+$row = customerRow($pdo);
+check('a changed customer email updates the pair', $row['email_hash'] === piiEmailHash('other@example.com', PII_IDX_KEY) && piiEmailDecrypt($row['email_enc'], PII_ENC_KEY) === 'other@example.com');
+paddleHandleEvent($pdo, customerEvent('', NOW + 10), $piiOptions(null));
+$row = customerRow($pdo);
+check('an email removed at Paddle clears the pair too', $row['email'] === null && $row['email_enc'] === null && $row['email_hash'] === null, json_encode($row));
+check('with keys: no WARNING', !in_array('WARNING', array_column($piiLog, 0), true), json_encode($piiLog));
+
+// Keys missing: the event is applied, the pair is null (never stale), nothing links.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+paddleHandleEvent($pdo, customerEvent('old@example.com'), $piiOptions(null));
 $piiLog = [];
-paddleHandleEvent($pdo, customerEvent('changed@example.com', NOW + 5), $piiOptions(true, null));
+paddleHandleEvent($pdo, customerEvent('buyer@example.com', NOW + 5), $piiOptions(['', '']));
 $row = customerRow($pdo);
-check('no keys: the event is still applied', $row['email'] === 'changed@example.com', json_encode($row));
+check('no keys: the event is still applied', $row['email'] === 'buyer@example.com', json_encode($row));
 check('no keys: the old pair is cleared, not left describing the old address', $row['email_enc'] === null && $row['email_hash'] === null, json_encode($row));
 check('no keys: a WARNING through the log option', in_array('WARNING', array_column($piiLog, 0), true), json_encode($piiLog));
+run($pdo, subEvent('active', ['custom_data' => null, 'customer_id' => 'ctm_pii']), $prices);
+check('no keys: fail closed, the payment is not linked by email', user($pdo, 42)['account_type'] === 'regular');
 
 echo "\n" . ($failures === 0 ? "All checks passed.\n" : "{$failures} check(s) FAILED.\n");
 exit($failures === 0 ? 0 : 1);

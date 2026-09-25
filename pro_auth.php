@@ -26,8 +26,12 @@ function getOrCreateProUser($email) {
     if ($domainPart === $forbiddenDomain) {
         return null;
     }
-    $stmt = $pdo->prepare("SELECT id FROM pro_users WHERE email = ? LIMIT 1");
-    $stmt->execute([$email]);
+    // Without the keys no account can be found or created (pii_crypto.php).
+    if (!piiEmailRequireKeys('getOrCreateProUser')) {
+        return null;
+    }
+    $stmt = $pdo->prepare("SELECT id FROM pro_users WHERE email_hash = ? LIMIT 1");
+    $stmt->execute([piiEmailLookupHash((string) $email)]);
     $user = $stmt->fetch();
     if ($user) return $user['id'];
     // When creating a new pro user, set default address TTL (in days).
@@ -346,6 +350,10 @@ function redeemVoucherForEmail(string $email, string $code): array {
     if ($code === '' || strlen($code) > 64 || !preg_match('/^[A-Za-z0-9_-]+$/', $code)) {
         return ['success' => false, 'error_code' => VOUCHER_ERROR_INVALID_CODE_FORMAT, 'user_id' => null];
     }
+    // The account is found (and created) by its blind index: no keys, no redemption.
+    if (!piiEmailRequireKeys('voucher redemption')) {
+        return ['success' => false, 'error_code' => VOUCHER_ERROR_REDEMPTION_FAILED, 'user_id' => null];
+    }
 
     try {
         // Start transaction and lock voucher row
@@ -371,8 +379,8 @@ function redeemVoucherForEmail(string $email, string $code): array {
         }
 
         // Lock or create user
-        $ustmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email = ? FOR UPDATE");
-        $ustmt->execute([$email]);
+        $ustmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email_hash = ? FOR UPDATE");
+        $ustmt->execute([piiEmailLookupHash($email)]);
         $u = $ustmt->fetch(PDO::FETCH_ASSOC);
         $now = time();
         $created = false;
@@ -474,9 +482,7 @@ function setTrustedDeviceCookie(string $value, string $expiresAt): void {
 function send_2fa_recovery_code_used_email($userId) {
     global $pdo, $config;
     try {
-        $stmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
-        $stmt->execute([$userId]);
-        $email = $stmt->fetchColumn();
+        $email = proUserEmail($pdo, (int) $userId);
         if (!$email) {
             return;
         }
@@ -556,9 +562,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // alla anrop, inte bara den här grenen).
     $hasVerifiedCol = tableHasColumn('pro_users', 'email_verified_at');
     $stmt = $pdo->prepare($hasVerifiedCol
-        ? "SELECT id, email_verified_at FROM pro_users WHERE email = ? LIMIT 1"
-        : "SELECT id FROM pro_users WHERE email = ? LIMIT 1");
-    $stmt->execute([$email]);
+        ? "SELECT id, email_verified_at FROM pro_users WHERE email_hash = ? LIMIT 1"
+        : "SELECT id FROM pro_users WHERE email_hash = ? LIMIT 1");
+    $stmt->execute([piiEmailLookupHash($email)]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     $token = null;
@@ -743,12 +749,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Kolla email_verified_at-kolumnen FÖRE SELECT:en (se motsvarande
     // kommentar vid magic link-endpointen ovan) så en omigrerad prod-databas
     // inte kraschar hela registreringsflödet.
+    // Without the PII keys an account can neither be looked up nor found
+    // again after creation (pii_crypto.php). The answer does not depend on
+    // which accounts exist, so it reveals nothing.
+    if (!piiEmailRequireKeys('register_account')) {
+        echo json_encode(['success' => false, 'error' => 'Registration is temporarily unavailable. Please try again later.']);
+        exit;
+    }
     $hasVerifiedCol = tableHasColumn('pro_users', 'email_verified_at');
     $hasAccountTypeCol = tableHasColumn('pro_users', 'account_type');
     $stmt = $pdo->prepare($hasVerifiedCol
-        ? "SELECT id, email_verified_at, created_at FROM pro_users WHERE email = ? LIMIT 1"
-        : "SELECT id, created_at FROM pro_users WHERE email = ? LIMIT 1");
-    $stmt->execute([$email]);
+        ? "SELECT id, email_verified_at, created_at FROM pro_users WHERE email_hash = ? LIMIT 1"
+        : "SELECT id, created_at FROM pro_users WHERE email_hash = ? LIMIT 1");
+    $stmt->execute([piiEmailLookupHash($email)]);
     $existing = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($existing) {
@@ -928,10 +941,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // ovan) så en omigrerad prod-databas inte kraschar hela inloggningen.
     $hasVerifiedCol = tableHasColumn('pro_users', 'email_verified_at');
     $stmt = $pdo->prepare($hasVerifiedCol
-        ? "SELECT id, email, password_hash, email_verified_at FROM pro_users WHERE email = ? LIMIT 1"
-        : "SELECT id, email, password_hash FROM pro_users WHERE email = ? LIMIT 1");
-    $stmt->execute([$email]);
+        ? "SELECT id, email_enc, password_hash, email_verified_at FROM pro_users WHERE email_hash = ? LIMIT 1"
+        : "SELECT id, email_enc, password_hash FROM pro_users WHERE email_hash = ? LIMIT 1");
+    $stmt->execute([piiEmailLookupHash($email)]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    // The stored address for the session. Should it not decrypt, the typed
+    // one is the same address (it hashed to this row), modulo case.
+    $userEmail = $user ? (piiEmailOpen($user['email_enc'], ['user_id' => (int) $user['id']]) ?? $email) : '';
     if (!$user) {
         // Record failed attempt (unknown user) for IP + email
         try {
@@ -1005,7 +1021,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             session_regenerate_id(true);
             $_SESSION['pro_user_id'] = $user['id'];
-            $_SESSION['pro_user_email'] = $user['email'];
+            $_SESSION['pro_user_email'] = $userEmail;
             $_SESSION['pro_login_method'] = 'password';
             recordProUserLogin($user['id']);
             try {
@@ -1023,7 +1039,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $_SESSION['pending_2fa'] = [
             'user_id' => $user['id'],
-            'email' => $user['email'],
+            'email' => $userEmail,
             'created_at' => time(),
         ];
         echo json_encode(['success' => true, 'requires_2fa' => true]);
@@ -1032,7 +1048,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     // Sätt session och logga in
     $_SESSION['pro_user_id'] = $user['id'];
-    $_SESSION['pro_user_email'] = $user['email'];
+    $_SESSION['pro_user_email'] = $userEmail;
     $_SESSION['pro_login_method'] = 'password';
     recordProUserLogin($user['id']);
     // Record successful attempt
@@ -1222,18 +1238,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                 echo "Invalid email in request.";
                 exit;
             }
+            // Without the keys the new address could not be looked up (the
+            // "taken" check would find nothing) nor found at the next login.
+            if (!piiEmailRequireKeys('confirm email change')) {
+                echo "An error occurred during confirmation.";
+                exit;
+            }
             // Ensure still not taken
-            $check = $pdo->prepare("SELECT id FROM pro_users WHERE email = ? AND id <> ? LIMIT 1");
-            $check->execute([$newEmail, $userId]);
+            $check = $pdo->prepare("SELECT id FROM pro_users WHERE email_hash = ? AND id <> ? LIMIT 1");
+            $check->execute([piiEmailLookupHash($newEmail), $userId]);
             if ($check->fetch()) {
                 echo "The email address is already taken by another user.";
                 exit;
             }
             // Fetch old email before applying change so we can notify it and offer undo
-            $oldStmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
-            $oldStmt->execute([$userId]);
-            $oldRow = $oldStmt->fetch(PDO::FETCH_ASSOC);
-            $oldEmail = $oldRow['email'] ?? '';
+            $oldEmail = (string) (proUserEmail($pdo, $userId) ?? '');
 
             // Apply the email change. Do NOT create an undo token.
             // (Token already marked used by the atomic claim above.)
@@ -1288,10 +1307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             }
 
             // Fetch old email for notification
-            $oldStmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
-            $oldStmt->execute([$userId]);
-            $oldRow = $oldStmt->fetch(PDO::FETCH_ASSOC);
-            $oldEmail = $oldRow['email'] ?? '';
+            $oldEmail = (string) (proUserEmail($pdo, $userId) ?? '');
 
             // Update password hash and set password_changed_at
             try {
@@ -1347,11 +1363,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             } elseif ($action === 'delete_account') {
                 // Apply account deletion: remove pro user and related pro data
                 try {
-                    // Fetch current email for display/logging
-                    $oldStmt = $pdo->prepare("SELECT email FROM pro_users WHERE id = ? LIMIT 1");
-                    $oldStmt->execute([$userId]);
-                    $oldRow = $oldStmt->fetch(PDO::FETCH_ASSOC);
-                    $oldEmail = $oldRow['email'] ?? '';
 
                     // (Token already marked used by the atomic claim above.)
 
@@ -1488,6 +1499,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
             $newEmail = $data['new_email'] ?? '';
             if (!filter_var($oldEmail, FILTER_VALIDATE_EMAIL)) {
                 echo "Invalid email in request.";
+                exit;
+            }
+            // Without the keys the reverted address could not be found at login.
+            if (!piiEmailRequireKeys('undo email change')) {
+                echo "An error occurred during revert.";
                 exit;
             }
             // Atomically claim the undo token before reverting, so two

@@ -23,9 +23,16 @@ declare(strict_types=1);
  * email_enc undecryptable, a new PII_INDEX_KEY makes every email_hash miss,
  * so nobody could log in or be mailed.
  *
- * Phase A (this file's first use): the columns are dual-written next to the
- * plaintext column, which is still what everything reads. With no keys, the
- * helpers return null / [] and the caller writes the plaintext as before.
+ * Phase A: the columns are dual-written next to the plaintext column.
+ * Phase B1 (now): every lookup by address goes through email_hash
+ * (piiEmailLookupHash()) and every place that needs the address decrypts
+ * email_enc (proUserEmail() / piiEmailOpen()). Nothing reads the plaintext
+ * column any more, but it is still written, so reverting B1 restores the
+ * old reads. Reads fail closed: without keys a lookup finds nothing and a
+ * decryption gives null, each with a logged ERROR, so no mail is ever sent
+ * to a garbage address. Writes still store the plaintext when keys are
+ * missing (piiEmailWriteFields()), but account creation refuses
+ * (piiEmailRequireKeys()), since such an account could never be found.
  *
  * Normalisation is trim + lowercase only, like email_log_ref.php. The trial's
  * canonical form (pro_trial.php: drop +tags and dots) deliberately merges
@@ -224,10 +231,11 @@ if (!function_exists('piiEmailWriteFields')) {
 if (!function_exists('proUserStoreEmailPii')) {
     /**
      * Writes email_enc/email_hash for one pro_users row whose email was just
-     * written as $email (used right after an INSERT). Fail-open: the
-     * plaintext column is still the source of truth in phase A, so an error
-     * here is logged and the caller carries on; migrate_email_encryption.php
-     * backfills any row left without a hash.
+     * written as $email (used right after an INSERT of that row, in the
+     * same request). Fail-open: an error here is logged and the caller
+     * carries on; such a row cannot be found by address until
+     * migrate_email_encryption.php fills it, which check_email_encryption.php
+     * reports.
      */
     function proUserStoreEmailPii(PDO $pdo, int $userId, string $email): bool
     {
@@ -236,8 +244,8 @@ if (!function_exists('proUserStoreEmailPii')) {
             return false;   // no columns, or no keys: a fresh row's pair is already null
         }
         try {
-            $stmt = $pdo->prepare('UPDATE pro_users SET email_enc = ?, email_hash = ? WHERE id = ? AND email = ?');
-            $stmt->execute([$fields['email_enc'], $fields['email_hash'], $userId, $email]);
+            $stmt = $pdo->prepare('UPDATE pro_users SET email_enc = ?, email_hash = ? WHERE id = ?');
+            $stmt->execute([$fields['email_enc'], $fields['email_hash'], $userId]);
             return $stmt->rowCount() > 0;
         } catch (Throwable $e) {
             if (function_exists('logMessage')) {
@@ -245,5 +253,93 @@ if (!function_exists('proUserStoreEmailPii')) {
             }
             return false;
         }
+    }
+}
+
+if (!function_exists('piiLogError')) {
+    /** ERROR through logMessage() when defined, else error_log(). Never pass an address in $context. */
+    function piiLogError(string $message, array $context = []): void
+    {
+        if (function_exists('logMessage')) {
+            logMessage('ERROR', $message, $context);
+        } else {
+            error_log($message . ($context ? ' ' . json_encode($context) : ''));
+        }
+    }
+}
+
+if (!function_exists('piiEmailRequireKeys')) {
+    /**
+     * True when both keys are configured; otherwise logs an ERROR naming
+     * $context and returns false. For paths that create an account, which
+     * without the blind index could never be found again.
+     */
+    function piiEmailRequireKeys(string $context): bool
+    {
+        if (piiKeysConfigured()) {
+            return true;
+        }
+        piiLogError('PII_ENCRYPTION_KEY / PII_INDEX_KEY missing: ' . $context . ' refused');
+        return false;
+    }
+}
+
+if (!function_exists('piiEmailLookupHash')) {
+    /**
+     * The email_hash value to look $email up by, or null. Fail closed: bound
+     * as a parameter, null matches no row ("email_hash = NULL" is never
+     * true), so without PII_INDEX_KEY every lookup by address finds nothing,
+     * and an ERROR is logged once per request. An empty address is just null.
+     */
+    function piiEmailLookupHash(string $email): ?string
+    {
+        static $logged = false;
+        if (piiEmailNormalize($email) === null) {
+            return null;
+        }
+        $hash = piiEmailHash($email);
+        if ($hash === null && !$logged) {
+            $logged = true;
+            piiLogError('PII_INDEX_KEY missing or shorter than 32 characters: lookup by email address finds nothing');
+        }
+        return $hash;
+    }
+}
+
+if (!function_exists('piiEmailOpen')) {
+    /**
+     * The address in $stored (an email_enc value), or null with an ERROR
+     * carrying $logContext (a user_id or customer_id, never an address) when
+     * it is missing or does not decrypt. Callers must treat null as "no
+     * address": never mail it, never substitute something else.
+     */
+    function piiEmailOpen(?string $stored, array $logContext = []): ?string
+    {
+        $email = piiEmailDecrypt($stored);
+        if ($email === null || $email === '') {
+            piiLogError($stored === null || $stored === ''
+                ? 'email_enc missing: address unavailable'
+                : 'email_enc could not be decrypted (PII_ENCRYPTION_KEY missing or wrong, or the value is damaged): address unavailable', $logContext);
+            return null;
+        }
+        return $email;
+    }
+}
+
+if (!function_exists('proUserEmail')) {
+    /**
+     * The registered address of pro_users row $userId, decrypted from
+     * email_enc; null when there is no such row (not logged) or the value
+     * cannot be decrypted (ERROR, see piiEmailOpen()).
+     */
+    function proUserEmail(PDO $pdo, int $userId): ?string
+    {
+        $stmt = $pdo->prepare('SELECT email_enc FROM pro_users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $stored = $stmt->fetchColumn();
+        if ($stored === false) {
+            return null;
+        }
+        return piiEmailOpen($stored === null ? null : (string) $stored, ['user_id' => $userId]);
     }
 }

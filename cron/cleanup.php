@@ -8,6 +8,7 @@ define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../TwoFactorAuth.php';
 require_once __DIR__ . '/../email_log_ref.php';
+require_once __DIR__ . '/../pii_crypto.php';
 
 // Säkerhetskontroll - endast CLI eller localhost eller HTTP-anrop med giltig hemlig nyckel
 // För att tillåta cron via HTTP (wget/curl), sätt miljövariabeln CRON_HTTP_SECRET i produktion
@@ -312,7 +313,7 @@ function cleanupExpiredProUsers() {
         // --- Steg 1: degradera Pro-konton vars pro_expires_at har passerat ---
         // Scopas till account_type = 'pro' för idempotens: så fort ett konto
         // degraderats till 'regular' plockas det inte upp av den här frågan igen.
-        $stmt = $pdo->prepare("SELECT id, email, pro_expires_at FROM pro_users WHERE account_type = 'pro' AND pro_expires_at IS NOT NULL AND pro_expires_at < NOW()");
+        $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE account_type = 'pro' AND pro_expires_at IS NOT NULL AND pro_expires_at < NOW()");
         $stmt->execute();
         $expired = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -320,7 +321,6 @@ function cleanupExpiredProUsers() {
 
         foreach ($expired as $u) {
             $userId = (int)$u['id'];
-            $email = $u['email'] ?? null;
 
             $uup = $pdo->prepare("UPDATE pro_users SET account_type = 'regular', digest_enabled = 0, address_ttl_days = 1, feed_token = NULL WHERE id = ?");
             $uup->execute([$userId]);
@@ -354,7 +354,7 @@ function cleanupExpiredProUsers() {
         // Fångar både konton som just degraderades ovan (samma körning) och
         // redan degraderade konton från tidigare körningar.
         $gstmt = $pdo->prepare(
-            "SELECT DISTINCT pu.id, pu.email, pu.pro_expires_at
+            "SELECT DISTINCT pu.id, pu.pro_expires_at
              FROM pro_users pu
              INNER JOIN temp_emails te ON te.pro_user_id = pu.id AND te.is_personal = 1
              WHERE pu.pro_expires_at IS NOT NULL AND pu.pro_expires_at <= DATE_SUB(NOW(), INTERVAL 7 DAY)"
@@ -366,7 +366,6 @@ function cleanupExpiredProUsers() {
 
         foreach ($graceExpired as $u) {
             $userId = (int)$u['id'];
-            $email = $u['email'] ?? null;
 
             // Hämta personliga adresser för denna användare
             $tstmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
@@ -550,7 +549,7 @@ function cleanupInactiveRegularAccounts() {
 
         // --- Steg 1: varna inaktiva Regular-konton ---
         $wstmt = $pdo->prepare(
-            "SELECT id, email FROM pro_users " .
+            "SELECT id, email_enc FROM pro_users " .
             "WHERE account_type = 'regular' AND inactivity_warned_at IS NULL " .
             "AND COALESCE(last_login_at, created_at) <= DATE_SUB(NOW(), INTERVAL ? DAY) " .
             "AND COALESCE(last_login_at, created_at) > DATE_SUB(NOW(), INTERVAL ? DAY)"
@@ -562,7 +561,9 @@ function cleanupInactiveRegularAccounts() {
 
         foreach ($toWarn as $u) {
             $userId = (int)$u['id'];
-            $email = $u['email'] ?? '';
+            // Decrypted from email_enc; null (ERROR logged) means no mail and
+            // no inactivity_warned_at, so the account is retried next run.
+            $email = piiEmailOpen($u['email_enc'], ['user_id' => $userId]);
 
             if (empty($email)) {
                 logMessage('WARNING', 'cleanupInactiveRegularAccounts: skipping warning, no email on file', ['user_id' => $userId]);
@@ -584,7 +585,7 @@ function cleanupInactiveRegularAccounts() {
 
         // --- Steg 2: radera Regular-konton som varit inaktiva tillräckligt länge ---
         $dstmt = $pdo->prepare(
-            "SELECT id, email FROM pro_users " .
+            "SELECT id FROM pro_users " .
             "WHERE account_type = 'regular' " .
             "AND COALESCE(last_login_at, created_at) <= DATE_SUB(NOW(), INTERVAL ? DAY)"
         );
@@ -595,7 +596,6 @@ function cleanupInactiveRegularAccounts() {
 
         foreach ($toDelete as $u) {
             $userId = (int)$u['id'];
-            $email = $u['email'] ?? null;
 
             // Hämta ALLA adresser för kontot - personliga OCH icke-personliga.
             $tstmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ?");

@@ -4,6 +4,7 @@
  * Usage: php send-digests.php [--dry-run] [--limit=N]
  */
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../pii_crypto.php';
 
 define('TEMPMAIL_APP', true);
 
@@ -58,7 +59,7 @@ try {
     // doesn't matter).
     if (tableHasColumn('pro_users', 'account_type')) {
         $stmt = $pdo->prepare(
-            "SELECT id, email, digest_frequency_days, digest_last_sent, address_ttl_days, digest_hour, digest_tz
+            "SELECT id, email_enc, digest_frequency_days, digest_last_sent, address_ttl_days, digest_hour, digest_tz
              FROM pro_users
              WHERE digest_enabled = 1 AND COALESCE(address_ttl_days,1) > 1
              AND account_type = 'pro'
@@ -67,7 +68,7 @@ try {
         );
     } else {
         $stmt = $pdo->prepare(
-            "SELECT id, email, digest_frequency_days, digest_last_sent, address_ttl_days, digest_hour, digest_tz
+            "SELECT id, email_enc, digest_frequency_days, digest_last_sent, address_ttl_days, digest_hour, digest_tz
              FROM pro_users
              WHERE digest_enabled = 1 AND COALESCE(address_ttl_days,1) > 1
              LIMIT ?"
@@ -164,7 +165,12 @@ try {
         $body = "Hello,\n\nYou have {$count} message" . ($count === 1 ? '' : 's') . " waiting in your Mail Shield account.\n\nVisit your inbox to read them:\n{$loginUrl}\n\nMessages:\n" . implode("\n", $lines) . "\n\nThis is an automated summary from Mail Shield.\n";
 
         // Send email using similar logic to pro_auth::sendLoginEmail
-        $to = $user['email'];
+        // Decrypted from email_enc (pii_crypto.php). Null: ERROR already
+        // logged, nothing sent and nothing marked, so the next run retries.
+        $to = piiEmailOpen($user['email_enc'], ['user_id' => $userId]);
+        if ($to === null) {
+            continue;
+        }
         $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
         $headers = [];
         $headers[] = 'From: Mail Shield <' . $fromAddress . '>';

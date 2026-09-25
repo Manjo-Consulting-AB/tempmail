@@ -6,6 +6,8 @@ if (!defined('TEMPMAIL_APP')) {
     die('Direct access not permitted');
 }
 
+require_once __DIR__ . '/pii_crypto.php';
+
 /**
  * TwoFactorAuth: TOTP (RFC 6238) core library for Pro password login.
  *
@@ -379,9 +381,9 @@ final class TwoFactorAuth
         global $pdo;
         self::ensureSchema($pdo);
 
-        $stmt = $pdo->prepare('SELECT email FROM pro_users WHERE id = ? LIMIT 1');
-        $stmt->execute([$userId]);
-        $email = $stmt->fetchColumn();
+        // The account address labels the authenticator entry; decrypted from
+        // email_enc (pii_crypto.php). Null: unknown user, or undecryptable.
+        $email = proUserEmail($pdo, $userId);
         if (!$email) {
             throw new RuntimeException('Unknown pro user');
         }
