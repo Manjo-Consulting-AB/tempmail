@@ -374,6 +374,9 @@ class ImapProcessor
         if (empty($url)) throw new Exception('Webhook URL missing');
         $cfg = !empty($hook['config']) ? json_decode($hook['config'], true) : [];
         if (!is_array($cfg)) $cfg = [];
+        // Pushover's token and user key are stored encrypted; throws (a failed,
+        // retried attempt) when they cannot be decrypted.
+        $cfg = webhookConfigOpen($cfg, $kind);
 
         if ($kind === 'pushover') {
             $token = $cfg['token'] ?? null;

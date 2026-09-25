@@ -69,3 +69,90 @@ if (!function_exists('webhookSecretDecrypt')) {
         return $plain === false ? null : $plain;
     }
 }
+
+/*
+ * Credentials inside a hook's config JSON (pro_webhooks.config). A Pushover
+ * hook's `token` (the application token) and `user` (the user key) let anyone
+ * who holds them push notifications to the owner's devices, so they are stored
+ * encrypted like the signing secret above, one value at a time, in the same
+ * "v2:" format. The rest of the config (device, sound, priority, ...) stays
+ * readable. Values written before this existed are plaintext and still work.
+ */
+
+if (!function_exists('webhookConfigSensitiveKeys')) {
+    /** Config keys that hold credentials for a hook of this kind. */
+    function webhookConfigSensitiveKeys(string $kind): array
+    {
+        return $kind === 'pushover' ? ['token', 'user'] : [];
+    }
+}
+
+if (!function_exists('webhookConfigIsSealed')) {
+    function webhookConfigIsSealed($value): bool
+    {
+        return is_string($value) && strncmp($value, 'v2:', 3) === 0;
+    }
+}
+
+if (!function_exists('webhookConfigSeal')) {
+    /**
+     * $cfg with its credentials encrypted, or null when a credential could not
+     * be encrypted (no WEBHOOKS_KEY) - the caller must then refuse to store it.
+     * Already-sealed values are left as they are, so this is idempotent.
+     */
+    function webhookConfigSeal(array $cfg, string $kind, ?string $rawKey = null): ?array
+    {
+        foreach (webhookConfigSensitiveKeys($kind) as $key) {
+            if (!isset($cfg[$key]) || !is_scalar($cfg[$key]) || (string) $cfg[$key] === '' || webhookConfigIsSealed($cfg[$key])) {
+                continue;
+            }
+            $sealed = webhookSecretEncrypt((string) $cfg[$key], $rawKey);
+            if ($sealed === null) {
+                return null;
+            }
+            $cfg[$key] = $sealed;
+        }
+        return $cfg;
+    }
+}
+
+if (!function_exists('webhookConfigOpen')) {
+    /**
+     * $cfg with its credentials decrypted for sending. Throws when a sealed
+     * value cannot be decrypted: a delivery must fail (and be retried) rather
+     * than send the ciphertext as the credential. Plaintext passes through.
+     */
+    function webhookConfigOpen(array $cfg, string $kind, ?string $rawKey = null): array
+    {
+        foreach (webhookConfigSensitiveKeys($kind) as $key) {
+            if (!webhookConfigIsSealed($cfg[$key] ?? null)) {
+                continue;
+            }
+            $plain = webhookSecretDecrypt($cfg[$key], $rawKey);
+            if ($plain === null) {
+                throw new RuntimeException('Webhook credential "' . $key . '" could not be decrypted');
+            }
+            $cfg[$key] = $plain;
+        }
+        return $cfg;
+    }
+}
+
+if (!function_exists('webhookConfigMask')) {
+    /**
+     * $cfg for display: each credential becomes "••••" plus its last four
+     * characters, so the owner can recognise it but it cannot be read back
+     * out of the page (an XSS or a hijacked session gets no usable value).
+     */
+    function webhookConfigMask(array $cfg, string $kind, ?string $rawKey = null): array
+    {
+        foreach (webhookConfigSensitiveKeys($kind) as $key) {
+            if (!isset($cfg[$key]) || !is_scalar($cfg[$key]) || (string) $cfg[$key] === '') {
+                continue;
+            }
+            $plain = webhookConfigIsSealed($cfg[$key]) ? webhookSecretDecrypt($cfg[$key], $rawKey) : (string) $cfg[$key];
+            $cfg[$key] = ($plain !== null && strlen($plain) > 8) ? '••••' . substr($plain, -4) : '••••';
+        }
+        return $cfg;
+    }
+}

@@ -177,6 +177,14 @@ foreach ($hooks as $h) {
         $cfg = json_decode((string)$h['config'], true) ?: [];
         if (empty($cfg['token']) || empty($cfg['user'])) {
             report('VARN', "{$label}: would be queued, but its token/user key is missing, so sending will fail");
+        } else {
+            // Stored encrypted (webhook_secret.php): check they still open.
+            require_once __DIR__ . '/webhook_secret.php';
+            try {
+                webhookConfigOpen($cfg, 'pushover');
+            } catch (RuntimeException $e) {
+                report('VARN', "{$label}: would be queued, but its token/user key cannot be decrypted (WEBHOOKS_KEY changed or missing?), so sending will fail");
+            }
         }
     }
     report('OK', "{$label}: would be queued");

@@ -803,6 +803,16 @@ ms_test_same('X25. ... and is refused (host must match exactly)', 'Forbidden', $
 
 ms_test_section('Credential handling');
 
+// A Pushover hook in webhooks_list: its token and user key come back masked
+// (last four characters), so C1 below also covers the one response that used
+// to hand them out in full.
+$pdo = ms_test_refresh_db($msSqlite);
+$chUser = ms_test_seed_user($pdo, 'pushover-owner@example.com', 'pro');
+$chHook = ms_test_seed_webhook($pdo, $chUser, 'pushover', 'all', 'Phone');
+$chRows = $msHooks($chUser);
+ms_test_same('P1. webhooks_list masks the Pushover token', '••••' . substr(MS_TEST_FAKE_TOKEN, -4), $chRows[$chHook]['config']['token'] ?? null);
+ms_test_same('P2. ... and the user key', '••••' . substr(MS_TEST_FAKE_USER_KEY, -4), $chRows[$chHook]['config']['user'] ?? null);
+
 $leaked = [];
 foreach ($msBodies as $index => $body) {
     if (str_contains($body, MS_TEST_FAKE_TOKEN) || str_contains($body, MS_TEST_FAKE_USER_KEY)) {

@@ -43,5 +43,25 @@ check('empty stored value gives null', webhookSecretDecrypt('', $key) === null &
 $max = webhookSecretEncrypt(str_repeat('x', 100), $key);
 check('a 100-character secret fits pro_webhooks.secret VARCHAR(191)', is_string($max) && strlen($max) <= 191);
 
+// --- Credentials inside a hook's config (Pushover token + user key) ---
+$cfg = ['token' => 'azGDORePK8gMaC0QOYAMyEEuzJnyUi', 'user' => 'uQiRzpo4DXghDmr9QzzfQu27cmVRsG', 'sound' => 'magic', 'priority' => 1];
+$sealedCfg = webhookConfigSeal($cfg, 'pushover', $key);
+check('seal encrypts token and user', is_array($sealedCfg) && webhookConfigIsSealed($sealedCfg['token']) && webhookConfigIsSealed($sealedCfg['user']));
+check('seal leaves the other fields readable', $sealedCfg['sound'] === 'magic' && $sealedCfg['priority'] === 1);
+check('stored JSON no longer contains the credentials', strpos(json_encode($sealedCfg), $cfg['token']) === false && strpos(json_encode($sealedCfg), $cfg['user']) === false);
+check('seal is idempotent', webhookConfigSeal($sealedCfg, 'pushover', $key) === $sealedCfg);
+check('open restores the original config', webhookConfigOpen($sealedCfg, 'pushover', $key) === $cfg);
+check('open passes legacy plaintext through', webhookConfigOpen($cfg, 'pushover', $key) === $cfg);
+check('generic hooks are left alone', webhookConfigSeal(['token' => 'x'], 'generic', $key) === ['token' => 'x']);
+check('seal without a key refuses', webhookConfigSeal($cfg, 'pushover', '') === null);
+$threw = false;
+try { webhookConfigOpen($sealedCfg, 'pushover', 'other-key'); } catch (RuntimeException $e) { $threw = true; }
+check('open with the wrong key throws (delivery fails, never sends ciphertext)', $threw);
+$masked = webhookConfigMask($sealedCfg, 'pushover', $key);
+check('mask shows only the last four characters', $masked['token'] === '••••' . substr($cfg['token'], -4) && $masked['user'] === '••••' . substr($cfg['user'], -4));
+check('mask keeps the other fields', $masked['sound'] === 'magic');
+check('mask of legacy plaintext hides it too', webhookConfigMask($cfg, 'pushover', $key)['token'] === '••••' . substr($cfg['token'], -4));
+check('mask when it cannot decrypt shows no characters', webhookConfigMask($sealedCfg, 'pushover', 'other-key')['token'] === '••••');
+
 echo "\n" . ($passed + $failed) . " checks run, {$passed} passed, {$failed} failed.\n";
 exit($failed === 0 ? 0 : 1);
