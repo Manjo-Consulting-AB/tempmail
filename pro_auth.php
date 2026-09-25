@@ -1372,10 +1372,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                     // does. temp_emails.pro_user_id is a real FK to pro_users.id,
                     // so leaving these rows behind makes the final DELETE FROM
                     // pro_users fail with a foreign key constraint violation.
-                    $tstmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ?");
+                    $tstmt = $pdo->prepare("SELECT id, unique_address, is_personal FROM temp_emails WHERE pro_user_id = ?");
                     $tstmt->execute([$userId]);
                     $addresses = $tstmt->fetchAll(PDO::FETCH_ASSOC);
+                    // Personal addresses stay reserved for the cool-off period
+                    // even though the account is gone (address_cooldown.php).
+                    $hasCooldowns = tableHasColumn('address_cooldowns', 'local_part');
+                    if ($hasCooldowns) {
+                        require_once __DIR__ . '/address_cooldown.php';
+                        [$cdMonths, $cdMax] = addressCooldownSettings();
+                    }
                     foreach ($addresses as $address) {
+                        if ($hasCooldowns && !empty($address['is_personal'])) {
+                            addressCooldownAdd($pdo, $userId, (string)$address['unique_address'], $cdMonths, $cdMax);
+                        }
                         $tempEmailId = $address['id'];
 
                         $sstmt = $pdo->prepare("SELECT id FROM stored_emails WHERE temp_email_id = ?");

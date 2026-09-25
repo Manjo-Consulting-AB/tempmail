@@ -9,6 +9,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../TwoFactorAuth.php';
 require_once __DIR__ . '/../email_log_ref.php';
 require_once __DIR__ . '/../pii_crypto.php';
+require_once __DIR__ . '/../address_cooldown.php';
 
 // Säkerhetskontroll - endast CLI eller localhost eller HTTP-anrop med giltig hemlig nyckel
 // För att tillåta cron via HTTP (wget/curl), sätt miljövariabeln CRON_HTTP_SECRET i produktion
@@ -364,6 +365,9 @@ function cleanupExpiredProUsers() {
 
         logMessage('DEBUG', 'cleanupExpiredProUsers: found ' . count($graceExpired) . ' users past the 7-day address grace period');
 
+        $hasCooldowns = tableHasColumn('address_cooldowns', 'local_part');
+        [$cdMonths, $cdMax] = addressCooldownSettings();
+
         foreach ($graceExpired as $u) {
             $userId = (int)$u['id'];
 
@@ -399,6 +403,12 @@ function cleanupExpiredProUsers() {
                 $delStmt->execute([$tempEmailId]);
                 $deletedCount = $delStmt->rowCount();
                 $totalEmailsDeleted += $deletedCount;
+
+                // Adressen reserveras för kontot under karantänperioden
+                // (address_cooldown.php) innan raden tas bort.
+                if ($hasCooldowns) {
+                    addressCooldownAdd($pdo, $userId, (string)$personalAddress['unique_address'], $cdMonths, $cdMax);
+                }
 
                 // Radera temp_emails-raden
                 $tempDelStmt = $pdo->prepare("DELETE FROM temp_emails WHERE id = ?");
@@ -598,7 +608,7 @@ function cleanupInactiveRegularAccounts() {
             $userId = (int)$u['id'];
 
             // Hämta ALLA adresser för kontot - personliga OCH icke-personliga.
-            $tstmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ?");
+            $tstmt = $pdo->prepare("SELECT id, unique_address, is_personal FROM temp_emails WHERE pro_user_id = ?");
             $tstmt->execute([$userId]);
             $addresses = $tstmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -622,6 +632,13 @@ function cleanupInactiveRegularAccounts() {
                 $delStmt = $pdo->prepare("DELETE FROM stored_emails WHERE temp_email_id = ?");
                 $delStmt->execute([$tempEmailId]);
                 $totalEmailsDeleted += $delStmt->rowCount();
+
+                // Personliga adresser reserveras under karantänperioden även
+                // när kontot försvinner (address_cooldown.php).
+                if (!empty($address['is_personal']) && tableHasColumn('address_cooldowns', 'local_part')) {
+                    [$cdMonths, $cdMax] = addressCooldownSettings();
+                    addressCooldownAdd($pdo, $userId, (string)$address['unique_address'], $cdMonths, $cdMax);
+                }
 
                 $tempDelStmt = $pdo->prepare("DELETE FROM temp_emails WHERE id = ?");
                 $tempDelStmt->execute([$tempEmailId]);
@@ -796,6 +813,38 @@ function cleanupExpiredTrialClaims() {
 }
 
 /**
+ * Städa utgångna reservationer i address_cooldowns (address_cooldown.php).
+ *
+ * En borttagen personlig adress är reserverad för sin senaste ägare i
+ * $config['address_cooldown']['months'] månader. Rader vars blocked_until har
+ * passerat räknas redan som lediga av alla uppslag, så den här svepningen
+ * håller bara tabellen liten.
+ *
+ * Idempotent och billig: en körning utan utgångna rader gör ingenting.
+ */
+function cleanupExpiredAddressCooldowns() {
+    global $pdo;
+
+    if (!tableHasColumn('address_cooldowns', 'local_part')) {
+        logMessage('DEBUG', 'cleanupExpiredAddressCooldowns: address_cooldowns saknas, hoppar över (se migrate_address_cooldowns.php)');
+        return 0;
+    }
+
+    try {
+        $deleted = addressCooldownPurgeExpired($pdo);
+        if ($deleted > 0) {
+            logMessage('INFO', 'Expired address cool-offs cleaned up', ['count' => $deleted]);
+        } else {
+            logMessage('DEBUG', 'No expired address cool-offs found');
+        }
+        return $deleted;
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Failed to cleanup expired address cool-offs: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Hämta databasstatistik
  */
 function getDatabaseStats() {
@@ -891,6 +940,12 @@ function runCleanup($options = []) {
     $trialClaimsResult = cleanupExpiredTrialClaims();
     if ($trialClaimsResult !== false) {
         $results['trial_claims_cleaned'] = $trialClaimsResult;
+    }
+
+    // Släpp adresser vars karantänperiod har gått ut
+    $cooldownsResult = cleanupExpiredAddressCooldowns();
+    if ($cooldownsResult !== false) {
+        $results['address_cooldowns_cleaned'] = $cooldownsResult;
     }
 
     // Rensa utgångna 2FA trusted-device-cookies

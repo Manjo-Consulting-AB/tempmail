@@ -36,4 +36,5 @@ return [
     'free_hours'   => (int) ($config['app']['cleanup_hours'] ?? 24),
     'warn_days'    => (int) ($config['cleanup']['regular_inactivity_warn_days'] ?? 335),
     'delete_days'  => (int) ($config['cleanup']['regular_inactivity_days'] ?? 365),
+    'cooldown_months' => (int) ($config['address_cooldown']['months'] ?? 6),
 ];

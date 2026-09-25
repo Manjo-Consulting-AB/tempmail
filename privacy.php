@@ -6,7 +6,8 @@
  * Every data flow described here is one the code has, and the list has to be
  * kept in step with it: the account address (encrypted at rest, pii_crypto.php),
  * received mail and its retention (cron/cleanup.php, MailboxQuota), system logs
- * with IP addresses (LOG_RETENTION_DAYS), the hashed trial claim
+ * with IP addresses (LOG_RETENTION_DAYS), removed personal addresses on the
+ * cool-off list (address_cooldown.php, ADDRESS_COOLDOWN_MONTHS), the hashed trial claim
  * (pro_trial.php, five years), the Paddle mirror tables (paddle_sync.php), the
  * integrations a user configures themselves, Google Analytics in the public
  * head (partials/public_head.php, register.php), and the session and 2FA
@@ -70,6 +71,7 @@ $msLegalDoc = [
             'html'    => '<ul>'
                 . '<li><strong>Timed addresses and their mail</strong> — ' . $f['free_hours'] . ' hours on a free account, or the 1 to 7 days you choose on Pro. Then they are deleted automatically.</li>'
                 . '<li><strong>Sticky addresses</strong> — until you remove them, or 7 days after your Pro plan ends. Their mail is deleted with them, and sooner if your storage quota of ' . $f['quota_mb'] . ' MB fills up, oldest first.</li>'
+                . '<li><strong>Removed sticky addresses</strong> — the address itself (not its mail) is kept on a reserved list for ' . $f['cooldown_months'] . ' months after it is removed, linked to your account number, so nobody else can take it over and receive mail meant for you. This also applies after your account is deleted.</li>'
                 . '<li><strong>Your account</strong> — until you delete it. A free Regular account nobody signs in to for ' . $f['delete_days'] . ' days is deleted, after an email warning.</li>'
                 . '<li><strong>Server logs</strong> — ' . $f['log_days'] . ' days.</li>'
                 . '<li><strong>Trusted browsers for two-factor authentication</strong> — 30 days, or until you remove them.</li>'

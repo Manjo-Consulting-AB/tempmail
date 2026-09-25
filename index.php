@@ -187,6 +187,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'error' => 'Address already taken']);
                     break;
                 }
+                // A recently released personal address is reserved for its last
+                // owner (address_cooldown.php). Anyone else gets the same answer
+                // as for a live address, so the reservation reveals nothing.
+                $hasCooldowns = tableHasColumn('address_cooldowns', 'local_part');
+                if ($hasCooldowns) {
+                    require_once __DIR__ . '/address_cooldown.php';
+                    try {
+                        $holder = addressCooldownHolder($pdo, $local);
+                    } catch (Exception $e) {
+                        logMessage('ERROR', 'Could not check address cool-off', ['error' => $e->getMessage()]);
+                        echo json_encode(['success' => false, 'error' => 'Could not create address']);
+                        break;
+                    }
+                    if ($holder !== null && $holder !== (int)$_SESSION['pro_user_id']) {
+                        logMessage('INFO', 'create_personal denied: address in cool-off', ['user_id' => $_SESSION['pro_user_id'], 'local' => $local]);
+                        echo json_encode(['success' => false, 'error' => 'Address already taken']);
+                        break;
+                    }
+                }
                 // Enforce max 10 personal addresses per pro user
                 try {
                     $cntStmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
@@ -213,6 +232,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ->execute([$local, $_SESSION['pro_user_id']]);
                         echo json_encode(['success' => false, 'error' => 'Mail delivery could not be set up for this address, so it was not created. Please try again in a moment.']);
                         break;
+                    }
+                    // The owner has taken the address back: the reservation ends.
+                    if ($hasCooldowns) {
+                        try {
+                            addressCooldownClear($pdo, (int)$_SESSION['pro_user_id'], $local);
+                        } catch (Exception $e) {
+                            // Harmless: a live temp_emails row blocks others anyway,
+                            // and the row expires on its own.
+                            logMessage('WARNING', 'Could not clear address cool-off', ['error' => $e->getMessage(), 'user_id' => $_SESSION['pro_user_id']]);
+                        }
                     }
                     logMessage('INFO', 'Personal address created', ['user_id' => $_SESSION['pro_user_id'], 'address' => $local]);
                     echo json_encode(['success' => true, 'address' => $local, 'full_address' => $local . '@' . $config['email']['domain'], 'expires_at' => $expiresAt]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
@@ -257,7 +286,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'hooks_paused' => !empty($r['hooks_paused'])
                         ];
                     }
-                    echo json_encode(['success' => true, 'personal' => $list]);
+                    // Recently deleted addresses still reserved for this account,
+                    // so the owner knows what they can take back and until when.
+                    $cooldown = [];
+                    if (tableHasColumn('address_cooldowns', 'local_part')) {
+                        require_once __DIR__ . '/address_cooldown.php';
+                        foreach (addressCooldownList($pdo, (int)$_SESSION['pro_user_id']) as $c) {
+                            $c['full_address'] = $c['address'] . '@' . $config['email']['domain'];
+                            $cooldown[] = $c;
+                        }
+                    }
+                    echo json_encode(['success' => true, 'personal' => $list, 'cooldown' => $cooldown]);
                 } catch (Exception $e) {
                     echo json_encode(['success' => false, 'error' => 'Failed to list sticky addresses']);
                 }
@@ -301,6 +340,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     $d2 = $pdo->prepare("DELETE FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
                     $d2->execute([$id, $_SESSION['pro_user_id']]);
+                    // Reserved for this owner for the cool-off period, in the
+                    // same transaction: no window where someone else can claim it.
+                    if (tableHasColumn('address_cooldowns', 'local_part')) {
+                        require_once __DIR__ . '/address_cooldown.php';
+                        [$cdMonths, $cdMax] = addressCooldownSettings();
+                        addressCooldownAdd($pdo, (int)$_SESSION['pro_user_id'], (string)$unique, $cdMonths, $cdMax);
+                    }
 
                     $pdo->commit();
                     unlinkAttachmentFiles($attachmentFiles);
@@ -316,6 +362,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'generate':
                 // Generera ny temporär adress
                 $address = generateUniqueString();
+                // A personal local part may be plain hex too: never hand out one
+                // that is reserved in the cool-off list (address_cooldown.php).
+                if (tableHasColumn('address_cooldowns', 'local_part')) {
+                    require_once __DIR__ . '/address_cooldown.php';
+                    for ($i = 0; $i < 5 && addressCooldownHolder($pdo, $address) !== null; $i++) {
+                        $address = generateUniqueString();
+                    }
+                }
                 // Determine expires_at: if a pro user is logged in, use their preference
                 $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
                 if (isset($_SESSION['pro_user_id']) && $_SESSION['pro_user_id'] && proUserIsPro((int)$_SESSION['pro_user_id'])) {

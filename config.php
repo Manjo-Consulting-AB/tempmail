@@ -342,6 +342,14 @@ $baseConfig = [
         'hash_key' => (string)($_ENV['PRO_TRIAL_HASH_KEY'] ?? ''),
         'claim_retention_days' => 1825,
     ],
+    // Cool-off for released personal addresses (address_cooldown.php): a
+    // deleted personal address stays reserved for its last owner for
+    // `months`, and each owner holds at most `max_per_user` such
+    // reservations — adding one more releases the oldest to everyone.
+    'address_cooldown' => [
+        'months' => max(1, (int)($_ENV['ADDRESS_COOLDOWN_MONTHS'] ?? 6)),
+        'max_per_user' => max(1, (int)($_ENV['ADDRESS_COOLDOWN_MAX_PER_USER'] ?? 30)),
+    ],
     // Who the legal pages (terms.php, privacy.php, refund-policy.php) name as
     // the seller and data controller. contact_email falls back to support@ on
     // the mail domain; org_number is left out of the copy while it is empty.
