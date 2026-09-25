@@ -5,6 +5,9 @@
  * Closes the .ms-page wrapper that partials/public_head.php opens, so the two
  * are only valid as a pair. There is no Contact link: the only contact page in
  * the app (pro_contact.php) requires a login.
+ *
+ * The three Legal links are required by Paddle, our reseller, before it
+ * approves the domain; pricing.php links the same three pages.
  */
 
 if (!isset($config) || !is_array($config)) {
@@ -43,6 +46,11 @@ $msFooterEsc = function ($value): string {
 
             <div class="ms-footer__col">
                 <h2 class="ms-footer__heading">Legal</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/terms.php">Terms of service</a></li>
+                    <li><a href="/privacy.php">Privacy policy</a></li>
+                    <li><a href="/refund-policy.php">Refund policy</a></li>
+                </ul>
                 <p class="ms-footer__legal">&copy; <?php echo $msFooterEsc($msFooterYear); ?> Manjo Consulting AB &middot; Mail Shield v<?php echo $msFooterEsc($msFooterVersion); ?></p>
             </div>
         </div>

@@ -838,6 +838,11 @@ a:hover {
     color: var(--ms-text-muted);
 }
 
+/* The Legal column lists the three policy pages above the copyright line. */
+.ms-footer__links + .ms-footer__legal {
+    margin-top: var(--ms-space-4);
+}
+
 /* ==========================================================================
    h. Landing — sections rendered from partials/landing
    ========================================================================== */
@@ -2093,6 +2098,23 @@ a:hover {
 
 .ms-doc__cta--end {
     margin-top: var(--ms-space-12);
+}
+
+/* Legal pages (terms.php, privacy.php, refund-policy.php) reuse .ms-doc. The
+   effective date sits under the lede, quieter than it; subsections inside a
+   section take the h3 scale so the contents list stays at the h2 level. */
+.ms-doc__meta {
+    margin: var(--ms-space-4) 0 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-doc__section .ms-prose h3 {
+    margin-top: var(--ms-space-6);
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    letter-spacing: var(--ms-ls-h3);
+    font-weight: var(--ms-fw-h3);
 }
 
 /* ==========================================================================
