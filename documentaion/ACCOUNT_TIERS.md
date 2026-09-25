@@ -100,14 +100,12 @@ Dessa ställen måste sätta `account_type = 'pro'` när de beviljar Pro, annars
 kontot Regular trots betald eller inlöst Pro:
 
 - `pro_auth.php` — voucher-inlösen, både uppdaterings- och nyskapandegrenen.
-- `bmac_handler.php` — Buy Me a Coffee-webhooken, både uppdaterings- och
-  nyskapandegrenen.
 - `paddle_webhook.php` (logiken i `paddle_sync.php`) — Paddle Billing. Sätter
   `account_type = 'pro'` och `pro_expires_at` = slutet på betald period
   (prenumeration) eller `NULL` (lifetime). Skapar aldrig konton: en betalning
   som inte kan kopplas till en befintlig rad (via `custom_data.pro_user_id`
   eller kundens e-post) sparas okopplad. Betald tid läggs ovanpå
-  den Pro-tid kontot redan hade (trial, voucher, BMAC): återstående tid vid
+  den Pro-tid kontot redan hade (trial, voucher): återstående tid vid
   övertagandet sparas som bonus och `pro_expires_at` = betald period + bonus.
   Förnyelser lägger inte till bonusen igen, och den förbrukas när den betalda
   tiden har upphört.
@@ -281,8 +279,8 @@ styrs kravet på voucherkod i `register.php?plan=pro` av en enda flagga,
 `PRO_SELF_SIGNUP_ENABLED` (default av). När den slås på öppnas publik
 Pro-registrering och betalflödet tar vid.
 
-`bmac_handler.php` fortsätter fungera som idag för befintliga köpare, med
-tillägget att den nu även sätter `account_type = 'pro'`.
+Buy Me a Coffee-integrationen (`bmac_handler.php`) är borttagen: den
+anropades aldrig i produktion och webhook-hemligheten var aldrig satt.
 
 Provperioden (avsnitt 10) är påslagen redan nu, oberoende av
 `PRO_SELF_SIGNUP_ENABLED` - betallösningen ska finnas på plats innan de första
@@ -318,7 +316,6 @@ Fyra vägar registrerar en adress i `pro_trial_claims`, via
   NULL till satt;
 - ett kontos skapande via voucher (`redeemVoucherForEmail()` i `pro_auth.php`),
   eftersom kontot då redan är verifierat;
-- ett kontos skapande via Buy Me a Coffee (`bmac_handler.php`), av samma skäl;
 - en bekräftad e-postbytesbegäran (`update_email`-flödet i `pro_auth.php`).
 
 **Bara den första av dessa - första verifieringen - beviljar en provperiod**

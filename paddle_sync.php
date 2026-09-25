@@ -22,10 +22,10 @@
  * A user's Paddle target is lifetime if any completed lifetime purchase is
  * linked to them, else the latest granted_until over their subscriptions.
  *
- * Coexisting with the Pro trial, vouchers and Buy Me a Coffee — paid time is
+ * Coexisting with the Pro trial and vouchers — paid time is
  * stacked ON TOP of the Pro time the account already had. When Paddle takes
  * over an account, the time left on its existing expiry (a trial's remaining
- * days, a voucher, BMAC) is stored as bonus_seconds, and what gets written is
+ * days, a voucher) is stored as bonus_seconds, and what gets written is
  *
  *     pro_expires_at = Paddle target + bonus_seconds
  *
