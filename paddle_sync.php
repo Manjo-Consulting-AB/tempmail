@@ -55,6 +55,8 @@
 
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 
+require_once __DIR__ . '/pii_crypto.php';
+
 const PADDLE_PAST_DUE_GRACE_DAYS = 7;
 const PADDLE_SIGNATURE_TOLERANCE = 300;   // seconds; retries are re-signed
 
@@ -190,7 +192,11 @@ function paddleEventOrderKey(string $occurredAt): string
  * Throws on database errors so the endpoint answers non-2xx and Paddle retries.
  *
  * $options: 'prices' (paddlePlanPriceIds()), 'log' (callable level, msg, ctx),
- * 'has_account_type' (bool, whether pro_users.account_type exists), 'now' (int).
+ * 'has_account_type' (bool, whether pro_users.account_type exists), 'now' (int),
+ * 'customer_email_pii' (bool, whether paddle_customers has email_enc and
+ * email_hash — see paddleCustomerEmailFields()), and optionally
+ * 'pii_encryption_key' / 'pii_index_key' (raw keys; default: the
+ * PII_ENCRYPTION_KEY / PII_INDEX_KEY environment variables).
  */
 function paddleHandleEvent(PDO $pdo, array $event, array $options): string
 {
@@ -378,7 +384,7 @@ function paddleSyncCustomer(PDO $pdo, array $customer, string $order, array $opt
             'email' => $email !== '' ? $email : null,
             'occurred_at' => $order,
             'updated_at' => date('Y-m-d H:i:s', $now),
-        ], (bool) $existing);
+        ] + paddleCustomerEmailFields($email, $options), (bool) $existing);
 
         // Payments that arrived before this customer's email was known.
         $outcome = "customer {$id}";
@@ -403,6 +409,36 @@ function paddleSyncCustomer(PDO $pdo, array $customer, string $order, array $opt
         }
         throw $e;
     }
+}
+
+/**
+ * email_enc / email_hash to write next to paddle_customers.email (pii_crypto.php):
+ * [] when the columns do not exist ('customer_email_pii' false), both null
+ * when there is no address or no keys (a WARNING once per request for the
+ * latter), else the encrypted pair. Phase A: the plaintext email is still
+ * written and still what paddleResolveUser() matches on.
+ */
+function paddleCustomerEmailFields(string $email, array $options): array
+{
+    if (empty($options['customer_email_pii'])) {
+        return [];
+    }
+    $none = ['email_enc' => null, 'email_hash' => null];
+    if ($email === '') {
+        return $none;
+    }
+    $encKey = $options['pii_encryption_key'] ?? null;
+    $indexKey = $options['pii_index_key'] ?? null;
+    $fields = piiEmailFields($email, $encKey, $indexKey);
+    if ($fields === null) {
+        if (!piiKeysConfigured($encKey, $indexKey)) {
+            piiEmailWarnMissingKeys('paddle_customers', function ($level, $message, $context) use ($options) {
+                paddleLog($options, $level, $message, $context);
+            });
+        }
+        return $none;
+    }
+    return $fields;
 }
 
 /** pro_users.id for a payment: custom_data.pro_user_id if it exists, else by customer email. */

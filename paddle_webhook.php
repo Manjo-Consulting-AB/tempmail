@@ -69,6 +69,7 @@ try {
     $outcome = paddleHandleEvent($pdo, $event, [
         'prices' => paddlePlanPriceIds(require __DIR__ . '/pricing_tiers.php'),
         'has_account_type' => tableHasColumn('pro_users', 'account_type'),
+        'customer_email_pii' => piiEmailColumnsExist('paddle_customers'),
         'log' => function (string $level, string $message, array $context): void {
             logMessage($level, $message, $context);
         },

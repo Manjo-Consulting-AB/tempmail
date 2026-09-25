@@ -8,6 +8,7 @@ require_once __DIR__ . '/TwoFactorAuth.php';
 require_once __DIR__ . '/pro_trial.php';
 require_once __DIR__ . '/login_tokens.php';
 require_once __DIR__ . '/email_log_ref.php';
+require_once __DIR__ . '/pii_crypto.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
@@ -33,7 +34,9 @@ function getOrCreateProUser($email) {
     $defaultTtl = 1; // default 1 day
     $stmt = $pdo->prepare("INSERT INTO pro_users (email, address_ttl_days) VALUES (?, ?)");
     $stmt->execute([$email, $defaultTtl]);
-    return $pdo->lastInsertId();
+    $userId = $pdo->lastInsertId();
+    proUserStoreEmailPii($pdo, (int) $userId, (string) $email);
+    return $userId;
 }
 
 // Hjälpfunktion: uppdatera last_login_at direkt efter att en session beviljats.
@@ -416,6 +419,8 @@ function redeemVoucherForEmail(string $email, string $code): array {
             }
             $ins->execute([$email, $newExpires, $defaultTtl]);
             $userId = $pdo->lastInsertId();
+            // Inside the voucher transaction, so the pair commits with the row.
+            proUserStoreEmailPii($pdo, (int) $userId, $email);
             $created = true;
         }
 
@@ -833,6 +838,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
         $ins->execute([$email, $passwordHash]);
         $userId = (int) $pdo->lastInsertId();
+        proUserStoreEmailPii($pdo, $userId, $email);
     }
 
     // 8. Skicka verifieringsmail. Samma token/tabell som magic link
@@ -1231,8 +1237,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
 
             // Apply the email change. Do NOT create an undo token.
             // (Token already marked used by the atomic claim above.)
-            $u = $pdo->prepare("UPDATE pro_users SET email = ? WHERE id = ?");
-            $u->execute([$newEmail, $userId]);
+            // email_enc/email_hash change in the same statement, so they can
+            // never describe the old address (pii_crypto.php).
+            $pii = piiEmailWriteFields('pro_users', $newEmail);
+            $u = $pdo->prepare("UPDATE pro_users SET email = ?" . ($pii ? ", email_enc = ?, email_hash = ?" : "") . " WHERE id = ?");
+            $u->execute($pii ? [$newEmail, $pii['email_enc'], $pii['email_hash'], $userId] : [$newEmail, $userId]);
 
             // #267: a confirmed email change proves the new address - record it (no trial granted).
             proTrialRecordClaim($pdo, $newEmail, (string)($config['trial']['hash_key'] ?? ''));
@@ -1487,9 +1496,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
                 echo "This link has already been used or revoked.";
                 exit;
             }
-            // Revert email back to oldEmail
-            $u = $pdo->prepare("UPDATE pro_users SET email = ? WHERE id = ?");
-            $u->execute([$oldEmail, $userId]);
+            // Revert email back to oldEmail (and its email_enc/email_hash, same statement)
+            $pii = piiEmailWriteFields('pro_users', $oldEmail);
+            $u = $pdo->prepare("UPDATE pro_users SET email = ?" . ($pii ? ", email_enc = ?, email_hash = ?" : "") . " WHERE id = ?");
+            $u->execute($pii ? [$oldEmail, $pii['email_enc'], $pii['email_hash'], $userId] : [$oldEmail, $userId]);
             echo "Email change reverted. Your email is now: " . htmlspecialchars($oldEmail);
             exit;
         } elseif ($action === 'undo_set_password') {
