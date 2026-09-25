@@ -9,6 +9,7 @@ require_once __DIR__ . '/pro_trial.php';
 require_once __DIR__ . '/login_tokens.php';
 require_once __DIR__ . '/email_log_ref.php';
 require_once __DIR__ . '/pii_crypto.php';
+require_once __DIR__ . '/pro_remember.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
@@ -93,10 +94,21 @@ function consumeLoginToken(string $token): ?array {
     return $result;
 }
 
-// Hjälpfunktion: skicka e-post med login-länk
-function sendLoginEmail($email, $token, $userId = null) {
+// Hjälpfunktion: magic link-URL:en, med vald "Stay signed in"-period.
+function proLoginLinkUrl(string $token, int $stayDays = 0): string {
     global $config;
-    $loginUrl = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
+    $url = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
+    $stayDays = proRememberNormaliseDays($stayDays);
+    return $stayDays > 0 ? $url . '&stay=' . $stayDays : $url;
+}
+
+// Hjälpfunktion: skicka e-post med login-länk
+// $stayDays is the "Stay signed in" period chosen on the login form
+// (pro_remember.php); it rides in the link so the browser that opens it,
+// possibly not the one that asked, gets it. 0 leaves it out.
+function sendLoginEmail($email, $token, $userId = null, int $stayDays = 0) {
+    global $config;
+    $loginUrl = proLoginLinkUrl((string) $token, $stayDays);
     $subject = "Your login link for Mail Shield";
     $message = "Hello,\n\nClick the link below to sign in to your Mail Shield account:\n\n" . $loginUrl . "\n\nThis link is valid for 30 minutes.\n\nIf you did not request this link, please ignore this email.\n\nRegards,\nThe Mail Shield Team";
     // Bestäm avsändaradress (kan sättas via ENV t.ex. EMAIL_FROM)
@@ -520,6 +532,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'error' => 'Invalid email address']);
         exit;
     }
+    $stayDays = proRememberNormaliseDays($_POST['stay_days'] ?? 0);
 
     // Rate limiting: without this, an attacker can mail-bomb any inbox by
     // repeatedly requesting login links for it (measured by IP only, same
@@ -584,7 +597,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if ($isVerified) {
             $userId = $row['id'];
             $token = createLoginToken($userId);
-            $sent = sendLoginEmail($email, $token, (int) $userId);
+            $sent = sendLoginEmail($email, $token, (int) $userId, $stayDays);
         } else {
             // Not verified: do not send email. We intentionally do not reveal this to the caller.
             logMessage('INFO', 'Magic link requested for unverified user', ['user_id' => (int) $row['id']]);
@@ -599,7 +612,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // In debug mode, optionally expose the login URL when a token was generated.
     // Never in production: the link is a working login for the account.
     if (!empty($config['app']['debug_mode']) && !appIsProduction() && $token) {
-        $response['login_url'] = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
+        $response['login_url'] = proLoginLinkUrl($token, $stayDays);
     }
     echo json_encode($response);
     exit;
@@ -890,6 +903,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'error' => 'Invalid request']);
         exit;
     }
+    $stayDays = proRememberNormaliseDays($_POST['stay_days'] ?? 0);
     // What login_attempts stores for this address: its keyed reference, or
     // '' when no key is configured - never the address itself.
     $attemptRef = emailLogRef($email) ?? '';
@@ -1038,6 +1052,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $_SESSION['pro_user_email'] = $userEmail;
             $_SESSION['pro_login_method'] = 'password';
             recordProUserLogin($user['id']);
+            proRememberIssue((int) $user['id'], $stayDays);
             try {
                 $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
                 $ins->execute([$ip, $attemptRef, $user['id']]);
@@ -1051,20 +1066,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             exit;
         }
 
+        // The "Stay signed in" choice waits with the challenge: a token is
+        // only created once the code has been verified.
         $_SESSION['pending_2fa'] = [
             'user_id' => $user['id'],
             'email' => $userEmail,
             'created_at' => time(),
+            'stay_days' => $stayDays,
         ];
         echo json_encode(['success' => true, 'requires_2fa' => true]);
         exit;
     }
 
-    // Sätt session och logga in
+    // Sätt session och logga in. New session id first (session fixation), as
+    // on every other sign-in path.
+    session_regenerate_id(true);
     $_SESSION['pro_user_id'] = $user['id'];
     $_SESSION['pro_user_email'] = $userEmail;
     $_SESSION['pro_login_method'] = 'password';
     recordProUserLogin($user['id']);
+    proRememberIssue((int) $user['id'], $stayDays);
     // Record successful attempt
     try {
         $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
@@ -1147,6 +1168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $_SESSION['pro_login_method'] = 'password';
     unset($_SESSION['pending_2fa']);
     recordProUserLogin($userId);
+    proRememberIssue($userId, proRememberNormaliseDays($pending['stay_days'] ?? 0));
 
     // "Remember this browser" checkbox: only ever creates a trusted-device
     // row AFTER a successful verification above, never before — see
@@ -1211,6 +1233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['token'])) {
     $_SESSION['pro_user_id'] = $result['user_id'];
     $_SESSION['pro_user_email'] = $result['email'];
     $_SESSION['pro_login_method'] = 'magic_link';
+    proRememberIssue((int) $result['user_id'], proRememberNormaliseDays($_GET['stay'] ?? 0));
     // Redirect to dashboard so server-side will load the user's latest active temp address
     header('Location: pro.php');
     exit;
@@ -1286,6 +1309,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             // #267: a confirmed email change proves the new address - record it (no trial granted).
             proTrialRecordClaim($pdo, $newEmail, (string)($config['trial']['hash_key'] ?? ''));
 
+            // Devices kept signed in (pro_remember.php) sign in again.
+            proRememberRevokeAllFor($userId);
+
             // Notify old email that account email has changed (no undo link)
             try {
                 if (!empty($oldEmail) && filter_var($oldEmail, FILTER_VALIDATE_EMAIL) && $oldEmail !== $newEmail) {
@@ -1341,8 +1367,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             }
 
             // A password change invalidates any "remember this browser"
-            // cookies — see documentaion/2FA_DESIGN.md §2.
+            // cookies — see documentaion/2FA_DESIGN.md §2 — and every device
+            // kept signed in (pro_remember.php).
             TwoFactorAuth::revokeAllTrustedDevices($userId);
+            proRememberRevokeAllFor($userId);
 
             // Notify old email that password has changed (no undo link)
             try {
@@ -1465,6 +1493,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                     $delUser->execute([$userId]);
                     $pdo->commit();
 
+                    // After the commit and fail-open: a missing
+                    // pro_remember_tokens table must not undo the deletion.
+                    proRememberRevokeAllFor($userId);
+
                     logMessage('INFO', 'Pro user account deleted via confirmation', ['user_id' => $userId]);
 
                     // Destroy session if current session belongs to this user
@@ -1547,6 +1579,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
             $pii = piiEmailWriteFields('pro_users', $oldEmail);
             $u = $pdo->prepare("UPDATE pro_users SET email = ?" . ($pii ? ", email_enc = ?, email_hash = ?" : "") . " WHERE id = ?");
             $u->execute($pii ? [$oldEmail, $pii['email_enc'], $pii['email_hash'], $userId] : [$oldEmail, $userId]);
+            // An undo is how a hijacked account is taken back: every device
+            // kept signed in (pro_remember.php) has to sign in again.
+            proRememberRevokeAllFor($userId);
             echo "Email change reverted. Your email is now: " . htmlspecialchars($oldEmail);
             exit;
         } elseif ($action === 'undo_set_password') {
@@ -1563,6 +1598,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
             // Revert password hash
             $u = $pdo->prepare("UPDATE pro_users SET password_hash = ? WHERE id = ?");
             $u->execute([$oldHash, $userId]);
+            proRememberRevokeAllFor($userId);
             echo "Password change reverted. You can log in with your previous password.";
             exit;
         } else {

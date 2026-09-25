@@ -11,7 +11,9 @@
  * (pro_trial.php, five years), the Paddle mirror tables (paddle_sync.php), the
  * integrations a user configures themselves, Google Analytics in the public
  * head (partials/public_head.php, register.php), and the session and 2FA
- * trusted-device cookies (TwoFactorAuth::TRUSTED_DEVICE_COOKIE, 30 days).
+ * trusted-device cookies (TwoFactorAuth::TRUSTED_DEVICE_COOKIE, 30 days), and
+ * the stay-signed-in cookie and its token rows (pro_remember.php: the chosen
+ * 1/7/30 days, sliding, never past 90 days after sign-in).
  * Adding a processor or a tracker means updating this page in the same change.
  */
 
@@ -77,6 +79,7 @@ $msLegalDoc = [
                 . '<li><strong>Server logs</strong> — ' . $f['log_days'] . ' days.</li>'
                 . '<li><strong>Abuse counters</strong> (messages per address, new addresses per IP address and account) — two days. The record of pauses, warnings and other protective steps — 90 days.</li>'
                 . '<li><strong>Trusted browsers for two-factor authentication</strong> — 30 days, or until you remove them.</li>'
+                . '<li><strong>Devices you keep signed in</strong> (a browser and operating system name, and when it was last used) — the period you chose, counted from the last visit and never more than 90 days after you signed in, or until you remove the device, sign out on it, or change your password or email address.</li>'
                 . '<li><strong>Trial record</strong> — five years from the first time the address was used.</li>'
                 . '<li><strong>Payment records</strong> — seven years, as Swedish bookkeeping law requires.</li>'
                 . '</ul>',
@@ -105,6 +108,7 @@ $msLegalDoc = [
             'html'    => '<ul>'
                 . '<li><strong>A session cookie</strong>, which keeps you signed in. It is necessary for the service and ends when you sign out or close the session.</li>'
                 . '<li><strong>A trusted-browser cookie</strong>, set only if you choose to have a browser remembered for two-factor authentication. It lasts 30 days.</li>'
+                . '<li><strong>A stay-signed-in cookie</strong>, set only if you choose to stay signed in on a device. It lasts the period you chose (1, 7 or 30 days from your last visit, at most 90 days) and is removed when you sign out.</li>'
                 . '<li><strong>Google Analytics cookies</strong> on the public pages, which measure visits in aggregate.</li>'
                 . '<li><strong>Paddle cookies</strong> on the pricing page and in the checkout.</li>'
                 . '</ul>'

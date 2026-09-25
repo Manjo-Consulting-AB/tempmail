@@ -203,7 +203,7 @@ PHP;
 
 $probe = sys_get_temp_dir() . '/ms_pii_crypto_' . bin2hex(random_bytes(6));
 mkdir($probe);
-foreach (['pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php'] as $file) {
+foreach (['pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php'] as $file) {
     copy($repoRoot . '/' . $file, $probe . '/' . $file);
 }
 file_put_contents($probe . '/config.php', probeStubConfig());

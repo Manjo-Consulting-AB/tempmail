@@ -1370,17 +1370,26 @@ function proUserIsSuspended(int $userId): bool {
     }
 }
 
+require_once __DIR__ . '/pro_remember.php';
+
 /**
  * Called right after session_start() on every page and action that trusts
  * $_SESSION['pro_user_id']: a suspended account's session is signed out on
  * its next request. Returns true when it did so.
+ *
+ * It is also where a device the user chose to keep signed in gets its
+ * session back when the PHP session is gone (the browser was closed, or the
+ * session file was swept) — see pro_remember.php. The restore refuses a
+ * suspended account itself; the check below still runs for every session.
  */
 function proSessionEndIfSuspended(): bool {
+    proRememberRestoreSession();
     $userId = (int)($_SESSION['pro_user_id'] ?? 0);
     if ($userId <= 0 || !proUserIsSuspended($userId)) {
         return false;
     }
     unset($_SESSION['pro_user_id'], $_SESSION['pro_user_email'], $_SESSION['pro_login_method'], $_SESSION['pending_2fa']);
+    proRememberForgetCurrent();
     logMessage('INFO', 'Session of a suspended account signed out', ['user_id' => $userId]);
     return true;
 }
@@ -1851,10 +1860,21 @@ function getUserStats($userId) {
 // Cross-site request forgery is additionally blocked per action by
 // requireSameOriginRequest() (defined above); this block is defence in depth.
 // ---------------------------------------------------------------------
-if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE && !headers_sent()) {
-    $msSessionHttps = strcasecmp((string) parse_url((string) ($config['email']['base_url'] ?? ''), PHP_URL_SCHEME), 'https') === 0
+/**
+ * Should cookies this site sets carry Secure? Yes whenever the site is served
+ * over HTTPS — decided from base_url or the request itself — so local dev over
+ * plain http://localhost:8085 keeps working. Shared by the session cookie
+ * below and the stay-signed-in cookie (pro_remember.php).
+ */
+function appCookieSecure(): bool {
+    global $config;
+    return strcasecmp((string) parse_url((string) ($config['email']['base_url'] ?? ''), PHP_URL_SCHEME), 'https') === 0
         || (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
         || (string) ($_SERVER['SERVER_PORT'] ?? '') === '443';
+}
+
+if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    $msSessionHttps = appCookieSecure();
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
     ini_set('session.use_trans_sid', '0');

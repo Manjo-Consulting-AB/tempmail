@@ -15,6 +15,7 @@ require_once __DIR__ . '/php_imap_processor.php';
 // function definitions are loaded, which is exactly what we need.
 require_once __DIR__ . '/pro_auth.php';
 require_once __DIR__ . '/email_log_ref.php';
+require_once __DIR__ . '/pro_remember.php';
 session_start();
 // A suspended account is signed out before anything trusts the session.
 if (function_exists('proSessionEndIfSuspended')) {
@@ -745,6 +746,80 @@ try {
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed revoking trusted device', ['error' => $e->getMessage(), 'user_id' => $userId]);
                 send_json(['success' => false, 'error' => 'Could not revoke device']);
+            }
+            break;
+
+        // "Stay signed in" (pro_remember.php). Not Pro-gated: it is part of
+        // signing in, for every account. POST + same-origin via the gate above.
+        case 'stay_signed_in_list':
+            if (!proRememberAvailable($pdo)) {
+                send_json(['success' => true, 'available' => false, 'current_days' => 0, 'devices' => []]);
+            }
+            try {
+                $current = proRememberCurrentToken($userId);
+                $currentId = $current ? (int) $current['id'] : 0;
+                send_json([
+                    'success' => true,
+                    'available' => true,
+                    'current_days' => $current ? (int) $current['days'] : 0,
+                    'devices' => array_map(function ($d) use ($currentId) {
+                        return [
+                            'id' => (int) $d['id'],
+                            'label' => $d['label'],
+                            'days' => (int) $d['days'],
+                            'created_at' => $d['created_at'],
+                            'last_used_at' => $d['last_used_at'],
+                            'expires_at' => $d['expires_at'],
+                            'is_current' => (int) $d['id'] === $currentId,
+                        ];
+                    }, proRememberList($pdo, $userId)),
+                ]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed listing stay-signed-in devices', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not list signed-in devices']);
+            }
+            break;
+
+        case 'stay_signed_in_set':
+            // Replaces this browser's token (if any) with one for the chosen
+            // period; 0 = until the browser is closed, i.e. no token.
+            $days = proRememberNormaliseDays($_POST['days'] ?? '');
+            if ($days === 0 && (string) ($_POST['days'] ?? '') !== '0') {
+                send_json(['success' => false, 'error' => 'Invalid period']);
+            }
+            if (!proRememberAvailable($pdo)) {
+                send_json(['success' => false, 'error' => 'Staying signed in is not available yet']);
+            }
+            $tokenId = proRememberIssue($userId, $days);
+            if ($days > 0 && $tokenId === null) {
+                send_json(['success' => false, 'error' => 'Could not save the setting']);
+            }
+            send_json(['success' => true, 'current_days' => $days]);
+            break;
+
+        case 'stay_signed_in_revoke':
+            if (!proRememberAvailable($pdo)) {
+                send_json(['success' => false, 'error' => 'Staying signed in is not available yet']);
+            }
+            try {
+                $current = proRememberCurrentToken($userId);
+                if (!empty($_POST['others'])) {
+                    $count = proRememberRevokeAll($pdo, $userId, $current ? (int) $current['id'] : null);
+                    logMessage('INFO', 'Stay-signed-in tokens revoked', ['user_id' => $userId, 'count' => $count]);
+                    send_json(['success' => true]);
+                }
+                $tokenId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+                if ($tokenId <= 0 || !proRememberRevoke($pdo, $userId, $tokenId)) {
+                    send_json(['success' => false, 'error' => 'Device not found']);
+                }
+                if ($current && (int) $current['id'] === $tokenId) {
+                    proRememberClearCookie();
+                }
+                logMessage('INFO', 'Stay-signed-in tokens revoked', ['user_id' => $userId, 'count' => 1]);
+                send_json(['success' => true]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed revoking stay-signed-in device', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not remove device']);
             }
             break;
 
