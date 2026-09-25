@@ -225,8 +225,11 @@ function appIsProduction(): bool {
 
 // Capture the detection source (set inside detectEnvironment)
 $env_source = $GLOBALS['__env_detect_source'] ?? 'unknown';
-// Log a concise line for diagnostics
-error_log("TempMail Environment detected as: {$environment} (source: {$env_source})");
+// Log a concise line for diagnostics - CLI only: on the web this ran on every
+// request and filled the PHP error log.
+if (PHP_SAPI === 'cli') {
+    error_log("TempMail Environment detected as: {$environment} (source: {$env_source})");
+}
 
 // Ladda miljövariabler för detekterad miljö
 loadEnvironmentVariables($environment);
@@ -291,6 +294,11 @@ $baseConfig = [
         // the server layout ever changes.
         'forwarder_destination' => $_ENV['DA_FORWARDER_DESTINATION']
             ?? ('|/usr/bin/php /home/s174280/domains/' . ($_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me')) . '/public_html/parse.php')
+    ],
+    // Account ids (pro_users.id) allowed into admin tools such as
+    // log_viewer.php. Empty = no admins. See isAdminUser().
+    'admin' => [
+        'user_ids' => array_values(array_filter(array_map('intval', explode(',', (string) ($_ENV['ADMIN_USER_IDS'] ?? ''))), static fn(int $id): bool => $id > 0)),
     ],
     'pro' => [
         // Kill switch of the same kind as 'directadmin.forwarder_enabled' above:
@@ -411,8 +419,11 @@ $config = array_merge_recursive($baseConfig, $environmentConfigs[$environment]);
 $config['attachments'] = $config['attachments'] ?? [];
 $config['attachments']['download_ttl'] = (int)($_ENV['ATTACHMENT_TTL'] ?? ($config['attachments']['download_ttl'] ?? 3600));
 $config['attachments']['download_secret'] = $_ENV['ATTACHMENT_DOWNLOAD_SECRET'] ?? ($config['attachments']['download_secret'] ?? null);
-// If no explicit secret provided, derive a fallback from DB credentials+base_url (best-effort, not recommended for long-term)
-if (empty($config['attachments']['download_secret'])) {
+// No explicit secret: outside production, derive a local-dev fallback from the
+// DB credentials + base_url. Never in production - a key derived from the DB
+// password is guessable by anyone who learns it, and signs every download
+// link. There files.php answers 500 instead, which is loud and safe.
+if (empty($config['attachments']['download_secret']) && $environment !== 'production') {
     $config['attachments']['download_secret'] = hash('sha256', ($config['db']['user'] ?? '') . ':' . ($config['db']['password'] ?? '') . ($config['email']['base_url'] ?? ''));
 }
 
@@ -1168,6 +1179,14 @@ function proUserIsPro(int $userId): bool {
         // Fail-closed på entitlement: ge aldrig bort Pro på ett fel.
         return $isProCache[$userId] = false;
     }
+}
+
+/**
+ * True when $userId is one of the admin accounts in ADMIN_USER_IDS.
+ */
+function isAdminUser(int $userId): bool {
+    global $config;
+    return $userId > 0 && in_array($userId, $config['admin']['user_ids'] ?? [], true);
 }
 
 /**

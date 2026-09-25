@@ -1210,7 +1210,7 @@ try {
             $rawName = $_POST['name'] ?? '';
             $rawUrl = $_POST['url'] ?? '';
             $rawKind = $_POST['kind'] ?? 'generic';
-            $config = $_POST['config'] ?? null;
+            $rawHookConfig = $_POST['config'] ?? null;
             $rawSecret = $_POST['secret'] ?? '';
 
             // Detect suspicious patterns in all inputs
@@ -1269,17 +1269,17 @@ try {
 
             // Validate config JSON
             $configArr = null;
-            if ($config) {
+            if ($rawHookConfig) {
                 // Limit config size to prevent abuse
-                if (is_string($config) && strlen($config) > 4096) {
+                if (is_string($rawHookConfig) && strlen($rawHookConfig) > 4096) {
                     send_json(['success' => false, 'error' => 'Config too large (max 4KB)']);
                 }
-                if (is_string($config)) {
-                    $configArr = json_decode($config, true, 10); // max depth 10
+                if (is_string($rawHookConfig)) {
+                    $configArr = json_decode($rawHookConfig, true, 10); // max depth 10
                 } else {
-                    $configArr = $config;
+                    $configArr = $rawHookConfig;
                 }
-                if ($configArr === null && $config) {
+                if ($configArr === null && $rawHookConfig) {
                     send_json(['success' => false, 'error' => 'Invalid config JSON']);
                 }
                 // Its keys are sent as fields (Pushover) or merged into the body

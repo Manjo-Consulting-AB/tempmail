@@ -11,31 +11,13 @@ require_once __DIR__ . '/config.php';
 
 // Session-based access control
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-$allowedEmail = 'tony@manjo.se';
-$userEmail = isset($_SESSION['pro_user_email']) ? strtolower(trim((string)$_SESSION['pro_user_email'])) : null;
-if ($userEmail !== strtolower($allowedEmail)) {
-    // Temporary diagnostics for #log-viewer-migration: this check looks
-    // correct and mirrors pro.php's, but access is being denied even when
-    // the user is genuinely logged in as tony@manjo.se on pro.php. Log
-    // enough (server-side only, never echoed) to tell "no session at all"
-    // apart from "session present but pro_user_email missing/mismatched"
-    // without leaking the raw cookie or full email into logs.
-    $diagCookiePresent = isset($_COOKIE[session_name()]);
-    $diagSessionKeys = array_keys($_SESSION ?? []);
-    $diagHasProUserId = isset($_SESSION['pro_user_id']);
-    $diagEmailPreview = $userEmail === null ? 'null' : (substr($userEmail, 0, 3) . '***@' . substr(strrchr($userEmail, '@') ?: '', 1));
-    // Never log the raw session ID or cookie value (session hijacking risk
-    // if the log file is ever exposed) — just enough to correlate calls.
-    $sid = session_id() ?: '';
-    $diagSidSuffix = $sid !== '' ? substr($sid, -6) : '(none)';
-    error_log(sprintf(
-        'log_viewer.php access denied: cookie_present=%s session_id_suffix=%s session_keys=[%s] pro_user_id_set=%s user_email_preview=%s',
-        $diagCookiePresent ? 'yes' : 'no',
-        $diagSidSuffix,
-        implode(',', $diagSessionKeys),
-        $diagHasProUserId ? 'yes' : 'no',
-        $diagEmailPreview
-    ));
+// Admins are listed by account id in ADMIN_USER_IDS (comma-separated), not by
+// email: an id cannot be taken over by changing an account's address, and no
+// address is hardcoded in the code. Unset means nobody is admin (fail closed).
+$sessionUserId = (int) ($_SESSION['pro_user_id'] ?? 0);
+if (!isAdminUser($sessionUserId)) {
+    // Server-side only, never echoed; no session id or email in the log.
+    error_log(sprintf('log_viewer.php access denied: logged_in=%s', $sessionUserId > 0 ? 'yes' : 'no'));
     http_response_code(403);
     echo "Access denied\n";
     exit;
