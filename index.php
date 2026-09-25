@@ -72,8 +72,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    error_log('AJAX POST action: ' . $action);
-    error_log('AJAX POST data: ' . json_encode($_POST));
     try {
         switch ($action) {
             case 'get_expires_at':
@@ -128,7 +126,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     $currentUserId = (int)($_SESSION['pro_user_id'] ?? 0);
                     $isOwner = $ownerId !== null && $currentUserId === $ownerId;
-                    echo json_encode(['success' => true, 'owner_pro_user_id' => $ownerId, 'is_owner' => $isOwner, 'is_personal' => $isPersonal]);
+                    // The owner's account id goes only to the owner: anyone
+                    // else learns just whether this session may open it.
+                    echo json_encode([
+                        'success' => true,
+                        'owner_pro_user_id' => $isOwner ? $ownerId : null,
+                        'is_owner' => $isOwner,
+                        'is_personal' => $isPersonal,
+                        'blocked' => $isPersonal && $ownerId !== null && !$isOwner,
+                    ]);
                 } catch (Exception $e) {
                     logMessage('ERROR', 'Failed checking address owner', ['error' => $e->getMessage(), 'address' => $address]);
                     echo json_encode(['success' => false, 'error' => 'Could not check address owner']);
@@ -899,14 +905,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     } catch (Exception $_) {
                         // Best-effort replacement; if anything fails, continue with original body
-                    }
-
-                    // Debug: Log what we're returning for attachments
-                    if (!empty($attachments)) {
-                        error_log("[get_email] Returning " . count($attachments) . " attachments for email_id=$emailId");
-                        foreach ($attachments as $dbgAtt) {
-                            error_log("[get_email] Attachment id=" . ($dbgAtt['id'] ?? '?') . " download_url=" . ($dbgAtt['download_url'] ?? 'NOT SET'));
-                        }
                     }
 
                     // body_html is attacker-controlled: purify it (after the
