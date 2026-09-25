@@ -14,6 +14,7 @@ require_once __DIR__ . '/php_imap_processor.php';
 // (including its session_start()/header() calls) runs. Only its top-level
 // function definitions are loaded, which is exactly what we need.
 require_once __DIR__ . '/pro_auth.php';
+require_once __DIR__ . '/email_log_ref.php';
 session_start();
 
 header('Content-Type: application/json');
@@ -343,7 +344,7 @@ try {
                 $headersStr = implode("\r\n", $headers);
                 @mail($newEmail, $subject, $message, $headersStr);
 
-                logMessage('INFO', 'Pending email change created', ['user_id' => $userId, 'new_email' => $newEmail]);
+                logMessage('INFO', 'Pending email change created', ['user_id' => $userId] + emailLogContext((string) $newEmail, null, 'new_email_ref'));
                 send_json(['success' => true, 'message' => 'Confirmation link sent to new email address']);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed creating pending email change', ['error' => $e->getMessage(), 'user_id' => $userId]);
