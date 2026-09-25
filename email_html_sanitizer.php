@@ -73,7 +73,17 @@ if (!function_exists('purifyEmailHtml')) {
                     'font-family', 'line-height', 'text-align', 'text-decoration',
                     'vertical-align', 'padding', 'margin', 'border',
                     'width', 'height', 'max-width',
+                    // Newsletters hide their preheader (inbox preview text,
+                    // padded with hundreds of invisible characters) with
+                    // display:none / max-height:0 / overflow:hidden /
+                    // opacity:0. Dropping these while keeping max-width:0
+                    // turned it into a long blank column above the message.
+                    // Harmless in the sandboxed, script-free mail frame.
+                    'max-height', 'display', 'visibility', 'overflow', 'opacity',
                 ]);
+                // display, visibility, overflow and opacity are HTMLPurifier's
+                // "tricky" properties and are dropped unless this is on.
+                $config->set('CSS.AllowTricky', true);
                 // Only schemes that cannot carry script (blocks javascript:,
                 // data:, vbscript:, ...). Relative URLs stay allowed so the
                 // /files.php links get_email rewrites cid: references to work.
