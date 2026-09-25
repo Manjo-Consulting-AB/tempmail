@@ -269,6 +269,27 @@ function cleanupExpiredTrustedDevices() {
 }
 
 /**
+ * Rensa utgångna "Stay signed in"-tokens (pro_remember.php). Hoppar över
+ * tyst när migrate_remember_tokens.php inte har körts.
+ */
+function cleanupExpiredRememberTokens() {
+    global $pdo;
+    if (!proRememberAvailable($pdo)) {
+        return false;
+    }
+    try {
+        $count = proRememberCleanup($pdo);
+        if ($count > 0) {
+            logMessage('INFO', 'Expired stay-signed-in tokens cleaned up', ['count' => $count]);
+        }
+        return $count;
+    } catch (PDOException $e) {
+        logMessage('ERROR', 'Failed to cleanup expired stay-signed-in tokens: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Degradera utgångna PRO-konton till Regular (raderar dem aldrig) och
  * städa personliga adresser efter en sjudagars grace-period.
  *
@@ -694,6 +715,10 @@ function cleanupInactiveRegularAccounts() {
                 continue;
             }
 
+            // Efter commit och fail-open, som i pro_auth.php:s delete_account:
+            // en saknad pro_remember_tokens-tabell får inte stoppa raderingen.
+            proRememberRevokeAllFor($userId);
+
             logMessage('INFO', 'Inactive regular account deleted', [
                 'user_id' => $userId,
                 'addresses_removed' => count($addresses),
@@ -952,6 +977,12 @@ function runCleanup($options = []) {
     $trustedDevicesResult = cleanupExpiredTrustedDevices();
     if ($trustedDevicesResult !== false) {
         $results['trusted_devices_cleaned'] = $trustedDevicesResult;
+    }
+
+    // Rensa utgångna "Stay signed in"-tokens
+    $rememberTokensResult = cleanupExpiredRememberTokens();
+    if ($rememberTokensResult !== false) {
+        $results['remember_tokens_cleaned'] = $rememberTokensResult;
     }
     
     // Optimera databas (om begärt)

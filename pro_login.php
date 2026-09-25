@@ -19,6 +19,13 @@ require_once __DIR__ . '/partials/brand.php';
 
 session_start();
 
+// A device kept signed in (pro_remember.php) goes straight to the dashboard -
+// but not when a magic link is being opened: that link may be a registration
+// verification, or for another account, and must be handled below.
+if (!isset($_GET['token'])) {
+    proRememberRestoreSession();
+}
+
 // If already logged in, redirect to dashboard
 if (isset($_SESSION['pro_user_id'])) {
     header('Location: pro.php');
@@ -43,6 +50,8 @@ if ($token) {
         $_SESSION['pro_user_email'] = $result['email'];
         $_SESSION['pro_login_method'] = 'magic_link';
         recordProUserLogin($result['user_id']);
+        // "Stay signed in" period chosen on the login form, carried in the link.
+        proRememberIssue((int) $result['user_id'], proRememberNormaliseDays($_GET['stay'] ?? 0));
 
         // Registration (#59, ACCOUNT_TIERS.md §4.1/§4.3) reuses this same
         // magic-link token as its verification link, so verification and the
@@ -156,6 +165,19 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
 
                 <hr id="loginModeDivider">
 
+                <!-- Shared by both modes; the choice travels with the magic link
+                     and waits through the 2FA challenge (pro_remember.php). -->
+                <div class="mb-3" id="staySignedInField">
+                    <label for="staySignedIn" class="form-label">Stay signed in on this device</label>
+                    <select class="form-select" id="staySignedIn" aria-describedby="staySignedInHint">
+                        <option value="0">Until I close the browser</option>
+                        <option value="1">For 1 day</option>
+                        <option value="7">For 7 days</option>
+                        <option value="30">For 30 days</option>
+                    </select>
+                    <div class="form-text" id="staySignedInHint">Keeps you signed in when your phone closes the browser in the background. Only choose a period on a device that is yours.</div>
+                </div>
+
                 <div id="magicBlock">
                     <form method="post" action="pro_auth.php" id="loginRequestForm">
                         <input type="hidden" name="action" value="request_login_link">
@@ -238,6 +260,22 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
         $('#pwEmail, #pwPassword').attr('aria-describedby', 'passwordLoginMsg');
         $('#twoFactorCode').attr('aria-describedby', 'twoFactorMsg');
 
+        // The last choice is remembered on this device only (a convenience,
+        // not a credential), under a key sign-out does not clear.
+        var STAY_KEY = 'ms_stay_signed_in';
+        try {
+            var savedStay = localStorage.getItem(STAY_KEY);
+            if (savedStay !== null && $('#staySignedIn option[value="' + savedStay.replace(/[^0-9]/g, '') + '"]').length) {
+                $('#staySignedIn').val(savedStay);
+            }
+        } catch (e) { /* storage unavailable: keep the default */ }
+        $('#staySignedIn').on('change', function(){
+            try { localStorage.setItem(STAY_KEY, $(this).val()); } catch (e) { /* ignore */ }
+        });
+        function stayDays() {
+            return $('#staySignedIn').val() || '0';
+        }
+
         function showMode(mode) {
             if (mode === 'password') {
                 $('#magicBlock').hide();
@@ -268,7 +306,7 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
         }
 
         function showTwoFactorBlock() {
-            $('#loginModeToggle, #loginModeDivider, #magicBlock, #passwordBlock').hide();
+            $('#loginModeToggle, #loginModeDivider, #staySignedInField, #magicBlock, #passwordBlock').hide();
             resetTwoFactorField();
             $('#twoFactorMsg').html('');
             $('#twoFactorCode').val('');
@@ -279,7 +317,7 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
 
         function hideTwoFactorBlock(restoreMode) {
             $('#twoFactorBlock').hide();
-            $('#loginModeToggle, #loginModeDivider').show();
+            $('#loginModeToggle, #loginModeDivider, #staySignedInField').show();
             $('#twoFactorMsg').html('');
             $('#twoFactorCode').val('');
             showMode(restoreMode);
@@ -358,7 +396,7 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
             e.preventDefault();
             var email = $('#email').val();
             $('#loginRequestMsg').html('<div class="alert alert-info">Sending link...</div>');
-            $.post('pro_auth.php', {action:'request_login_link', email:email}, function(res){
+            $.post('pro_auth.php', {action:'request_login_link', email:email, stay_days: stayDays()}, function(res){
                 if (res.success) {
                     let html = '<div class="alert alert-success">Login link sent! Check your email.</div>';
                     // Only display the test magic link when allowed by server config
@@ -378,7 +416,7 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
             var email = $('#pwEmail').val();
             var password = $('#pwPassword').val();
             $('#passwordLoginMsg').html('<div class="alert alert-info">Signing in...</div>');
-            $.post('pro_auth.php', { action: 'password_login', email: email, password: password }, function(res){
+            $.post('pro_auth.php', { action: 'password_login', email: email, password: password, stay_days: stayDays() }, function(res){
                 if (res && res.success) {
                     if (res.requires_2fa) {
                         $('#passwordLoginMsg').html('');

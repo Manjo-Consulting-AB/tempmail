@@ -6,7 +6,11 @@
  * address before redirecting to the public index page. This prevents the
  * temporary address from remaining visible on shared machines after logout.
  */
+require_once __DIR__ . '/config.php';
 session_start();
+// End "stay signed in" on this device: its token is removed server-side, not
+// only its cookie (pro_remember.php).
+proRememberForgetCurrent();
 // Clear session variables
 $_SESSION = [];
 // If session cookie exists, clear it

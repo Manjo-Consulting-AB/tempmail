@@ -317,6 +317,32 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                             <h2 class="ms-settings__section-title">Security</h2>
                             <p class="ms-settings__section-lede">Codes, devices, and how a password sign-in is verified.</p>
 
+                            <div class="ms-card" id="staySignedInCard">
+                                <h3 class="ms-card__title">Stay signed in</h3>
+                                <p class="ms-card__desc">How long this device stays signed in when the browser is closed, for example when your phone closes it in the background. Each visit restarts the period, up to 90 days after you signed in.</p>
+                                <div id="staySignedInAlert"></div>
+                                <p id="staySignedInUnavailable" class="text-muted d-none">Not available yet.</p>
+                                <div id="staySignedInControls" class="d-none">
+                                    <div class="mb-3">
+                                        <label class="form-label" for="staySignedInSelect">Keep this device signed in</label>
+                                        <select id="staySignedInSelect" class="form-select" style="max-width:260px;">
+                                            <option value="0">Until I close the browser</option>
+                                            <option value="1">For 1 day</option>
+                                            <option value="7">For 7 days</option>
+                                            <option value="30">For 30 days</option>
+                                        </select>
+                                        <div class="form-text">Only choose a period on a device that is yours.</div>
+                                    </div>
+                                    <button type="button" id="staySignedInSaveBtn" class="btn btn-secondary">Save</button>
+
+                                    <h4 class="ms-card__subtitle mt-4">Devices kept signed in</h4>
+                                    <p class="form-text">Removing a device means it has to sign in again the next time its browser is closed. Changing your password or email address removes them all.</p>
+                                    <p id="staySignedInEmpty" class="text-muted d-none">No devices are kept signed in.</p>
+                                    <ul id="staySignedInList" class="list-group mb-2"></ul>
+                                    <button type="button" id="staySignedInRevokeOthersBtn" class="btn btn-sm btn-outline-danger d-none">Remove all other devices</button>
+                                </div>
+                            </div>
+
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Two-factor authentication</h3>
                                 <p class="ms-card__desc">A code from your authenticator app, on top of your password.</p>
@@ -889,6 +915,94 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
             });
 
             tfaLoadStatus();
+
+            // --- Stay signed in (pro_remember.php) ---
+            function staySignedInAlert(kind, text) {
+                $('#staySignedInAlert').empty().append($('<div>').addClass('alert alert-' + kind).text(text));
+            }
+
+            function staySignedInPeriod(days) {
+                return days === 1 ? '1 day' : days + ' days';
+            }
+
+            function staySignedInRender(res) {
+                if (!res.available) {
+                    $('#staySignedInUnavailable').removeClass('d-none');
+                    $('#staySignedInControls').addClass('d-none');
+                    return;
+                }
+                $('#staySignedInControls').removeClass('d-none');
+                $('#staySignedInSelect').val(String(res.current_days || 0));
+                var devices = res.devices || [];
+                var $list = $('#staySignedInList').empty();
+                $('#staySignedInEmpty').toggleClass('d-none', devices.length > 0);
+                var others = devices.filter(function(d){ return !d.is_current; }).length;
+                $('#staySignedInRevokeOthersBtn').toggleClass('d-none', others === 0);
+                devices.forEach(function(dev){
+                    var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
+                    var $info = $('<div>');
+                    var $name = $('<div>').text(dev.label || 'Unknown device');
+                    if (dev.is_current) {
+                        $name.append(' ').append($('<span>').addClass('badge bg-secondary').text('This device'));
+                    }
+                    $info.append($name);
+                    $info.append(
+                        $('<div>').addClass('text-muted small').text(
+                            staySignedInPeriod(dev.days) +
+                            ' — last used ' + tfaFormatDate(dev.last_used_at) +
+                            ' — until ' + tfaFormatDate(dev.expires_at)
+                        )
+                    );
+                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text('Remove').data('id', dev.id);
+                    $li.append($info).append($btn);
+                    $list.append($li);
+                });
+            }
+
+            function staySignedInLoad() {
+                $.post('pro_profile.php', { action: 'stay_signed_in_list' }, function(res){
+                    if (res && res.success) {
+                        staySignedInRender(res);
+                    }
+                }, 'json');
+            }
+
+            $('#staySignedInSaveBtn').on('click', function(){
+                var days = $('#staySignedInSelect').val();
+                $.post('pro_profile.php', { action: 'stay_signed_in_set', days: days }, function(res){
+                    if (res && res.success) {
+                        staySignedInAlert('success', days === '0' ? 'This device signs out when the browser is closed.' : 'This device stays signed in for ' + staySignedInPeriod(parseInt(days, 10)) + '.');
+                        staySignedInLoad();
+                    } else {
+                        staySignedInAlert('danger', (res && res.error) ? res.error : 'Could not save the setting');
+                    }
+                }, 'json').fail(function(){ staySignedInAlert('danger', 'Network error'); });
+            });
+
+            $('#staySignedInList').on('click', 'button', function(){
+                var id = $(this).data('id');
+                if (!window.confirm('Remove this device? It will have to sign in again the next time its browser is closed.')) return;
+                $.post('pro_profile.php', { action: 'stay_signed_in_revoke', id: id }, function(res){
+                    if (res && res.success) {
+                        staySignedInLoad();
+                    } else {
+                        staySignedInAlert('danger', (res && res.error) ? res.error : 'Could not remove device');
+                    }
+                }, 'json').fail(function(){ staySignedInAlert('danger', 'Network error'); });
+            });
+
+            $('#staySignedInRevokeOthersBtn').on('click', function(){
+                if (!window.confirm('Remove all other devices? They will have to sign in again the next time their browser is closed.')) return;
+                $.post('pro_profile.php', { action: 'stay_signed_in_revoke', others: 1 }, function(res){
+                    if (res && res.success) {
+                        staySignedInLoad();
+                    } else {
+                        staySignedInAlert('danger', (res && res.error) ? res.error : 'Could not remove devices');
+                    }
+                }, 'json').fail(function(){ staySignedInAlert('danger', 'Network error'); });
+            });
+
+            staySignedInLoad();
 
             // Paddle customer portal: the URL is one-time and short-lived, so it
             // is minted on every click and never kept. Same tab, so the portal's
