@@ -7,6 +7,7 @@ require_once 'config.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
 require_once __DIR__ . '/pro_trial.php';
 require_once __DIR__ . '/login_tokens.php';
+require_once __DIR__ . '/email_log_ref.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
@@ -79,7 +80,7 @@ function consumeLoginToken(string $token): ?array {
 }
 
 // Hjälpfunktion: skicka e-post med login-länk
-function sendLoginEmail($email, $token) {
+function sendLoginEmail($email, $token, $userId = null) {
     global $config;
     $loginUrl = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
     $subject = "Your login link for Mail Shield";
@@ -105,14 +106,14 @@ function sendLoginEmail($email, $token) {
         $sent = mail($email, $subject, $message, $headersStr, $envelope);
         if ($sent === false) {
             if (function_exists('logMessage')) {
-                logMessage('ERROR', 'mail() returned false when attempting to send magic link', ['to' => $email]);
+                logMessage('ERROR', 'mail() returned false when attempting to send magic link', emailLogContext((string) $email, $userId));
             } else {
-                error_log('mail() returned false when attempting to send magic link to ' . $email);
+                error_log('mail() returned false when attempting to send magic link');
             }
         }
     } catch (Exception $e) {
         if (function_exists('logMessage')) {
-            logMessage('ERROR', 'Mail sending unexpected error', ['error' => $e->getMessage(), 'to' => $email]);
+            logMessage('ERROR', 'Mail sending unexpected error', ['error' => $e->getMessage()] + emailLogContext((string) $email, $userId));
         } else {
             error_log('Mail sending unexpected error: ' . $e->getMessage());
         }
@@ -121,16 +122,16 @@ function sendLoginEmail($email, $token) {
 
     // Logga i systemloggen — undvik att skriva ut token i produktion.
     if ($sent) {
-        $logContext = ['to' => $email];
+        $logContext = emailLogContext((string) $email, $userId);
         if (!empty($config['app']['debug_mode']) && !appIsProduction()) {
             // Only include token in debug/development mode, never in production
             $logContext['token'] = $token;
         }
         logMessage('INFO', 'Magic link sent', $logContext);
     } else {
-        logMessage('ERROR', 'Failed to send magic link', ['to' => $email]);
+        logMessage('ERROR', 'Failed to send magic link', emailLogContext((string) $email, $userId));
         if (!function_exists('logMessage')) {
-            error_log('Failed to send magic link to ' . $email);
+            error_log('Failed to send magic link');
         }
     }
 
@@ -145,7 +146,7 @@ function sendLoginEmail($email, $token) {
 // via consumeLoginToken() och - om kontot är overifierat - sätter
 // email_verified_at samtidigt som den loggar in. Verifiering och första
 // inloggning blir alltså samma klick.
-function sendVerificationEmail(string $email, string $token): bool {
+function sendVerificationEmail(string $email, string $token, ?int $userId = null): bool {
     global $config;
     $verifyUrl = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
     $subject = "Confirm your Mail Shield account";
@@ -165,22 +166,22 @@ function sendVerificationEmail(string $email, string $token): bool {
         $envelope = '-f' . $fromAddress;
         $sent = mail($email, $subject, $message, $headersStr, $envelope);
         if ($sent === false) {
-            logMessage('ERROR', 'mail() returned false when attempting to send verification email', ['to' => $email]);
+            logMessage('ERROR', 'mail() returned false when attempting to send verification email', emailLogContext($email, $userId));
         }
     } catch (Exception $e) {
-        logMessage('ERROR', 'Verification mail sending unexpected error', ['error' => $e->getMessage(), 'to' => $email]);
+        logMessage('ERROR', 'Verification mail sending unexpected error', ['error' => $e->getMessage()] + emailLogContext($email, $userId));
         $sent = false;
     }
 
     if ($sent) {
-        $logContext = ['to' => $email];
+        $logContext = emailLogContext($email, $userId);
         if (!empty($config['app']['debug_mode']) && !appIsProduction()) {
             // Only include token in debug/development mode, never in production
             $logContext['token'] = $token;
         }
         logMessage('INFO', 'Verification email sent', $logContext);
     } else {
-        logMessage('ERROR', 'Failed to send verification email', ['to' => $email]);
+        logMessage('ERROR', 'Failed to send verification email', emailLogContext($email, $userId));
     }
 
     return $sent;
@@ -191,7 +192,7 @@ function sendVerificationEmail(string $email, string $token): bool {
 // pekar bara mottagaren till befintlig inloggning. Skickas alltid från samma
 // kodväg som den generiska registreringsresponsen, aldrig från en gren som
 // avslöjar kontots existens till klienten.
-function sendAlreadyRegisteredEmail(string $email): bool {
+function sendAlreadyRegisteredEmail(string $email, ?int $userId = null): bool {
     global $config;
     $loginUrl = $config['email']['base_url'] . "pro_login.php";
     $subject = "You already have a Mail Shield account";
@@ -211,14 +212,14 @@ function sendAlreadyRegisteredEmail(string $email): bool {
         $envelope = '-f' . $fromAddress;
         $sent = mail($email, $subject, $message, $headersStr, $envelope);
     } catch (Exception $e) {
-        logMessage('ERROR', 'Already-registered mail sending unexpected error', ['error' => $e->getMessage(), 'to' => $email]);
+        logMessage('ERROR', 'Already-registered mail sending unexpected error', ['error' => $e->getMessage()] + emailLogContext($email, $userId));
         $sent = false;
     }
 
     if (!$sent) {
-        logMessage('ERROR', 'Failed to send already-registered email', ['to' => $email]);
+        logMessage('ERROR', 'Failed to send already-registered email', emailLogContext($email, $userId));
     } else {
-        logMessage('INFO', 'Already-registered notice sent', ['to' => $email]);
+        logMessage('INFO', 'Already-registered notice sent', emailLogContext($email, $userId));
     }
 
     return $sent;
@@ -231,7 +232,7 @@ function sendAlreadyRegisteredEmail(string $email): bool {
 // i samma klick (pro_login.php:s magic-link-konsumtion). Byggd som
 // sendLoginEmail() ovan. Fail-open: ett fel här får aldrig blockera
 // användarens egen inloggning.
-function sendAdminRegistrationNotification(string $userEmail): bool {
+function sendAdminRegistrationNotification(string $userEmail, ?int $userId = null): bool {
     $adminEmail = $_ENV['ADMIN_NOTIFICATION_EMAIL'] ?? 'tony@manjo.me';
     $subject = "New Mail Shield registration verified";
     $message = "A new user just registered and verified their email address:\n\n" . $userEmail . "\n\nRegards,\nThe Mail Shield System";
@@ -249,14 +250,14 @@ function sendAdminRegistrationNotification(string $userEmail): bool {
         $envelope = '-f' . $fromAddress;
         $sent = mail($adminEmail, $subject, $message, $headersStr, $envelope);
     } catch (Exception $e) {
-        logMessage('ERROR', 'Admin registration notification mail sending unexpected error', ['error' => $e->getMessage(), 'user_email' => $userEmail]);
+        logMessage('ERROR', 'Admin registration notification mail sending unexpected error', ['error' => $e->getMessage()] + emailLogContext($userEmail, $userId));
         $sent = false;
     }
 
     if (!$sent) {
-        logMessage('ERROR', 'Failed to send admin registration notification', ['user_email' => $userEmail]);
+        logMessage('ERROR', 'Failed to send admin registration notification', emailLogContext($userEmail, $userId));
     } else {
-        logMessage('INFO', 'Admin registration notification sent', ['user_email' => $userEmail]);
+        logMessage('INFO', 'Admin registration notification sent', emailLogContext($userEmail, $userId));
     }
 
     return $sent;
@@ -444,7 +445,7 @@ function redeemVoucherForEmail(string $email, string $code): array {
         return ['success' => true, 'error_code' => null, 'user_id' => (int)$userId];
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        logMessage('ERROR', 'Voucher redemption failed', ['error' => $e->getMessage(), 'email' => $email, 'code' => $code]);
+        logMessage('ERROR', 'Voucher redemption failed', ['error' => $e->getMessage(), 'code' => $code] + emailLogContext((string) $email, empty($created) ? ($userId ?? null) : null));
         return ['success' => false, 'error_code' => VOUCHER_ERROR_REDEMPTION_FAILED, 'user_id' => null];
     }
 }
@@ -565,14 +566,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if ($isVerified) {
             $userId = $row['id'];
             $token = createLoginToken($userId);
-            $sent = sendLoginEmail($email, $token);
+            $sent = sendLoginEmail($email, $token, (int) $userId);
         } else {
             // Not verified: do not send email. We intentionally do not reveal this to the caller.
-            logMessage('INFO', 'Magic link requested for unverified user', ['email' => $email]);
+            logMessage('INFO', 'Magic link requested for unverified user', ['user_id' => (int) $row['id']]);
         }
     } else {
         // User does not exist: do not create here and do not send email. Log for audit.
-        logMessage('INFO', 'Magic link requested for unknown user', ['email' => $email]);
+        logMessage('INFO', 'Magic link requested for unknown user', emailLogContext($email));
     }
 
     // Return a generic success response so callers cannot enumerate accounts.
@@ -753,7 +754,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // redan ett konto"-mail. Voucher-inlösen anropas medvetet ALDRIG
             // i den här grenen - annars skulle plan=pro kunna användas för
             // att tyst uppgradera någon annans befintliga konto till Pro.
-            sendAlreadyRegisteredEmail($email);
+            sendAlreadyRegisteredEmail($email, (int) $existing['id']);
             logMessage('INFO', 'Registration attempted for existing verified account', ['user_id' => $existing['id']]);
             echo json_encode($genericResponse);
             exit;
@@ -765,7 +766,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Skapa/ändra inget - varken lösenord eller voucher-inlösen körs
             // här, av samma anledning som ovan.
             $token = createLoginToken($existing['id']);
-            sendVerificationEmail($email, $token);
+            sendVerificationEmail($email, $token, (int) $existing['id']);
             logMessage('INFO', 'Verification email resent for unverified account', ['user_id' => $existing['id']]);
             echo json_encode($genericResponse);
             exit;
@@ -839,7 +840,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // konsumerar token och sätter email_verified_at om kontot var
     // overifierat (utökat i den här issuen, se pro_login.php).
     $token = createLoginToken($userId);
-    sendVerificationEmail($email, $token);
+    sendVerificationEmail($email, $token, $userId);
     logMessage('INFO', 'Account registered, verification email sent', ['user_id' => $userId, 'plan' => $plan]);
 
     // 9. Svara - alltid samma generiska svar.
@@ -863,6 +864,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'error' => 'Invalid request']);
         exit;
     }
+    // What login_attempts stores for this address: its keyed reference, or
+    // '' when no key is configured - never the address itself.
+    $attemptRef = emailLogRef($email) ?? '';
     // Rate limiting / brute-force protection (measure by IP only)
     try {
         $ip = getVisitorIp();
@@ -887,11 +891,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // records it for unknown accounts too, so the answer is the same
         // whether the account exists). The IP is not flagged here - many
         // IPs, one target, and the owner may share none of them.
+        // login_attempts.email holds the keyed emailLogRef() of the address,
+        // never the address itself. Without a configured key there is no
+        // reference, rows get '' and this per-account check is skipped (the
+        // per-IP limit above still applies) - comparing '' would lump every
+        // attempt together and lock out everyone.
         $maxFailsAccount = 10;
-        $s2 = $pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE email = ? AND success = 0 AND attempt_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)");
-        $s2->execute([$email, $windowMinutes]);
-        if ((int)$s2->fetchColumn() >= $maxFailsAccount) {
-            logMessage('WARNING', 'Password login throttled for account', ['ip' => $ip]);
+        if ($attemptRef !== '') {
+            $s2 = $pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE email = ? AND success = 0 AND attempt_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)");
+            $s2->execute([$attemptRef, $windowMinutes]);
+            $failsAccount = (int)$s2->fetchColumn();
+        } else {
+            $failsAccount = 0;
+        }
+        if ($failsAccount >= $maxFailsAccount) {
+            logMessage('WARNING', 'Password login throttled for account', ['ip' => $ip, 'email_ref' => $attemptRef]);
             echo json_encode(['success' => false, 'error' => 'Too many failed login attempts for this account. Try again in a few minutes or use the magic link.']);
             exit;
         }
@@ -916,7 +930,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // Record failed attempt (unknown user) for IP + email
         try {
             $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, success) VALUES (?, ?, 0)");
-            $ins->execute([$ip, $email]);
+            $ins->execute([$ip, $attemptRef]);
         } catch (Exception $e) {
             // ignore
         }
@@ -928,7 +942,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // Record failed attempt (no password set) to slow abuse
         try {
             $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 0)");
-            $ins->execute([$ip, $email, $user['id']]);
+            $ins->execute([$ip, $attemptRef, $user['id']]);
         } catch (Exception $e) {
             // ignore
         }
@@ -941,7 +955,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // Record failed attempt
         try {
             $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 0)");
-            $ins->execute([$ip, $email, $user['id']]);
+            $ins->execute([$ip, $attemptRef, $user['id']]);
         } catch (Exception $e) {
             // ignore
         }
@@ -957,7 +971,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // wrong password so this endpoint can't be used to enumerate accounts.
         try {
             $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 0)");
-            $ins->execute([$ip, $email, $user['id']]);
+            $ins->execute([$ip, $attemptRef, $user['id']]);
         } catch (Exception $e) {
             // ignore
         }
@@ -990,7 +1004,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             recordProUserLogin($user['id']);
             try {
                 $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
-                $ins->execute([$ip, $email, $user['id']]);
+                $ins->execute([$ip, $attemptRef, $user['id']]);
             } catch (Exception $e) {
                 // ignore
             }
@@ -1018,7 +1032,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Record successful attempt
     try {
         $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
-        $ins->execute([$ip, $email, $user['id']]);
+        $ins->execute([$ip, $attemptRef, $user['id']]);
     } catch (Exception $e) {
         // ignore
     }
@@ -1102,7 +1116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     try {
         $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
-        $ins->execute([$ip, $pendingEmail, $userId]);
+        $ins->execute([$ip, emailLogRef((string) $pendingEmail) ?? '', $userId]);
     } catch (Exception $e) {
         // ignore
     }

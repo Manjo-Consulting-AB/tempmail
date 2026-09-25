@@ -56,7 +56,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // or returning JSON, so every contact form submission was silently discarded.
     logMessage('INFO', 'Pro contact form submission', [
         'user_id' => $userId,
-        'email' => $userEmail,
         'category' => $category,
         'message' => $message
     ]);

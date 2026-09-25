@@ -7,6 +7,7 @@
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../TwoFactorAuth.php';
+require_once __DIR__ . '/../email_log_ref.php';
 
 // Säkerhetskontroll - endast CLI eller localhost eller HTTP-anrop med giltig hemlig nyckel
 // För att tillåta cron via HTTP (wget/curl), sätt miljövariabeln CRON_HTTP_SECRET i produktion
@@ -339,7 +340,6 @@ function cleanupExpiredProUsers() {
 
             logMessage('INFO', 'Expired pro user degraded to regular', [
                 'user_id' => $userId,
-                'email' => $email,
                 'pro_expires_at' => $u['pro_expires_at'],
                 'webhooks_paused' => $pausedWebhooks,
                 'address_feed_tokens_cleared' => $feedTokensCleared
@@ -411,7 +411,6 @@ function cleanupExpiredProUsers() {
 
             logMessage('INFO', 'Personal addresses removed for expired pro user past grace period', [
                 'user_id' => $userId,
-                'email' => $email,
                 'pro_expires_at' => $u['pro_expires_at'],
                 'personal_addresses_removed' => count($personalIds),
                 'emails_deleted' => $totalEmailsDeleted,
@@ -436,7 +435,7 @@ function cleanupExpiredProUsers() {
  * samma mail()-anrop med envelope-parameter, samma logg-hantering vid
  * misslyckande. Mailtexten är på engelska, som övriga utskick.
  */
-function sendInactivityWarningEmail($email) {
+function sendInactivityWarningEmail($email, $userId = null) {
     global $config;
 
     $loginUrl = $config['email']['base_url'] . "pro_login.php";
@@ -469,17 +468,17 @@ function sendInactivityWarningEmail($email) {
         $envelope = '-f' . $fromAddress;
         $sent = mail($email, $subject, $message, $headersStr, $envelope);
         if ($sent === false) {
-            logMessage('ERROR', 'mail() returned false when attempting to send inactivity warning', ['to' => $email]);
+            logMessage('ERROR', 'mail() returned false when attempting to send inactivity warning', emailLogContext((string) $email, $userId));
         }
     } catch (Exception $e) {
-        logMessage('ERROR', 'Inactivity warning mail sending unexpected error', ['error' => $e->getMessage(), 'to' => $email]);
+        logMessage('ERROR', 'Inactivity warning mail sending unexpected error', ['error' => $e->getMessage()] + emailLogContext((string) $email, $userId));
         $sent = false;
     }
 
     if ($sent) {
-        logMessage('INFO', 'Inactivity warning email sent', ['to' => $email]);
+        logMessage('INFO', 'Inactivity warning email sent', emailLogContext((string) $email, $userId));
     } else {
-        logMessage('ERROR', 'Failed to send inactivity warning email', ['to' => $email]);
+        logMessage('ERROR', 'Failed to send inactivity warning email', emailLogContext((string) $email, $userId));
     }
 
     return $sent;
@@ -570,16 +569,16 @@ function cleanupInactiveRegularAccounts() {
                 continue;
             }
 
-            $sent = sendInactivityWarningEmail($email);
+            $sent = sendInactivityWarningEmail($email, $userId);
             if ($sent) {
                 $uup = $pdo->prepare("UPDATE pro_users SET inactivity_warned_at = NOW() WHERE id = ?");
                 $uup->execute([$userId]);
-                logMessage('INFO', 'Inactive regular account warned', ['user_id' => $userId, 'email' => $email]);
+                logMessage('INFO', 'Inactive regular account warned', ['user_id' => $userId]);
                 $processed++;
             } else {
                 // Misslyckat mailutskick - sätt INTE inactivity_warned_at (se
                 // funktionskommentaren ovan).
-                logMessage('WARNING', 'Inactivity warning email failed, inactivity_warned_at not set', ['user_id' => $userId, 'email' => $email]);
+                logMessage('WARNING', 'Inactivity warning email failed, inactivity_warned_at not set', ['user_id' => $userId]);
             }
         }
 
@@ -680,7 +679,6 @@ function cleanupInactiveRegularAccounts() {
 
             logMessage('INFO', 'Inactive regular account deleted', [
                 'user_id' => $userId,
-                'email' => $email,
                 'addresses_removed' => count($addresses),
                 'emails_deleted' => $totalEmailsDeleted,
                 'attachments_deleted' => $totalAttachments,

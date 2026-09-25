@@ -58,7 +58,7 @@ if ($token) {
                 // never on a plain magic-link login by an already-verified user.
                 // Grant the 60-day Pro trial on first verification (epic #267).
                 proTrialGrantOnVerification($pdo, (int) $result['user_id'], (string) $result['email'], $config['trial'] ?? []);
-                sendAdminRegistrationNotification($result['email']);
+                sendAdminRegistrationNotification((string) $result['email'], (int) $result['user_id']);
             }
         }
 

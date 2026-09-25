@@ -174,18 +174,18 @@ try {
 
         $sent = false;
         if ($dryRun) {
-            echo "DRY_RUN: Would send to {$to} with {$count} messages\n";
+            echo "DRY_RUN: Would send to user {$userId} with {$count} messages\n";
             $sent = true;
         } else {
             try {
                 $envelope = '-f' . $fromAddress;
                 $sent = mail($to, $subjectLine, $body, $headersStr, $envelope);
                 if ($sent === false) {
-                    logMessage('ERROR', 'mail() returned false when sending digest', ['to' => $to]);
+                    logMessage('ERROR', 'mail() returned false when sending digest', ['user_id' => $userId]);
                 }
             } catch (Exception $e) {
                 $sent = false;
-                logMessage('ERROR', 'Digest send exception', ['error' => $e->getMessage(), 'to' => $to, 'user_id' => $userId]);
+                logMessage('ERROR', 'Digest send exception', ['error' => $e->getMessage(), 'user_id' => $userId]);
             }
         }
         
