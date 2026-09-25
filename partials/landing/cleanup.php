@@ -46,14 +46,14 @@ if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
     <div class="ms-container">
         <p class="ms-eyebrow">Smart cleanup</p>
         <h2 class="ms-h2">Less clutter. Automatically.</h2>
-        <p class="ms-cleanup__body">Your temporary inbox shouldn't become another inbox you have to manage.</p>
+        <p class="ms-cleanup__body">Your second inbox shouldn't become another inbox you have to manage.</p>
 
         <ul class="ms-cleanup__list">
             <li class="ms-cleanup__item">
                 <svg class="ms-cleanup__mark" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M3.5 8.5L6.5 11.5L12.5 4.5"/>
                 </svg>
-                <p class="ms-cleanup__text">Temporary addresses and their messages are deleted automatically.</p>
+                <p class="ms-cleanup__text">Timed addresses and their messages are deleted automatically.</p>
             </li>
 
             <li class="ms-cleanup__item">

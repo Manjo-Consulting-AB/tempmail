@@ -25,8 +25,8 @@
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 
 $proFeatures = [
-    'Up to 10 stable personal addresses',
-    'Temporary address lifetime configurable from 1 to 7 days',
+    'Up to 10 sticky addresses',
+    'Timed address lifetime configurable from 1 to 7 days',
     'RSS, webhooks, Pushover and digest emails',
     'External mailboxes and the Agent',
     'Priority support',

@@ -41,8 +41,8 @@ $msLegalDoc = [
             'heading' => 'The service',
             'html'    => '<p>Mail Shield is a secondary email environment on the domain ' . $f['domain'] . '. It receives email for you; it is not a service for sending email. Depending on your plan you can:</p>'
                 . '<ul>'
-                . '<li>create temporary addresses that receive mail for ' . $f['free_hours'] . ' hours on a free account, or for 1 to 7 days on Pro;</li>'
-                . '<li>keep up to 10 stable personal addresses (Pro only);</li>'
+                . '<li>create timed addresses that receive mail for ' . $f['free_hours'] . ' hours on a free account, or for 1 to 7 days on Pro;</li>'
+                . '<li>keep up to 10 sticky addresses (Pro only);</li>'
                 . '<li>forward what arrives to other systems — RSS, webhooks, Pushover and digest emails (Pro only).</li>'
                 . '</ul>'
                 . '<p>Each account has a storage quota of ' . $f['quota_mb'] . ' MB. When the quota is reached, the oldest messages are deleted automatically to make room for new ones.</p>'
@@ -72,8 +72,8 @@ $msLegalDoc = [
         [
             'id'      => 'suitability',
             'heading' => 'What Mail Shield is not for',
-            'html'    => '<p>Do not use a temporary address for anything you need to keep or recover — banking, government services, or an account whose password reset would go to it. Once the address expires, so does your access to that mail.</p>'
-                . '<p>A temporary inbox reached through a shared link is readable by anyone who has the link. Treat it as somewhere to receive mail, not somewhere to keep a secret.</p>'
+            'html'    => '<p>Do not use a timed address for anything you need to keep or recover — banking, government services, or an account whose password reset would go to it. Once the address expires, so does your access to that mail.</p>'
+                . '<p>A timed address reached through a shared link is readable by anyone who has the link. Treat it as somewhere to receive mail, not somewhere to keep a secret.</p>'
                 . '<p>We cannot guarantee that every message sent to you arrives. Senders can delay, reject or filter mail before it reaches us.</p>',
         ],
         [
@@ -83,7 +83,7 @@ $msLegalDoc = [
                 . $trialLine
                 . '<p>Pro time can also be granted with a voucher code. A voucher has no cash value and cannot be exchanged for money.</p>'
                 . '<p>"Lifetime" means for as long as we operate Mail Shield, not for your lifetime or ours. If we ever close the service, we will tell you in advance as described under <a href="#termination">Ending the service</a>.</p>'
-                . '<p>When Pro ends, the account becomes a free Regular account. Its personal addresses are deleted 7 days later, with their mail, and its integrations stop.</p>',
+                . '<p>When Pro ends, the account becomes a free Regular account. Its sticky addresses are deleted 7 days later, with their mail, and its integrations stop.</p>',
         ],
         [
             'id'      => 'payments',

@@ -66,7 +66,7 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
     <!-- Custom CSS -->
     <link href="assets/css/style.css" rel="stylesheet">
     
-    <meta name="description" content="Create temporary email addresses that are automatically deleted after 24 hours. Safe and easy to use.">
+    <meta name="description" content="Create timed addresses that are automatically deleted after 24 hours. Safe and easy to use.">
     
     <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
     <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
@@ -78,8 +78,8 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
         <div class="header">
             <h1><i class="fas fa-envelope"></i> Mail Shield</h1>
             <p class="lead"><?php echo !empty($_SESSION['pro_user_id'] ?? null) 
-                ? 'Temporary email addresses for pro users. Default lifetime applied to new addresses.' 
-                : 'Temporary email addresses that are deleted after 24 hours'; ?></p>
+                ? 'Timed addresses for Pro users. Default lifetime applied to new addresses.' 
+                : 'Timed addresses that are deleted after 24 hours'; ?></p>
             
             <?php require 'partials/nav.php'; ?>
             <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
@@ -135,12 +135,12 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
                 <!-- Empty state (visas tills adress är skapad) -->
                 <div id="initial-generator" class="ms-inbox__empty">
                     <?php if (!empty($_SESSION['pro_user_id'] ?? null)) : ?>
-                        <h2 class="ms-inbox__empty-title">Click to get your temporary email address</h2>
+                        <h2 class="ms-inbox__empty-title">Click to get your timed address</h2>
                         <button id="generateBtn" class="btn btn-primary btn-lg">
                             <i class="fas fa-magic" aria-hidden="true"></i> Get Email Address
                         </button>
                     <?php else: ?>
-                        <h2 class="ms-inbox__empty-title">An account is required to create a temporary email address</h2>
+                        <h2 class="ms-inbox__empty-title">An account is required to create a timed address</h2>
                         <a href="/register.php" class="btn btn-primary btn-lg">
                             <i class="fas fa-user-plus" aria-hidden="true"></i> Create a free account
                         </a>
