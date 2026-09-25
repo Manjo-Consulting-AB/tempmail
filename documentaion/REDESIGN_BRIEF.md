@@ -277,10 +277,13 @@ exist yet.
 ```
 Product:  Create your inbox · Log in · Temporary email addresses · FAQ
 More:     Blog
-Legal:    © <year> Manjo Consulting AB · Mail Shield v<version>
+Legal:    Terms of service · Privacy policy · Refund policy
+          © <year> Manjo Consulting AB · Mail Shield v<version>
 ```
 
-`Temporary email addresses` → `/temporary-email.php`.
+`Temporary email addresses` → `/temporary-email.php`. The three Legal links →
+`/terms.php`, `/privacy.php`, `/refund-policy.php`, which Paddle requires before
+it approves the domain; `pricing.php` links them too.
 
 ### Hero
 

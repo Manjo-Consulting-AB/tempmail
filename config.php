@@ -342,6 +342,14 @@ $baseConfig = [
         'hash_key' => (string)($_ENV['PRO_TRIAL_HASH_KEY'] ?? ''),
         'claim_retention_days' => 1825,
     ],
+    // Who the legal pages (terms.php, privacy.php, refund-policy.php) name as
+    // the seller and data controller. contact_email falls back to support@ on
+    // the mail domain; org_number is left out of the copy while it is empty.
+    'legal' => [
+        'company' => 'Manjo Consulting AB',
+        'org_number' => (string)($_ENV['LEGAL_ORG_NUMBER'] ?? ''),
+        'contact_email' => (string)($_ENV['LEGAL_CONTACT_EMAIL'] ?? ('support@' . ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me'))),
+    ],
 ];
 
 /**

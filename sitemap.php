@@ -34,6 +34,9 @@ $pages = [
     '/blog.php'          => ['0.6', 'weekly',  __DIR__ . '/blog.php'],
     '/register.php'      => ['0.5', 'monthly', __DIR__ . '/register.php'],
     '/pro_login.php'     => ['0.3', 'yearly',  __DIR__ . '/pro_login.php'],
+    '/terms.php'         => ['0.2', 'yearly',  __DIR__ . '/terms.php'],
+    '/privacy.php'       => ['0.2', 'yearly',  __DIR__ . '/privacy.php'],
+    '/refund-policy.php' => ['0.2', 'yearly',  __DIR__ . '/refund-policy.php'],
 ];
 
 // Every value is escaped for XML — ENT_XML1 rather than ENT_QUOTES, so an
