@@ -498,7 +498,8 @@ ms_test_section('E. scans');
 // =====================================================================
 
 foreach (['index.php', 'inbox.php', 'pro.php', 'pro_profile.php', 'pro_profile_page.php', 'pro_contact.php', 'partials/nav.php',
-          'client_agent_api.php', 'client_agent_manage.php', 'client_agent_download.php', 'client_agent_install_download.php'] as $file) {
+          'client_agent_api.php', 'client_agent_manage.php', 'client_agent_download.php', 'client_agent_install_download.php',
+          'log_viewer.php', 'abuse_admin.php'] as $file) {
     $src = (string)file_get_contents($msRepoRoot . '/' . $file);
     $start = strpos($src, 'session_start()');
     $call = strpos($src, 'proSessionEndIfSuspended()');

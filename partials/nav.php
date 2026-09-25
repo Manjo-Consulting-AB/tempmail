@@ -45,6 +45,12 @@ if (!empty($_SESSION['pro_user_id'] ?? null) && isset($pdo)) {
 
 $msNavSignedIn = !empty($_SESSION['pro_user_id'] ?? null);
 $msNavEmail    = (string) ($_SESSION['pro_user_email'] ?? '');
+// The Admin link is shown only to the accounts in ADMIN_USER_IDS; the admin
+// pages enforce the same gate themselves, so hiding the link is not the
+// protection, only the menu staying clean for everyone else.
+$msNavAdmin    = $msNavSignedIn && function_exists('isAdminUser')
+    && isAdminUser((int) $_SESSION['pro_user_id']);
+$msNavAdminActive = in_array($current, ['log_viewer.php', 'abuse_admin.php'], true);
 
 $msNavEsc = function ($value): string {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
@@ -78,6 +84,9 @@ $msNavEsc = function ($value): string {
                     <a href="client_agent_manage.php" class="<?php echo tm_nav_active('client_agent_manage.php', $current); ?>">Client Agent</a>
                     <a href="pro_profile_page.php" class="<?php echo tm_nav_active('pro_profile_page.php', $current); ?>">Settings<?php if ($pendingChangeCount > 0) : ?><span class="ms-appnav__count"><?php echo (int) $pendingChangeCount; ?><span class="ms-visually-hidden"> pending changes</span></span><?php endif; ?></a>
                     <a href="pro_contact.php" class="<?php echo tm_nav_active('pro_contact.php', $current); ?>">Contact</a>
+                    <?php if ($msNavAdmin) : ?>
+                    <a href="log_viewer.php" class="<?php echo $msNavAdminActive ? 'navbar-link active' : 'navbar-link'; ?>"<?php echo $msNavAdminActive ? ' aria-current="page"' : ''; ?>>Admin</a>
+                    <?php endif; ?>
                     <a href="pro_logout.php" class="navbar-link">Log out</a>
                 <?php else: ?>
                     <a href="register.php" class="<?php echo tm_nav_active('register.php', $current); ?>">Sign up</a>

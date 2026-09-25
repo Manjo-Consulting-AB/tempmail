@@ -1,7 +1,18 @@
 <?php
 /**
- * TempMail Log Viewer
- * Standalone admin UI for inspecting system_logs and managing hidden log types.
+ * Mail Shield admin: system overview, log viewer and log-type management.
+ *
+ * Three views (?view=):
+ *   - overview (default): accounts, addresses, incoming mail, the webhook
+ *     queue, the abuse guard, the log and health checks, with the things that
+ *     need attention listed first (admin_overview.php).
+ *   - logs: system_logs with filters, paging and a live tail.
+ *   - types: unique log messages and the hidden_log_types overrides that
+ *     suppress a noisy message type.
+ * The abuse guard's own page, abuse_admin.php, is the fourth tab.
+ *
+ * Kept for scripts: ?format=json returns the filtered log rows, and the
+ * unique_logs / get_hidden / set_hidden actions are unchanged.
  */
 
 define('TEMPMAIL_APP', true);
@@ -11,6 +22,10 @@ require_once __DIR__ . '/config.php';
 
 // Session-based access control
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 // Admins are listed by account id in ADMIN_USER_IDS (comma-separated), not by
 // email: an id cannot be taken over by changing an account's address, and no
 // address is hardcoded in the code. Unset means nobody is admin (fail closed).
@@ -22,6 +37,8 @@ if (!isAdminUser($sessionUserId)) {
     echo "Access denied\n";
     exit;
 }
+
+header('X-Robots-Tag: noindex, nofollow');
 
 // Helper: JSON response
 function jsonResponse($data, $code = 200) {
@@ -35,15 +52,16 @@ function jsonResponse($data, $code = 200) {
 if (isset($_REQUEST['action'])) {
     $action = $_REQUEST['action'];
     header('Content-Type: application/json');
-    
+
     try {
         if ($action === 'unique_logs') {
             $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 1000;
             $limit = max(1, min(5000, $limit));
-            $sql = "SELECT LEFT(message,255) AS log_key, COUNT(*) AS cnt, MAX(created_at) AS last_seen 
+            $sql = "SELECT LEFT(message,255) AS log_key, COUNT(*) AS cnt, MAX(created_at) AS last_seen
                     FROM system_logs GROUP BY log_key ORDER BY last_seen DESC LIMIT ?";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([$limit]);
+            $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+            $stmt->execute();
             jsonResponse(['success' => true, 'rows' => $stmt->fetchAll()]);
         }
 
@@ -60,15 +78,16 @@ if (isset($_REQUEST['action'])) {
             $logKey = isset($_POST['log_key']) ? mb_substr(str_replace("\0", '', trim($_POST['log_key'])), 0, 255) : null;
             $hidden = isset($_POST['hidden']) && (int)$_POST['hidden'] ? 1 : 0;
             $description = isset($_POST['description']) ? mb_substr(str_replace("\0", '', trim($_POST['description'])), 0, 500) : null;
-            
+
             if (!$logKey) {
                 jsonResponse(['success' => false, 'error' => 'log_key required'], 400);
             }
-            
-            $stmt = $pdo->prepare("INSERT INTO hidden_log_types (log_key, description, hidden) 
-                                   VALUES (?, ?, ?) 
-                                   ON DUPLICATE KEY UPDATE description = VALUES(description), hidden = VALUES(hidden), updated_at = CURRENT_TIMESTAMP");
+
+            $stmt = $pdo->prepare("INSERT INTO hidden_log_types (log_key, description, hidden)
+                                   VALUES (?, ?, ?)
+                                   ON DUPLICATE KEY UPDATE description = COALESCE(VALUES(description), description), hidden = VALUES(hidden), updated_at = CURRENT_TIMESTAMP");
             $stmt->execute([$logKey, $description, $hidden]);
+            logMessage('INFO', 'Log type visibility changed by an admin', ['admin_id' => $sessionUserId, 'hidden' => $hidden]);
             jsonResponse(['success' => true]);
         }
 
@@ -76,293 +95,580 @@ if (isset($_REQUEST['action'])) {
         jsonResponse(['success' => false, 'error' => 'Unknown action'], 400);
 
     } catch (PDOException $e) {
-        jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+        error_log('log_viewer.php action failed: ' . $e->getMessage());
+        jsonResponse(['success' => false, 'error' => 'Database error'], 500);
     }
+}
+
+$validLevels = ['ERROR', 'WARNING', 'INFO', 'DEBUG'];
+
+/** A YYYY-MM-DD or YYYY-MM-DD HH:MM[:SS] filter value, or null. */
+function logViewerDate(?string $value, bool $endOfDay): ?string {
+    $value = trim((string)$value);
+    if ($value === '') {
+        return null;
+    }
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        return $value . ($endOfDay ? ' 23:59:59' : ' 00:00:00');
+    }
+    if (preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/', $value)) {
+        return str_replace('T', ' ', $value);
+    }
+    return null;
 }
 
 // Parse filter parameters
+$view = (string)($_GET['view'] ?? '');
 $format = (isset($_GET['format']) && $_GET['format'] === 'json') ? 'json' : 'html';
-$level = isset($_GET['level']) && $_GET['level'] !== '' ? strtoupper(trim($_GET['level'])) : null;
-$q = isset($_GET['q']) && $_GET['q'] !== '' ? trim($_GET['q']) : null;
-$since = isset($_GET['since']) && $_GET['since'] !== '' ? trim($_GET['since']) : null;
-$until = isset($_GET['until']) && $_GET['until'] !== '' ? trim($_GET['until']) : null;
+if ($format === 'json' || !in_array($view, ['overview', 'logs', 'types'], true)) {
+    // Old links carrying log filters (and every JSON call) mean the log view.
+    $view = ($format === 'json' || isset($_GET['level']) || isset($_GET['q'])) ? 'logs' : 'overview';
+}
+$level = strtoupper(trim((string)($_GET['level'] ?? '')));
+$level = in_array($level, $validLevels, true) ? $level : null;
+$q = isset($_GET['q']) && trim($_GET['q']) !== '' ? mb_substr(trim($_GET['q']), 0, 200) : null;
+$sinceRaw = isset($_GET['since']) ? trim((string)$_GET['since']) : '';
+$untilRaw = isset($_GET['until']) ? trim((string)$_GET['until']) : '';
+$since = logViewerDate($sinceRaw, false);
+$until = logViewerDate($untilRaw, true);
 $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 200;
 if ($limit <= 0 || $limit > 2000) $limit = 200;
+$page = max(1, (int)($_GET['page'] ?? 1));
+$offset = ($page - 1) * $limit;
 
-// Build query
-$where = [];
-$params = [];
-if ($level) {
-    $where[] = 'log_level = ?';
-    $params[] = $level;
-}
-if ($q) {
-    $where[] = '(message LIKE ? OR context LIKE ?)';
-    $params[] = "%{$q}%";
-    $params[] = "%{$q}%";
-}
-if ($since) {
-    $where[] = 'created_at >= ?';
-    $params[] = $since;
-}
-if ($until) {
-    $where[] = 'created_at <= ?';
-    $params[] = $until;
-}
-
-$sql = 'SELECT id, log_level, message, context, created_at FROM system_logs';
-if (!empty($where)) {
-    $sql .= ' WHERE ' . implode(' AND ', $where);
-}
-$sql .= ' ORDER BY created_at DESC LIMIT ' . (int)$limit;
-
-try {
-    $stmt = $pdo->prepare($sql); // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll();
-} catch (Exception $e) {
-    if ($format === 'json') {
-        jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+$rows = [];
+$matched = null;
+if ($view === 'logs') {
+    // Build query
+    $where = [];
+    $params = [];
+    if ($level) {
+        $where[] = 'log_level = ?';
+        $params[] = $level;
     }
-    echo '<pre>Query error: ' . htmlspecialchars($e->getMessage()) . "</pre>";
-    exit;
+    if ($q) {
+        $like = '%' . addcslashes($q, '%_\\') . '%';
+        $where[] = '(message LIKE ? OR context LIKE ?)';
+        $params[] = $like;
+        $params[] = $like;
+    }
+    if ($since) {
+        $where[] = 'created_at >= ?';
+        $params[] = $since;
+    }
+    if ($until) {
+        $where[] = 'created_at <= ?';
+        $params[] = $until;
+    }
+    $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+
+    $sql = 'SELECT id, log_level, message, context, created_at FROM system_logs' . $whereSql
+         . ' ORDER BY created_at DESC, id DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset;
+
+    try {
+        $stmt = $pdo->prepare($sql); // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $countStmt = $pdo->prepare('SELECT COUNT(*) FROM system_logs' . $whereSql); // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
+        $countStmt->execute($params);
+        $matched = (int)$countStmt->fetchColumn();
+    } catch (Exception $e) {
+        error_log('log_viewer.php query failed: ' . $e->getMessage());
+        if ($format === 'json') {
+            jsonResponse(['success' => false, 'error' => 'Database error'], 500);
+        }
+        $rows = [];
+        $matched = null;
+    }
+
+    // JSON output
+    if ($format === 'json') {
+        jsonResponse(['success' => true, 'count' => count($rows), 'total' => $matched, 'rows' => $rows]);
+    }
 }
 
-// JSON output
-if ($format === 'json') {
-    jsonResponse(['success' => true, 'count' => count($rows), 'rows' => $rows]);
+$overview = null;
+if ($view === 'overview') {
+    require_once __DIR__ . '/admin_overview.php';
+    $overview = adminOverview($pdo);
 }
 
-// HTML output
+$h = static fn($v): string => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+$num = static fn(?int $v): string => $v === null ? '—' : number_format($v, 0, '.', ' ');
+
+/** The current log filters as a query string, with $overrides applied. */
+$logsUrl = static function (array $overrides = []) use ($level, $q, $sinceRaw, $untilRaw, $limit): string {
+    $params = array_filter([
+        'view' => 'logs',
+        'level' => $level,
+        'q' => $q,
+        'since' => $sinceRaw,
+        'until' => $untilRaw,
+        'limit' => $limit !== 200 ? $limit : null,
+    ], static fn($v) => $v !== null && $v !== '');
+    foreach ($overrides as $key => $value) {
+        if ($value === null || $value === '') {
+            unset($params[$key]);
+        } else {
+            $params[$key] = $value;
+        }
+    }
+    return 'log_viewer.php?' . http_build_query($params);
+};
+
+/** A 24-hour bar chart of one series; the numbers are also in the tooltip and a hidden list. */
+$bars = static function (array $series, string $title, string $variant) use ($h): string {
+    $max = 0;
+    foreach ($series as $point) {
+        $max = max($max, (int)$point['count']);
+    }
+    $total = array_sum(array_column($series, 'count'));
+    $html = '<figure class="ms-admin__chart"><figcaption class="ms-admin__chart-title">' . $h($title)
+          . ' <span class="ms-admin__chart-total">' . $h(number_format($total, 0, '.', ' ')) . ' in 24 h</span></figcaption>'
+          . '<div class="ms-admin__bars ms-admin__bars--' . $h($variant) . '" aria-hidden="true">';
+    foreach ($series as $point) {
+        $pct = $max > 0 ? max((int)$point['count'] > 0 ? 4 : 0, (int)round((int)$point['count'] / $max * 100)) : 0;
+        $html .= '<span class="ms-admin__bar" title="' . $h($point['hour'] . ': ' . $point['count']) . '">'
+               . '<span class="ms-admin__bar-fill" style="--ms-bar: ' . $pct . '%"></span></span>';
+    }
+    $first = $series[0]['label'] ?? '';
+    $html .= '</div><div class="ms-admin__bars-axis" aria-hidden="true"><span>' . $h($first) . '</span><span>now</span></div>'
+           . '<ul class="ms-visually-hidden">';
+    foreach ($series as $point) {
+        $html .= '<li>' . $h($point['hour'] . ': ' . $point['count']) . '</li>';
+    }
+    return $html . '</ul></figure>';
+};
+
+$msAdminTab = $view;
+$msAdminTitle = ['overview' => 'Admin overview', 'logs' => 'Logs', 'types' => 'Log types'][$view];
+require __DIR__ . '/partials/admin_head.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#FAFAF9">
-    <meta name="robots" content="noindex, nofollow">
-    <title>Log viewer · Mail Shield</title>
-    <link rel="manifest" href="/site.webmanifest">
-    <style>
-        body { font-family: Inter, "Segoe UI", Arial, Helvetica, sans-serif; margin: 16px; background: #f7f7fb; }
-        .controls { margin-bottom: 12px; }
-        input, select { padding: 6px; margin-right: 6px; }
-        table { width: 100%; border-collapse: collapse; background: #fff; }
-        th, td { padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; }
-        th { background: #fafafa; text-align: left; }
-        .level-ERROR { color: #a00; font-weight: 600; }
-        .level-WARNING { color: #b65; }
-        .level-INFO { color: #0b66; }
-        .level-DEBUG { color: #666; }
-        .mono { font-family: SFMono-Regular, Menlo, monospace; font-size: 12px; color: #444; }
-        .tabs { margin-bottom: 12px; }
-        .tabs button { margin-right: 6px; padding: 6px 10px; cursor: pointer; }
-        .tabs button.active { background: #007bff; color: #fff; border-color: #007bff; }
-        #adminSection { display: none; }
-    </style>
-    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
-</head>
-<body>
-<h3>Mail Shield Log Viewer</h3>
-<p><a href="abuse_admin.php">Abuse guard: quarantines and suspension proposals</a></p>
 
-<div class="tabs">
-    <button type="button" id="tabLogs" class="active">Logs</button>
-    <button type="button" id="tabAdmin">Admin</button>
-</div>
+<?php if ($view === 'overview'): ?>
+<?php
+    $o = $overview;
+    $acc = $o['accounts'];
+    $adr = $o['addresses'];
+    $mail = $o['mail'];
+    $wh = $o['webhooks'];
+    $ab = $o['abuse'];
+    $lg = $o['logs'];
+    $hl = $o['health'];
+    $yes = static fn(bool $ok, string $good = 'yes', string $bad = 'no'): string =>
+        '<span class="ms-admin__state ms-admin__state--' . ($ok ? 'ok' : 'bad') . '">' . htmlspecialchars($ok ? $good : $bad, ENT_QUOTES, 'UTF-8') . '</span>';
+?>
+            <h1 class="ms-admin__title">System overview</h1>
+            <p class="ms-admin__lede">
+                Snapshot at <?php echo $h($o['db_now'] ?? date('Y-m-d H:i:s')); ?> (database time) ·
+                <?php echo $h($hl['environment']); ?> · v<?php echo $h($hl['app_version']); ?> ·
+                <a href="log_viewer.php">Refresh</a>
+            </p>
 
-<div id="logsSection">
-    <form method="get" class="controls" id="filterForm">
-        <label>Level:
-            <select name="level">
-                <option value=""<?php echo $level === null ? ' selected' : ''; ?>>Any</option>
-                <option value="ERROR"<?php echo $level === 'ERROR' ? ' selected' : ''; ?>>ERROR</option>
-                <option value="WARNING"<?php echo $level === 'WARNING' ? ' selected' : ''; ?>>WARNING</option>
-                <option value="INFO"<?php echo $level === 'INFO' ? ' selected' : ''; ?>>INFO</option>
-                <option value="DEBUG"<?php echo $level === 'DEBUG' ? ' selected' : ''; ?>>DEBUG</option>
-            </select>
-        </label>
-        <label>Search: <input type="search" name="q" value="<?php echo htmlspecialchars($q ?? ''); ?>" placeholder="text or JSON"/></label>
-        <label>Since: <input type="date" name="since" value="<?php echo htmlspecialchars($since ?? ''); ?>"/></label>
-        <label>Until: <input type="date" name="until" value="<?php echo htmlspecialchars($until ?? ''); ?>"/></label>
-        <label>Limit: <input type="number" name="limit" value="<?php echo htmlentities((string)$limit, ENT_QUOTES, 'UTF-8'); ?>" min="1" max="2000" style="width:70px"/></label>
-        <button type="submit">Apply</button>
-        <button type="button" id="tailBtn">Start Tail</button>
-    </form>
-
-    <table id="logs">
-        <thead><tr><th style="width:150px">Time</th><th style="width:80px">Level</th><th>Message / Context</th></tr></thead>
-        <tbody>
-<?php foreach ($rows as $r): ?>
-            <tr>
-                <td class="mono"><?php echo htmlspecialchars($r['created_at']); ?></td>
-                <td class="level-<?php echo htmlspecialchars($r['log_level']); ?>"><?php echo htmlspecialchars($r['log_level']); ?></td>
-                <td>
-                    <?php echo htmlspecialchars($r['message']); ?>
-<?php if (!empty($r['context'])): ?>
-                    <div class="mono">Context: <?php echo htmlspecialchars($r['context']); ?></div>
-<?php endif; ?>
-                </td>
-            </tr>
+            <section class="ms-admin__section ms-admin__section--first" aria-labelledby="attnHeading">
+                <h2 class="ms-admin__heading" id="attnHeading">Needs attention</h2>
+<?php if ($o['alerts'] === []): ?>
+                <p class="ms-admin__allclear"><span class="ms-admin__state ms-admin__state--ok">OK</span> Nothing needs attention right now.</p>
+<?php else: ?>
+                <ul class="ms-admin__alerts">
+<?php foreach ($o['alerts'] as $alert): ?>
+                    <li class="ms-admin__alert ms-admin__alert--<?php echo $h($alert['level']); ?>">
+                        <span class="ms-admin__state ms-admin__state--<?php echo $alert['level'] === 'danger' ? 'bad' : 'warn'; ?>"><?php echo $alert['level'] === 'danger' ? 'Problem' : 'Check'; ?></span>
+                        <?php if ($alert['href'] !== null): ?><a href="<?php echo $h($alert['href']); ?>"><?php echo $h($alert['text']); ?></a><?php else: ?><?php echo $h($alert['text']); ?><?php endif; ?>
+                    </li>
 <?php endforeach; ?>
-        </tbody>
-    </table>
-</div>
+                </ul>
+<?php endif; ?>
+            </section>
 
-<div id="adminSection">
-    <h4>Admin — Unique log entries</h4>
-    <p>Shows unique log messages (first 255 chars). Mark "Hide" to suppress future logging of that type.</p>
-    <div style="margin-bottom:8px">
-        <label>Limit: <input type="number" id="adminLimit" value="500" min="10" max="5000" style="width:80px"/></label>
-        <button type="button" id="reloadAdmin">Reload</button>
-    </div>
-    <table id="adminTable">
-        <thead><tr><th>Last Seen</th><th>Count</th><th>Log Key</th><th>Hidden</th></tr></thead>
-        <tbody></tbody>
-    </table>
+            <div class="ms-admin__grid">
+                <section class="ms-admin__card" aria-labelledby="accHeading">
+                    <h2 class="ms-admin__card-title" id="accHeading">Accounts</h2>
+                    <dl class="ms-admin__stats">
+                        <div><dt>Total</dt><dd><?php echo $num($acc['total']); ?></dd></div>
+                        <div><dt>Pro</dt><dd><?php echo $num($acc['pro']); ?></dd></div>
+                        <div><dt>Free</dt><dd><?php echo $num($acc['regular']); ?></dd></div>
+                        <div><dt>New, 7 days</dt><dd><?php echo $num($acc['new_7d']); ?></dd></div>
+                        <div><dt>Signed in, 24 h</dt><dd><?php echo $num($acc['active_24h']); ?></dd></div>
+                        <div><dt>Pro ending in 7 days</dt><dd><?php echo $num($acc['pro_expiring_7d']); ?></dd></div>
+                        <div><dt>Suspended</dt><dd><?php echo $num($acc['suspended']); ?></dd></div>
+                    </dl>
+                </section>
 
-    <h4 style="margin-top:16px">Hidden overrides</h4>
-    <table id="hiddenTable">
-        <thead><tr><th>Log Key</th><th>Description</th><th>Hidden</th><th>Updated</th></tr></thead>
-        <tbody></tbody>
-    </table>
-</div>
+                <section class="ms-admin__card" aria-labelledby="adrHeading">
+                    <h2 class="ms-admin__card-title" id="adrHeading">Addresses</h2>
+                    <dl class="ms-admin__stats">
+                        <div><dt>Active</dt><dd><?php echo $num($adr['active']); ?></dd></div>
+                        <div><dt>Sticky</dt><dd><?php echo $num($adr['sticky']); ?></dd></div>
+                        <div><dt>Timed</dt><dd><?php echo $num($adr['timed']); ?></dd></div>
+                        <div><dt>Created, 24 h</dt><dd><?php echo $num($adr['created_24h']); ?></dd></div>
+                        <div><dt>Expired, not yet removed</dt><dd><?php echo $num($adr['overdue_cleanup']); ?></dd></div>
+                    </dl>
+                </section>
+
+                <section class="ms-admin__card" aria-labelledby="mailHeading">
+                    <h2 class="ms-admin__card-title" id="mailHeading">Incoming mail</h2>
+                    <dl class="ms-admin__stats">
+                        <div><dt>Last hour</dt><dd><?php echo $num($mail['received_1h']); ?></dd></div>
+                        <div><dt>24 hours</dt><dd><?php echo $num($mail['received_24h']); ?></dd></div>
+                        <div><dt>7 days</dt><dd><?php echo $num($mail['received_7d']); ?></dd></div>
+                        <div><dt>Stored now</dt><dd><?php echo $num($mail['stored']); ?></dd></div>
+                        <div><dt>Attachments</dt><dd><?php echo $num($mail['attachments']); ?> · <?php echo $h(adminFormatBytes($mail['attachment_bytes'])); ?></dd></div>
+                        <div><dt>Last received</dt><dd><?php echo $h(adminAge($mail['last_received'], $o['db_now']) !== null ? adminAge($mail['last_received'], $o['db_now']) . ' ago' : '—'); ?></dd></div>
+                    </dl>
+                </section>
+
+                <section class="ms-admin__card" aria-labelledby="whHeading">
+                    <h2 class="ms-admin__card-title" id="whHeading">Webhooks</h2>
+                    <dl class="ms-admin__stats">
+                        <div><dt>Active hooks</dt><dd><?php echo $num($wh['active_hooks']); ?></dd></div>
+                        <div><dt>Queued</dt><dd><?php echo $num($wh['pending']); ?></dd></div>
+                        <div><dt>Overdue &gt; 15 min</dt><dd><?php echo $num($wh['overdue']); ?></dd></div>
+                        <div><dt>Delivered, 24 h</dt><dd><?php echo $num($wh['succeeded_24h']); ?></dd></div>
+                        <div><dt>Given up, 24 h</dt><dd><?php echo $num($wh['failed_24h']); ?></dd></div>
+                    </dl>
+                </section>
+
+                <section class="ms-admin__card" aria-labelledby="abHeading">
+                    <h2 class="ms-admin__card-title" id="abHeading">Abuse guard</h2>
+<?php if (!$ab['enabled']): ?>
+                    <p class="ms-admin__empty">Turned off (ABUSE_GUARD_ENABLED).</p>
+<?php elseif (!$ab['available']): ?>
+                    <p class="ms-admin__empty">Tables missing: run <code>php migrate_abuse_guard.php</code>.</p>
+<?php else: ?>
+                    <dl class="ms-admin__stats">
+                        <div><dt>In quarantine</dt><dd><?php echo $num($ab['quarantined']); ?></dd></div>
+                        <div><dt>Closed</dt><dd><?php echo $num($ab['closed']); ?></dd></div>
+                        <div><dt>Suspension proposals</dt><dd><?php echo $num($ab['proposals']); ?></dd></div>
+                        <div><dt>Events, 24 h</dt><dd><?php echo $num($ab['events_24h']); ?></dd></div>
+                        <div><dt>Last hourly report</dt><dd><?php echo $h(adminAge($ab['last_report'], $o['db_now']) !== null ? adminAge($ab['last_report'], $o['db_now']) . ' ago' : '—'); ?></dd></div>
+                    </dl>
+<?php endif; ?>
+                    <p class="ms-admin__card-link"><a href="abuse_admin.php">Open the abuse guard</a></p>
+                </section>
+
+                <section class="ms-admin__card" aria-labelledby="logHeading">
+                    <h2 class="ms-admin__card-title" id="logHeading">Log, 24 hours</h2>
+                    <dl class="ms-admin__stats">
+<?php foreach ($lg['levels_24h'] as $lvl => $count): ?>
+                        <div><dt><a href="<?php echo $h('log_viewer.php?' . http_build_query(['view' => 'logs', 'level' => $lvl, 'since' => date('Y-m-d', strtotime((string)($o['db_now'] ?? 'now')) - 86400)])); ?>"><?php echo $h($lvl); ?></a></dt><dd><?php echo $num((int)$count); ?></dd></div>
+<?php endforeach; ?>
+                        <div><dt>Rows kept</dt><dd><?php echo $num($lg['total']); ?> · <?php echo (int)$hl['log_retention_days']; ?> days</dd></div>
+                        <div><dt>Hidden types</dt><dd><a href="log_viewer.php?view=types"><?php echo $num($lg['hidden_types']); ?></a></dd></div>
+                    </dl>
+                </section>
+            </div>
+
+            <section class="ms-admin__section" aria-labelledby="actHeading">
+                <h2 class="ms-admin__heading" id="actHeading">Activity, last 24 hours</h2>
+                <div class="ms-admin__charts">
+                    <?php echo $bars($mail['hourly'], 'Mail received per hour', 'accent'); ?>
+                    <?php echo $bars($lg['hourly_errors'], 'Errors logged per hour', 'danger'); ?>
+                </div>
+            </section>
+
+            <section class="ms-admin__section" aria-labelledby="topHeading">
+                <h2 class="ms-admin__heading" id="topHeading">Most frequent errors and warnings, 24 hours</h2>
+<?php if ($lg['top_problems'] === []): ?>
+                <p class="ms-admin__empty">None.</p>
+<?php else: ?>
+                <div class="ms-admin__scroll">
+                    <table class="ms-admin__table">
+                        <thead><tr><th>Count</th><th>Level</th><th>Last seen</th><th>Message</th></tr></thead>
+                        <tbody>
+<?php foreach ($lg['top_problems'] as $p): ?>
+                            <tr>
+                                <td><?php echo $num((int)$p['n']); ?></td>
+                                <td><span class="ms-admin__level ms-admin__level--<?php echo $h(strtolower((string)$p['log_level'])); ?>"><?php echo $h($p['log_level']); ?></span></td>
+                                <td><?php echo $h($p['last_seen']); ?></td>
+                                <td class="ms-admin__wrap"><a href="<?php echo $h('log_viewer.php?' . http_build_query(['view' => 'logs', 'level' => $p['log_level'], 'q' => mb_substr((string)$p['log_key'], 0, 200)])); ?>"><?php echo $h($p['log_key']); ?></a></td>
+                            </tr>
+<?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+<?php endif; ?>
+            </section>
+
+<?php if ($wh['recent_failures'] !== []): ?>
+            <section class="ms-admin__section" aria-labelledby="whfHeading">
+                <h2 class="ms-admin__heading" id="whfHeading">Latest webhook deliveries given up</h2>
+                <div class="ms-admin__scroll">
+                    <table class="ms-admin__table">
+                        <thead><tr><th>Delivery</th><th>Hook</th><th>Account</th><th>Attempts</th><th>HTTP</th><th>Updated</th><th>Error</th></tr></thead>
+                        <tbody>
+<?php foreach ($wh['recent_failures'] as $f): ?>
+                            <tr>
+                                <td>#<?php echo (int)$f['id']; ?></td>
+                                <td>#<?php echo (int)$f['webhook_id']; ?></td>
+                                <td>#<?php echo (int)$f['user_id']; ?></td>
+                                <td><?php echo (int)$f['attempts']; ?></td>
+                                <td><?php echo $h($f['response_code'] ?? ''); ?></td>
+                                <td><?php echo $h($f['updated_at'] ?? ''); ?></td>
+                                <td class="ms-admin__mono"><?php echo $h(mb_substr((string)($f['last_error'] ?? ''), 0, 300)); ?></td>
+                            </tr>
+<?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="ms-admin__empty">Requeue one with <code>php cron/requeue-webhook-delivery.php</code>.</p>
+            </section>
+<?php endif; ?>
+
+            <section class="ms-admin__section" aria-labelledby="healthHeading">
+                <h2 class="ms-admin__heading" id="healthHeading">Health and configuration</h2>
+                <div class="ms-admin__scroll">
+                    <table class="ms-admin__table">
+                        <tbody>
+                            <tr><th scope="row">Environment</th><td><?php echo $h($hl['environment']); ?></td></tr>
+                            <tr><th scope="row">PHP / database</th><td><?php echo $h($hl['php_version']); ?> / <?php echo $h($hl['db_version'] ?? 'unreachable'); ?></td></tr>
+                            <tr><th scope="row">Log level</th><td><?php echo $h($hl['log_level']); ?><?php echo $hl['debug_mode'] ? ' (DEBUG_MODE on)' : ''; ?></td></tr>
+                            <tr><th scope="row">DirectAdmin forwarders</th><td><?php echo $hl['environment'] === 'production' ? $yes($hl['forwarders_enabled'], 'enabled', 'disabled') : $h($hl['forwarders_enabled'] ? 'enabled' : 'disabled (normal outside production)'); ?></td></tr>
+                            <tr><th scope="row">Email encryption keys</th><td><?php echo $yes($hl['pii_keys'], 'set', 'missing'); ?></td></tr>
+                            <tr><th scope="row">WEBHOOKS_KEY</th><td><?php echo $yes($hl['webhooks_key'], 'set', 'missing'); ?></td></tr>
+                            <tr><th scope="row">PRO_TRIAL_HASH_KEY</th><td><?php echo $yes($hl['trial_hash_key'], 'set', 'missing'); ?></td></tr>
+                            <tr><th scope="row">Attachments directory</th><td><?php echo $yes($hl['attachments_writable'], 'writable', 'not writable'); ?> · <?php echo $h(adminFormatBytes($hl['disk_free'])); ?> free</td></tr>
+                            <tr><th scope="row">Composer dependencies</th><td><?php echo $yes($hl['vendor'], 'installed', 'missing'); ?></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+<?php elseif ($view === 'logs'): ?>
+            <h1 class="ms-admin__title">Logs</h1>
+
+            <form method="get" class="ms-admin__filters" id="filterForm">
+                <input type="hidden" name="view" value="logs">
+                <label>Level
+                    <select name="level" class="ms-admin__input">
+                        <option value=""<?php echo $level === null ? ' selected' : ''; ?>>Any</option>
+<?php foreach ($validLevels as $lvl): ?>
+                        <option value="<?php echo $h($lvl); ?>"<?php echo $level === $lvl ? ' selected' : ''; ?>><?php echo $h($lvl); ?></option>
+<?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Search
+                    <input type="search" name="q" class="ms-admin__input ms-admin__input--wide" value="<?php echo $h($q ?? ''); ?>" placeholder="text, user_id, JSON" maxlength="200">
+                </label>
+                <label>Since <input type="date" name="since" class="ms-admin__input" value="<?php echo $h($sinceRaw); ?>"></label>
+                <label>Until <input type="date" name="until" class="ms-admin__input" value="<?php echo $h($untilRaw); ?>"></label>
+                <label>Per page <input type="number" name="limit" class="ms-admin__input" value="<?php echo (int)$limit; ?>" min="1" max="2000"></label>
+                <button type="submit" class="ms-btn ms-btn--primary">Apply</button>
+                <a class="ms-btn ms-btn--quiet" href="log_viewer.php?view=logs">Reset</a>
+                <button type="button" class="ms-btn ms-btn--secondary" id="tailBtn" aria-pressed="false">Start live tail</button>
+            </form>
+
+            <p class="ms-admin__lede" id="logSummary">
+<?php if ($matched === null): ?>
+                The log could not be read; see the PHP error log.
+<?php else: ?>
+                <?php echo $num($matched); ?> matching row(s)<?php if ($matched > 0): ?>, showing <?php echo $num($offset + 1); ?>–<?php echo $num($offset + count($rows)); ?><?php endif; ?>.
+                <a href="<?php echo $h($logsUrl(['format' => 'json', 'page' => $page > 1 ? $page : null])); ?>">JSON</a>
+<?php endif; ?>
+            </p>
+
+            <div class="ms-admin__scroll">
+                <table class="ms-admin__table" id="logs">
+                    <thead><tr><th>Time</th><th>Level</th><th>Message / context</th></tr></thead>
+                    <tbody>
+<?php foreach ($rows as $r): ?>
+<?php
+    $ctx = (string)($r['context'] ?? '');
+    $pretty = $ctx;
+    if ($ctx !== '') {
+        $decoded = json_decode($ctx, true);
+        if (is_array($decoded)) {
+            $pretty = (string)json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+    }
+?>
+                        <tr>
+                            <td><?php echo $h($r['created_at']); ?></td>
+                            <td><span class="ms-admin__level ms-admin__level--<?php echo $h(strtolower((string)$r['log_level'])); ?>"><?php echo $h($r['log_level']); ?></span></td>
+                            <td class="ms-admin__wrap">
+                                <?php echo $h($r['message']); ?>
+<?php if ($ctx !== ''): ?>
+                                <details class="ms-admin__ctx"><summary>Context</summary><pre><?php echo $h($pretty); ?></pre></details>
+<?php endif; ?>
+                            </td>
+                        </tr>
+<?php endforeach; ?>
+<?php if ($rows === [] && $matched !== null): ?>
+                        <tr><td colspan="3" class="ms-admin__empty">No log rows match.</td></tr>
+<?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+<?php if ($matched !== null && $matched > $limit): ?>
+            <nav class="ms-admin__pager" aria-label="Log pages">
+<?php if ($page > 1): ?>
+                <a class="ms-btn ms-btn--secondary" href="<?php echo $h($logsUrl(['page' => $page - 1 > 1 ? $page - 1 : null])); ?>">Newer</a>
+<?php endif; ?>
+                <span>Page <?php echo (int)$page; ?> of <?php echo (int)ceil($matched / $limit); ?></span>
+<?php if ($offset + $limit < $matched): ?>
+                <a class="ms-btn ms-btn--secondary" href="<?php echo $h($logsUrl(['page' => $page + 1])); ?>">Older</a>
+<?php endif; ?>
+            </nav>
+<?php endif; ?>
+
+<?php else: ?>
+            <h1 class="ms-admin__title">Log types</h1>
+            <p class="ms-admin__lede">
+                Every distinct log message (first 255 characters). Hiding a type stops
+                <code>logMessage()</code> from writing it from now on; rows already written stay.
+            </p>
+            <div class="ms-admin__filters">
+                <label>Filter <input type="search" id="typeFilter" class="ms-admin__input ms-admin__input--wide" placeholder="Part of the message"></label>
+                <label>Limit <input type="number" id="adminLimit" class="ms-admin__input" value="500" min="10" max="5000"></label>
+                <button type="button" class="ms-btn ms-btn--secondary" id="reloadAdmin">Reload</button>
+                <span class="ms-admin__empty" id="typesStatus" role="status"></span>
+            </div>
+
+            <section class="ms-admin__section ms-admin__section--first">
+                <h2 class="ms-admin__heading">Unique log entries</h2>
+                <div class="ms-admin__scroll">
+                    <table class="ms-admin__table" id="adminTable">
+                        <thead><tr><th>Last seen</th><th>Count</th><th>Log key</th><th>Visibility</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="ms-admin__section">
+                <h2 class="ms-admin__heading">Hidden overrides</h2>
+                <div class="ms-admin__scroll">
+                    <table class="ms-admin__table" id="hiddenTable">
+                        <thead><tr><th>Log key</th><th>Description</th><th>Hidden</th><th>Updated</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+<?php endif; ?>
 
 <script>
 (function() {
-    // Escape HTML helper
     function escapeHtml(s) {
         if (s == null) return '';
         return String(s).replace(/[&"'<>]/g, function(c) {
             return {'&':'&amp;','"':'&quot;',"'":'&#39;','<':'&lt;','>':'&gt;'}[c];
         });
     }
+    function prettyContext(ctx) {
+        try { return JSON.stringify(JSON.parse(ctx), null, 4); } catch (e) { return ctx; }
+    }
 
-    // Tab switching
-    var tabLogs = document.getElementById('tabLogs');
-    var tabAdmin = document.getElementById('tabAdmin');
-    var logsSection = document.getElementById('logsSection');
-    var adminSection = document.getElementById('adminSection');
-
-    tabLogs.addEventListener('click', function() {
-        tabLogs.classList.add('active');
-        tabAdmin.classList.remove('active');
-        logsSection.style.display = 'block';
-        adminSection.style.display = 'none';
-    });
-
-    tabAdmin.addEventListener('click', function() {
-        tabAdmin.classList.add('active');
-        tabLogs.classList.remove('active');
-        logsSection.style.display = 'none';
-        adminSection.style.display = 'block';
-        loadAdmin();
-    });
-
-    // Tailing
-    var tailing = false;
+    // --- Logs: live tail (first page of the current filters, every 3 s) ---
     var tailBtn = document.getElementById('tailBtn');
     var form = document.getElementById('filterForm');
+    if (tailBtn && form) {
+        var tailing = false;
+        var timer = null;
+        tailBtn.addEventListener('click', function() {
+            tailing = !tailing;
+            tailBtn.textContent = tailing ? 'Stop live tail' : 'Start live tail';
+            tailBtn.setAttribute('aria-pressed', tailing ? 'true' : 'false');
+            if (tailing) { tailTick(); } else if (timer) { clearTimeout(timer); }
+        });
 
-    tailBtn.addEventListener('click', function() {
-        tailing = !tailing;
-        tailBtn.textContent = tailing ? 'Stop Tail' : 'Start Tail';
-        if (tailing) tailTick();
-    });
-
-    function tailTick() {
-        if (!tailing) return;
-        var params = new URLSearchParams(new FormData(form));
-        params.set('format', 'json');
-        fetch(location.pathname + '?' + params.toString())
-            .then(function(res) { return res.json(); })
-            .then(function(j) {
-                if (j && j.rows) {
+        function tailTick() {
+            if (!tailing) return;
+            var params = new URLSearchParams(new FormData(form));
+            params.set('format', 'json');
+            params.delete('page');
+            fetch(location.pathname + '?' + params.toString(), { credentials: 'same-origin' })
+                .then(function(res) { return res.json(); })
+                .then(function(j) {
+                    if (!j || !j.rows) return;
                     var tbody = document.querySelector('#logs tbody');
                     tbody.innerHTML = '';
                     j.rows.forEach(function(r) {
                         var tr = document.createElement('tr');
-                        tr.innerHTML = '<td class="mono">' + escapeHtml(r.created_at) + '</td>' +
-                                       '<td class="level-' + escapeHtml(r.log_level) + '">' + escapeHtml(r.log_level) + '</td>' +
-                                       '<td>' + escapeHtml(r.message) +
-                                       (r.context ? '<div class="mono">Context: ' + escapeHtml(r.context) + '</div>' : '') +
-                                       '</td>';
+                        var lvl = String(r.log_level || '');
+                        tr.innerHTML = '<td>' + escapeHtml(r.created_at) + '</td>' +
+                            '<td><span class="ms-admin__level ms-admin__level--' + escapeHtml(lvl.toLowerCase()) + '">' + escapeHtml(lvl) + '</span></td>' +
+                            '<td class="ms-admin__wrap">' + escapeHtml(r.message) +
+                            (r.context ? '<details class="ms-admin__ctx"><summary>Context</summary><pre>' + escapeHtml(prettyContext(r.context)) + '</pre></details>' : '') +
+                            '</td>';
                         tbody.appendChild(tr);
                     });
-                }
-            })
-            .catch(function(e) { console.error('Tail error', e); });
-        setTimeout(tailTick, 3000);
+                    var summary = document.getElementById('logSummary');
+                    if (summary) summary.textContent = 'Live: ' + (j.total != null ? j.total : j.count) + ' matching row(s), newest ' + j.rows.length + ' shown. Updated ' + new Date().toLocaleTimeString() + '.';
+                })
+                .catch(function(e) { console.error('Tail error', e); })
+                .then(function() { if (tailing) timer = setTimeout(tailTick, 3000); });
+        }
     }
 
-    // Admin tab
+    // --- Log types ---
+    var adminTable = document.getElementById('adminTable');
+    if (!adminTable) return;
     var adminLimit = document.getElementById('adminLimit');
-    var reloadAdmin = document.getElementById('reloadAdmin');
+    var typeFilter = document.getElementById('typeFilter');
+    var status = document.getElementById('typesStatus');
+    document.getElementById('reloadAdmin').addEventListener('click', loadAdmin);
+    typeFilter.addEventListener('input', applyFilter);
 
-    reloadAdmin.addEventListener('click', loadAdmin);
+    function applyFilter() {
+        var needle = typeFilter.value.toLowerCase();
+        adminTable.querySelectorAll('tbody tr').forEach(function(tr) {
+            tr.hidden = needle !== '' && (tr.getAttribute('data-key') || '').toLowerCase().indexOf(needle) === -1;
+        });
+    }
 
     function loadAdmin() {
         var limit = parseInt(adminLimit.value, 10) || 500;
+        status.textContent = 'Loading…';
         Promise.all([
-            fetch(location.pathname + '?action=unique_logs&limit=' + encodeURIComponent(limit)).then(function(r) { return r.json(); }),
-            fetch(location.pathname + '?action=get_hidden').then(function(r) { return r.json(); })
+            fetch(location.pathname + '?action=unique_logs&limit=' + encodeURIComponent(limit), { credentials: 'same-origin' }).then(function(r) { return r.json(); }),
+            fetch(location.pathname + '?action=get_hidden', { credentials: 'same-origin' }).then(function(r) { return r.json(); })
         ]).then(function(results) {
             var uniqueJson = results[0];
             var hiddenJson = results[1];
-
-            // Build hidden map
             var hiddenMap = {};
             if (hiddenJson && hiddenJson.rows) {
                 hiddenJson.rows.forEach(function(h) { hiddenMap[h.log_key] = h; });
             }
 
-            // Populate unique logs table
-            var tbody = document.querySelector('#adminTable tbody');
+            var tbody = adminTable.querySelector('tbody');
             tbody.innerHTML = '';
-            if (uniqueJson && uniqueJson.rows) {
-                uniqueJson.rows.forEach(function(r) {
-                    var key = r.log_key;
-                    var h = hiddenMap[key];
-                    var isHidden = h ? (h.hidden == 1) : false;
-                    var tr = document.createElement('tr');
-                    var radioName = 'hide_' + btoa(key).replace(/[^a-zA-Z0-9]/g, '');
-                    tr.innerHTML = '<td class="mono">' + escapeHtml(r.last_seen) + '</td>' +
-                                   '<td>' + escapeHtml(r.cnt) + '</td>' +
-                                   '<td class="mono" style="max-width:400px;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(key) + '</td>' +
-                                   '<td>' +
-                                   '<label><input type="radio" name="' + radioName + '" value="0"' + (!isHidden ? ' checked' : '') + '/> Show</label> ' +
-                                   '<label><input type="radio" name="' + radioName + '" value="1"' + (isHidden ? ' checked' : '') + '/> Hide</label>' +
-                                   '</td>';
-                    tbody.appendChild(tr);
-
-                    // Attach event listeners to radios
-                    tr.querySelectorAll('input[type=radio]').forEach(function(radio) {
-                        radio.addEventListener('change', function(ev) {
-                            var hidden = ev.target.value === '1' ? 1 : 0;
-                            setHidden(key, hidden);
-                        });
+            (uniqueJson && uniqueJson.rows ? uniqueJson.rows : []).forEach(function(r, i) {
+                var key = r.log_key;
+                var h = hiddenMap[key];
+                var isHidden = h ? (h.hidden == 1) : false;
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-key', key || '');
+                var radioName = 'hide_' + i;
+                tr.innerHTML = '<td>' + escapeHtml(r.last_seen) + '</td>' +
+                    '<td>' + escapeHtml(r.cnt) + '</td>' +
+                    '<td class="ms-admin__wrap">' + escapeHtml(key) + '</td>' +
+                    '<td>' +
+                    '<label><input type="radio" name="' + radioName + '" value="0"' + (!isHidden ? ' checked' : '') + '> Show</label> ' +
+                    '<label><input type="radio" name="' + radioName + '" value="1"' + (isHidden ? ' checked' : '') + '> Hide</label>' +
+                    '</td>';
+                tbody.appendChild(tr);
+                tr.querySelectorAll('input[type=radio]').forEach(function(radio) {
+                    radio.addEventListener('change', function(ev) {
+                        setHidden(key, ev.target.value === '1' ? 1 : 0);
                     });
                 });
-            }
+            });
+            applyFilter();
 
-            // Populate hidden overrides table
             var ht = document.querySelector('#hiddenTable tbody');
             ht.innerHTML = '';
-            if (hiddenJson && hiddenJson.rows) {
-                hiddenJson.rows.forEach(function(h) {
-                    var tr = document.createElement('tr');
-                    tr.innerHTML = '<td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(h.log_key) + '</td>' +
-                                   '<td>' + escapeHtml(h.description || '') + '</td>' +
-                                   '<td>' + (h.hidden == 1 ? 'Yes' : 'No') + '</td>' +
-                                   '<td class="mono">' + escapeHtml(h.updated_at) + '</td>';
-                    ht.appendChild(tr);
-                });
-            }
+            (hiddenJson && hiddenJson.rows ? hiddenJson.rows : []).forEach(function(h) {
+                var tr = document.createElement('tr');
+                tr.innerHTML = '<td class="ms-admin__wrap">' + escapeHtml(h.log_key) + '</td>' +
+                    '<td>' + escapeHtml(h.description || '') + '</td>' +
+                    '<td>' + (h.hidden == 1 ? 'Yes' : 'No') + '</td>' +
+                    '<td>' + escapeHtml(h.updated_at) + '</td>';
+                ht.appendChild(tr);
+            });
+            status.textContent = '';
         }).catch(function(e) {
             console.error('Admin load error', e);
+            status.textContent = 'Could not load the log types.';
         });
     }
 
@@ -371,17 +677,17 @@ if ($format === 'json') {
         fd.append('action', 'set_hidden');
         fd.append('log_key', key);
         fd.append('hidden', hidden ? '1' : '0');
-        fetch(location.pathname, { method: 'POST', body: fd })
+        status.textContent = 'Saving…';
+        fetch(location.pathname, { method: 'POST', body: fd, credentials: 'same-origin' })
             .then(function(res) { return res.json(); })
             .then(function(j) {
-                if (!j || !j.success) {
-                    console.error('Failed to set hidden', j);
-                }
+                status.textContent = j && j.success ? 'Saved.' : 'Could not save.';
                 setTimeout(loadAdmin, 300);
             })
-            .catch(function(e) { console.error('setHidden error', e); });
+            .catch(function(e) { console.error('setHidden error', e); status.textContent = 'Could not save.'; });
     }
+
+    loadAdmin();
 })();
 </script>
-</body>
-</html>
+<?php require __DIR__ . '/partials/admin_foot.php'; ?>
