@@ -24,6 +24,12 @@ require __DIR__ . '/../email_log_ref.php';
 require __DIR__ . '/../pro_trial.php';
 require __DIR__ . '/../scrub_logged_emails.php';
 
+// Accounts are looked up by the email_hash blind index (pii_crypto.php).
+$piiEncKey = str_repeat('e', 32);
+$piiIdxKey = str_repeat('i', 32);
+putenv('PII_ENCRYPTION_KEY=' . $piiEncKey);
+putenv('PII_INDEX_KEY=' . $piiIdxKey);
+
 $repoRoot = dirname(__DIR__);
 $passed = 0;
 $failed = 0;
@@ -89,10 +95,13 @@ function scrubDb(): PDO
 {
     $pdo = new PDO('sqlite::memory:');
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT NOT NULL)');
+    $pdo->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT NOT NULL, email_enc TEXT NULL, email_hash TEXT NULL)');
     $pdo->exec('CREATE TABLE system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_level TEXT, message TEXT, context TEXT, created_at TEXT)');
     $pdo->exec('CREATE TABLE login_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT, email TEXT, user_id INTEGER, success INTEGER, attempt_at TEXT)');
-    $pdo->exec("INSERT INTO pro_users (id, email) VALUES (5, 'Known@Example.com'), (6, 'other@example.org')");
+    $users = $pdo->prepare('INSERT INTO pro_users (id, email, email_enc, email_hash) VALUES (?, ?, ?, ?)');
+    foreach ([[5, 'Known@Example.com'], [6, 'other@example.org']] as [$id, $address]) {
+        $users->execute([$id, $address, piiEmailEncrypt($address), piiEmailHash($address)]);
+    }
     $logs = [
         // 1: a registered user's address under 'to', no user_id yet.
         ['INFO', 'Magic link sent', ['to' => 'known@example.com']],
@@ -266,16 +275,17 @@ function probeDb(string $path): void
     @unlink($path);
     $pdo = new PDO('sqlite:' . $path);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT NOT NULL, password_hash TEXT, email_verified_at TEXT)');
+    $pdo->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT NOT NULL, email_enc TEXT NULL, email_hash TEXT NULL, password_hash TEXT, email_verified_at TEXT)');
     $pdo->exec("CREATE TABLE login_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, email TEXT NOT NULL, user_id INTEGER, success INTEGER NOT NULL DEFAULT 0, attempt_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
-    $stmt = $pdo->prepare("INSERT INTO pro_users (id, email, password_hash, email_verified_at) VALUES (1, 'victim@example.com', ?, '2026-01-01 00:00:00')");
-    $stmt->execute([password_hash('right-password', PASSWORD_DEFAULT)]);
+    $stmt = $pdo->prepare("INSERT INTO pro_users (id, email, email_enc, email_hash, password_hash, email_verified_at) VALUES (1, 'victim@example.com', ?, ?, ?, '2026-01-01 00:00:00')");
+    $stmt->execute([piiEmailEncrypt('victim@example.com'), piiEmailHash('victim@example.com'), password_hash('right-password', PASSWORD_DEFAULT)]);
 }
 
 /** Runs one password_login; returns the decoded JSON answer. */
 function probeLogin(string $probe, string $db, string $log, string $probeKey, string $ip, string $email, string $password): array
 {
-    $env = ['PROBE_SQLITE' => $db, 'PROBE_LOG' => $log, 'PROBE_KEY' => $probeKey, 'PROBE_IP' => $ip, 'PROBE_EMAIL' => $email, 'PROBE_PASSWORD' => $password, 'PATH' => (string) getenv('PATH')];
+    $env = ['PROBE_SQLITE' => $db, 'PROBE_LOG' => $log, 'PROBE_KEY' => $probeKey, 'PROBE_IP' => $ip, 'PROBE_EMAIL' => $email, 'PROBE_PASSWORD' => $password, 'PATH' => (string) getenv('PATH'),
+        'PII_ENCRYPTION_KEY' => (string) getenv('PII_ENCRYPTION_KEY'), 'PII_INDEX_KEY' => (string) getenv('PII_INDEX_KEY')];
     $proc = proc_open([PHP_BINARY, '-d', 'display_errors=stderr', $probe . '/pro_auth.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $probe, $env);
     $out = stream_get_contents($pipes[1]);
     $err = stream_get_contents($pipes[2]);

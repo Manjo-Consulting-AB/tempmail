@@ -50,6 +50,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require_once __DIR__ . '/email_log_ref.php';
+require_once __DIR__ . '/pii_crypto.php';
 
 const SCRUB_EMAIL_PATTERN = '/[A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)+/';
 
@@ -121,8 +122,10 @@ if (!class_exists('EmailLogScrubber')) {
         {
             $norm = strtolower(trim($email));
             if (!array_key_exists($norm, $this->userIdCache)) {
-                $stmt = $this->pdo->prepare('SELECT id FROM pro_users WHERE LOWER(email) = ? LIMIT 1');
-                $stmt->execute([$norm]);
+                // By the blind index (pii_crypto.php); without PII_INDEX_KEY it
+                // matches nothing and the address becomes the log reference.
+                $stmt = $this->pdo->prepare('SELECT id FROM pro_users WHERE email_hash = ? LIMIT 1');
+                $stmt->execute([piiEmailLookupHash($norm)]);
                 $id = $stmt->fetchColumn();
                 $this->userIdCache[$norm] = $id === false ? null : (int) $id;
             }

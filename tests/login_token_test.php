@@ -21,6 +21,10 @@ if (PHP_SAPI !== 'cli') {
 
 require __DIR__ . '/../login_tokens.php';
 
+// pro_users carries the encrypted address (pii_crypto.php); a fixed test key.
+putenv('PII_ENCRYPTION_KEY=' . str_repeat('e', 32));
+putenv('PII_INDEX_KEY=' . str_repeat('i', 32));
+
 $passed = 0;
 $failed = 0;
 
@@ -52,7 +56,7 @@ function freshDb(): PDO
 {
     $pdo = new PDO('sqlite::memory:');
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->exec("CREATE TABLE pro_users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL)");
+    $pdo->exec("CREATE TABLE pro_users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, email_enc TEXT NULL, email_hash TEXT NULL)");
     $pdo->exec("CREATE TABLE login_tokens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -69,7 +73,8 @@ function freshDb(): PDO
         expires_at TEXT NOT NULL,
         used INTEGER NOT NULL DEFAULT 0
     )");
-    $pdo->exec("INSERT INTO pro_users (email) VALUES ('user@example.com')");
+    $pdo->prepare('INSERT INTO pro_users (email, email_enc, email_hash) VALUES (?, ?, ?)')
+        ->execute(['user@example.com', piiEmailEncrypt('user@example.com'), piiEmailHash('user@example.com')]);
     return $pdo;
 }
 
@@ -101,6 +106,16 @@ $first = loginTokenConsume($pdo, $raw);
 same('L3. first consume succeeds', ['user_id' => 1, 'email' => 'user@example.com'],
     $first === null ? null : ['user_id' => (int) $first['user_id'], 'email' => $first['email']]);
 same('L4. second consume fails', null, loginTokenConsume($pdo, $raw));
+
+$pdo->exec("UPDATE pro_users SET email = 'stale@example.com' WHERE id = 1");
+$rawE = loginTokenCreate($pdo, 1);
+same('L3b. the address comes from email_enc, not the plaintext column', 'user@example.com', (loginTokenConsume($pdo, $rawE) ?? [])['email'] ?? null);
+$pdo->exec("UPDATE pro_users SET email_enc = 'v1:AAAA' WHERE id = 1");
+$rawE = loginTokenCreate($pdo, 1);
+$consumed = loginTokenConsume($pdo, $rawE);
+same('L3c. an undecryptable address: the token still logs in, with no address', ['user_id' => 1, 'email' => ''],
+    $consumed === null ? null : ['user_id' => (int) $consumed['user_id'], 'email' => $consumed['email']]);
+$pdo->prepare('UPDATE pro_users SET email = ?, email_enc = ? WHERE id = 1')->execute(['user@example.com', piiEmailEncrypt('user@example.com')]);
 
 $raw2 = loginTokenCreate($pdo, 1);
 same('L5. the stored hash submitted as a token does not log in', null, loginTokenConsume($pdo, authTokenHash($raw2)));

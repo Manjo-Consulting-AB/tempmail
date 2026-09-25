@@ -44,9 +44,10 @@
  *
  * Linking a payment to an account: custom_data.pro_user_id (set by
  * assets/js/pricing.js for a signed-in buyer) when it names an existing row,
- * else the Paddle customer's email matched against pro_users.email. A payment
- * that matches neither is stored unlinked and logged; a later customer.created
- * / customer.updated event re-tries the email match and applies it then.
+ * else the Paddle customer's email matched against pro_users by the email_hash
+ * blind index both tables store (pii_crypto.php). A payment that matches
+ * neither is stored unlinked and logged; a later customer.created /
+ * customer.updated event re-tries the email match and applies it then.
  *
  * Ordering: Paddle does not deliver in order. Every row stores the
  * occurred_at of the event that last wrote it, and an older event is ignored,
@@ -415,8 +416,8 @@ function paddleSyncCustomer(PDO $pdo, array $customer, string $order, array $opt
  * email_enc / email_hash to write next to paddle_customers.email (pii_crypto.php):
  * [] when the columns do not exist ('customer_email_pii' false), both null
  * when there is no address or no keys (a WARNING once per request for the
- * latter), else the encrypted pair. Phase A: the plaintext email is still
- * written and still what paddleResolveUser() matches on.
+ * latter), else the encrypted pair. Phase B1: the plaintext email is still
+ * written, but paddleResolveUser() matches on email_hash only.
  */
 function paddleCustomerEmailFields(string $email, array $options): array
 {
@@ -451,9 +452,12 @@ function paddleResolveUser(PDO $pdo, $customData, string $customerId): ?int
             return (int) $row['id'];
         }
     }
-    $customer = paddleFetch($pdo, 'SELECT email FROM paddle_customers WHERE customer_id = ?', [$customerId]);
-    if ($customer && !empty($customer['email'])) {
-        $row = paddleFetch($pdo, 'SELECT id FROM pro_users WHERE LOWER(email) = LOWER(?)', [$customer['email']]);
+    // By the blind index both sides store (pii_crypto.php): the same
+    // trim+lowercase normalisation the old LOWER(email) match used. A
+    // customer written without keys has no hash and links to nobody.
+    $customer = paddleFetch($pdo, 'SELECT email_hash FROM paddle_customers WHERE customer_id = ?', [$customerId]);
+    if ($customer && !empty($customer['email_hash'])) {
+        $row = paddleFetch($pdo, 'SELECT id FROM pro_users WHERE email_hash = ?', [$customer['email_hash']]);
         if ($row) {
             return (int) $row['id'];
         }

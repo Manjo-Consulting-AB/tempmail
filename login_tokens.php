@@ -32,7 +32,10 @@ declare(strict_types=1);
  * Deliberately does not require config.php: every function takes an explicit
  * PDO so tests/login_token_test.php runs it on SQLite. Every function is
  * function_exists-guarded so a repeat require cannot redeclare it.
+ * pii_crypto.php (equally dependency-free) decrypts the account address.
  */
+
+require_once __DIR__ . '/pii_crypto.php';
 
 if (!function_exists('authTokenIsValidFormat')) {
     /** Raw token format: hex string, 48-96 characters. */
@@ -157,7 +160,7 @@ if (!function_exists('loginTokenConsume')) {
             return null;
         }
         $stmt = $pdo->prepare(
-            "SELECT lt.id, lt.user_id, lt.expires_at, lt.used, pu.email
+            "SELECT lt.id, lt.user_id, lt.expires_at, lt.used, pu.email_enc
                FROM login_tokens lt JOIN pro_users pu ON lt.user_id = pu.id
               WHERE lt.token IN (?, ?) LIMIT 1"
         );
@@ -172,7 +175,11 @@ if (!function_exists('loginTokenConsume')) {
         if ($upd->rowCount() !== 1) {
             return null;
         }
-        return ['user_id' => $row['user_id'], 'email' => $row['email']];
+        // The address is only session state (display, the To: of account
+        // mails). A token proves inbox access, so the login stands even if
+        // the address cannot be decrypted; 'email' is then '' (ERROR logged).
+        $email = piiEmailOpen($row['email_enc'] === null ? null : (string) $row['email_enc'], ['user_id' => (int) $row['user_id']]);
+        return ['user_id' => $row['user_id'], 'email' => $email ?? ''];
     }
 }
 
