@@ -68,8 +68,8 @@ $msLegalDoc = [
             'id'      => 'retention',
             'heading' => 'How long we keep it',
             'html'    => '<ul>'
-                . '<li><strong>Temporary addresses and their mail</strong> — ' . $f['free_hours'] . ' hours on a free account, or the 1 to 7 days you choose on Pro. Then they are deleted automatically.</li>'
-                . '<li><strong>Personal addresses</strong> — until you remove them, or 7 days after your Pro plan ends. Their mail is deleted with them, and sooner if your storage quota of ' . $f['quota_mb'] . ' MB fills up, oldest first.</li>'
+                . '<li><strong>Timed addresses and their mail</strong> — ' . $f['free_hours'] . ' hours on a free account, or the 1 to 7 days you choose on Pro. Then they are deleted automatically.</li>'
+                . '<li><strong>Sticky addresses</strong> — until you remove them, or 7 days after your Pro plan ends. Their mail is deleted with them, and sooner if your storage quota of ' . $f['quota_mb'] . ' MB fills up, oldest first.</li>'
                 . '<li><strong>Your account</strong> — until you delete it. A free Regular account nobody signs in to for ' . $f['delete_days'] . ' days is deleted, after an email warning.</li>'
                 . '<li><strong>Server logs</strong> — ' . $f['log_days'] . ' days.</li>'
                 . '<li><strong>Trusted browsers for two-factor authentication</strong> — 30 days, or until you remove them.</li>'

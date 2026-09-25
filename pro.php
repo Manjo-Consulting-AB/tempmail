@@ -229,7 +229,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
 
                         <!-- Initial address generator (visas tills adress är skapad) -->
                         <div id="initial-generator" class="ms-inbox__empty">
-                            <h2 class="ms-inbox__empty-title">Click to get your temporary email address</h2>
+                            <h2 class="ms-inbox__empty-title">Click to get your timed address</h2>
                             <button id="generateBtn" class="btn btn-primary btn-lg">
                                 <i class="fas fa-magic" aria-hidden="true"></i> Get Email Address
                             </button>
@@ -355,7 +355,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                             <?php endfor; ?>
                         </select>
                         <div id="ttlMsg"></div>
-                        <p class="ms-rail__hint">Applied to new temporary addresses.</p>
+                        <p class="ms-rail__hint">Applied to new timed addresses.</p>
                     </section>
                 </div>
             </div>
@@ -487,7 +487,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
         $.post('index.php', { action: 'list_personal' }, function(res){
             var rows = (res && res.success && res.personal) ? res.personal : [];
             if (!rows.length) {
-                list.innerHTML = '<li class="ms-rail__empty">No personal addresses yet</li>';
+                list.innerHTML = '<li class="ms-rail__empty">No sticky addresses yet</li>';
                 return;
             }
             var addresses = [];

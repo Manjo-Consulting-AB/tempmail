@@ -56,9 +56,9 @@ $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'
     <div class="ms-container">
         <h2 class="ms-h2">Free and Pro</h2>
         <?php if ($msPlansTrialDays > 0) : ?>
-            <p class="ms-plans__body">Every new account starts with <?php echo $msPlansTrialDays; ?> days of Pro, free &mdash; personal addresses and automation included. When the trial ends, you keep a free account, or stay on Pro.</p>
+            <p class="ms-plans__body">Every new account starts with <?php echo $msPlansTrialDays; ?> days of Pro, free &mdash; sticky addresses and automation included. When the trial ends, you keep a free account, or stay on Pro.</p>
         <?php else : ?>
-            <p class="ms-plans__body">A free account gives you a temporary mailbox. Pro adds stable personal addresses and the tools to route and automate the mail they receive.</p>
+            <p class="ms-plans__body">A free account gives you a timed address. Pro adds sticky addresses and the tools to route and automate the mail they receive.</p>
         <?php endif; ?>
 
         <div class="ms-plans__grid">
@@ -66,10 +66,10 @@ $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'
                 <div class="ms-plans__head">
                     <h3 class="ms-h3">Free</h3>
                 </div>
-                <p class="ms-plans__summary">Temporary email, in a real inbox.</p>
+                <p class="ms-plans__summary">Timed addresses, in a real inbox.</p>
 
                 <ul class="ms-plans__list">
-                    <li>One temporary address at a time</li>
+                    <li>One timed address at a time</li>
                     <li>Addresses and messages deleted after 24 hours</li>
                     <li>Read your mail on the web</li>
                     <li>Signed, time-limited attachment links</li>
@@ -84,12 +84,12 @@ $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'
                 <p class="ms-plans__summary">Your second inbox, with the wiring.</p>
 
                 <ul class="ms-plans__list">
-                    <li>Up to 10 stable personal addresses</li>
-                    <li>Temporary address lifetime configurable from 1 to 7 days</li>
+                    <li>Up to 10 sticky addresses</li>
+                    <li>Timed address lifetime configurable from 1 to 7 days</li>
                     <li>Incoming mail is cleaned up automatically according to your retention settings</li>
                     <li>RSS, webhooks, Pushover and digest emails</li>
                     <li>The Agent, for sender rules on your own mail server</li>
-                    <li>Personal addresses belong to your account</li>
+                    <li>Sticky addresses belong to your account</li>
                     <li>Priority support</li>
                 </ul>
             </div>

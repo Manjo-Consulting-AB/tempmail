@@ -49,7 +49,7 @@ $msLegalDoc = [
         [
             'id'      => 'after',
             'heading' => 'What happens to your account',
-            'html'    => '<p>A refund ends the Pro time that the payment paid for, and a refunded subscription is cancelled so that it does not renew. Your account stays, as a free Regular account. As with any Pro plan that ends, personal addresses are deleted 7 days later, with their mail, so move anything you want to keep before then.</p>'
+            'html'    => '<p>A refund ends the Pro time that the payment paid for, and a refunded subscription is cancelled so that it does not renew. Your account stays, as a free Regular account. As with any Pro plan that ends, sticky addresses are deleted 7 days later, with their mail, so move anything you want to keep before then.</p>'
                 . '<p>Any Pro time you had before the purchase — the free trial, or a voucher — is not affected by the refund.</p>',
         ],
         [

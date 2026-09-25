@@ -39,9 +39,9 @@ $msTempDomain = htmlspecialchars(
 ?>
 <section class="ms-section" id="temporary">
     <div class="ms-container">
-        <p class="ms-eyebrow">Temporary addresses</p>
-        <h2 class="ms-h2">Temporary when you need it.</h2>
-        <p class="ms-temp__body">Need an address for a signup, download or service you don't fully trust yet? Create a temporary address. Use it. Forget it.</p>
+        <p class="ms-eyebrow">Timed addresses</p>
+        <h2 class="ms-h2">Here when you need it. Gone when you don't.</h2>
+        <p class="ms-temp__body">Need an address for a signup, download or service you don't fully trust yet? Create a timed address. Use it. Forget it.</p>
 
         <ol class="ms-lifecycle">
             <li class="ms-lifecycle__beat">
@@ -58,7 +58,7 @@ $msTempDomain = htmlspecialchars(
             </li>
         </ol>
 
-        <p class="ms-temp__retention">Temporary addresses clean up after themselves — 24 hours on a free account, or up to 7 days on Pro.</p>
+        <p class="ms-temp__retention">Timed addresses clean up after themselves — 24 hours on a free account, or up to 7 days on Pro.</p>
         <p class="ms-temp__aside">Disposable email, without the disposable-looking website.</p>
         <p class="ms-temp__more"><a class="ms-btn ms-btn--quiet" href="/temporary-email.php">More about temporary email addresses</a></p>
     </div>

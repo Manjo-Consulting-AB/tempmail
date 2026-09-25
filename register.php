@@ -47,8 +47,8 @@ $msTitle    = 'Create your inbox · Mail Shield';
 // the pre-trial copy is shown instead.
 $msTrialDays = max(0, (int) ($config['trial']['days'] ?? 0));
 $msDesc     = $msTrialDays > 0
-    ? 'Create a Mail Shield account and start with ' . $msTrialDays . ' days of Pro, free: a separate inbox for the email you don\'t want in your primary one, with personal and temporary addresses and automatic clean-up.'
-    : 'Create a free Mail Shield account and get a separate inbox for the email you don\'t want in your primary one. Personal and temporary addresses, with automatic clean-up.';
+    ? 'Create a Mail Shield account and start with ' . $msTrialDays . ' days of Pro, free: a separate inbox for the email you don\'t want in your primary one, with sticky and timed addresses and automatic clean-up.'
+    : 'Create a free Mail Shield account and get a separate inbox for the email you don\'t want in your primary one. Sticky and timed addresses, with automatic clean-up.';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -121,11 +121,11 @@ $msDesc     = $msTrialDays > 0
                 </div>
 
                 <?php if ($msTrialDays > 0) : ?>
-                    <p class="ms-auth__hint" id="regHintFree">Your first <?php echo $msTrialDays; ?> days are on Pro &mdash; personal addresses, automation and 1&ndash;7 day temporary addresses. After that it's free: one temporary address, deleted after 24 hours. One trial per email address.</p>
+                    <p class="ms-auth__hint" id="regHintFree">Your first <?php echo $msTrialDays; ?> days are on Pro &mdash; sticky addresses, automation and 1&ndash;7 day timed addresses. After that it's free: one timed address, deleted after 24 hours. One trial per email address.</p>
                 <?php else : ?>
-                    <p class="ms-auth__hint" id="regHintFree">One temporary address at a time. The address and its messages are deleted after 24 hours.</p>
+                    <p class="ms-auth__hint" id="regHintFree">One timed address at a time. The address and its messages are deleted after 24 hours.</p>
                 <?php endif; ?>
-                <p class="ms-auth__hint" id="regHintPro" style="display:none;">Stable personal addresses and automation. Incoming mail is still temporary and is cleaned up according to your retention settings. Requires a voucher code &mdash; online payment is on the way.</p>
+                <p class="ms-auth__hint" id="regHintPro" style="display:none;">Sticky addresses and automation. Incoming mail is still temporary and is cleaned up according to your retention settings. Requires a voucher code &mdash; online payment is on the way.</p>
 
                 <div id="registerBlock">
                     <form id="registerForm">

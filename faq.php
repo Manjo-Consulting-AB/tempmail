@@ -55,7 +55,7 @@ $msOrigin      = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 $msUrl         = $msOrigin . '/faq.php';
 $msOgImage     = $msOrigin . '/assets/images/og-mailshield.png';
 $msTitle       = 'Frequently asked questions · Mail Shield';
-$msDescription = 'Short answers about Mail Shield: what it is, what a free account includes, how long temporary and personal addresses last, and what you can connect it to.';
+$msDescription = 'Short answers about Mail Shield: what it is, what a free account includes, how long timed and sticky addresses last, and what you can connect it to.';
 
 // The bar switches on the same session flag the marketing nav uses, so a
 // signed-in reader is never sent back through sign-up.
@@ -94,20 +94,20 @@ $msFaq = [
                 'q' => 'What is Mail Shield?',
                 'a' => <<<HTML
 <p>A separate inbox for the email you don't want in your primary one. Shopping, newsletters, signups, forum replies, automated mail and the services you're only trying out all have somewhere else to go, and you read them in one place on the web.</p>
-<p>You get addresses of your own — temporary ones that delete themselves, and permanent ones you keep. It is not a page that prints a throwaway address and forgets you the moment you close the tab: an address here belongs to an account, so a confirmation that arrives an hour later is still waiting for you.</p>
+<p>You get addresses of your own — timed ones that delete themselves, and sticky ones you keep. It is not a page that prints a throwaway address and forgets you the moment you close the tab: an address here belongs to an account, so a confirmation that arrives an hour later is still waiting for you.</p>
 HTML,
             ],
             [
-                'q' => 'How do I get a temporary address?',
+                'q' => 'How do I get a timed address?',
                 'a' => <<<HTML
-<p>Create an account with your own email address, verify it, then create the temporary address from your inbox. There is no button on the homepage that issues one anonymously — an address needs an account behind it, which is what lets you come back for a message that arrives later.</p>
+<p>Create an account with your own email address, verify it, then create the timed address from your inbox. There is no button on the homepage that issues one anonymously — an address needs an account behind it, which is what lets you come back for a message that arrives later.</p>
 HTML,
             ],
             [
                 'q' => 'How long are messages and addresses kept?',
                 'a' => <<<HTML
-<p>A temporary address on a free account is deleted automatically <strong>24 hours</strong> after you create it, and the messages in it go with it. On Pro you choose the lifetime for each temporary address, from <strong>1 to 7 days</strong>.</p>
-<p>Personal addresses don't run on a timer at all — they stay until you delete them.</p>
+<p>A timed address on a free account is deleted automatically <strong>24 hours</strong> after you create it, and the messages in it go with it. On Pro you choose the lifetime for each timed address, from <strong>1 to 7 days</strong>.</p>
+<p>Sticky addresses don't run on a timer at all — they stay until you delete them.</p>
 HTML,
             ],
             [
@@ -126,8 +126,8 @@ HTML,
             [
                 'q' => 'What\'s the difference between Free and Pro?',
                 'a' => <<<HTML
-<p>A free account covers temporary email: one temporary address at a time, deleted 24 hours after you create it.</p>
-<p>Pro adds the permanent side of the product and the automation — up to 10 personal addresses, a temporary-address lifetime of 1 to 7 days that you choose, RSS, webhooks, Pushover, digest emails and the Agent.</p>
+<p>A free account covers temporary email: one timed address at a time, deleted 24 hours after you create it.</p>
+<p>Pro adds the permanent side of the product and the automation — up to 10 sticky addresses, a timed-address lifetime of 1 to 7 days that you choose, RSS, webhooks, Pushover, digest emails and the Agent.</p>
 HTML . ($msT > 0 ? <<<HTML
 <p>Every new account gets Pro for its first {$msT} days, so you can try all of it before you decide.</p>
 HTML : ''),
@@ -137,14 +137,14 @@ HTML : ''),
                 'a' => <<<HTML
 <p>Every new account gets Pro for its first {$msT} days, starting when you confirm your email address. There's no card to enter and nothing to cancel.</p>
 <p>The trial is once per email address. If you delete your account and sign up again with the same address, the clock keeps running from your first sign-up — it doesn't start over.</p>
-<p>When the trial ends, your account carries on as a free one. Automation is switched off, and personal addresses — with the mail in them — are deleted 7 days later, so move anything you still need first. To stay on Pro, redeem a voucher code in your profile; online payment is on the way.</p>
+<p>When the trial ends, your account carries on as a free one. Automation is switched off, and sticky addresses — with the mail in them — are deleted 7 days later, so move anything you still need first. To stay on Pro, redeem a voucher code in your profile; online payment is on the way.</p>
 HTML,
             ]] : []),
             [
                 'q' => 'How many addresses can I create?',
                 'a' => <<<HTML
-<p>Addresses belong to your account, not to a browser session. Every account holds one temporary address at a time, and creating a new one replaces the old one.</p>
-<p>Pro accounts also get up to 10 personal addresses, which live alongside the temporary one and deliver into the same inbox.</p>
+<p>Addresses belong to your account, not to a browser session. Every account holds one timed address at a time, and creating a new one replaces the old one.</p>
+<p>Pro accounts also get up to 10 sticky addresses, which live alongside the timed one and deliver into the same inbox.</p>
 HTML,
             ],
             [
@@ -160,8 +160,8 @@ HTML,
                 'a' => <<<HTML
 <ul>
 <li>Set a password for sign-in, alongside the email link.</li>
-<li>Choose how long new temporary addresses last, from 1 to 7 days.</li>
-<li>Create, review and delete up to 10 personal addresses.</li>
+<li>Choose how long new timed addresses last, from 1 to 7 days.</li>
+<li>Create, review and delete up to 10 sticky addresses.</li>
 <li>Turn two-factor authentication on or off, and manage trusted browsers.</li>
 <li>Configure automation: RSS, webhooks and digest emails.</li>
 </ul>
@@ -170,26 +170,26 @@ HTML,
         ],
     ],
     'temporary' => [
-        'title' => 'Temporary addresses',
+        'title' => 'Timed and sticky addresses',
         'items' => [
             [
-                'q' => 'What\'s the difference between a temporary and a personal address?',
+                'q' => 'What\'s the difference between a timed and a sticky address?',
                 'a' => <<<HTML
-<p>A temporary address is meant to be thrown away. It expires on a timer you don't have to think about — 24 hours on a free account, 1 to 7 days on Pro — and takes its messages with it.</p>
-<p>A personal address is one you keep: a readable name like <span class="ms-addr">shopping@{$msDomain}</span> instead of a random string, no expiry, and you decide when it goes. Both kinds arrive in the same inbox.</p>
+<p>A timed address is Mail Shield's take on temporary email: it is meant to be thrown away. It expires on a timer you don't have to think about — 24 hours on a free account, 1 to 7 days on Pro — and takes its messages with it.</p>
+<p>A sticky address is one you keep: a readable name like <span class="ms-addr">shopping@{$msDomain}</span> instead of a random string, no expiry, and you decide when it goes. Both kinds arrive in the same inbox.</p>
 HTML,
             ],
             [
                 'q' => 'Can I use Mail Shield for permanent addresses?',
                 'a' => <<<HTML
-<p>Yes — that's what personal addresses are for. A Pro account can hold up to 10 of them, all permanent in the sense that matters: they don't expire, and you delete them when you're done with them.</p>
+<p>Yes — that's what sticky addresses are for. A Pro account can hold up to 10 of them, all permanent in the sense that matters: they don't expire, and you delete them when you're done with them.</p>
 <p>Every address uses the {$msDomain} domain, and every one of them delivers into the same inbox.</p>
 HTML,
             ],
             [
-                'q' => 'How long do personal addresses last?',
+                'q' => 'How long do sticky addresses last?',
                 'a' => <<<HTML
-<p>Until you delete them. They carry no expiry timer and aren't caught by the clean-up that removes temporary addresses. Deleting one from your profile removes the address, and it stops receiving mail from then on.</p>
+<p>Until you delete them. They carry no expiry timer and aren't caught by the clean-up that removes timed addresses. Deleting one from your profile removes the address, and it stops receiving mail from then on.</p>
 HTML,
             ],
         ],
@@ -202,7 +202,7 @@ HTML,
                 'a' => <<<HTML
 <p>Pro accounts can route mail onward in several ways:</p>
 <ul>
-<li>A private RSS feed, read in any feed reader, protected by a token — for your whole account, or for one personal address on its own.</li>
+<li>A private RSS feed, read in any feed reader, protected by a token — for your whole account, or for one sticky address on its own.</li>
 <li>Webhooks that POST each incoming message as JSON to an endpoint you control.</li>
 <li>Pushover, for incoming mail as a notification on your phone.</li>
 <li>Digest emails, a periodic summary of what arrived.</li>
@@ -227,8 +227,8 @@ HTML,
             [
                 'q' => 'Is my email content private?',
                 'a' => <<<HTML
-<p>The answer differs by kind of address, so it's worth being exact. A temporary address is reachable through its link: whoever holds that link can read the inbox, and so can anyone who finds it. Treat a temporary address as somewhere to receive, not somewhere to keep a secret.</p>
-<p>Personal addresses are different. They belong to your account and can only be read while you're signed in as the owner.</p>
+<p>The answer differs by kind of address, so it's worth being exact. A timed address is reachable through its link: whoever holds that link can read the inbox, and so can anyone who finds it. Treat a timed address as somewhere to receive, not somewhere to keep a secret.</p>
+<p>Sticky addresses are different. They belong to your account and can only be read while you're signed in as the owner.</p>
 <p>Either way, don't send sensitive personal data — banking, identity documents, medical details — to an address you intend to throw away.</p>
 HTML,
             ],
@@ -270,7 +270,7 @@ HTML,
             [
                 'q' => 'I didn\'t receive an expected message — what now?',
                 'a' => <<<HTML
-<p>Check the full address you gave out, local part and domain both. For a personal address, make sure you're signed in to the account that owns it. Then give it a moment and refresh — mail is fetched from the server on a schedule, so a message can take a short while to appear. If it still doesn't arrive, the sender may have delayed or rejected it.</p>
+<p>Check the full address you gave out, local part and domain both. For a sticky address, make sure you're signed in to the account that owns it. Then give it a moment and refresh — mail is fetched from the server on a schedule, so a message can take a short while to appear. If it still doesn't arrive, the sender may have delayed or rejected it.</p>
 HTML,
             ],
             [
