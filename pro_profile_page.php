@@ -141,7 +141,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
 
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Plan</h3>
-                                <p class="ms-card__desc">Temporary email is free. Pro adds permanent addresses, webhooks, digest emails, the RSS feed and the client agent.</p>
+                                <p class="ms-card__desc">Timed addresses are free. Pro adds sticky addresses, webhooks, digest emails, the RSS feed and the client agent.</p>
                                 <?php if ($accountIsPro && $accountProExpiresAt !== null) : ?>
                                 <p class="ms-card__note">You're on Pro until <?php echo htmlspecialchars(date('j F Y', strtotime($accountProExpiresAt)), ENT_QUOTES, 'UTF-8'); ?>.</p>
                                 <?php elseif ($accountIsPro) : ?>
@@ -183,11 +183,11 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
 
                         <section class="ms-settings__section" id="settings-addresses">
                             <h2 class="ms-settings__section-title">Addresses</h2>
-                            <p class="ms-settings__section-lede">The addresses that keep working, alongside the temporary ones you throw away.</p>
+                            <p class="ms-settings__section-lede">The addresses that keep working, alongside the timed ones you throw away.</p>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Personal addresses</h3>
-                                <p class="ms-card__desc">Create up to 10 personal addresses and manage them from one inbox.</p>
+                                <h3 class="ms-card__title">Sticky addresses</h3>
+                                <p class="ms-card__desc">Create up to 10 sticky addresses and manage them from one inbox.</p>
                                 <div class="d-flex align-items-center mb-2 flex-wrap">
                                     <div class="input-group" style="max-width:420px;">
                                         <input id="personalLocal" class="form-control" placeholder="yourname" aria-label="local part" />
@@ -203,16 +203,16 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                 <div id="personalList" class="mt-3"></div>
                                 <div id="personalCooldown" class="mt-3 d-none">
                                     <h4 class="ms-card__subtitle">Recently deleted</h4>
-                                    <p class="form-text text-muted">A deleted address stays reserved for you for <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> months, so nobody else can pick up mail meant for you. You can create it again until the date shown. At most <?php echo (int)($config['address_cooldown']['max_per_user'] ?? 30); ?> addresses are reserved at a time; the oldest is released first.</p>
+                                    <p class="form-text text-muted">A deleted sticky address stays reserved for you for <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> months, so nobody else can pick up mail meant for you. You can create it again until the date shown. At most <?php echo (int)($config['address_cooldown']['max_per_user'] ?? 30); ?> addresses are reserved at a time; the oldest is released first.</p>
                                     <div id="personalCooldownList"></div>
                                 </div>
-                                <div id="personalCreateProNote" class="form-text text-muted d-none">Creating personal addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
+                                <div id="personalCreateProNote" class="form-text text-muted d-none">Creating sticky addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
                                 <div id="personalFeedProNote" class="form-text text-muted d-none">A per-address RSS feed requires a Pro account. Deleting addresses stays available.</div>
                             </div>
 
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Default lifetime</h3>
-                                <p class="ms-card__desc">How long a newly generated temporary address and its mail stay alive (1-7 days).</p>
+                                <p class="ms-card__desc">How long a newly generated timed address and its mail stay alive (1-7 days).</p>
                                 <div class="d-flex align-items-center">
                                     <select id="ttlSelect" class="form-select" style="width:120px;"></select>
                                     <div id="ttlMsg" style="margin-left:10px; color:#9ecbff;"></div>
@@ -267,7 +267,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
 
                             <div class="ms-card">
                                 <h3 class="ms-card__title">RSS feed</h3>
-                                <p class="ms-card__desc">A private RSS feed covering <strong>all</strong> of your addresses, read in any feed reader. For a feed limited to one address, use the RSS button on that address under Personal addresses.</p>
+                                <p class="ms-card__desc">A private RSS feed covering <strong>all</strong> of your addresses, read in any feed reader. For a feed limited to one address, use the RSS button on that address under Sticky addresses.</p>
                                 <div class="input-group">
                                     <input type="text" id="feedUrlInput" class="form-control" placeholder="(loading...)" readonly />
                                     <div class="btn-group btn-group-sm" role="group" aria-label="Feed actions">
@@ -1063,7 +1063,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 renderWebhooks(lastWebhooks);
                 var $container = $('#personalList');
                 if (!items || items.length === 0) {
-                    $container.html('<p class="text-muted">No personal addresses yet.</p>');
+                    $container.html('<p class="text-muted">No sticky addresses yet.</p>');
                     $('#personalCounterBadge').text('0/' + MAX_PERSONAL_ADDRESSES);
                     return;
                 }
@@ -1106,7 +1106,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 $('#personalCounterBadge').text(count + '/' + MAX_PERSONAL_ADDRESSES);
                 if (count >= MAX_PERSONAL_ADDRESSES) {
                     $('#createPersonalBtn').prop('disabled', true);
-                    $('#personalMsg').css('color', '#ff6b6b').text('Max ' + MAX_PERSONAL_ADDRESSES + ' personal addresses reached');
+                    $('#personalMsg').css('color', '#ff6b6b').text('Max ' + MAX_PERSONAL_ADDRESSES + ' sticky addresses reached');
                     $('#personalCounterBadge').addClass('quota-reached bg-danger').removeClass('bg-secondary');
                     $('#personalCounterLabel').addClass('text-danger');
                 } else {
@@ -1151,7 +1151,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                         renderPersonalList(res.personal || []);
                         renderPersonalCooldown(res.cooldown || []);
                     } else {
-                        $('#personalList').html('<p class="text-danger">Failed to load personal addresses</p>');
+                        $('#personalList').html('<p class="text-danger">Failed to load sticky addresses</p>');
                     }
                 }, 'json').fail(function(){ $('#personalList').html('<p class="text-danger">Request failed</p>'); });
             }
@@ -1360,7 +1360,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
             // Create personal
             $('#createPersonalBtn').on('click', function(){
                 if ($('#personalList .list-group-item').length >= MAX_PERSONAL_ADDRESSES) {
-                    $('#personalMsg').css('color', '#ff6b6b').text('You already have ' + MAX_PERSONAL_ADDRESSES + ' personal addresses');
+                    $('#personalMsg').css('color', '#ff6b6b').text('You already have ' + MAX_PERSONAL_ADDRESSES + ' sticky addresses');
                     return;
                 }
                 var local = $('#personalLocal').val().trim();
@@ -1417,7 +1417,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 e.stopPropagation();
                 var id = $(this).data('id');
                 if (!id) return;
-                if (!confirm('Delete this personal address? Its mail is deleted and cannot be restored. The address stays reserved for you for <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> months, so you can create it again.')) return;
+                if (!confirm('Delete this sticky address? Its mail is deleted and cannot be restored. The address stays reserved for you for <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> months, so you can create it again.')) return;
                 var $btn = $(this);
                 $btn.prop('disabled', true);
                 $.post('index.php', { action: 'delete_personal', id: id }, function(res){
@@ -1526,7 +1526,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 var out = '<fieldset class="ms-hook-routing" data-hook="'+escapeHtml(w.id)+'">'
                     + '<legend class="ms-hook-routing__legend">Triggers for</legend>';
                 if (personalAddresses.length === 0) {
-                    out += '<p class="form-text text-muted mb-0">No personal addresses yet.</p>';
+                    out += '<p class="form-text text-muted mb-0">No sticky addresses yet.</p>';
                 } else {
                     personalAddresses.forEach(function(a){
                         var boxId = 'hookAddr' + escapeHtml(w.id) + '_' + escapeHtml(a.id);
@@ -1549,7 +1549,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 var tempId = 'hookTemp' + escapeHtml(w.id);
                 out += '<div class="form-check">'
                     + '<input class="form-check-input ms-hook-routing__temp" type="checkbox" id="'+tempId+'"'+(w.include_temporary ? ' checked' : '')+(isProAccount ? '' : ' disabled')+'>'
-                    + '<label class="form-check-label" for="'+tempId+'">Temporary addresses</label>'
+                    + '<label class="form-check-label" for="'+tempId+'">Timed addresses</label>'
                     + '</div>'
                     + '<p class="ms-hook-routing__empty'+((anyLinked || w.include_temporary) ? ' d-none' : '')+'">This hook is not triggered for any address.</p>'
                     + '</fieldset>';

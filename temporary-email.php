@@ -115,7 +115,7 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
                     <li><a href="#lifetime">How long does a temporary address last?</a></li>
                     <li><a href="#when-to-use">When to use a temporary email address</a></li>
                     <li><a href="#when-not-to-use">When not to use one</a></li>
-                    <li><a href="#permanent">Temporary email, or a stable personal address?</a></li>
+                    <li><a href="#permanent">Temporary email, or a sticky address?</a></li>
                 </ul>
             </nav>
 
@@ -124,6 +124,7 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
                 <div class="ms-prose">
                     <p>A temporary email address exists for a short time and then stops existing. You use it wherever you'd rather not hand over the one you actually read — a free trial, a download, a forum — and anything sent to it lands in a web inbox you can open straight away.</p>
                     <p>The other name for it is disposable email. The address is meant to be thrown away, so it never has to be memorable or tidy. That's the point: your primary inbox keeps the mail that matters, and the rest goes somewhere you don't have to look after.</p>
+                    <p>In Mail Shield this is called a <strong>timed address</strong>: an address that runs on a clock and deletes itself, with everything in it, when the clock runs out.</p>
                 </div>
             </section>
 
@@ -134,7 +135,7 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
                     <ol>
                         <li>Register with your own email address and a password. It's used to verify the account and to reach you about it, nothing else.</li>
                         <li>Verify it, then sign in.</li>
-                        <li>Create a temporary address from your inbox. It's ready to paste into whatever you're signing up for.</li>
+                        <li>Create a timed address from your inbox. It's ready to paste into whatever you're signing up for.</li>
                     </ol>
                     <p>The extra minute buys something a throwaway generator can't offer. The address lives inside a real inbox that persists, so you can come back for a confirmation that arrives an hour later, or find the message that explains how to cancel. A page that prints an address and forgets you the moment you close the tab can do neither.</p>
                 </div>
@@ -156,7 +157,7 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
                         </div>
                     </dl>
 
-                    <p>A free account keeps a temporary address for 24 hours. On Pro you choose a lifetime of 1 to 7 days for each address. When the clock runs out, the address and everything in it is deleted automatically.</p>
+                    <p>A free account keeps a timed address for 24 hours. On Pro you choose a lifetime of 1 to 7 days for each address. When the clock runs out, the address and everything in it is deleted automatically.</p>
                 </div>
             </section>
 
@@ -188,20 +189,20 @@ $msDocDomain = htmlspecialchars((string) $domain, ENT_QUOTES, 'UTF-8');
                         <li>Accounts you'd need to recover — once the address is gone, so is the password reset.</li>
                         <li>Anything you intend to keep.</li>
                     </ul>
-                    <p>One thing worth saying plainly: a temporary inbox you reach through a shared link isn't private. Pass the link on and whoever receives it can read the mail. Mail Shield would rather tell you that than let you assume otherwise, so treat a temporary address as somewhere to receive, not somewhere to keep a secret.</p>
+                    <p>One thing worth saying plainly: a temporary inbox you reach through a shared link isn't private. Pass the link on and whoever receives it can read the mail. Mail Shield would rather tell you that than let you assume otherwise, so treat a timed address as somewhere to receive, not somewhere to keep a secret.</p>
                 </div>
             </section>
 
             <section class="ms-doc__section" id="permanent">
-                <h2 class="ms-h2">Temporary email, or a stable personal address?</h2>
+                <h2 class="ms-h2">Temporary email, or a sticky address?</h2>
                 <div class="ms-prose">
-                    <p>Temporary addresses are one half of the story. Mail Shield also gives Pro accounts up to 10 stable personal addresses — <span class="ms-addr">shopping@<?php echo $msDocDomain; ?></span>, <span class="ms-addr">news@<?php echo $msDocDomain; ?></span>, <span class="ms-addr">projects@<?php echo $msDocDomain; ?></span> — for the senders you'll hear from again. The addresses don't expire. You choose when to remove them, while the mail they receive is still cleaned up according to your retention settings.</p>
-                    <p>If you want a disposable email you never think about again, a temporary address is the right choice. If you've been handing out your real address because there was nowhere else to put a newsletter, a stable personal address is the better fix. <a href="/">The landing page has the full picture</a>.</p>
+                    <p>Timed addresses are one half of the story. Mail Shield also gives Pro accounts up to 10 sticky addresses — <span class="ms-addr">shopping@<?php echo $msDocDomain; ?></span>, <span class="ms-addr">news@<?php echo $msDocDomain; ?></span>, <span class="ms-addr">projects@<?php echo $msDocDomain; ?></span> — for the senders you'll hear from again. The addresses don't expire. You choose when to remove them, while the mail they receive is still cleaned up according to your retention settings.</p>
+                    <p>If you want a disposable email you never think about again, a timed address is the right choice. If you've been handing out your real address because there was nowhere else to put a newsletter, a sticky address is the better fix. <a href="/">The landing page has the full picture</a>.</p>
                 </div>
             </section>
 
             <div class="ms-doc__cta ms-doc__cta--end">
-                <p class="ms-doc__cta-line">Your first temporary address is a minute away.</p>
+                <p class="ms-doc__cta-line">Your first timed address is a minute away.</p>
                 <a class="ms-btn ms-btn--primary ms-btn--lg" href="<?php echo htmlspecialchars($msDocCtaHref, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($msDocCtaLabel, ENT_QUOTES, 'UTF-8'); ?></a>
             </div>
         </div>

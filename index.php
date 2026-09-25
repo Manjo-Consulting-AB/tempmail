@@ -213,7 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $cntRow = $cntStmt->fetch(PDO::FETCH_ASSOC);
                     $existingCount = (int)($cntRow['cnt'] ?? 0);
                     if ($existingCount >= 10) {
-                        echo json_encode(['success' => false, 'error' => 'Maximum of 10 personal addresses allowed']);
+                        echo json_encode(['success' => false, 'error' => 'Maximum of 10 sticky addresses allowed']);
                         break;
                     }
                 } catch (Exception $e) {
@@ -298,7 +298,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     echo json_encode(['success' => true, 'personal' => $list, 'cooldown' => $cooldown]);
                 } catch (Exception $e) {
-                    echo json_encode(['success' => false, 'error' => 'Failed to list personal addresses']);
+                    echo json_encode(['success' => false, 'error' => 'Failed to list sticky addresses']);
                 }
                 break;
             case 'delete_personal':
@@ -478,7 +478,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'owner_id' => $ownerId,
                             'requester_id' => $currentUserId ?: 'anonymous'
                         ]);
-                        throw new Exception('Authentication required to access this personal address');
+                        throw new Exception('Authentication required to access this sticky address');
                     }
                 }
                 
@@ -565,7 +565,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'owner_id' => $ownerId,
                             'requester_id' => $currentUserId ?: 'anonymous'
                         ]);
-                        throw new Exception('Authentication required to access this personal address');
+                        throw new Exception('Authentication required to access this sticky address');
                     }
                 }
 
@@ -634,7 +634,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'owner_id' => $ownerId,
                             'requester_id' => $currentUserId ?: 'anonymous'
                         ]);
-                        throw new Exception('Authentication required to access this personal address');
+                        throw new Exception('Authentication required to access this sticky address');
                     }
                 }
 
@@ -765,7 +765,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         'owner_id' => $ownerId,
                                         'requester_id' => $currentUserId ?: 'anonymous'
                                     ]);
-                                    throw new Exception('Authentication required to access this personal email');
+                                    throw new Exception('Authentication required to access this sticky address');
                                 }
                             }
                         }
@@ -1039,7 +1039,7 @@ $msOrigin = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 // exactly the claim that gets a site penalised rather than ranked.
 $msPage = [
     'title'        => 'Mail Shield — Your inbox for everything else',
-    'description'  => 'A separate inbox for shopping, newsletters, signups and temporary email. Create permanent addresses or disposable temporary email addresses, and keep your primary inbox for what matters.',
+    'description'  => 'A separate inbox for shopping, newsletters, signups and temporary email. Create sticky addresses that stay, or timed addresses that delete themselves, and keep your primary inbox for what matters.',
     'path'         => '/',
     'preload_font' => true,
     'jsonld'       => [

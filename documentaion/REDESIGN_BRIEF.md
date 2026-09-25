@@ -46,6 +46,16 @@ want to try, temporary email, projects, secondary identities, automated email.
 
 Mental model to sell: **"my second inbox"**, not "a disposable address".
 
+**Address kinds.** User-facing copy names the two kinds of address
+**Sticky addresses** (Pro, up to 10, no expiry — formerly "personal
+addresses") and **Timed addresses** (run on a clock and delete themselves —
+formerly "temporary addresses"). Never call either kind "personal" or
+"temporary" addresses in copy. "Temporary email" / "disposable email"
+remain valid as *keywords* describing the category (§14) — e.g. on
+`temporary-email.php` — but the product's own name for the address is
+*timed address*. Code identifiers (`is_personal`, `include_temporary`,
+`create_personal`, …) keep their old names.
+
 **Operator:** the service is operated by Manjo Consulting AB and runs on the
 domain `manjo.me`. The company name stays in the footer and in legal copy.
 
@@ -309,24 +319,24 @@ when `<N>` is 0 every line falls back to its pre-trial wording (here:
 
 - H2: `How it works`
 1. `Create your inbox` — `Sign up with your real email address. It stays private.`
-2. `Make an address` — `A permanent one like shopping@<domain>, or a temporary one you throw away.`
+2. `Choose an address` — `Use a sticky address like shopping@<domain> when you want to hear from a service again, or create a timed one for mail you only need for a while.`
 3. `Everything lands in one place` — `Read it on the web, or route it onward with RSS, webhooks or push.`
 
-### Personal addresses
+### Sticky addresses
 
-- Eyebrow: `Personal addresses`
+- Eyebrow: `Sticky addresses`
 - H2: `One account. Multiple addresses.`
-- Body: `Create up to 10 personal email addresses and manage them from one inbox.`
+- Body: `Create up to 10 sticky addresses and manage them from one inbox.`
 - Examples: `shopping@`, `news@`, `projects@` (+ configured domain)
 - Kicker: `Multiple identities. One inbox.`
-- Tier note: `Personal addresses are part of Pro — and included in your first <N> days.` (signed in: `Personal addresses are part of Pro.`)
+- Tier note: `Sticky addresses are part of Pro — and included in your first <N> days.` (signed in: `Sticky addresses are part of Pro.`)
 
 ### Temporary email
 
-- Eyebrow: `Temporary addresses`
-- H2: `Temporary when you need it.`
-- Body: `Need an address for a signup, download or service you don't fully trust yet? Create a temporary address. Use it. Forget it.`
-- Retention: `Temporary addresses clean up after themselves — 24 hours on a free account, or up to 7 days on Pro.`
+- Eyebrow: `Timed addresses`
+- H2: `Here when you need it. Gone when you don't.`
+- Body: `Need an address for a signup, download or service you don't fully trust yet? Create a timed address. Use it. Forget it.`
+- Retention: `Timed addresses clean up after themselves — 24 hours on a free account, or up to 7 days on Pro.`
 - Link: `More about temporary email addresses` → `/temporary-email.php`
 
 ### Automation
@@ -350,9 +360,9 @@ link. Browser push notifications do not exist — never mention them.
 
 - Eyebrow: `Smart cleanup`
 - H2: `Less clutter. Automatically.`
-- Body: `Your temporary inbox shouldn't become another inbox you have to manage.`
+- Body: `Your second inbox shouldn't become another inbox you have to manage.`
 - Points:
-  - `Temporary addresses and their messages are deleted automatically.`
+  - `Timed addresses and their messages are deleted automatically.`
   - `Allow and block lists per sender, so the noise stops before you see it.`
   - `Digest emails summarise what arrived while you were away.`
   - `Notifications for the messages that actually matter.`
@@ -375,7 +385,7 @@ or syncs them — never "when a message arrives".
 ### Free and Pro
 
 - H2: `Free and Pro`
-- Body: `Every new account starts with <N> days of Pro, free — personal addresses and automation included. When the trial ends, you keep a free account, or stay on Pro.`
+- Body: `Every new account starts with <N> days of Pro, free — sticky addresses and automation included. When the trial ends, you keep a free account, or stay on Pro.`
 - Pro card chip: `First <N> days free`
 - Note: `No card needed, and nothing to cancel. One trial per email address. After the trial, Pro continues with a voucher code — online payment is on the way.`
 - CTAs: `Start with <N> days of Pro` → `/register.php?plan=regular`,
@@ -395,8 +405,8 @@ Copy may only promise what this table says exists.
 
 | Capability | Reality in code | How to say it |
 |---|---|---|
-| Temporary addresses | Free/Regular: 24 h. Pro: configurable 1–7 days | "24 hours on a free account, up to 7 days on Pro" |
-| Personal addresses | Pro only, max 10, long-lived | "part of Pro" |
+| Timed addresses | Free/Regular: 24 h. Pro: configurable 1–7 days | "24 hours on a free account, up to 7 days on Pro" |
+| Sticky addresses | Pro only, max 10, long-lived | "part of Pro" |
 | Creating an address | Requires a registered account | never imply anonymous one-click generation |
 | RSS feed | Pro, token-protected (`pro_feed.php`) | ships |
 | Webhooks | Pro, generic JSON POST | ships |
@@ -409,7 +419,7 @@ Copy may only promise what this table says exists.
 | 2FA | TOTP on password login | ships |
 | Public REST API | **does not exist** | `Coming` badge only |
 | Browser/web push | **does not exist** (no VAPID) | never mention |
-| Pro trial | Every new account, `<N>` days (default 60) from first email verification, once per email address (`pro_trial.php`, epic #267); afterwards the account is Free and personal addresses go 7 days later | "`<N>` days of Pro, free" — never "free forever", never a trial for signed-in users |
+| Pro trial | Every new account, `<N>` days (default 60) from first email verification, once per email address (`pro_trial.php`, epic #267); afterwards the account is Free and sticky addresses go 7 days later | "`<N>` days of Pro, free" — never "free forever", never a trial for signed-in users |
 | Online payment for Pro | **does not exist**; voucher code only | "after the trial, Pro continues with a voucher code" |
 | Pricing | no prices defined | no Pricing page, no price claims |
 

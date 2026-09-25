@@ -40,7 +40,7 @@ $msHowDomain = htmlspecialchars(
             <li class="ms-card ms-step">
                 <span class="ms-step__num" aria-hidden="true">2</span>
                 <h3 class="ms-h3">Choose an address</h3>
-                <p class="ms-step__body">Use a stable address like <span class="ms-addr">shopping@<?php echo $msHowDomain; ?></span> when you want to hear from a service again, or create a temporary one for mail you only need for a while.</p>
+                <p class="ms-step__body">Use a sticky address like <span class="ms-addr">shopping@<?php echo $msHowDomain; ?></span> when you want to hear from a service again, or create a timed one for mail you only need for a while.</p>
             </li>
             <li class="ms-card ms-step">
                 <span class="ms-step__num" aria-hidden="true">3</span>
