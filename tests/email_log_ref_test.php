@@ -111,8 +111,9 @@ function scrubDb(): PDO
         ['INFO', 'Inactive regular account warned', ['user_id' => 5, 'email' => 'known@example.com']],
         // 4: inbound mail to a temp address - must stay.
         ['INFO', 'parse.php: saved incoming email', ['email_id' => 9, 'to' => 'abcdef1234@manjo.me']],
-        // 5: nested payload plus an address embedded in an error string.
-        ['WARNING', 'BMAC webhook missing or invalid email', ['data' => ['supporter_email' => 'payer@example.net', 'items' => ['x@example.net']], 'error' => "Duplicate entry 'dup@example.net' for key 'email'"]],
+        // 5: nested payload plus an address embedded in an error string (the shape
+        // of a legacy payment-webhook row, which still names the payer supporter_email).
+        ['WARNING', 'Payment webhook missing or invalid email', ['data' => ['supporter_email' => 'payer@example.net', 'items' => ['x@example.net']], 'error' => "Duplicate entry 'dup@example.net' for key 'email'"]],
         // 6: address interpolated into the message text, next to a service address.
         ['ERROR', 'Failed to send magic link to stranger@example.net from noreply@manjo.me', null],
         // 7: new_email of a pending change.
