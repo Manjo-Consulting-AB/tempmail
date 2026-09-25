@@ -71,42 +71,9 @@ if (!in_array($action, $proProfileReadOnlyActions, true)) {
     }
 }
 
-// Helper: encrypt/decrypt webhook secret using environment key WEBHOOKS_KEY
-function encrypt_webhook_secret($plaintext) {
-    if (empty($plaintext)) return null;
-    $key = $_ENV['WEBHOOKS_KEY'] ?? null;
-    if (empty($key)) {
-        // No key configured — store plaintext. This is a real misconfiguration
-        // (webhook secrets should be encrypted at rest), but rejecting webhook
-        // creation outright would be a bigger functional regression than
-        // logging loudly, since we can't verify WEBHOOKS_KEY is meant to be set
-        // in every deployment. Logged at ERROR so it's actionable in log_viewer.php.
-        logMessage('ERROR', 'WEBHOOKS_KEY not set; storing webhook secret in plaintext');
-        return $plaintext;
-    }
-    $method = 'AES-256-CBC';
-    $ivlen = openssl_cipher_iv_length($method);
-    $iv = openssl_random_pseudo_bytes($ivlen);
-    $cipher = openssl_encrypt($plaintext, $method, hash('sha256', $key, true), OPENSSL_RAW_DATA, $iv);
-    if ($cipher === false) return null;
-    return base64_encode($iv . $cipher);
-}
-
-function decrypt_webhook_secret($encoded) {
-    if (empty($encoded)) return null;
-    $key = $_ENV['WEBHOOKS_KEY'] ?? null;
-    if (empty($key)) {
-        // No key configured — assume stored plaintext
-        return $encoded;
-    }
-    $method = 'AES-256-CBC';
-    $raw = base64_decode($encoded);
-    $ivlen = openssl_cipher_iv_length($method);
-    $iv = substr($raw, 0, $ivlen);
-    $ciphertext = substr($raw, $ivlen);
-    $plain = openssl_decrypt($ciphertext, $method, hash('sha256', $key, true), OPENSSL_RAW_DATA, $iv);
-    return $plain === false ? null : $plain;
-}
+// Webhook signing secrets: AES-256-GCM under WEBHOOKS_KEY, fail closed - see
+// webhook_secret.php.
+require_once __DIR__ . '/webhook_secret.php';
 
 // Helper: current password_hash for a pro user, or null if unset/column missing.
 // Several profile-security actions (password change, 2FA enroll/disable) need
@@ -1247,7 +1214,9 @@ try {
             $rawSecret = $_POST['secret'] ?? '';
 
             // Detect suspicious patterns in all inputs
-            foreach ([$rawName, $rawUrl, $rawSecret] as $input) {
+            // The secret is left out: it is only ever used as an HMAC key and
+            // never rendered, and a long random secret trips base64_payload.
+            foreach ([$rawName, $rawUrl] as $input) {
                 $suspicious = detectSuspiciousPatterns((string)$input);
                 if (!empty($suspicious)) {
                     logMessage('WARNING', 'Suspicious webhook input', ['patterns' => $suspicious, 'user_id' => $userId]);
@@ -1265,7 +1234,12 @@ try {
             $name = sanitizeString($rawName, 100, true);
             $url = sanitizeString($rawUrl, 2048, true);
             $kind = sanitizeAlphanumeric($rawKind, 20) ?: 'generic';
-            $secret = sanitizeString($rawSecret, 256, true) ?? '';
+            // 100 characters at most: encrypted, that still fits
+            // pro_webhooks.secret (VARCHAR(191)); 256 did not. Refused, not cut.
+            if (strlen((string) $rawSecret) > 100) {
+                send_json(['success' => false, 'error' => 'Signing secret is too long (max 100 characters)']);
+            }
+            $secret = sanitizeString($rawSecret, 100, true) ?? '';
 
             if (empty($url)) {
                 send_json(['success' => false, 'error' => 'URL is required']);
@@ -1333,7 +1307,15 @@ try {
 
             try {
                 // Encrypt secret if provided
-                $storedSecret = $secret ? encrypt_webhook_secret($secret) : null;
+                $storedSecret = null;
+                if ($secret !== '') {
+                    $storedSecret = webhookSecretEncrypt($secret);
+                    if ($storedSecret === null) {
+                        // No WEBHOOKS_KEY: refuse rather than store it readable.
+                        logMessage('ERROR', 'Webhook secret could not be encrypted (WEBHOOKS_KEY missing?)', ['user_id' => $userId]);
+                        send_json(['success' => false, 'error' => 'Signing secrets are unavailable right now. Create the webhook without a secret or try again later.']);
+                    }
+                }
                 $ins = $pdo->prepare("INSERT INTO pro_webhooks (user_id, name, url, kind, config, secret) VALUES (?, ?, ?, ?, ?, ?)");
                 $ins->execute([$userId, $name ?: null, $url, $kind, $configArr ? json_encode($configArr) : null, $storedSecret]);
                 $id = (int)$pdo->lastInsertId();
@@ -1390,7 +1372,7 @@ try {
                         $payloadJson = json_encode(ImapProcessor::genericWebhookBody($configArr ?? [], $payload), JSON_UNESCAPED_UNICODE);
                         $signature = null;
                         if (!empty($storedSecret)) {
-                            $secretPlain = decrypt_webhook_secret($storedSecret);
+                            $secretPlain = webhookSecretDecrypt($storedSecret);
                             if (!empty($secretPlain)) {
                                 $signature = 'sha256=' . hash_hmac('sha256', $payloadJson, $secretPlain);
                             }

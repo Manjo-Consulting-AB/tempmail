@@ -15,8 +15,13 @@ defined('TEMPMAIL_APP') or define('TEMPMAIL_APP', true);
  * migrate_webhook_addresses.php has to have run. It has no fallback - see
  * dispatchWebhooks() and hooksForDestination().
  */
+require_once __DIR__ . '/webhook_secret.php';
+
 class ImapProcessor
 {
+    /** Seconds deliverNow() may spend in the mail pipe, all deliveries together. */
+    private const IMMEDIATE_BUDGET_SECONDS = 8;
+
     private array $config;
     private PDO $pdo;
     private bool $debugMode = false;
@@ -201,7 +206,15 @@ class ImapProcessor
      */
     public function deliverNow(array $deliveryIds, int $limit = 5): void
     {
+        // Runs inside the Exim pipe: a total time budget on top of the
+        // per-request timeouts, so a handful of slow targets cannot hold the
+        // delivery for long. Whatever is left is sent by the cron worker.
+        $deadline = microtime(true) + self::IMMEDIATE_BUDGET_SECONDS;
         foreach (array_slice($deliveryIds, 0, max(0, $limit)) as $id) {
+            if (microtime(true) >= $deadline) {
+                $this->log('INFO', 'Immediate webhook delivery budget spent, rest left for the worker', ['delivery_id' => (int)$id]);
+                break;
+            }
             try {
                 $this->dispatchDelivery((int)$id);
             } catch (Throwable $e) {
@@ -375,7 +388,8 @@ class ImapProcessor
                 curl_setopt($ch, CURLOPT_POST, 1);
                 curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post));
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 5);
                 if (defined('CURL_HTTP_VERSION_1_1')) curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
                 curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
                 curl_setopt($ch, CURLOPT_USERAGENT, 'TempMailWebhook/1.0');
@@ -387,7 +401,7 @@ class ImapProcessor
                 return ['code' => (int)$code, 'body' => $resp];
             }
 
-            $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => 'Content-type: application/x-www-form-urlencoded\r\n', 'content' => http_build_query($post), 'timeout' => 5]]);
+            $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-type: application/x-www-form-urlencoded\r\n", 'content' => http_build_query($post), 'timeout' => 5]]);
             $resp = @file_get_contents('https://api.pushover.net/1/messages.json', false, $ctx);
             return $resp === false ? ['code' => 0, 'body' => 'file_get_contents failed'] : ['code' => 200, 'body' => $resp];
         }
@@ -396,7 +410,12 @@ class ImapProcessor
         $payloadJson = json_encode(self::genericWebhookBody($cfg, $payload), JSON_UNESCAPED_UNICODE);
         $signature = null;
         if (!empty($hook['secret'])) {
-            $secret = $this->decryptHookSecret($hook['secret']);
+            $secret = webhookSecretDecrypt($hook['secret']);
+            if ($secret === null) {
+                // Never sign with the stored ciphertext or send unsigned: a
+                // failed attempt is retried, and logged, instead.
+                throw new Exception('Webhook secret could not be decrypted');
+            }
             $signature = 'sha256=' . hash_hmac('sha256', $payloadJson, $secret);
         }
         // Throws on an invalid headers config: a failed delivery, logged.
@@ -418,6 +437,7 @@ class ImapProcessor
             curl_setopt($ch, CURLOPT_POSTFIELDS, $payloadJson);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
             curl_setopt($ch, CURLOPT_TIMEOUT, 5);
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
             curl_setopt($ch, CURLOPT_RESOLVE, [$target['host'] . ':' . $target['port'] . ':' . $target['ip']]);
@@ -432,20 +452,6 @@ class ImapProcessor
         $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => implode("\r\n", $headers) . "\r\n", 'content' => $payloadJson, 'timeout' => 5]]);
         $resp = @file_get_contents($url, false, $ctx);
         return $resp === false ? ['code' => 0, 'body' => 'file_get_contents failed'] : ['code' => 200, 'body' => $resp];
-    }
-
-    private function decryptHookSecret($encoded)
-    {
-        if (empty($encoded)) return null;
-        $key = $_ENV['WEBHOOKS_KEY'] ?? null;
-        if (empty($key)) return $encoded;
-        $method = 'AES-256-CBC';
-        $raw = base64_decode($encoded);
-        $ivlen = openssl_cipher_iv_length($method);
-        $iv = substr($raw, 0, $ivlen);
-        $ciphertext = substr($raw, $ivlen);
-        $plain = openssl_decrypt($ciphertext, $method, hash('sha256', $key, true), OPENSSL_RAW_DATA, $iv);
-        return $plain === false ? $encoded : $plain;
     }
 
     /**

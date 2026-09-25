@@ -199,7 +199,7 @@ function ms_test_storage_probe_build(string $repoRoot): string
     // The classes under test are these copies, never the repository's own: see
     // the file header. debug_logger.php comes along because MailParser requires
     // it unconditionally, and it writes into the docroot's own debug_logs/.
-    foreach (['MailParser.php', 'debug_logger.php', 'php_imap_processor.php', 'parse.php'] as $file) {
+    foreach (['MailParser.php', 'debug_logger.php', 'php_imap_processor.php', 'webhook_secret.php', 'parse.php'] as $file) {
         if (!copy($repoRoot . '/' . $file, $root . '/' . $file)) {
             throw new RuntimeException("Could not copy {$file} into the storage probe docroot");
         }
