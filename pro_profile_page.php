@@ -201,6 +201,11 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                     <span id="personalCounterBadge" class="badge bg-secondary ms-2">0/10</span>
                                 </div>
                                 <div id="personalList" class="mt-3"></div>
+                                <div id="personalCooldown" class="mt-3 d-none">
+                                    <h4 class="ms-card__subtitle">Recently deleted</h4>
+                                    <p class="form-text text-muted">A deleted address stays reserved for you for <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> months, so nobody else can pick up mail meant for you. You can create it again until the date shown. At most <?php echo (int)($config['address_cooldown']['max_per_user'] ?? 30); ?> addresses are reserved at a time; the oldest is released first.</p>
+                                    <div id="personalCooldownList"></div>
+                                </div>
                                 <div id="personalCreateProNote" class="form-text text-muted d-none">Creating personal addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
                                 <div id="personalFeedProNote" class="form-text text-muted d-none">A per-address RSS feed requires a Pro account. Deleting addresses stays available.</div>
                             </div>
@@ -1112,10 +1117,39 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 }
             }
 
+            // Deleted addresses still reserved for this account (address_cooldown.php).
+            function renderPersonalCooldown(items) {
+                var $wrap = $('#personalCooldown');
+                if (!items || items.length === 0) {
+                    $wrap.addClass('d-none');
+                    $('#personalCooldownList').empty();
+                    return;
+                }
+                var html = '<div class="list-group">';
+                items.forEach(function(it){
+                    var until = String(it.blocked_until || '').slice(0, 10);
+                    html += '\n                                <div class="list-group-item ms-address-row">\n'
+                        + '                                    <div class="d-flex justify-content-between align-items-center ms-address-row__main">\n'
+                        + '                                        <div class="flex-grow-1">\n'
+                        + '                                            <span>'+escapeHtml(it.full_address)+'</span>\n'
+                        + '                                            <div class="form-text text-muted">Reserved for you until '+escapeHtml(until)+'</div>\n'
+                        + '                                        </div>\n'
+                        + '                                        <div class="d-flex align-items-center ms-address-row__actions">\n'
+                        + '                                            <button type="button" class="btn btn-sm btn-outline-secondary personal-recreate" data-address="'+escapeHtml(it.address)+'"'+(isProAccount ? '' : ' disabled')+'>Create again</button>\n'
+                        + '                                        </div>\n'
+                        + '                                    </div>\n'
+                        + '                                </div>';
+                });
+                html += '\n</div>';
+                $('#personalCooldownList').html(html);
+                $wrap.removeClass('d-none');
+            }
+
             function loadPersonalList() {
                 $.post('index.php', { action: 'list_personal' }, function(res){
                     if (res && res.success) {
                         renderPersonalList(res.personal || []);
+                        renderPersonalCooldown(res.cooldown || []);
                     } else {
                         $('#personalList').html('<p class="text-danger">Failed to load personal addresses</p>');
                     }
@@ -1348,6 +1382,14 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 }, 'json').fail(function(){ $msg.css('color', '#ff6b6b').text('Request failed'); });
             });
 
+            // Take a reserved address back: same path as typing it in.
+            $(document).on('click', '.personal-recreate', function(){
+                var addr = $(this).data('address');
+                if (!addr) return;
+                $('#personalLocal').val(String(addr));
+                $('#createPersonalBtn').trigger('click');
+            });
+
             // Initial load for personal addresses
             if ($('#personalList').length) {
                 loadPersonalList();
@@ -1375,7 +1417,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 e.stopPropagation();
                 var id = $(this).data('id');
                 if (!id) return;
-                if (!confirm('Delete this personal address? This action cannot be undone.')) return;
+                if (!confirm('Delete this personal address? Its mail is deleted and cannot be restored. The address stays reserved for you for <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> months, so you can create it again.')) return;
                 var $btn = $(this);
                 $btn.prop('disabled', true);
                 $.post('index.php', { action: 'delete_personal', id: id }, function(res){
