@@ -929,6 +929,11 @@ try {
                 // Decode config JSON for response
                 foreach ($rows as &$r) {
                     $r['config'] = $r['config'] ? json_decode($r['config'], true) : null;
+                    // Credentials are shown masked (last four characters), never
+                    // readable: they cannot be read back out of the page.
+                    if (is_array($r['config'])) {
+                        $r['config'] = webhookConfigMask($r['config'], (string) ($r['kind'] ?? 'generic'));
+                    }
                     unset($r['secret']); // Do not expose secret in list
                     // Absent (pre-migration) reads as off / unlinked.
                     $r['include_temporary'] = $routing && (int)($r['include_temporary'] ?? 0) === 1;
@@ -1316,8 +1321,19 @@ try {
                         send_json(['success' => false, 'error' => 'Signing secrets are unavailable right now. Create the webhook without a secret or try again later.']);
                     }
                 }
+                // Credentials in the config (Pushover's token and user key)
+                // are stored encrypted; the plaintext $configArr is kept for
+                // the test send below. Fail closed, as for the secret.
+                $storedConfig = $configArr;
+                if (is_array($configArr)) {
+                    $storedConfig = webhookConfigSeal($configArr, $kind);
+                    if ($storedConfig === null) {
+                        logMessage('ERROR', 'Webhook credentials could not be encrypted (WEBHOOKS_KEY missing?)', ['user_id' => $userId]);
+                        send_json(['success' => false, 'error' => 'Webhooks with credentials cannot be saved right now. Please try again later.']);
+                    }
+                }
                 $ins = $pdo->prepare("INSERT INTO pro_webhooks (user_id, name, url, kind, config, secret) VALUES (?, ?, ?, ?, ?, ?)");
-                $ins->execute([$userId, $name ?: null, $url, $kind, $configArr ? json_encode($configArr) : null, $storedSecret]);
+                $ins->execute([$userId, $name ?: null, $url, $kind, $storedConfig ? json_encode($storedConfig) : null, $storedSecret]);
                 $id = (int)$pdo->lastInsertId();
                 logMessage('INFO', 'Webhook created', ['user_id' => $userId, 'webhook_id' => $id]);
                 // Attempt an immediate test delivery so the user can verify the webhook
