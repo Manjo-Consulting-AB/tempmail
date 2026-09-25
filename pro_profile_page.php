@@ -1,6 +1,10 @@
 <?php
 require_once 'config.php';
 session_start();
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
     header('Location: pro_login.php');
@@ -1082,6 +1086,14 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                         + '                                                <i class="fas '+(hooksPaused ? 'fa-bell-slash' : 'fa-bell')+'" aria-hidden="true"></i> <span class="ms-address-row__hooks-state">'+(hooksPaused ? 'Hooks paused' : 'Hooks on')+'</span>\n'
                         + '                                            </button>\n';
                     }
+                    // Set by the abuse guard (abuse_guard.php) while mail to
+                    // the address is refused because of a flood of mail.
+                    var pauseNotice = '';
+                    if (it.closed) {
+                        pauseNotice = '                                    <p class="ms-address-row__notice">Closed after repeated floods of mail: mail to this address is refused. Delete it and create a new one.</p>\n';
+                    } else if (it.paused_until) {
+                        pauseNotice = '                                    <p class="ms-address-row__notice">Paused until '+escapeHtml(it.paused_until)+' (server time) because of an unusual amount of mail. Mail to this address is refused until then.</p>\n';
+                    }
                     html += '\n                                <div class="list-group-item ms-address-row" data-id="'+escapeHtml(it.id)+'">\n'
                         + '                                    <div class="d-flex justify-content-between align-items-center ms-address-row__main">\n'
                         + '                                        <div class="flex-grow-1 personal-item" style="cursor:pointer;" data-address="'+escapeHtml(it.address)+'">\n'
@@ -1097,6 +1109,7 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                         + '                                            </button>\n'
                         + '                                        </div>\n'
                         + '                                    </div>\n'
+                        + pauseNotice
                         + '                                    <div id="addressFeedPanel'+escapeHtml(it.id)+'" class="ms-address-feed d-none"></div>\n'
                         + '                                </div>';
                 });

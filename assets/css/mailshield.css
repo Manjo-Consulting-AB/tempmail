@@ -4126,6 +4126,16 @@ a:hover {
     background: var(--ms-accent-soft);
 }
 
+/* Why mail to an address is refused right now: the abuse guard has paused or
+   closed it (abuse_guard.php). A status line under the row, not an alert. */
+.ms-address-row__notice {
+    margin: var(--ms-space-2) 0 0;
+    color: var(--ms-warning);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    overflow-wrap: anywhere;
+}
+
 .ms-address-feed {
     margin-top: var(--ms-space-3);
     padding-top: var(--ms-space-3);
@@ -4910,4 +4920,104 @@ a:hover {
     font-size: var(--ms-fs-sm);
     line-height: var(--ms-lh-sm);
     color: var(--ms-text-muted);
+}
+
+/* --- Abuse guard admin (abuse_admin.php) -------------------------------------
+   An internal page for the accounts in ADMIN_USER_IDS: plain tables, each in
+   its own horizontal scroll container so the page itself never scrolls
+   sideways (§12.8). */
+
+.ms-admin {
+    background: var(--ms-bg);
+    color: var(--ms-text);
+}
+
+.ms-admin__main {
+    padding-block: var(--ms-space-6);
+}
+
+.ms-admin__title {
+    font-size: var(--ms-fs-h2);
+    margin: 0 0 var(--ms-space-3);
+}
+
+.ms-admin__lede,
+.ms-admin__empty {
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+}
+
+.ms-admin__notice {
+    padding: var(--ms-space-3) var(--ms-space-4);
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-accent-soft);
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-admin__section {
+    margin-top: var(--ms-space-7);
+}
+
+.ms-admin__heading {
+    font-size: var(--ms-fs-h3);
+    margin: 0 0 var(--ms-space-3);
+}
+
+.ms-admin__scroll {
+    overflow-x: auto;
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-bg-raised);
+}
+
+.ms-admin__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-admin__table th,
+.ms-admin__table td {
+    padding: var(--ms-space-2) var(--ms-space-3);
+    border-bottom: 1px solid var(--ms-border);
+    text-align: left;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.ms-admin__table th {
+    background: var(--ms-bg-sunken);
+    font-weight: 600;
+}
+
+.ms-admin__mono {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    white-space: normal;
+    min-width: 16rem;
+    overflow-wrap: anywhere;
+}
+
+.ms-admin__inline {
+    display: inline-block;
+    margin: 0 var(--ms-space-2) var(--ms-space-1) 0;
+}
+
+.ms-admin__manual {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-2);
+    margin-top: var(--ms-space-4);
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-admin__input {
+    width: 8rem;
+    padding: var(--ms-space-2);
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-sm);
+    font: inherit;
 }

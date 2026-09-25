@@ -149,9 +149,11 @@ function parseEnvOrServer(string $key): ?string
 // --- 1. Read the raw RFC822 message from stdin ------------------------------
 
 // A message larger than the configured limit is a permanent rejection, decided
-// here — on the raw message as delivered, before the recipient is even derived
-// and before any database lookup. Read one byte past the limit so an oversize
-// message is detected without ever holding the whole of it in memory.
+// on the raw message as delivered and before it is parsed. Read one byte past
+// the limit so an oversize message is detected without ever holding the whole
+// of it in memory. The rejection itself waits until the recipient has been
+// looked up (step 3), so the abuse guard can count the bytes against the
+// address: a flood of oversize messages is exactly what it has to see.
 $maxBytes = (int)($config['email']['max_message_bytes'] ?? 10485760);
 if ($maxBytes <= 0) {
     $maxBytes = 10485760;
@@ -162,16 +164,20 @@ if ($raw === false || $raw === '') {
     parseReject('Empty or unreadable message on stdin');
 }
 
-if (strlen($raw) > $maxBytes) {
+$rawBytes = strlen($raw);
+$oversize = $rawBytes > $maxBytes;
+if ($oversize) {
     // Drain the rest without keeping it: the pipe's writer must not see a
     // broken pipe, or Exim reports the delivery differently than this exit
     // code says.
     while (!feof(STDIN)) {
-        if (fread(STDIN, 65536) === false) {
+        $chunk = fread(STDIN, 65536);
+        if ($chunk === false) {
             break;
         }
+        $rawBytes += strlen($chunk);
     }
-    parseReject('Message exceeds the maximum size of ' . $maxBytes . ' bytes', ['to_source' => 'stdin']);
+    $raw = '';
 }
 
 // --- 2. Derive the recipient local part --------------------------------------
@@ -238,6 +244,82 @@ if (strtotime((string)$tempEmail['expires_at']) < time()) {
     parseReject('Recipient address has expired', ['local_part' => $localPart, 'expires_at' => $tempEmail['expires_at']]);
 }
 
+// --- 3b. Abuse guard (abuse_guard.php, documentaion/ABUSE_PROTECTION.md) -----
+//
+// Every message to a known address is counted, the oversize ones included.
+// Over a threshold the address is quarantined: its forwarder is removed, so
+// from then on Exim rejects mail to it before this script is even started.
+// Until DirectAdmin has done that, what still arrives for a quarantined
+// address is accepted and dropped (exit 0): a bounce from here would go to a
+// sender address that is usually forged. Fail-open throughout: a broken
+// counter must never lose or refuse legitimate mail.
+
+require_once __DIR__ . '/abuse_guard.php';
+
+$abuseSettings = abuseGuardSettings();
+$abuseActive = false;
+try {
+    $abuseActive = abuseGuardAvailable();
+} catch (Throwable $e) {
+    $abuseActive = false;
+}
+
+/**
+ * Quarantine the recipient and ask DirectAdmin to drop its forwarder. Never
+ * throws; returns whether the address is now quarantined.
+ */
+$abuseQuarantine = static function (string $reason) use ($pdo, $localPart, $tempEmail, $abuseSettings): bool {
+    try {
+        $userId = !empty($tempEmail['pro_user_id']) ? (int)$tempEmail['pro_user_id'] : null;
+        $result = abuseQuarantineAddress($pdo, $localPart, (int)$tempEmail['id'], $userId, $reason, time(), $abuseSettings);
+        // A parallel delivery of the same flood may have removed it already.
+        $current = abuseQuarantineGet($pdo, $localPart, time());
+        $removed = ($current !== null && (int)$current['forwarder_removed'] === 1)
+            || abuseRemoveForwarder($pdo, $localPart, 'directAdminRemoveForwarder');
+        logMessage('WARNING', 'parse.php: address quarantined by the abuse guard', [
+            'local_part' => $localPart,
+            'user_id' => $userId,
+            'reason' => $reason,
+            'until' => $result['until'],
+            'closed' => $result['closed'],
+            'forwarder_removed' => $removed,
+        ]);
+        return true;
+    } catch (Throwable $e) {
+        logMessage('ERROR', 'parse.php: abuse guard could not quarantine the address', ['local_part' => $localPart, 'error' => $e->getMessage()]);
+        return false;
+    }
+};
+
+if ($abuseActive) {
+    try {
+        $now = time();
+        if (abuseQuarantineGet($pdo, $localPart, $now) !== null) {
+            abuseCounterAdd($pdo, 'addr', $localPart, 300, 1, $rawBytes, 0, $now);
+            logMessage('INFO', 'parse.php: message to a quarantined address dropped', ['local_part' => $localPart, 'bytes' => $rawBytes]);
+            exit(0);
+        }
+
+        $verdict = abuseAddressRecord($pdo, $localPart, $rawBytes, 0, $now, $abuseSettings);
+        if ($verdict['level'] === 'quarantine') {
+            if ($abuseQuarantine((string)$verdict['reason'])) {
+                exit(0);
+            }
+        } elseif ($verdict['level'] === 'warn') {
+            $userId = !empty($tempEmail['pro_user_id']) ? (int)$tempEmail['pro_user_id'] : null;
+            if (abuseAddressWarnOnce($pdo, $localPart, $userId, (string)$verdict['reason'], $now)) {
+                logMessage('WARNING', 'parse.php: address nearing an abuse limit', ['local_part' => $localPart, 'user_id' => $userId, 'reason' => $verdict['reason']]);
+            }
+        }
+    } catch (Throwable $e) {
+        logMessage('ERROR', 'parse.php: abuse guard failed, message handled as usual', ['local_part' => $localPart, 'error' => $e->getMessage()]);
+    }
+}
+
+if ($oversize) {
+    parseReject('Message exceeds the maximum size of ' . $maxBytes . ' bytes', ['to_source' => 'stdin', 'local_part' => $localPart, 'bytes' => $rawBytes]);
+}
+
 $domain = $config['email']['domain'] ?? 'manjo.me';
 $toAddress = $localPart . '@' . $domain;
 
@@ -299,11 +381,35 @@ $addressExpiresAt = new DateTimeImmutable((string)$tempEmail['expires_at']);
 // MailParser's decoded attachments travel in the DTO; the service persists
 // them with the email and reports a per-attachment failure as a warning rather
 // than failing the store.
-$attachments = [];
-foreach ($parsed['attachments'] as $attachment) {
-    if (is_array($attachment)) {
-        $attachments[] = EmailAttachment::fromArray($attachment);
+//
+// At most max_attachments real attachments and max_inline_images inline
+// images per message (abuse_guard.php): the rest are dropped, the message is
+// still stored, and the overflow is a strike against the address — enough
+// strikes in an hour quarantine it like any other flood.
+[$parsedAttachments, $droppedRegular, $droppedInline] = abuseLimitAttachments(
+    array_values(array_filter((array)($parsed['attachments'] ?? []), 'is_array')),
+    (int)$abuseSettings['max_attachments'],
+    (int)$abuseSettings['max_inline_images']
+);
+$attachmentStrike = null;
+if ($droppedRegular > 0 || $droppedInline > 0) {
+    logMessage('WARNING', 'parse.php: attachments over the per-message limit were not stored', [
+        'local_part' => $localPart,
+        'dropped_attachments' => $droppedRegular,
+        'dropped_inline_images' => $droppedInline,
+    ]);
+    if ($abuseActive) {
+        try {
+            $attachmentStrike = abuseAddressStrike($pdo, $localPart, time(), $abuseSettings);
+        } catch (Throwable $e) {
+            logMessage('ERROR', 'parse.php: abuse guard could not record an attachment strike', ['local_part' => $localPart, 'error' => $e->getMessage()]);
+        }
     }
+}
+
+$attachments = [];
+foreach ($parsedAttachments as $attachment) {
+    $attachments[] = EmailAttachment::fromArray($attachment);
 }
 
 $emailStorage = new EmailStorage($pdo, !empty($config['app']['debug_mode']));
@@ -404,5 +510,11 @@ logMessage('INFO', 'parse.php: saved incoming email', [
     'to' => $toAddress,
     'attachments' => $attachmentsSaved,
 ]);
+
+// The message is stored either way; a strike that crossed the line closes the
+// door behind it.
+if ($attachmentStrike !== null && $attachmentStrike['level'] === 'quarantine') {
+    $abuseQuarantine((string)$attachmentStrike['reason']);
+}
 
 exit(0);

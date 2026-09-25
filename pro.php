@@ -4,6 +4,10 @@
  */
 require_once 'config.php';
 session_start();
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 // Shared inbox links always open the public reader, never this dashboard.
 // app.js used to build the share link from the current page, so links shared

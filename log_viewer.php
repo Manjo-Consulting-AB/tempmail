@@ -167,6 +167,7 @@ if ($format === 'json') {
 </head>
 <body>
 <h3>Mail Shield Log Viewer</h3>
+<p><a href="abuse_admin.php">Abuse guard: quarantines and suspension proposals</a></p>
 
 <div class="tabs">
     <button type="button" id="tabLogs" class="active">Logs</button>

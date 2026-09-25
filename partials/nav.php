@@ -19,6 +19,10 @@
  * without that file being edited (brief §11).
  */
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 require_once __DIR__ . '/brand.php';
 

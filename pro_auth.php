@@ -83,7 +83,14 @@ function createLoginToken($userId, $validMinutes = 30) {
 // (och markerar den som använd, atomiskt), annars null. Se login_tokens.php.
 function consumeLoginToken(string $token): ?array {
     global $pdo;
-    return loginTokenConsume($pdo, $token);
+    $result = loginTokenConsume($pdo, $token);
+    // A suspended account (abuse_guard.php) cannot sign in by magic link;
+    // the link answers like an expired one.
+    if ($result !== null && function_exists('proUserIsSuspended') && proUserIsSuspended((int) $result['user_id'])) {
+        logMessage('INFO', 'Magic link refused: account suspended', ['user_id' => (int) $result['user_id']]);
+        return null;
+    }
+    return $result;
 }
 
 // Hjälpfunktion: skicka e-post med login-länk
@@ -1000,6 +1007,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
         exit;
     }
+    // Suspended by an admin (abuse_guard.php). Said plainly: whoever reaches
+    // this line has proved they know the password.
+    if (function_exists('proUserIsSuspended') && proUserIsSuspended((int) $user['id'])) {
+        logMessage('INFO', 'Password login refused: account suspended', ['user_id' => (int) $user['id']]);
+        echo json_encode(['success' => false, 'error' => 'This account has been suspended. Please contact support.']);
+        exit;
+    }
     session_start();
 
     // Correct password does not grant a session by itself when 2FA is
@@ -1091,6 +1105,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $userId = (int) $pending['user_id'];
     $pendingEmail = $pending['email'] ?? '';
     $ip = getVisitorIp();
+
+    if (function_exists('proUserIsSuspended') && proUserIsSuspended($userId)) {
+        unset($_SESSION['pending_2fa']);
+        logMessage('INFO', '2FA login refused: account suspended', ['user_id' => $userId]);
+        echo json_encode(['success' => false, 'error' => 'This account has been suspended. Please contact support.']);
+        exit;
+    }
 
     // Locked out: same generic response as an incorrect code below. The IP
     // side of this already calls flagMaliciousActivity() internally.

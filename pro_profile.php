@@ -16,6 +16,10 @@ require_once __DIR__ . '/php_imap_processor.php';
 require_once __DIR__ . '/pro_auth.php';
 require_once __DIR__ . '/email_log_ref.php';
 session_start();
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 header('Content-Type: application/json');
 

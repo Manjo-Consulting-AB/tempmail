@@ -14,6 +14,10 @@ require_once 'config.php';
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 // Hantera URL-parameter för direkt adress-access
 $urlAddress = null;

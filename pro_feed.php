@@ -146,7 +146,7 @@ try {
         // Regular accounts don't get the RSS feed. Respond with the exact same
         // "Invalid token" text as an unknown token so this endpoint can't be used
         // as an oracle that reveals a token is valid but the account is degraded.
-        if (!proUserIsPro($userId)) {
+        if (!proUserIsPro($userId) || (function_exists('proUserIsSuspended') && proUserIsSuspended($userId))) {
             feedDenyInvalidToken();
         }
 
@@ -184,7 +184,8 @@ try {
 
         // A deleted address, a temporary one, or one whose owner has since been
         // degraded all collapse into the same opaque failure as an unknown token.
-        if (!$addr || !proUserIsPro((int)$addr['pro_user_id'])) {
+        if (!$addr || !proUserIsPro((int)$addr['pro_user_id'])
+            || (function_exists('proUserIsSuspended') && proUserIsSuspended((int)$addr['pro_user_id']))) {
             feedDenyInvalidToken();
         }
 
