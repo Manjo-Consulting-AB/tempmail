@@ -275,10 +275,6 @@ $baseConfig = [
         // hold the Exim pipe for long; the rest go to the cron worker.
         'immediate_limit' => (int)($_ENV['WEBHOOK_IMMEDIATE_LIMIT'] ?? 5),
     ],
-    'bmac' => [
-        // Buy Me a Coffee webhook secret for signature verification
-        'webhook_secret' => $_ENV['BMAC_WEBHOOK_SECRET'] ?? null
-    ],
     'directadmin' => [
         // DirectAdmin API base URL, e.g. https://server.inleed.net:2222
         'host' => $_ENV['DA_HOST'] ?? '',

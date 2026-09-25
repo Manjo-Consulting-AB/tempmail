@@ -173,7 +173,7 @@ check('period end + the 10 voucher days', user($pdo, 42)['pro_expires_at'] === l
 run($pdo, subEvent('canceled', ['canceled_at' => iso(NOW + 60)], NOW + 60), $prices);
 check('after cancel the 10 days run from the end of paid time', user($pdo, 42)['pro_expires_at'] === local(NOW + 60 + 10 * 86400), (string) user($pdo, 42)['pro_expires_at']);
 
-echo "\n9. Unlimited voucher/BMAC account (NULL) is never touched\n";
+echo "\n9. Unlimited voucher account (NULL) is never touched\n";
 $pdo = freshDb();
 addUser($pdo, 42, 'buyer@example.com', 'pro', null);
 run($pdo, subEvent('active'), $prices);
