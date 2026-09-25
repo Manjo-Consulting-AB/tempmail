@@ -7,6 +7,12 @@
 // Förhindra direktåtkomst
 defined('TEMPMAIL_APP') or define('TEMPMAIL_APP', true);
 
+// One clock for PHP and MySQL. PHP runs in Europe/Stockholm, and the DB
+// session below is pinned to the same UTC offset, so date() values written
+// by PHP and NOW() in SQL always agree - whatever time zone the database
+// server itself is configured with. Set first, before anything computes a date.
+date_default_timezone_set('Europe/Stockholm');
+
 function getEnvFileCandidates(string $environment): array {
     $fileName = '.env.' . $environment;
     $candidates = [];
@@ -696,7 +702,7 @@ try {
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
-        PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . $dbCharset
+        PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . $dbCharset . ", time_zone = '" . date('P') . "'"
     ]);
 } catch (PDOException $e) {
     // Shared hosting often resolves localhost to a missing socket for CLI cron.
@@ -718,7 +724,7 @@ try {
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,
-                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . ((string)($config['db']['charset'] ?? 'utf8mb4'))
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . ((string)($config['db']['charset'] ?? 'utf8mb4')) . ", time_zone = '" . date('P') . "'"
             ]);
 
             $config['db']['host'] = '127.0.0.1';
@@ -1729,8 +1735,6 @@ if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE && !headers_sent
     unset($msSessionHttps);
 }
 
-// Sätt timezone
-date_default_timezone_set('Europe/Stockholm');
 
 // Sätt applikationskonstant för säkerhet
 if (!defined('TEMPMAIL_APP')) {
