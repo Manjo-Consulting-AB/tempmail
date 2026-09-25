@@ -148,7 +148,7 @@ $button = static function (string $action, string $label, array $fields, string 
         <a href="log_viewer.php">Log viewer</a>
     </p>
 <?php if ($notice !== ''): ?>
-    <p class="ms-admin__notice" role="status"><?php echo $h($notice); ?></p>
+    <p class="ms-admin__notice" role="status"><?php echo htmlspecialchars($notice, ENT_QUOTES, 'UTF-8'); ?></p>
 <?php endif; ?>
 <?php if (!$available): ?>
     <p class="ms-admin__notice">The abuse guard tables are missing: run <code>php migrate_abuse_guard.php</code>.</p>
