@@ -22,11 +22,10 @@ if ($id <= 0) {
 $expires = isset($_GET['expires']) ? (int)$_GET['expires'] : 0;
 $sig = isset($_GET['sig']) ? trim($_GET['sig']) : '';
 
-// Debug: Log what we received
+// Never log the signature itself: with id + expires it is a working
+// download link until it expires.
 if (function_exists('logMessage')) {
-    logMessage('DEBUG', 'files.php request', ['id' => $id, 'expires' => $expires, 'sig_present' => empty($sig) ? 'NO' : 'YES', 'get' => $_GET]);
-} else {
-    error_log("[files.php] Request: id=$id, expires=$expires, sig_present=" . (empty($sig) ? 'NO' : 'YES') . ", GET=" . json_encode($_GET));
+    logMessage('DEBUG', 'files.php request', ['id' => $id, 'expires' => $expires, 'sig_present' => empty($sig) ? 'NO' : 'YES']);
 }
 
 if (empty($sig) || $expires <= 0) {
@@ -120,27 +119,39 @@ try {
         exit;
     }
 
-    $ctype = $row['content_type'] ?: 'application/octet-stream';
+    // The MIME type comes from the sender's email. Accept only a well-formed
+    // type/subtype, and never one a browser could render as active content
+    // (HTML, SVG, XML, script): those are served as a plain download.
+    $ctype = strtolower(trim((string) ($row['content_type'] ?? '')));
+    if (!preg_match('~^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$~', $ctype)
+        || preg_match('~(html|xml|svg|javascript|ecmascript)~', $ctype)) {
+        $ctype = 'application/octet-stream';
+    }
     $downloadName = basename($row['filename']);
     $downloadName = preg_replace('/[\r\n\\\"\']+/', '_', $downloadName);
     // The ASCII fallback for clients that ignore RFC 5987, and the only form a
     // header can safely carry unencoded; the real name rides in filename*.
     $asciiName = preg_replace('/[^A-Za-z0-9._-]/', '_', $downloadName) ?: 'attachment';
 
+    // Headers every response carries. The sandbox CSP makes the file inert
+    // even if a browser ignores Content-Disposition and renders it.
+    $sendFileHeaders = static function () use ($ctype, $asciiName, $downloadName): void {
+        header('X-Content-Type-Options: nosniff');
+        header('Content-Security-Policy: sandbox');
+        header('Content-Type: ' . $ctype);
+        header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
+    };
+
     // Support X-Sendfile/X-Accel if enabled via env var USE_X_SENDFILE=1 (requires server config)
     $useXSend = getenv('USE_X_SENDFILE') === '1';
     if ($useXSend) {
         $xAccel = getenv('X_ACCEL_REDIRECT_LOCATION');
         if ($xAccel) {
-            header('X-Content-Type-Options: nosniff');
-            header('Content-Type: ' . $ctype);
-            header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
+            $sendFileHeaders();
             header('X-Accel-Redirect: ' . rtrim($xAccel, '/') . '/' . $fileBasename);
             exit;
         }
-        header('X-Content-Type-Options: nosniff');
-        header('Content-Type: ' . $ctype);
-        header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
+        $sendFileHeaders();
         header('X-Sendfile: ' . $real);
         exit;
     }
@@ -149,26 +160,33 @@ try {
     $start = 0;
     $length = $filesize;
     $statusCode = 200;
-    if (isset($_SERVER['HTTP_RANGE'])) {
-        if (preg_match('/bytes=(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $matches)) {
-            $rstart = $matches[1] === '' ? null : intval($matches[1]);
-            $rend = $matches[2] === '' ? null : intval($matches[2]);
-            if ($rstart !== null) $start = $rstart;
-            if ($rend !== null) $length = $rend - $start + 1;
-            else $length = $filesize - $start;
-            if ($start < 0 || $start >= $filesize) {
-                http_response_code(416);
-                header('Content-Range: bytes */' . $filesize);
-                exit;
-            }
-            $statusCode = 206;
+    // A single byte range (RFC 9110 14.1.2). Multi-range requests are
+    // answered with the whole file, which the RFC allows.
+    if (isset($_SERVER['HTTP_RANGE'])
+        && preg_match('/^bytes=(\d*)-(\d*)$/', trim((string) $_SERVER['HTTP_RANGE']), $matches)
+        && ($matches[1] !== '' || $matches[2] !== '')) {
+        if ($matches[1] === '') {
+            // Suffix range "bytes=-N": the last N bytes.
+            $suffix = (int) $matches[2];
+            $start = max(0, $filesize - $suffix);
+            $end = $filesize - 1;
+            $unsatisfiable = $suffix === 0 || $filesize === 0;
+        } else {
+            $start = (int) $matches[1];
+            $end = $matches[2] === '' ? $filesize - 1 : min((int) $matches[2], $filesize - 1);
+            $unsatisfiable = $start >= $filesize || $start > $end;
         }
+        if ($unsatisfiable) {
+            http_response_code(416);
+            header('Content-Range: bytes */' . $filesize);
+            exit;
+        }
+        $length = $end - $start + 1;
+        $statusCode = 206;
     }
 
     if ($statusCode === 206) http_response_code(206);
-    header('X-Content-Type-Options: nosniff');
-    header('Content-Type: ' . $ctype);
-    header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
+    $sendFileHeaders();
     header('Accept-Ranges: bytes');
     if ($statusCode === 206) {
         $end = $start + $length - 1;

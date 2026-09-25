@@ -62,7 +62,7 @@ class TempMailApp {
                 if (res && res.success) {
                     isPersonal = res.is_personal || false;
                     // Only block access if address is personal AND user is not the owner
-                    if (res.is_personal && res.owner_pro_user_id && !res.is_owner) {
+                    if (res.blocked) {
                         // Address is personal and belongs to a pro user but current session is not owner -> clear saved address
                         console.warn('Personal address belongs to pro user and current session is not owner. Clearing saved address.');
                         try { localStorage.removeItem('tempmail_address'); } catch (e) {}
