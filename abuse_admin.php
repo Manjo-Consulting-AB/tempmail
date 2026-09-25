@@ -16,6 +16,10 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/abuse_guard.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 $adminId = (int) ($_SESSION['pro_user_id'] ?? 0);
 if (!isAdminUser($adminId)) {
     error_log(sprintf('abuse_admin.php access denied: logged_in=%s', $adminId > 0 ? 'yes' : 'no'));
@@ -126,26 +130,16 @@ $button = static function (string $action, string $label, array $fields, string 
     }
     return $html . '<button type="submit" class="' . $h($class) . '">' . $h($label) . '</button></form>';
 };
+$msAdminTab = 'abuse';
+$msAdminTitle = 'Abuse guard';
+require __DIR__ . '/partials/admin_head.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
-    <title>Abuse Guard Admin</title>
-    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
-</head>
-<body class="ms-admin">
-<main class="ms-container ms-admin__main">
     <h1 class="ms-admin__title">Abuse guard</h1>
     <p class="ms-admin__lede">
         Limits: <?php echo (int) $settings['address_max_5min']; ?> messages per 5 min,
         <?php echo (int) $settings['address_max_hour']; ?> per hour,
         <?php echo $h(round($settings['address_max_bytes_hour'] / 1048576)); ?> MB per hour per address.
         Quarantine steps: <?php echo $h(implode(' / ', $settings['quarantine_steps_minutes'])); ?> min, then closed.
-        <a href="log_viewer.php">Log viewer</a>
     </p>
 <?php if ($notice !== ''): ?>
     <p class="ms-admin__notice" role="status"><?php echo htmlspecialchars($notice, ENT_QUOTES, 'UTF-8'); ?></p>
@@ -256,6 +250,4 @@ $button = static function (string $action, string $label, array $fields, string 
         </div>
     </section>
 <?php endif; ?>
-</main>
-</body>
-</html>
+<?php require __DIR__ . '/partials/admin_foot.php'; ?>

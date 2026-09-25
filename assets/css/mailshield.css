@@ -5021,3 +5021,320 @@ a:hover {
     border-radius: var(--ms-radius-sm);
     font: inherit;
 }
+
+/* --- Admin overview and log viewer (log_viewer.php, partials/admin_*.php) ----
+   The admin pages sit in the app shell (partials/nav.php) and share a tab row.
+   Figures come in cards of definition lists; charts are plain CSS bars of a
+   single series, each with its numbers in a tooltip and a hidden list. */
+
+.ms-admin__main .ms-admin__title {
+    margin-top: var(--ms-space-5);
+}
+
+/* .main-container gives the page no side gutter below 768px; the nav brings
+   its own, so the admin content matches it here (§12.8: 16px at phone width). */
+@media (max-width: 767.98px) {
+    .main-container > .ms-admin__main {
+        padding-inline: var(--ms-gutter);
+    }
+}
+
+.ms-admin__tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-1);
+    border-bottom: 1px solid var(--ms-border);
+    padding-bottom: var(--ms-space-2);
+}
+
+.ms-admin__tab {
+    padding: var(--ms-space-2) var(--ms-space-3);
+    border-radius: var(--ms-radius-sm);
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.ms-admin__tab:hover,
+.ms-admin__tab:focus-visible {
+    color: var(--ms-text);
+    background: var(--ms-bg-sunken);
+}
+
+.ms-admin__tab.is-active {
+    color: var(--ms-text);
+    background: var(--ms-accent-soft);
+}
+
+.ms-admin__section--first {
+    margin-top: var(--ms-space-5);
+}
+
+.ms-admin__alerts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--ms-space-2);
+}
+
+.ms-admin__alert,
+.ms-admin__allclear {
+    display: flex;
+    align-items: baseline;
+    gap: var(--ms-space-3);
+    padding: var(--ms-space-3) var(--ms-space-4);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-bg-raised);
+    font-size: var(--ms-fs-sm);
+    margin: 0;
+}
+
+.ms-admin__alert--danger {
+    border-color: var(--ms-danger);
+}
+
+.ms-admin__alert--warning {
+    border-color: var(--ms-warning);
+}
+
+.ms-admin__state {
+    flex: none;
+    display: inline-block;
+    padding: 0 var(--ms-space-2);
+    border-radius: var(--ms-radius-pill);
+    font-size: var(--ms-fs-xs);
+    font-weight: 600;
+}
+
+.ms-admin__state--ok {
+    color: var(--ms-success);
+    background: color-mix(in srgb, var(--ms-success) 12%, transparent);
+}
+
+.ms-admin__state--warn {
+    color: var(--ms-warning);
+    background: color-mix(in srgb, var(--ms-warning) 14%, transparent);
+}
+
+.ms-admin__state--bad {
+    color: var(--ms-danger);
+    background: color-mix(in srgb, var(--ms-danger) 12%, transparent);
+}
+
+.ms-admin__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--ms-space-4);
+    margin-top: var(--ms-space-6);
+}
+
+@media (min-width: 768px) {
+    .ms-admin__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1024px) {
+    .ms-admin__grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+.ms-admin__card {
+    padding: var(--ms-space-4);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-bg-raised);
+    min-width: 0;
+}
+
+.ms-admin__card-title {
+    font-size: var(--ms-fs-body);
+    font-weight: 600;
+    margin: 0 0 var(--ms-space-3);
+}
+
+.ms-admin__card-link {
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-admin__stats {
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-admin__stats > div {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--ms-space-3);
+    padding: var(--ms-space-1) 0;
+    border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-admin__stats > div:last-child {
+    border-bottom: 0;
+}
+
+.ms-admin__stats dt {
+    font-weight: 400;
+    color: var(--ms-text-muted);
+}
+
+.ms-admin__stats dd {
+    margin: 0;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.ms-admin__charts {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--ms-space-4);
+}
+
+@media (min-width: 768px) {
+    .ms-admin__charts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.ms-admin__chart {
+    margin: 0;
+    padding: var(--ms-space-4);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-bg-raised);
+    min-width: 0;
+}
+
+.ms-admin__chart-title {
+    font-size: var(--ms-fs-sm);
+    font-weight: 600;
+    margin-bottom: var(--ms-space-3);
+}
+
+.ms-admin__chart-total {
+    font-weight: 400;
+    color: var(--ms-text-muted);
+}
+
+.ms-admin__bars {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    height: 6rem;
+    border-bottom: 1px solid var(--ms-border-strong);
+}
+
+.ms-admin__bar {
+    flex: 1 1 0;
+    display: flex;
+    align-items: flex-end;
+    min-width: 0;
+}
+
+.ms-admin__bar:hover {
+    background: var(--ms-bg-sunken);
+}
+
+.ms-admin__bar-fill {
+    display: block;
+    width: 100%;
+    height: var(--ms-bar, 0%);
+    border-radius: 4px 4px 0 0;
+    background: var(--ms-accent);
+}
+
+.ms-admin__bars--danger .ms-admin__bar-fill {
+    background: var(--ms-danger);
+}
+
+.ms-admin__bars-axis {
+    display: flex;
+    justify-content: space-between;
+    margin-top: var(--ms-space-1);
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-xs);
+}
+
+.ms-admin__level {
+    font-size: var(--ms-fs-xs);
+    font-weight: 600;
+    color: var(--ms-text-muted);
+}
+
+.ms-admin__level--error {
+    color: var(--ms-danger);
+}
+
+.ms-admin__level--warning {
+    color: var(--ms-warning);
+}
+
+.ms-admin__level--info {
+    color: var(--ms-text);
+}
+
+.ms-admin__table td.ms-admin__wrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-width: 18rem;
+}
+
+.ms-admin__ctx {
+    margin-top: var(--ms-space-1);
+}
+
+.ms-admin__ctx summary {
+    cursor: pointer;
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-xs);
+}
+
+.ms-admin__ctx pre {
+    margin: var(--ms-space-1) 0 0;
+    padding: var(--ms-space-2);
+    max-height: 20rem;
+    overflow: auto;
+    background: var(--ms-bg-sunken);
+    border-radius: var(--ms-radius-sm);
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.ms-admin__filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--ms-space-3);
+    margin: var(--ms-space-4) 0;
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-admin__filters label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ms-space-1);
+    color: var(--ms-text-muted);
+}
+
+.ms-admin__input--wide {
+    width: 16rem;
+    max-width: 100%;
+}
+
+.ms-admin__pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ms-space-3);
+    margin-top: var(--ms-space-4);
+    font-size: var(--ms-fs-sm);
+}
