@@ -139,38 +139,32 @@ $offset = ($page - 1) * $limit;
 $rows = [];
 $matched = null;
 if ($view === 'logs') {
-    // Build query
-    $where = [];
-    $params = [];
-    if ($level) {
-        $where[] = 'log_level = ?';
-        $params[] = $level;
-    }
-    if ($q) {
-        $like = '%' . addcslashes($q, '%_\\') . '%';
-        $where[] = '(message LIKE ? OR context LIKE ?)';
-        $params[] = $like;
-        $params[] = $like;
-    }
-    if ($since) {
-        $where[] = 'created_at >= ?';
-        $params[] = $since;
-    }
-    if ($until) {
-        $where[] = 'created_at <= ?';
-        $params[] = $until;
-    }
-    $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
-
-    $sql = 'SELECT id, log_level, message, context, created_at FROM system_logs' . $whereSql
-         . ' ORDER BY created_at DESC, id DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset;
+    // One constant statement: every filter is optional through "? IS NULL OR",
+    // and LIMIT / OFFSET are bound as integers, so no request value ever
+    // becomes part of the SQL text.
+    $like = $q !== null ? '%' . addcslashes($q, '%_\\') . '%' : null;
+    $filters = [$level, $level, $like, $like, $like, $since, $since, $until, $until];
+    $filterSql = ' WHERE (? IS NULL OR log_level = ?)
+                     AND (? IS NULL OR message LIKE ? OR context LIKE ?)
+                     AND (? IS NULL OR created_at >= ?)
+                     AND (? IS NULL OR created_at <= ?)';
+    $bindFilters = static function (PDOStatement $stmt) use ($filters): void {
+        foreach ($filters as $i => $value) {
+            $stmt->bindValue($i + 1, $value, $value === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        }
+    };
 
     try {
-        $stmt = $pdo->prepare($sql); // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
-        $stmt->execute($params);
+        $stmt = $pdo->prepare('SELECT id, log_level, message, context, created_at FROM system_logs' . $filterSql
+            . ' ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?');
+        $bindFilters($stmt);
+        $stmt->bindValue(count($filters) + 1, $limit, PDO::PARAM_INT);
+        $stmt->bindValue(count($filters) + 2, $offset, PDO::PARAM_INT);
+        $stmt->execute();
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $countStmt = $pdo->prepare('SELECT COUNT(*) FROM system_logs' . $whereSql); // nosemgrep: php.lang.security.injection.tainted-callable.tainted-callable
-        $countStmt->execute($params);
+        $countStmt = $pdo->prepare('SELECT COUNT(*) FROM system_logs' . $filterSql);
+        $bindFilters($countStmt);
+        $countStmt->execute();
         $matched = (int)$countStmt->fetchColumn();
     } catch (Exception $e) {
         error_log('log_viewer.php query failed: ' . $e->getMessage());
@@ -260,8 +254,8 @@ require __DIR__ . '/partials/admin_head.php';
 ?>
             <h1 class="ms-admin__title">System overview</h1>
             <p class="ms-admin__lede">
-                Snapshot at <?php echo $h($o['db_now'] ?? date('Y-m-d H:i:s')); ?> (database time) ·
-                <?php echo $h($hl['environment']); ?> · v<?php echo $h($hl['app_version']); ?> ·
+                Snapshot at <?php echo htmlspecialchars((string)($o['db_now'] ?? date('Y-m-d H:i:s')), ENT_QUOTES, 'UTF-8'); ?> (database time) ·
+                <?php echo htmlspecialchars((string)($hl['environment']), ENT_QUOTES, 'UTF-8'); ?> · v<?php echo htmlspecialchars((string)($hl['app_version']), ENT_QUOTES, 'UTF-8'); ?> ·
                 <a href="log_viewer.php">Refresh</a>
             </p>
 
@@ -272,9 +266,9 @@ require __DIR__ . '/partials/admin_head.php';
 <?php else: ?>
                 <ul class="ms-admin__alerts">
 <?php foreach ($o['alerts'] as $alert): ?>
-                    <li class="ms-admin__alert ms-admin__alert--<?php echo $h($alert['level']); ?>">
+                    <li class="ms-admin__alert ms-admin__alert--<?php echo htmlspecialchars((string)($alert['level']), ENT_QUOTES, 'UTF-8'); ?>">
                         <span class="ms-admin__state ms-admin__state--<?php echo $alert['level'] === 'danger' ? 'bad' : 'warn'; ?>"><?php echo $alert['level'] === 'danger' ? 'Problem' : 'Check'; ?></span>
-                        <?php if ($alert['href'] !== null): ?><a href="<?php echo $h($alert['href']); ?>"><?php echo $h($alert['text']); ?></a><?php else: ?><?php echo $h($alert['text']); ?><?php endif; ?>
+                        <?php if ($alert['href'] !== null): ?><a href="<?php echo htmlspecialchars((string)($alert['href']), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string)($alert['text']), ENT_QUOTES, 'UTF-8'); ?></a><?php else: ?><?php echo htmlspecialchars((string)($alert['text']), ENT_QUOTES, 'UTF-8'); ?><?php endif; ?>
                     </li>
 <?php endforeach; ?>
                 </ul>
@@ -285,47 +279,47 @@ require __DIR__ . '/partials/admin_head.php';
                 <section class="ms-admin__card" aria-labelledby="accHeading">
                     <h2 class="ms-admin__card-title" id="accHeading">Accounts</h2>
                     <dl class="ms-admin__stats">
-                        <div><dt>Total</dt><dd><?php echo $num($acc['total']); ?></dd></div>
-                        <div><dt>Pro</dt><dd><?php echo $num($acc['pro']); ?></dd></div>
-                        <div><dt>Free</dt><dd><?php echo $num($acc['regular']); ?></dd></div>
-                        <div><dt>New, 7 days</dt><dd><?php echo $num($acc['new_7d']); ?></dd></div>
-                        <div><dt>Signed in, 24 h</dt><dd><?php echo $num($acc['active_24h']); ?></dd></div>
-                        <div><dt>Pro ending in 7 days</dt><dd><?php echo $num($acc['pro_expiring_7d']); ?></dd></div>
-                        <div><dt>Suspended</dt><dd><?php echo $num($acc['suspended']); ?></dd></div>
+                        <div><dt>Total</dt><dd><?php echo htmlspecialchars($num($acc['total']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Pro</dt><dd><?php echo htmlspecialchars($num($acc['pro']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Free</dt><dd><?php echo htmlspecialchars($num($acc['regular']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>New, 7 days</dt><dd><?php echo htmlspecialchars($num($acc['new_7d']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Signed in, 24 h</dt><dd><?php echo htmlspecialchars($num($acc['active_24h']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Pro ending in 7 days</dt><dd><?php echo htmlspecialchars($num($acc['pro_expiring_7d']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Suspended</dt><dd><?php echo htmlspecialchars($num($acc['suspended']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
                     </dl>
                 </section>
 
                 <section class="ms-admin__card" aria-labelledby="adrHeading">
                     <h2 class="ms-admin__card-title" id="adrHeading">Addresses</h2>
                     <dl class="ms-admin__stats">
-                        <div><dt>Active</dt><dd><?php echo $num($adr['active']); ?></dd></div>
-                        <div><dt>Sticky</dt><dd><?php echo $num($adr['sticky']); ?></dd></div>
-                        <div><dt>Timed</dt><dd><?php echo $num($adr['timed']); ?></dd></div>
-                        <div><dt>Created, 24 h</dt><dd><?php echo $num($adr['created_24h']); ?></dd></div>
-                        <div><dt>Expired, not yet removed</dt><dd><?php echo $num($adr['overdue_cleanup']); ?></dd></div>
+                        <div><dt>Active</dt><dd><?php echo htmlspecialchars($num($adr['active']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Sticky</dt><dd><?php echo htmlspecialchars($num($adr['sticky']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Timed</dt><dd><?php echo htmlspecialchars($num($adr['timed']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Created, 24 h</dt><dd><?php echo htmlspecialchars($num($adr['created_24h']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Expired, not yet removed</dt><dd><?php echo htmlspecialchars($num($adr['overdue_cleanup']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
                     </dl>
                 </section>
 
                 <section class="ms-admin__card" aria-labelledby="mailHeading">
                     <h2 class="ms-admin__card-title" id="mailHeading">Incoming mail</h2>
                     <dl class="ms-admin__stats">
-                        <div><dt>Last hour</dt><dd><?php echo $num($mail['received_1h']); ?></dd></div>
-                        <div><dt>24 hours</dt><dd><?php echo $num($mail['received_24h']); ?></dd></div>
-                        <div><dt>7 days</dt><dd><?php echo $num($mail['received_7d']); ?></dd></div>
-                        <div><dt>Stored now</dt><dd><?php echo $num($mail['stored']); ?></dd></div>
-                        <div><dt>Attachments</dt><dd><?php echo $num($mail['attachments']); ?> · <?php echo $h(adminFormatBytes($mail['attachment_bytes'])); ?></dd></div>
-                        <div><dt>Last received</dt><dd><?php echo $h(adminAge($mail['last_received'], $o['db_now']) !== null ? adminAge($mail['last_received'], $o['db_now']) . ' ago' : '—'); ?></dd></div>
+                        <div><dt>Last hour</dt><dd><?php echo htmlspecialchars($num($mail['received_1h']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>24 hours</dt><dd><?php echo htmlspecialchars($num($mail['received_24h']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>7 days</dt><dd><?php echo htmlspecialchars($num($mail['received_7d']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Stored now</dt><dd><?php echo htmlspecialchars($num($mail['stored']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Attachments</dt><dd><?php echo htmlspecialchars($num($mail['attachments']), ENT_QUOTES, 'UTF-8'); ?> · <?php echo htmlspecialchars((string)(adminFormatBytes($mail['attachment_bytes'])), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Last received</dt><dd><?php echo htmlspecialchars((string)(adminAge($mail['last_received'], $o['db_now']) !== null ? adminAge($mail['last_received'], $o['db_now']) . ' ago' : '—'), ENT_QUOTES, 'UTF-8'); ?></dd></div>
                     </dl>
                 </section>
 
                 <section class="ms-admin__card" aria-labelledby="whHeading">
                     <h2 class="ms-admin__card-title" id="whHeading">Webhooks</h2>
                     <dl class="ms-admin__stats">
-                        <div><dt>Active hooks</dt><dd><?php echo $num($wh['active_hooks']); ?></dd></div>
-                        <div><dt>Queued</dt><dd><?php echo $num($wh['pending']); ?></dd></div>
-                        <div><dt>Overdue &gt; 15 min</dt><dd><?php echo $num($wh['overdue']); ?></dd></div>
-                        <div><dt>Delivered, 24 h</dt><dd><?php echo $num($wh['succeeded_24h']); ?></dd></div>
-                        <div><dt>Given up, 24 h</dt><dd><?php echo $num($wh['failed_24h']); ?></dd></div>
+                        <div><dt>Active hooks</dt><dd><?php echo htmlspecialchars($num($wh['active_hooks']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Queued</dt><dd><?php echo htmlspecialchars($num($wh['pending']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Overdue &gt; 15 min</dt><dd><?php echo htmlspecialchars($num($wh['overdue']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Delivered, 24 h</dt><dd><?php echo htmlspecialchars($num($wh['succeeded_24h']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Given up, 24 h</dt><dd><?php echo htmlspecialchars($num($wh['failed_24h']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
                     </dl>
                 </section>
 
@@ -337,11 +331,11 @@ require __DIR__ . '/partials/admin_head.php';
                     <p class="ms-admin__empty">Tables missing: run <code>php migrate_abuse_guard.php</code>.</p>
 <?php else: ?>
                     <dl class="ms-admin__stats">
-                        <div><dt>In quarantine</dt><dd><?php echo $num($ab['quarantined']); ?></dd></div>
-                        <div><dt>Closed</dt><dd><?php echo $num($ab['closed']); ?></dd></div>
-                        <div><dt>Suspension proposals</dt><dd><?php echo $num($ab['proposals']); ?></dd></div>
-                        <div><dt>Events, 24 h</dt><dd><?php echo $num($ab['events_24h']); ?></dd></div>
-                        <div><dt>Last hourly report</dt><dd><?php echo $h(adminAge($ab['last_report'], $o['db_now']) !== null ? adminAge($ab['last_report'], $o['db_now']) . ' ago' : '—'); ?></dd></div>
+                        <div><dt>In quarantine</dt><dd><?php echo htmlspecialchars($num($ab['quarantined']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Closed</dt><dd><?php echo htmlspecialchars($num($ab['closed']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Suspension proposals</dt><dd><?php echo htmlspecialchars($num($ab['proposals']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Events, 24 h</dt><dd><?php echo htmlspecialchars($num($ab['events_24h']), ENT_QUOTES, 'UTF-8'); ?></dd></div>
+                        <div><dt>Last hourly report</dt><dd><?php echo htmlspecialchars((string)(adminAge($ab['last_report'], $o['db_now']) !== null ? adminAge($ab['last_report'], $o['db_now']) . ' ago' : '—'), ENT_QUOTES, 'UTF-8'); ?></dd></div>
                     </dl>
 <?php endif; ?>
                     <p class="ms-admin__card-link"><a href="abuse_admin.php">Open the abuse guard</a></p>
@@ -351,10 +345,10 @@ require __DIR__ . '/partials/admin_head.php';
                     <h2 class="ms-admin__card-title" id="logHeading">Log, 24 hours</h2>
                     <dl class="ms-admin__stats">
 <?php foreach ($lg['levels_24h'] as $lvl => $count): ?>
-                        <div><dt><a href="<?php echo $h('log_viewer.php?' . http_build_query(['view' => 'logs', 'level' => $lvl, 'since' => date('Y-m-d', strtotime((string)($o['db_now'] ?? 'now')) - 86400)])); ?>"><?php echo $h($lvl); ?></a></dt><dd><?php echo $num((int)$count); ?></dd></div>
+                        <div><dt><a href="<?php echo htmlspecialchars((string)('log_viewer.php?' . http_build_query(['view' => 'logs', 'level' => $lvl, 'since' => date('Y-m-d', strtotime((string)($o['db_now'] ?? 'now')) - 86400)])), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string)($lvl), ENT_QUOTES, 'UTF-8'); ?></a></dt><dd><?php echo htmlspecialchars($num((int)$count), ENT_QUOTES, 'UTF-8'); ?></dd></div>
 <?php endforeach; ?>
-                        <div><dt>Rows kept</dt><dd><?php echo $num($lg['total']); ?> · <?php echo (int)$hl['log_retention_days']; ?> days</dd></div>
-                        <div><dt>Hidden types</dt><dd><a href="log_viewer.php?view=types"><?php echo $num($lg['hidden_types']); ?></a></dd></div>
+                        <div><dt>Rows kept</dt><dd><?php echo htmlspecialchars($num($lg['total']), ENT_QUOTES, 'UTF-8'); ?> · <?php echo htmlspecialchars((string)(int)$hl['log_retention_days'], ENT_QUOTES, 'UTF-8'); ?> days</dd></div>
+                        <div><dt>Hidden types</dt><dd><a href="log_viewer.php?view=types"><?php echo htmlspecialchars($num($lg['hidden_types']), ENT_QUOTES, 'UTF-8'); ?></a></dd></div>
                     </dl>
                 </section>
             </div>
@@ -378,10 +372,10 @@ require __DIR__ . '/partials/admin_head.php';
                         <tbody>
 <?php foreach ($lg['top_problems'] as $p): ?>
                             <tr>
-                                <td><?php echo $num((int)$p['n']); ?></td>
-                                <td><span class="ms-admin__level ms-admin__level--<?php echo $h(strtolower((string)$p['log_level'])); ?>"><?php echo $h($p['log_level']); ?></span></td>
-                                <td><?php echo $h($p['last_seen']); ?></td>
-                                <td class="ms-admin__wrap"><a href="<?php echo $h('log_viewer.php?' . http_build_query(['view' => 'logs', 'level' => $p['log_level'], 'q' => mb_substr((string)$p['log_key'], 0, 200)])); ?>"><?php echo $h($p['log_key']); ?></a></td>
+                                <td><?php echo htmlspecialchars($num((int)$p['n']), ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><span class="ms-admin__level ms-admin__level--<?php echo htmlspecialchars((string)(strtolower((string)$p['log_level'])), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string)($p['log_level']), ENT_QUOTES, 'UTF-8'); ?></span></td>
+                                <td><?php echo htmlspecialchars((string)($p['last_seen']), ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td class="ms-admin__wrap"><a href="<?php echo htmlspecialchars((string)('log_viewer.php?' . http_build_query(['view' => 'logs', 'level' => $p['log_level'], 'q' => mb_substr((string)$p['log_key'], 0, 200)])), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string)($p['log_key']), ENT_QUOTES, 'UTF-8'); ?></a></td>
                             </tr>
 <?php endforeach; ?>
                         </tbody>
@@ -399,13 +393,13 @@ require __DIR__ . '/partials/admin_head.php';
                         <tbody>
 <?php foreach ($wh['recent_failures'] as $f): ?>
                             <tr>
-                                <td>#<?php echo (int)$f['id']; ?></td>
-                                <td>#<?php echo (int)$f['webhook_id']; ?></td>
-                                <td>#<?php echo (int)$f['user_id']; ?></td>
-                                <td><?php echo (int)$f['attempts']; ?></td>
-                                <td><?php echo $h($f['response_code'] ?? ''); ?></td>
-                                <td><?php echo $h($f['updated_at'] ?? ''); ?></td>
-                                <td class="ms-admin__mono"><?php echo $h(mb_substr((string)($f['last_error'] ?? ''), 0, 300)); ?></td>
+                                <td>#<?php echo htmlspecialchars((string)(int)$f['id'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td>#<?php echo htmlspecialchars((string)(int)$f['webhook_id'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td>#<?php echo htmlspecialchars((string)(int)$f['user_id'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><?php echo htmlspecialchars((string)(int)$f['attempts'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><?php echo htmlspecialchars((string)($f['response_code'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><?php echo htmlspecialchars((string)($f['updated_at'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td class="ms-admin__mono"><?php echo htmlspecialchars((string)(mb_substr((string)($f['last_error'] ?? ''), 0, 300)), ENT_QUOTES, 'UTF-8'); ?></td>
                             </tr>
 <?php endforeach; ?>
                         </tbody>
@@ -420,14 +414,14 @@ require __DIR__ . '/partials/admin_head.php';
                 <div class="ms-admin__scroll">
                     <table class="ms-admin__table">
                         <tbody>
-                            <tr><th scope="row">Environment</th><td><?php echo $h($hl['environment']); ?></td></tr>
-                            <tr><th scope="row">PHP / database</th><td><?php echo $h($hl['php_version']); ?> / <?php echo $h($hl['db_version'] ?? 'unreachable'); ?></td></tr>
-                            <tr><th scope="row">Log level</th><td><?php echo $h($hl['log_level']); ?><?php echo $hl['debug_mode'] ? ' (DEBUG_MODE on)' : ''; ?></td></tr>
+                            <tr><th scope="row">Environment</th><td><?php echo htmlspecialchars((string)($hl['environment']), ENT_QUOTES, 'UTF-8'); ?></td></tr>
+                            <tr><th scope="row">PHP / database</th><td><?php echo htmlspecialchars((string)($hl['php_version']), ENT_QUOTES, 'UTF-8'); ?> / <?php echo htmlspecialchars((string)($hl['db_version'] ?? 'unreachable'), ENT_QUOTES, 'UTF-8'); ?></td></tr>
+                            <tr><th scope="row">Log level</th><td><?php echo htmlspecialchars((string)($hl['log_level']), ENT_QUOTES, 'UTF-8'); ?><?php echo $hl['debug_mode'] ? ' (DEBUG_MODE on)' : ''; ?></td></tr>
                             <tr><th scope="row">DirectAdmin forwarders</th><td><?php echo $hl['environment'] === 'production' ? $yes($hl['forwarders_enabled'], 'enabled', 'disabled') : $h($hl['forwarders_enabled'] ? 'enabled' : 'disabled (normal outside production)'); ?></td></tr>
                             <tr><th scope="row">Email encryption keys</th><td><?php echo $yes($hl['pii_keys'], 'set', 'missing'); ?></td></tr>
                             <tr><th scope="row">WEBHOOKS_KEY</th><td><?php echo $yes($hl['webhooks_key'], 'set', 'missing'); ?></td></tr>
                             <tr><th scope="row">PRO_TRIAL_HASH_KEY</th><td><?php echo $yes($hl['trial_hash_key'], 'set', 'missing'); ?></td></tr>
-                            <tr><th scope="row">Attachments directory</th><td><?php echo $yes($hl['attachments_writable'], 'writable', 'not writable'); ?> · <?php echo $h(adminFormatBytes($hl['disk_free'])); ?> free</td></tr>
+                            <tr><th scope="row">Attachments directory</th><td><?php echo $yes($hl['attachments_writable'], 'writable', 'not writable'); ?> · <?php echo htmlspecialchars((string)(adminFormatBytes($hl['disk_free'])), ENT_QUOTES, 'UTF-8'); ?> free</td></tr>
                             <tr><th scope="row">Composer dependencies</th><td><?php echo $yes($hl['vendor'], 'installed', 'missing'); ?></td></tr>
                         </tbody>
                     </table>
@@ -443,16 +437,16 @@ require __DIR__ . '/partials/admin_head.php';
                     <select name="level" class="ms-admin__input">
                         <option value=""<?php echo $level === null ? ' selected' : ''; ?>>Any</option>
 <?php foreach ($validLevels as $lvl): ?>
-                        <option value="<?php echo $h($lvl); ?>"<?php echo $level === $lvl ? ' selected' : ''; ?>><?php echo $h($lvl); ?></option>
+                        <option value="<?php echo htmlspecialchars((string)($lvl), ENT_QUOTES, 'UTF-8'); ?>"<?php echo $level === $lvl ? ' selected' : ''; ?>><?php echo htmlspecialchars((string)($lvl), ENT_QUOTES, 'UTF-8'); ?></option>
 <?php endforeach; ?>
                     </select>
                 </label>
                 <label>Search
-                    <input type="search" name="q" class="ms-admin__input ms-admin__input--wide" value="<?php echo $h($q ?? ''); ?>" placeholder="text, user_id, JSON" maxlength="200">
+                    <input type="search" name="q" class="ms-admin__input ms-admin__input--wide" value="<?php echo htmlspecialchars((string)($q ?? ''), ENT_QUOTES, 'UTF-8'); ?>" placeholder="text, user_id, JSON" maxlength="200">
                 </label>
-                <label>Since <input type="date" name="since" class="ms-admin__input" value="<?php echo $h($sinceRaw); ?>"></label>
-                <label>Until <input type="date" name="until" class="ms-admin__input" value="<?php echo $h($untilRaw); ?>"></label>
-                <label>Per page <input type="number" name="limit" class="ms-admin__input" value="<?php echo (int)$limit; ?>" min="1" max="2000"></label>
+                <label>Since <input type="date" name="since" class="ms-admin__input" value="<?php echo htmlspecialchars((string)($sinceRaw), ENT_QUOTES, 'UTF-8'); ?>"></label>
+                <label>Until <input type="date" name="until" class="ms-admin__input" value="<?php echo htmlspecialchars((string)($untilRaw), ENT_QUOTES, 'UTF-8'); ?>"></label>
+                <label>Per page <input type="number" name="limit" class="ms-admin__input" value="<?php echo htmlspecialchars((string)(int)$limit, ENT_QUOTES, 'UTF-8'); ?>" min="1" max="2000"></label>
                 <button type="submit" class="ms-btn ms-btn--primary">Apply</button>
                 <a class="ms-btn ms-btn--quiet" href="log_viewer.php?view=logs">Reset</a>
                 <button type="button" class="ms-btn ms-btn--secondary" id="tailBtn" aria-pressed="false">Start live tail</button>
@@ -462,8 +456,8 @@ require __DIR__ . '/partials/admin_head.php';
 <?php if ($matched === null): ?>
                 The log could not be read; see the PHP error log.
 <?php else: ?>
-                <?php echo $num($matched); ?> matching row(s)<?php if ($matched > 0): ?>, showing <?php echo $num($offset + 1); ?>–<?php echo $num($offset + count($rows)); ?><?php endif; ?>.
-                <a href="<?php echo $h($logsUrl(['format' => 'json', 'page' => $page > 1 ? $page : null])); ?>">JSON</a>
+                <?php echo htmlspecialchars($num($matched), ENT_QUOTES, 'UTF-8'); ?> matching row(s)<?php if ($matched > 0): ?>, showing <?php echo htmlspecialchars($num($offset + 1), ENT_QUOTES, 'UTF-8'); ?>–<?php echo htmlspecialchars($num($offset + count($rows)), ENT_QUOTES, 'UTF-8'); ?><?php endif; ?>.
+                <a href="<?php echo htmlspecialchars((string)($logsUrl(['format' => 'json', 'page' => $page > 1 ? $page : null])), ENT_QUOTES, 'UTF-8'); ?>">JSON</a>
 <?php endif; ?>
             </p>
 
@@ -483,12 +477,12 @@ require __DIR__ . '/partials/admin_head.php';
     }
 ?>
                         <tr>
-                            <td><?php echo $h($r['created_at']); ?></td>
-                            <td><span class="ms-admin__level ms-admin__level--<?php echo $h(strtolower((string)$r['log_level'])); ?>"><?php echo $h($r['log_level']); ?></span></td>
+                            <td><?php echo htmlspecialchars((string)($r['created_at']), ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td><span class="ms-admin__level ms-admin__level--<?php echo htmlspecialchars((string)(strtolower((string)$r['log_level'])), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string)($r['log_level']), ENT_QUOTES, 'UTF-8'); ?></span></td>
                             <td class="ms-admin__wrap">
-                                <?php echo $h($r['message']); ?>
+                                <?php echo htmlspecialchars((string)($r['message']), ENT_QUOTES, 'UTF-8'); ?>
 <?php if ($ctx !== ''): ?>
-                                <details class="ms-admin__ctx"><summary>Context</summary><pre><?php echo $h($pretty); ?></pre></details>
+                                <details class="ms-admin__ctx"><summary>Context</summary><pre><?php echo htmlspecialchars((string)($pretty), ENT_QUOTES, 'UTF-8'); ?></pre></details>
 <?php endif; ?>
                             </td>
                         </tr>
@@ -503,11 +497,11 @@ require __DIR__ . '/partials/admin_head.php';
 <?php if ($matched !== null && $matched > $limit): ?>
             <nav class="ms-admin__pager" aria-label="Log pages">
 <?php if ($page > 1): ?>
-                <a class="ms-btn ms-btn--secondary" href="<?php echo $h($logsUrl(['page' => $page - 1 > 1 ? $page - 1 : null])); ?>">Newer</a>
+                <a class="ms-btn ms-btn--secondary" href="<?php echo htmlspecialchars((string)($logsUrl(['page' => $page - 1 > 1 ? $page - 1 : null])), ENT_QUOTES, 'UTF-8'); ?>">Newer</a>
 <?php endif; ?>
-                <span>Page <?php echo (int)$page; ?> of <?php echo (int)ceil($matched / $limit); ?></span>
+                <span>Page <?php echo htmlspecialchars((string)(int)$page, ENT_QUOTES, 'UTF-8'); ?> of <?php echo htmlspecialchars((string)(int)ceil($matched / $limit), ENT_QUOTES, 'UTF-8'); ?></span>
 <?php if ($offset + $limit < $matched): ?>
-                <a class="ms-btn ms-btn--secondary" href="<?php echo $h($logsUrl(['page' => $page + 1])); ?>">Older</a>
+                <a class="ms-btn ms-btn--secondary" href="<?php echo htmlspecialchars((string)($logsUrl(['page' => $page + 1])), ENT_QUOTES, 'UTF-8'); ?>">Older</a>
 <?php endif; ?>
             </nav>
 <?php endif; ?>
