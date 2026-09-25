@@ -127,9 +127,16 @@ jobs:
           ls -1 "$HOME/$target" | head -10
           REMOTE
       - name: Ladda upp med rsync över SSH
-        # Icke-destruktivt: inget --delete, så filer som bara finns på servern
-        # (attachments/, .env.production m.m.) rörs aldrig. I verify-läge körs
-        # rsync med --dry-run och skriver alltså ingenting.
+        # --delete: filer som tagits bort ur repot tas också bort från servern,
+        # annars ligger gammal kod kvar och går att nå över HTTP (det hände:
+        # borttagna IMAP-skript och en äldre download_attachment.php låg kvar i
+        # månader). Allt som bara ska finnas på servern skyddas med P-filter
+        # nedan, och exkluderade mönster (.env.*, *.log, tests/ ...) skyddas
+        # automatiskt eftersom --delete-excluded inte används. --max-delete är
+        # en nödbroms: fler raderingar än så avbryter deployen (exit 25) i
+        # stället för att tömma katalogen om något är fel. Kör verify-läget
+        # först och läs "deleting"-raderna. I verify-läge körs rsync med
+        # --dry-run och skriver alltså ingenting.
         run: |
           set -euo pipefail
           DRY_RUN=""
@@ -145,10 +152,21 @@ jobs:
           # Excludes: repo-/utvecklarfiler hör inte hemma i webroten. OBS att
           # blog/*.md MÅSTE laddas upp (blog.php renderar dem), så *.md
           # utesluts bara på namngivna ställen. '.env.*' täcker även
-          # .env.example. Utan --delete ligger redan uppladdade kopior kvar -
-          # root-.htaccess nekar dem över HTTP.
+          # .env.example.
           rsync -rltzv --checksum --no-perms --omit-dir-times $DRY_RUN \
-            --exclude='.git/' \
+            --delete --max-delete=50 \
+            --filter='P /attachments/***' \
+            --filter='P /debug_logs/***' \
+            --filter='P /calendar/***' \
+            --filter='P /cgi-bin/***' \
+            --filter='P /bin/***' \
+            --filter='P /.well-known/***' \
+            --filter='P /client/agent/storage/***' \
+            --filter='P /client/backend/storage/***' \
+            --filter='P /client/agent/client-agent*.local.php' \
+            --filter='P /client/agent/client-agent.key' \
+            --filter='P /client/agent/client-agent.config-map.json' \
+            --exclude='/.git' \
             --exclude='.github/' \
             --exclude='.gitignore' \
             --exclude='.semgrepignore' \
