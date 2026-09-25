@@ -3,6 +3,10 @@
 // SameSite, Secure), which only apply to a session started after it.
 require_once __DIR__ . '/config.php';
 session_start();
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
     header('Location: pro_login.php');

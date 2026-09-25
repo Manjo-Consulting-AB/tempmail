@@ -6,6 +6,10 @@ require_once __DIR__ . '/config.php';
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 $route = $_GET['route'] ?? ($_POST['route'] ?? '');
 if (is_string($route) && $route !== '') {

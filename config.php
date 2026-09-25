@@ -350,6 +350,36 @@ $baseConfig = [
         'months' => max(1, (int)($_ENV['ADDRESS_COOLDOWN_MONTHS'] ?? 6)),
         'max_per_user' => max(1, (int)($_ENV['ADDRESS_COOLDOWN_MAX_PER_USER'] ?? 30)),
     ],
+    // Abuse guard (abuse_guard.php, documentaion/ABUSE_PROTECTION.md). Only
+    // the keys whose env var is set are filled in here; abuseGuardSettings()
+    // supplies every default, so the numbers live in one place.
+    'abuse' => (static function (): array {
+        $map = [
+            'ABUSE_ADDRESS_MAX_5MIN' => 'address_max_5min',
+            'ABUSE_ADDRESS_MAX_HOUR' => 'address_max_hour',
+            'ABUSE_ADDRESS_MAX_BYTES_HOUR' => 'address_max_bytes_hour',
+            'ABUSE_ADDRESS_MAX_STRIKES_HOUR' => 'address_max_strikes_hour',
+            'ABUSE_WARN_RATIO' => 'warn_ratio',
+            'ABUSE_QUARANTINE_STEPS' => 'quarantine_steps_minutes',
+            'MAX_ATTACHMENTS_PER_MESSAGE' => 'max_attachments',
+            'MAX_INLINE_IMAGES_PER_MESSAGE' => 'max_inline_images',
+            'WEBHOOK_MAX_PER_HOUR' => 'webhook_max_hour',
+            'ABUSE_GENERATE_IP_HOUR' => 'generate_ip_hour',
+            'ABUSE_GENERATE_IP_DAY' => 'generate_ip_day',
+            'ABUSE_GENERATE_USER_DAY' => 'generate_user_day',
+            'ABUSE_PERSONAL_USER_DAY' => 'personal_user_day',
+            'ABUSE_ACCOUNT_STRIKES_DAY' => 'account_strikes_day',
+            'ABUSE_ACCOUNT_QUARANTINE_MINUTES' => 'account_quarantine_minutes',
+            'ABUSE_ACCOUNT_QUARANTINES_WEEK' => 'account_quarantines_week',
+        ];
+        $out = ['enabled' => filter_var($_ENV['ABUSE_GUARD_ENABLED'] ?? true, FILTER_VALIDATE_BOOLEAN)];
+        foreach ($map as $env => $key) {
+            if (isset($_ENV[$env]) && trim((string)$_ENV[$env]) !== '') {
+                $out[$key] = trim((string)$_ENV[$env]);
+            }
+        }
+        return $out;
+    })(),
     // Who the legal pages (terms.php, privacy.php, refund-policy.php) name as
     // the seller and data controller. contact_email falls back to support@ on
     // the mail domain; org_number is left out of the copy while it is empty.
@@ -1263,12 +1293,38 @@ function createDirectAdminForwarder(string $alias): bool {
  * knows about — an "orphaned forwarder" that needs manual cleanup in
  * DirectAdmin until #35 defines a way to detect/reconcile these
  * automatically (see PR description for #33).
+ *
+ * Every deletion path comes through here, so this is also where a
+ * quarantine of the address ends (abuse_guard.php): when the quarantine
+ * had already removed the forwarder there is nothing left to delete.
  */
 function deleteDirectAdminForwarder(string $alias): void {
+    global $pdo;
+
+    require_once __DIR__ . '/abuse_guard.php';
+    try {
+        if (abuseGuardAvailable() && abuseQuarantineForget($pdo, strtolower($alias))) {
+            logMessage('DEBUG', 'DirectAdmin forwarder already removed by a quarantine', ['alias' => $alias]);
+            return;
+        }
+    } catch (Throwable $e) {
+        logMessage('WARNING', 'Could not end the quarantine of a deleted address', ['alias' => $alias, 'error' => $e->getMessage()]);
+    }
+
+    directAdminRemoveForwarder($alias);
+}
+
+/**
+ * Delete the DirectAdmin forwarder of $alias now, and say whether it worked.
+ * Used by deleteDirectAdminForwarder() and by the abuse guard's quarantine,
+ * which has to know the outcome. True while DA_FORWARDER_ENABLED is off:
+ * there is no forwarder to remove in that configuration.
+ */
+function directAdminRemoveForwarder(string $alias): bool {
     global $config;
 
     if (empty($config['directadmin']['forwarder_enabled'])) {
-        return;
+        return true;
     }
 
     require_once __DIR__ . '/DirectAdminClient.php';
@@ -1279,9 +1335,54 @@ function deleteDirectAdminForwarder(string $alias): void {
         if (!$ok) {
             logMessage('ERROR', 'DirectAdmin forwarder deletion failed; forwarder may now be orphaned and require manual cleanup', ['alias' => $alias]);
         }
+        return (bool)$ok;
     } catch (Throwable $e) {
         logMessage('ERROR', 'DirectAdmin forwarder deletion threw an exception; forwarder may now be orphaned and require manual cleanup', ['alias' => $alias, 'error' => $e->getMessage()]);
+        return false;
     }
+}
+
+/**
+ * Is the account suspended (abuse_guard.php, set only by an admin)? False
+ * when the column does not exist yet or the lookup fails: a suspension
+ * shuts a session out, and a database hiccup must not log everyone out.
+ */
+function proUserIsSuspended(int $userId): bool {
+    global $pdo;
+    static $cache = [];
+    if ($userId <= 0) {
+        return false;
+    }
+    if (array_key_exists($userId, $cache)) {
+        return $cache[$userId];
+    }
+    if (!tableHasColumn('pro_users', 'suspended_at')) {
+        return $cache[$userId] = false;
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT suspended_at FROM pro_users WHERE id = ?');
+        $stmt->execute([$userId]);
+        $value = $stmt->fetchColumn();
+        return $cache[$userId] = ($value !== false && $value !== null);
+    } catch (Throwable $e) {
+        logMessage('WARNING', 'proUserIsSuspended lookup failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        return $cache[$userId] = false;
+    }
+}
+
+/**
+ * Called right after session_start() on every page and action that trusts
+ * $_SESSION['pro_user_id']: a suspended account's session is signed out on
+ * its next request. Returns true when it did so.
+ */
+function proSessionEndIfSuspended(): bool {
+    $userId = (int)($_SESSION['pro_user_id'] ?? 0);
+    if ($userId <= 0 || !proUserIsSuspended($userId)) {
+        return false;
+    }
+    unset($_SESSION['pro_user_id'], $_SESSION['pro_user_email'], $_SESSION['pro_login_method'], $_SESSION['pending_2fa']);
+    logMessage('INFO', 'Session of a suspended account signed out', ['user_id' => $userId]);
+    return true;
 }
 
 /**

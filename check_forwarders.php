@@ -17,6 +17,7 @@ declare(strict_types=1);
  *
  * Exit codes:
  *   0 — every active address has a forwarder pointing at the configured pipe
+ *       (addresses in abuse-guard quarantine are listed but expected to have none)
  *   1 — at least one address is missing a forwarder, or points elsewhere
  *   2 — the forwarder list could not be read (transport/API failure)
  *
@@ -57,6 +58,18 @@ $stmt = $pdo->prepare("SELECT unique_address FROM temp_emails WHERE expires_at >
 $stmt->execute();
 $activeAddresses = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
+// Addresses the abuse guard has quarantined have no forwarder on purpose
+// (abuse_guard.php): they are listed apart and are not drift.
+require_once __DIR__ . '/abuse_guard.php';
+$quarantinedUntil = [];
+if (abuseGuardAvailable()) {
+    $q = $pdo->prepare('SELECT local_part, quarantined_until FROM address_quarantines WHERE forwarder_removed = 1');
+    $q->execute();
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $quarantinedUntil[strtolower((string)$row['local_part'])] = $row['quarantined_until'] ?? 'closed';
+    }
+}
+
 // ---------------------------------------------------------------------
 // Forwarders (read-only GET against CMD_API_EMAIL_FORWARDERS)
 // ---------------------------------------------------------------------
@@ -85,6 +98,7 @@ echo "Configured pipe destination: {$configuredDestination}\n\n";
 // ---------------------------------------------------------------------
 
 $withoutForwarder = [];
+$inQuarantine = [];
 $pointingElsewhere = [];
 $activeByLowerCaseAlias = [];
 
@@ -94,7 +108,11 @@ foreach ($activeAddresses as $address) {
     $activeByLowerCaseAlias[$lower] = true;
 
     if (!array_key_exists($lower, $forwardersByLowerCaseAlias)) {
-        $withoutForwarder[] = $address;
+        if (array_key_exists($lower, $quarantinedUntil)) {
+            $inQuarantine[$address] = $quarantinedUntil[$lower];
+        } else {
+            $withoutForwarder[] = $address;
+        }
         continue;
     }
 
@@ -107,6 +125,11 @@ foreach ($activeAddresses as $address) {
 echo 'Active addresses WITHOUT a forwarder: ' . count($withoutForwarder) . "\n";
 foreach ($withoutForwarder as $address) {
     echo "  {$address}\n";
+}
+
+echo "\nAddresses in quarantine (no forwarder on purpose, not drift): " . count($inQuarantine) . "\n";
+foreach ($inQuarantine as $address => $until) {
+    echo "  {$address} until {$until}\n";
 }
 
 // ---------------------------------------------------------------------

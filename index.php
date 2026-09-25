@@ -11,6 +11,10 @@ require_once 'config.php';
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
+// A suspended account is signed out here, before any action trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 // Hantera URL-parameter för direkt adress-access
 $urlAddress = null;
@@ -71,6 +75,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo json_encode(['success' => false, 'error' => 'Forbidden']);
         exit;
     }
+
+    /**
+     * Rate limit on creating addresses (abuse_guard.php). Returns true, having
+     * answered, when this attempt is over a limit. The answer is an ordinary
+     * success:false (HTTP 200) like every other refusal here, because the
+     * pages' jQuery handlers only show the error text of a 200. The first refusal in an
+     * hour escalates: an IP is flagged (flagMaliciousActivity), an account
+     * gets a strike on the account track. Fail-open: without the tables, or
+     * on a database error, nothing is limited.
+     */
+    $creationLimited = static function (string $kind) use ($pdo): bool {
+        require_once __DIR__ . '/abuse_guard.php';
+        try {
+            if (!abuseGuardAvailable()) {
+                return false;
+            }
+            $settings = abuseGuardSettings();
+            $userId = (int)($_SESSION['pro_user_id'] ?? 0);
+            $ip = function_exists('getVisitorIp') ? (string)getVisitorIp() : (string)($_SERVER['REMOTE_ADDR'] ?? '');
+            if ($kind === 'personal') {
+                $rules = [['personal_user', (string)$userId, $settings['personal_user_day'], 86400]];
+            } elseif ($userId > 0) {
+                $rules = [['gen_user', (string)$userId, $settings['generate_user_day'], 86400]];
+            } else {
+                $rules = [
+                    ['gen_ip', $ip, $settings['generate_ip_hour'], 3600],
+                    ['gen_ip', $ip, $settings['generate_ip_day'], 86400],
+                ];
+            }
+            $now = time();
+            $result = abuseRateLimit($pdo, $rules, $now);
+            if (!$result['limited']) {
+                return false;
+            }
+            $rule = $result['rule'][0] . '/' . $result['rule'][3];
+            if ($result['first']) {
+                if ($userId > 0) {
+                    $step = abuseAccountStrike($pdo, $userId, $rule, $now, $settings);
+                    logMessage('WARNING', 'Address creation rate limit reached by an account', ['user_id' => $userId, 'rule' => $rule, 'step' => $step]);
+                } else {
+                    logMessage('WARNING', 'Address creation rate limit reached by an IP', ['ip' => $ip, 'rule' => $rule]);
+                    if (function_exists('flagMaliciousActivity')) {
+                        flagMaliciousActivity($ip, 'Address creation rate limit exceeded (' . $rule . ')');
+                    }
+                }
+            }
+            echo json_encode(['success' => false, 'error' => 'Too many new addresses in a short time. Please try again later.', 'rate_limited' => true]);
+            return true;
+        } catch (Throwable $e) {
+            logMessage('ERROR', 'Address creation rate limit check failed, allowing the request', ['error' => $e->getMessage()]);
+            return false;
+        }
+    };
 
     try {
         switch ($action) {
@@ -222,6 +279,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'error' => 'Could not verify address quota']);
                     break;
                 }
+                if ($creationLimited('personal')) {
+                    break;
+                }
                 // Create with 50 years TTL
                 $expiresAt = date('Y-m-d H:i:s', strtotime('+50 years'));
                 try {
@@ -273,8 +333,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$hooksPausedCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
                     $stmt->execute([$_SESSION['pro_user_id']]);
                     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    // Addresses the abuse guard has paused or closed, so the
+                    // owner sees why mail to them is refused (abuse_guard.php).
+                    $quarantines = [];
+                    require_once __DIR__ . '/abuse_guard.php';
+                    try {
+                        if (abuseGuardAvailable()) {
+                            $quarantines = abuseQuarantinesForUser($pdo, (int)$_SESSION['pro_user_id'], time());
+                        }
+                    } catch (Exception $e) {
+                        logMessage('WARNING', 'Could not read address quarantines', ['error' => $e->getMessage(), 'user_id' => $_SESSION['pro_user_id']]);
+                    }
                     $list = [];
                     foreach ($rows as $r) {
+                        $q = $quarantines[strtolower((string)$r['address'])] ?? null;
                         $list[] = [
                             'id' => $r['id'],
                             'address' => $r['address'],
@@ -283,7 +355,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'feed_enabled' => !empty($r['feed_enabled']),
                             // Absent when the migration hasn't run, and empty()
                             // reads an undefined key as false, i.e. not paused.
-                            'hooks_paused' => !empty($r['hooks_paused'])
+                            'hooks_paused' => !empty($r['hooks_paused']),
+                            'paused_until' => $q !== null ? $q['until'] : null,
+                            'closed' => $q !== null && $q['closed'],
                         ];
                     }
                     // Recently deleted addresses still reserved for this account,
@@ -360,6 +434,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
             case 'generate':
+                if ($creationLimited('generate')) {
+                    break;
+                }
                 // Generera ny temporär adress
                 $address = generateUniqueString();
                 // A personal local part may be plain hex too: never hand out one

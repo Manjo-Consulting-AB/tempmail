@@ -10,6 +10,10 @@ require_once 'config.php';
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
+// A suspended account is signed out before anything trusts the session.
+if (function_exists('proSessionEndIfSuspended')) {
+    proSessionEndIfSuspended();
+}
 
 // Require pro authentication
 if (empty($_SESSION['pro_user_id'])) {

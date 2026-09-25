@@ -16,6 +16,7 @@ defined('TEMPMAIL_APP') or define('TEMPMAIL_APP', true);
  * dispatchWebhooks() and hooksForDestination().
  */
 require_once __DIR__ . '/webhook_secret.php';
+require_once __DIR__ . '/abuse_guard.php';
 
 class ImapProcessor
 {
@@ -68,7 +69,8 @@ class ImapProcessor
                 return $queued;
             }
 
-            return $this->enqueueHooks($this->hooksForDestination($proUserId, $payload['to'] ?? null), $proUserId, $payload);
+            $hooks = $this->withinHourlyCap($this->hooksForDestination($proUserId, $payload['to'] ?? null), $proUserId);
+            return $this->enqueueHooks($hooks, $proUserId, $payload);
         } catch (Exception $e) {
             $this->log('ERROR', 'Dispatch webhooks error: ' . $e->getMessage());
         }
@@ -160,6 +162,49 @@ class ImapProcessor
                 'user_id' => $proUserId
             ]);
             return [];
+        }
+    }
+
+    /**
+     * Drop the hooks that have already queued webhook_max_hour deliveries in
+     * the current clock hour (abuse_guard.php), so a flood of mail to an
+     * address cannot become a flood of calls to the user's endpoint or phone.
+     * The first skip of the hour is logged and mailed to the user once.
+     * Fail-open: without the abuse tables, or on an error, nothing is dropped.
+     */
+    private function withinHourlyCap(array $hooks, int $proUserId): array
+    {
+        if ($hooks === []) return $hooks;
+        try {
+            if (!abuseGuardAvailable()) return $hooks;
+            $settings = abuseGuardSettings();
+            $limit = (int)$settings['webhook_max_hour'];
+            $now = time();
+            $kept = [];
+            foreach ($hooks as $h) {
+                $result = abuseRateLimit($this->pdo, [['hook', (string)$h['id'], $limit, 3600]], $now);
+                if (!$result['limited']) {
+                    $kept[] = $h;
+                    continue;
+                }
+                if ($result['first']) {
+                    $this->log('WARNING', 'Webhook hourly limit reached, further deliveries this hour are skipped', [
+                        'webhook_id' => $h['id'],
+                        'user_id' => $proUserId,
+                        'limit' => $limit
+                    ]);
+                    if (abuseEventCount($this->pdo, 'webhook_capped', 'hook:' . $h['id'], null, $now - 86400) === 0) {
+                        abuseEventAdd($this->pdo, 'webhook_capped', 'hook:' . $h['id'], $proUserId, [
+                            'name' => (string)($h['name'] ?? ''),
+                            'limit' => $limit
+                        ], true, $now);
+                    }
+                }
+            }
+            return $kept;
+        } catch (Throwable $e) {
+            $this->log('WARNING', 'Webhook hourly limit check failed, hooks queued as usual: ' . $e->getMessage(), ['user_id' => $proUserId]);
+            return $hooks;
         }
     }
 
