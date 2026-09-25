@@ -292,6 +292,11 @@ $baseConfig = [
         'forwarder_destination' => $_ENV['DA_FORWARDER_DESTINATION']
             ?? ('|/usr/bin/php /home/s174280/domains/' . ($_ENV['DA_DOMAIN'] ?? ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me')) . '/public_html/parse.php')
     ],
+    // Account ids (pro_users.id) allowed into admin tools such as
+    // log_viewer.php. Empty = no admins. See isAdminUser().
+    'admin' => [
+        'user_ids' => array_values(array_filter(array_map('intval', explode(',', (string) ($_ENV['ADMIN_USER_IDS'] ?? ''))), static fn(int $id): bool => $id > 0)),
+    ],
     'pro' => [
         // Kill switch of the same kind as 'directadmin.forwarder_enabled' above:
         // preparation for the upcoming payment integration (public Pro self-
@@ -1168,6 +1173,14 @@ function proUserIsPro(int $userId): bool {
         // Fail-closed på entitlement: ge aldrig bort Pro på ett fel.
         return $isProCache[$userId] = false;
     }
+}
+
+/**
+ * True when $userId is one of the admin accounts in ADMIN_USER_IDS.
+ */
+function isAdminUser(int $userId): bool {
+    global $config;
+    return $userId > 0 && in_array($userId, $config['admin']['user_ids'] ?? [], true);
 }
 
 /**

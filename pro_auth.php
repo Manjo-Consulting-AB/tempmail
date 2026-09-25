@@ -881,6 +881,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             echo json_encode(['success' => false, 'error' => 'Too many failed login attempts from your IP. Try again later.']);
             exit;
         }
+
+        // Per account as well: the IP limit alone lets a password be guessed
+        // from many addresses. Counted by the email tried (login_attempts
+        // records it for unknown accounts too, so the answer is the same
+        // whether the account exists). The IP is not flagged here - many
+        // IPs, one target, and the owner may share none of them.
+        $maxFailsAccount = 10;
+        $s2 = $pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE email = ? AND success = 0 AND attempt_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)");
+        $s2->execute([$email, $windowMinutes]);
+        if ((int)$s2->fetchColumn() >= $maxFailsAccount) {
+            logMessage('WARNING', 'Password login throttled for account', ['ip' => $ip]);
+            echo json_encode(['success' => false, 'error' => 'Too many failed login attempts for this account. Try again in a few minutes or use the magic link.']);
+            exit;
+        }
     } catch (Exception $e) {
         // If DB check fails for some reason, continue (fail-open) but log
         if (function_exists('logMessage')) {
@@ -907,7 +921,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // ignore
         }
         // Do not reveal whether the user exists
-        echo json_encode(['success' => false, 'error' => 'Incorrect email or password']);
+        echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
         exit;
     }
     if (empty($user['password_hash'])) {
@@ -918,7 +932,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         } catch (Exception $e) {
             // ignore
         }
-        echo json_encode(['success' => false, 'error' => 'No password is set for this account. Use the magic link or set a password in your profile.']);
+        // Same answer as a wrong password, so this cannot tell an attacker
+        // which addresses have an account. The hint helps real magic-link users.
+        echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
         exit;
     }
     if (!password_verify($password, $user['password_hash'])) {
@@ -929,7 +945,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         } catch (Exception $e) {
             // ignore
         }
-        echo json_encode(['success' => false, 'error' => 'Incorrect email or password']);
+        echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
         exit;
     }
     // Login is tier-neutral (see documentaion/ACCOUNT_TIERS.md §5), but the
@@ -945,7 +961,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         } catch (Exception $e) {
             // ignore
         }
-        echo json_encode(['success' => false, 'error' => 'Incorrect email or password']);
+        echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
         exit;
     }
     session_start();
