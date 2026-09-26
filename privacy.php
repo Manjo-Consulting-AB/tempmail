@@ -9,8 +9,9 @@
  * with IP addresses (LOG_RETENTION_DAYS), removed personal addresses on the
  * cool-off list (address_cooldown.php, ADDRESS_COOLDOWN_MONTHS), the hashed trial claim
  * (pro_trial.php, five years), the Paddle mirror tables (paddle_sync.php), the
- * integrations a user configures themselves, Google Analytics in the public
- * head (partials/public_head.php, register.php), and the session and 2FA
+ * integrations a user configures themselves, Google Analytics loaded only
+ * after consent on the public pages (partials/analytics.php, consent-gated;
+ * register.php no longer loads it), and the session and 2FA
  * trusted-device cookies (TwoFactorAuth::TRUSTED_DEVICE_COOKIE, 30 days), and
  * the stay-signed-in cookie and its token rows (pro_remember.php: the chosen
  * 1/7/30 days, sliding, never past 90 days after sign-in).
@@ -64,7 +65,7 @@ $msLegalDoc = [
                 . '<li><strong>Running the service you signed up for</strong> — your account, your addresses, your mail, your integrations and your plan. Legal basis: performance of our contract with you (GDPR article 6.1 b).</li>'
                 . '<li><strong>Keeping the service secure</strong> — logs, sign-in limits, abuse detection and the trial record. Legal basis: our legitimate interest in protecting Mail Shield and its users from misuse (article 6.1 f).</li>'
                 . '<li><strong>Accounting</strong> — payment records. Legal basis: our legal obligation under Swedish bookkeeping law (article 6.1 c).</li>'
-                . '<li><strong>Understanding how the public pages are used</strong> — Google Analytics. Legal basis: our legitimate interest in improving the site, and your consent where the law requires it for cookies.</li>'
+                . '<li><strong>Understanding how the public pages are used</strong> — Google Analytics, only after you accept it in the cookie notice. Legal basis: your consent (GDPR article 6.1 a), asked before any analytics cookie is set; declining changes nothing else on the site.</li>'
                 . '<li><strong>Telling you about your account</strong> — verification, sign-in links, security notices, inactivity warnings and changes to our terms. These are service messages, not marketing; we do not send newsletters.</li>'
                 . '</ul>',
         ],
@@ -92,7 +93,7 @@ $msLegalDoc = [
                 . '<ul>'
                 . '<li><strong>Our hosting provider, ' . $f['hosting'] . '</strong>, which runs the servers that receive, store and serve your mail, as our processor under a data processing agreement. Your account and your mail are stored in Sweden.</li>'
                 . '<li><strong>Paddle</strong> (Paddle.com Market Ltd), for payments — see below.</li>'
-                . '<li><strong>Google</strong> (Google Ireland Ltd), for Google Analytics on our public pages.</li>'
+                . '<li><strong>Google</strong> (Google Ireland Ltd), for Google Analytics on our public pages, if you accept analytics.</li>'
                 . '<li><strong>The destinations you choose</strong>, when you set up an integration:'
                 . '<ul>'
                 . '<li><strong>Webhook:</strong> the sender, the recipient address, the subject, the full message body and the time it arrived. Attachments are not sent, only how many there are.</li>'
@@ -122,8 +123,9 @@ $msLegalDoc = [
                 . '<li><strong>A session cookie</strong>, which keeps you signed in. It is necessary for the service and ends when you sign out or close the session.</li>'
                 . '<li><strong>A trusted-browser cookie</strong>, set only if you choose to have a browser remembered for two-factor authentication. It lasts 30 days.</li>'
                 . '<li><strong>A stay-signed-in cookie</strong>, set only if you choose to stay signed in on a device. It lasts the period you chose (1, 7 or 30 days from your last visit, at most 90 days) and is removed when you sign out.</li>'
-                . '<li><strong>Google Analytics cookies</strong> on the public pages, which measure visits in aggregate.</li>'
+                . '<li><strong>Google Analytics cookies</strong>, set only on the public pages (never on the inbox, your account or sign-in pages) and only after you click Accept in the cookie notice. Use Cookie settings in the footer to withdraw your consent; that stops these cookies being set on later pages and deletes the ones already set.</li>'
                 . '<li><strong>Paddle cookies</strong> on the pricing page and in the checkout.</li>'
+                . '<li><strong>Your cookie choice</strong> itself is remembered in your browser\'s local storage, not a cookie, so we can honour it; it is strictly necessary and is not sent to us.</li>'
                 . '</ul>'
                 . '<p>You can block or delete cookies in your browser. Blocking the session cookie means you cannot sign in.</p>',
         ],
@@ -135,7 +137,7 @@ $msLegalDoc = [
         [
             'id'      => 'security',
             'heading' => 'How we protect it',
-            'html'    => '<p>Connections to Mail Shield are encrypted. Your registered address, two-factor secrets and integration credentials are encrypted at rest; passwords are hashed. Attachments are only served through signed, expiring links. Access to production data is limited to the people who run the service.</p>'
+            'html'    => '<p>Connections to Mail Shield are encrypted. Your registered address, two-factor secrets and your integrations\' credentials — webhook secrets and headers, Pushover keys and feed links — are encrypted at rest; passwords are hashed. Attachments are only served through signed, expiring links. Access to production data is limited to the people who run the service.</p>'
                 . '<p>Remember that email itself is usually not end-to-end encrypted, and that a shared inbox link can be read by anyone who has it.</p>',
         ],
         [
