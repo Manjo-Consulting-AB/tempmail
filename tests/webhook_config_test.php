@@ -150,5 +150,21 @@ for ($i = 0; $i < 21; $i++) $many['X-H' . $i] = 'v';
 check('H17. more than 20 headers is refused', headersError(['headers' => $many]) !== null);
 check('H18. a tab inside a value is allowed', headersError(['headers' => ['X-A' => "a\tb"]]) === null);
 
+// ---------------------------------------------------------------------------
+// Validation still applies once header values are sealed (#314): headers
+// are validated as plaintext before webhookConfigSeal() runs (pro_profile.php
+// webhook_create), and webhookHeaders() itself has no special case for a
+// "v2:"-looking value - it is just a string like any other, so injection and
+// reserved-name checks still apply to whatever string is passed in, sealed or
+// not, and a sealed-looking value that is otherwise valid is accepted as-is.
+// ---------------------------------------------------------------------------
+
+check('H19. a value that happens to look sealed ("v2:...") is a valid header value',
+    headersError(['headers' => ['Authorization' => 'v2:c2VjcmV0']]) === null);
+check('H20. a reserved name is still refused even with a sealed-looking value',
+    headersError(['headers' => ['Host' => 'v2:c2VjcmV0']]) !== null);
+check('H21. header injection is still refused even with a sealed-looking value',
+    headersError(['headers' => ['X-A' => "v2:1\r\nX-Evil: 1"]]) !== null);
+
 echo "\n" . ($passed + $failed) . " checks run, {$passed} passed, {$failed} failed.\n";
 exit($failed === 0 ? 0 : 1);
