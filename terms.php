@@ -28,7 +28,7 @@ $msLegalDoc = [
     'lede'        => 'These terms are the agreement between you and us when you use Mail Shield. They are written to be read, so they are short where they can be.',
     'description' => 'The terms that apply when you use Mail Shield, including Pro plans sold through Paddle as Merchant of Record.',
     'path'        => '/terms.php',
-    'updated'     => '25 September 2026',
+    'updated'     => '26 September 2026',
     'sections'    => [
         [
             'id'      => 'who',
@@ -45,7 +45,8 @@ $msLegalDoc = [
                 . '<li>keep up to 10 sticky addresses (Pro only);</li>'
                 . '<li>forward what arrives to other systems — RSS, webhooks, Pushover and digest emails (Pro only).</li>'
                 . '</ul>'
-                . '<p>Each account has a storage quota of ' . $f['quota_mb'] . ' MB. When the quota is reached, the oldest messages are deleted automatically to make room for new ones.</p>'
+                . '<p>Each account has a storage quota of ' . $f['quota_mb'] . ' MB. When the quota is reached, the oldest messages are deleted automatically to make room for new ones, even if the address they arrived at has not expired yet.</p>'
+                . '<p>Addresses and integrations have usage limits that protect them and the service. When a limit is reached, the address or integration is paused automatically for a while and you are told; see <a href="/privacy.php#automated-limits">Automated limits</a>.</p>'
                 . '<p>Mail is deleted automatically when an address expires or is removed. Mail Shield is not an archive: keep a copy elsewhere of anything you need to keep.</p>',
         ],
         [
@@ -63,6 +64,8 @@ $msLegalDoc = [
                 . '<ul>'
                 . '<li>break the law, or help someone else break it;</li>'
                 . '<li>commit fraud, impersonate others, or evade bans, limits or verification in ways that harm the service you use the address with;</li>'
+                . '<li>use an address to collect passwords, payment details or other data obtained through phishing, malware or other deception, or to receive the results of such schemes;</li>'
+                . '<li>create addresses or accounts in bulk to run spam, fraud or fake-account operations elsewhere;</li>'
                 . '<li>receive material that is illegal to possess, including child sexual abuse material;</li>'
                 . '<li>attack, probe or overload Mail Shield or its infrastructure, or get round its limits;</li>'
                 . '<li>resell or give access to the service as your own product without our written permission.</li>'
@@ -100,7 +103,17 @@ $msLegalDoc = [
             'id'      => 'termination',
             'heading' => 'Ending the service',
             'html'    => '<p>You can stop using Mail Shield and delete your account at any time. Cancelling a subscription is a separate step, done with Manage billing; deleting the account does not cancel it by itself.</p>'
-                . '<p>We may suspend or close your account if you break these terms. If we do so for a reason other than a breach, or if we close Mail Shield altogether, we will give at least 30 days\' notice by email and refund the unused part of any subscription period you have paid for. For a Lifetime purchase made less than two years before the service closes, we refund a share of the price in proportion to the part of those two years that is left.</p>',
+                . '<p>We can end or restrict your use of Mail Shield in three different ways:</p>'
+                . '<ul>'
+                . '<li><strong>Immediate suspension.</strong> Where we see abuse, or a risk to the security of Mail Shield or its users, we may suspend an account at once and without notice while we look into it.</li>'
+                . '<li><strong>Closure after a breach.</strong> If you break these terms, we may close your account.</li>'
+                . '<li><strong>Our own decision.</strong> If we end your account for any other reason, or close Mail Shield altogether, we will give at least 30 days\' notice by email and refund the unused part of any subscription period you have paid for. For a Lifetime purchase made less than two years before the service closes, we refund a share of the price in proportion to the part of those two years that is left.</li>'
+                . '</ul>',
+        ],
+        [
+            'id'      => 'transfer',
+            'heading' => 'Transfer of the service',
+            'html'    => '<p>We may transfer Mail Shield and these terms to another operator that takes over the service. We will tell you by email before that happens. Your rights, Lifetime included, continue against the new operator, and if you do not accept the transfer you can delete your account.</p>',
         ],
         [
             'id'      => 'liability',
