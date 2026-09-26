@@ -586,6 +586,11 @@ foreach ($it as $file) {
         if (preg_match('/\bSET\s*$/i', $preceding) === 1) {
             continue;
         }
+        // The one tolerated read: pro_feed.php's lookup while the #315
+        // columns do not exist yet, marked in the SQL itself.
+        if (str_contains(substr($src, $offset, 60), 'pre-migration fallback')) {
+            continue;
+        }
         $line = substr_count(substr($src, 0, $offset), "\n") + 1;
         $violations[] = "{$relative}:{$line}";
     }

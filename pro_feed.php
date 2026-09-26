@@ -147,6 +147,13 @@ try {
         $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE feed_token_hash = ? LIMIT 1");
         $stmt->execute([$tokenHash]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    } else {
+        // Between the deploy and migrate_feed_token_encryption.php the new
+        // columns do not exist yet; existing feed URLs must keep working, so
+        // the plaintext column is used until then, and only then.
+        $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE feed_token = ? /* pre-migration fallback */ LIMIT 1");
+        $stmt->execute([$token]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     if ($user) {
@@ -181,14 +188,19 @@ try {
         $channelLink = $base . '/pro.php';
         $channelDescription = 'Recent messages for your Mail Shield account';
         $itemLink = $base . '/pro.php';
-    } elseif (feedTokenColumnsExist('temp_emails')) {
+    } elseif (feedTokenColumnsExist('temp_emails') || tableHasColumn('temp_emails', 'feed_token')) {
         // Per-address feed. is_personal = 1 belongs in the SQL and not just in a
         // PHP check: it is the second line of defence behind the token issuance
         // rules, so an address that stops being personal stops serving even if it
-        // somehow kept a token. Guarded by feedTokenColumnsExist() so the endpoint
-        // behaves exactly as before the migration has run.
-        $q = $pdo->prepare("SELECT id, unique_address, pro_user_id FROM temp_emails WHERE feed_token_hash = ? AND is_personal = 1 LIMIT 1");
-        $q->execute([$tokenHash]);
+        // somehow kept a token. Before the migration has run the plaintext column
+        // is used instead, as for the account-wide lookup above.
+        if (feedTokenColumnsExist('temp_emails')) {
+            $q = $pdo->prepare("SELECT id, unique_address, pro_user_id FROM temp_emails WHERE feed_token_hash = ? AND is_personal = 1 LIMIT 1");
+            $q->execute([$tokenHash]);
+        } else {
+            $q = $pdo->prepare("SELECT id, unique_address, pro_user_id FROM temp_emails WHERE feed_token = ? /* pre-migration fallback */ AND is_personal = 1 LIMIT 1");
+            $q->execute([$token]);
+        }
         $addr = $q->fetch(PDO::FETCH_ASSOC);
 
         // A deleted address, a temporary one, or one whose owner has since been
