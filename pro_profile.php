@@ -6,6 +6,7 @@ require_once 'config.php';
 require_once __DIR__ . '/client/backend/bootstrap.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
 require_once __DIR__ . '/php_imap_processor.php';
+require_once __DIR__ . '/feed_token.php';
 // Pulls in redeemVoucherForEmail() for the upgrade_with_voucher action below.
 // pro_auth.php guards its actual HTTP endpoints behind
 // `if (realpath($_SERVER['SCRIPT_FILENAME']) === realpath(__FILE__)):` — since
@@ -1131,9 +1132,39 @@ try {
             }
             break;
 
+        // Since #315 the token is stored as feed_token_hash/feed_token_enc
+        // (see feed_token.php), not as plaintext, and every write here clears
+        // the old feed_token column. Guarded by feedTokenColumnsExist() so a
+        // deploy that lands before migrate_feed_token_encryption.php has run
+        // still works exactly as before, on the plaintext column - the
+        // migration then backfills the hash/enc pair for whatever a caller
+        // minted in the meantime.
         case 'feed_get_token':
             require_pro($userId);
             try {
+                if (feedTokenColumnsExist('pro_users')) {
+                    $s = $pdo->prepare("SELECT feed_token_hash, feed_token_enc FROM pro_users WHERE id = ? LIMIT 1");
+                    $s->execute([$userId]);
+                    $r = $s->fetch(PDO::FETCH_ASSOC);
+                    if (empty($r['feed_token_hash'])) {
+                        $pair = feedTokenNewPair();
+                        if ($pair === null) {
+                            feedTokenLogError('Could not create feed token: WEBHOOKS_KEY missing or encryption failed', ['user_id' => $userId]);
+                            send_json(['success' => false, 'error' => 'Feed is temporarily unavailable. Please try again later.']);
+                        }
+                        $u = $pdo->prepare("UPDATE pro_users SET feed_token_hash = ?, feed_token_enc = ?, feed_token = NULL WHERE id = ?");
+                        $u->execute([$pair['feed_token_hash'], $pair['feed_token_enc'], $userId]);
+                        logMessage('INFO', 'Generated new feed token for pro user', ['user_id' => $userId]);
+                        send_json(['success' => true, 'token' => $pair['token']]);
+                    }
+                    $token = feedTokenOpen($r['feed_token_enc'] ?? null);
+                    if ($token === null) {
+                        feedTokenLogError('Could not decrypt feed token', ['user_id' => $userId]);
+                        send_json(['success' => false, 'error' => 'Could not retrieve feed token. Use Regenerate below.']);
+                    }
+                    send_json(['success' => true, 'token' => $token]);
+                }
+
                 $s = $pdo->prepare("SELECT feed_token FROM pro_users WHERE id = ? LIMIT 1");
                 $s->execute([$userId]);
                 $r = $s->fetch(PDO::FETCH_ASSOC);
@@ -1155,6 +1186,18 @@ try {
         case 'feed_regenerate':
             require_pro($userId);
             try {
+                if (feedTokenColumnsExist('pro_users')) {
+                    $pair = feedTokenNewPair();
+                    if ($pair === null) {
+                        feedTokenLogError('Could not regenerate feed token: WEBHOOKS_KEY missing or encryption failed', ['user_id' => $userId]);
+                        send_json(['success' => false, 'error' => 'Feed is temporarily unavailable. Please try again later.']);
+                    }
+                    $u = $pdo->prepare("UPDATE pro_users SET feed_token_hash = ?, feed_token_enc = ?, feed_token = NULL WHERE id = ?");
+                    $u->execute([$pair['feed_token_hash'], $pair['feed_token_enc'], $userId]);
+                    logMessage('INFO', 'Regenerated feed token for pro user', ['user_id' => $userId]);
+                    send_json(['success' => true, 'token' => $pair['token']]);
+                }
+
                 $new = bin2hex(random_bytes(32));
                 $u = $pdo->prepare("UPDATE pro_users SET feed_token = ? WHERE id = ?");
                 $u->execute([$new, $userId]);
@@ -1174,13 +1217,40 @@ try {
         case 'address_feed_get_token':
             require_pro($userId);
             try {
-                if (!tableHasColumn('temp_emails', 'feed_token')) {
-                    // Migration not run: no per-address feeds exist yet.
-                    send_json(['success' => false, 'error' => 'Could not retrieve feed token']);
-                }
                 $addressId = (int)($_POST['id'] ?? 0);
                 if (!$addressId) {
                     send_json(['success' => false, 'error' => 'Invalid address']);
+                }
+
+                if (feedTokenColumnsExist('temp_emails')) {
+                    $s = $pdo->prepare("SELECT feed_token_hash, feed_token_enc FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                    $s->execute([$addressId, $userId]);
+                    $row = $s->fetch(PDO::FETCH_ASSOC);
+                    if (!$row) {
+                        send_json(['success' => false, 'error' => 'Address not found']);
+                    }
+                    if (empty($row['feed_token_hash'])) {
+                        $pair = feedTokenNewPair();
+                        if ($pair === null) {
+                            feedTokenLogError('Could not create per-address feed token: WEBHOOKS_KEY missing or encryption failed', ['user_id' => $userId, 'address_id' => $addressId]);
+                            send_json(['success' => false, 'error' => 'Feed is temporarily unavailable. Please try again later.']);
+                        }
+                        $u = $pdo->prepare("UPDATE temp_emails SET feed_token_hash = ?, feed_token_enc = ?, feed_token = NULL WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
+                        $u->execute([$pair['feed_token_hash'], $pair['feed_token_enc'], $addressId, $userId]);
+                        logMessage('INFO', 'Generated new per-address feed token', ['user_id' => $userId, 'address_id' => $addressId]);
+                        send_json(['success' => true, 'token' => $pair['token']]);
+                    }
+                    $token = feedTokenOpen($row['feed_token_enc'] ?? null);
+                    if ($token === null) {
+                        feedTokenLogError('Could not decrypt per-address feed token', ['user_id' => $userId, 'address_id' => $addressId]);
+                        send_json(['success' => false, 'error' => 'Could not retrieve feed token. Use Regenerate below.']);
+                    }
+                    send_json(['success' => true, 'token' => $token]);
+                }
+
+                if (!tableHasColumn('temp_emails', 'feed_token')) {
+                    // Migration not run: no per-address feeds exist yet.
+                    send_json(['success' => false, 'error' => 'Could not retrieve feed token']);
                 }
                 $s = $pdo->prepare("SELECT feed_token FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                 $s->execute([$addressId, $userId]);
@@ -1206,12 +1276,30 @@ try {
         case 'address_feed_regenerate':
             require_pro($userId);
             try {
-                if (!tableHasColumn('temp_emails', 'feed_token')) {
-                    send_json(['success' => false, 'error' => 'Could not regenerate token']);
-                }
                 $addressId = (int)($_POST['id'] ?? 0);
                 if (!$addressId) {
                     send_json(['success' => false, 'error' => 'Invalid address']);
+                }
+
+                if (feedTokenColumnsExist('temp_emails')) {
+                    $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
+                    $s->execute([$addressId, $userId]);
+                    if (!$s->fetch(PDO::FETCH_ASSOC)) {
+                        send_json(['success' => false, 'error' => 'Address not found']);
+                    }
+                    $pair = feedTokenNewPair();
+                    if ($pair === null) {
+                        feedTokenLogError('Could not regenerate per-address feed token: WEBHOOKS_KEY missing or encryption failed', ['user_id' => $userId, 'address_id' => $addressId]);
+                        send_json(['success' => false, 'error' => 'Feed is temporarily unavailable. Please try again later.']);
+                    }
+                    $u = $pdo->prepare("UPDATE temp_emails SET feed_token_hash = ?, feed_token_enc = ?, feed_token = NULL WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
+                    $u->execute([$pair['feed_token_hash'], $pair['feed_token_enc'], $addressId, $userId]);
+                    logMessage('INFO', 'Regenerated per-address feed token', ['user_id' => $userId, 'address_id' => $addressId]);
+                    send_json(['success' => true, 'token' => $pair['token']]);
+                }
+
+                if (!tableHasColumn('temp_emails', 'feed_token')) {
+                    send_json(['success' => false, 'error' => 'Could not regenerate token']);
                 }
                 $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                 $s->execute([$addressId, $userId]);
@@ -1232,7 +1320,7 @@ try {
         case 'address_feed_disable':
             require_pro($userId);
             try {
-                if (!tableHasColumn('temp_emails', 'feed_token')) {
+                if (!tableHasColumn('temp_emails', 'feed_token') && !feedTokenColumnsExist('temp_emails')) {
                     send_json(['success' => false, 'error' => 'Could not disable feed']);
                 }
                 $addressId = (int)($_POST['id'] ?? 0);
@@ -1244,7 +1332,10 @@ try {
                 if (!$s->fetch(PDO::FETCH_ASSOC)) {
                     send_json(['success' => false, 'error' => 'Address not found']);
                 }
-                $u = $pdo->prepare("UPDATE temp_emails SET feed_token = NULL WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
+                // Clears all three columns, whichever exist, so no credential
+                // (plaintext or ciphertext) survives a disable.
+                $hashEncClause = feedTokenColumnsExist('temp_emails') ? ", feed_token_hash = NULL, feed_token_enc = NULL" : "";
+                $u = $pdo->prepare("UPDATE temp_emails SET feed_token = NULL{$hashEncClause} WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
                 $u->execute([$addressId, $userId]);
                 logMessage('INFO', 'Disabled per-address feed', ['user_id' => $userId, 'address_id' => $addressId]);
                 send_json(['success' => true]);

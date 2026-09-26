@@ -19,6 +19,7 @@ if (php_sapi_name() === 'cli') {
 // (index.php get_email) - lives in email_html_sanitizer.php.
 require_once __DIR__ . '/email_html_sanitizer.php';
 require_once __DIR__ . '/pii_crypto.php';
+require_once __DIR__ . '/feed_token.php';
 
 /**
  * Reject a feed request. Every token failure - unknown token, degraded
@@ -101,10 +102,10 @@ function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo
 $rawToken = $_GET['token'] ?? '';
 $limit = sanitizeInt($_GET['limit'] ?? null, 1, 200, 50);
 
-// Validate token format first: hex string, 32-128 chars
+// Validate token format first: exactly 64 hex chars (bin2hex(random_bytes(32)))
 // This must come BEFORE detectSuspiciousPatterns() because valid hex tokens
 // trigger a false positive on the base64_payload pattern (64 hex chars look like base64)
-$token = sanitizeHexToken($rawToken, 32, 128);
+$token = feedTokenValidate($rawToken);
 if (!$token) {
     // Only check for suspicious patterns if it's not a valid hex token
     // This catches actual attacks while allowing legitimate tokens through
@@ -132,13 +133,21 @@ if (!$token) {
 try {
     $base = rtrim($config['email']['base_url'] ?? '', '/');
 
-    // Two token kinds share this endpoint and URL shape: pro_users.feed_token
-    // (account-wide, the original and unchanged behaviour) and
-    // temp_emails.feed_token (one personal address, #160). The account-wide
-    // lookup runs first so existing subscriptions resolve exactly as before.
-    $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE feed_token = ? LIMIT 1");
-    $stmt->execute([$token]);
-    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    // Two token kinds share this endpoint and URL shape: pro_users
+    // (account-wide, the original and unchanged behaviour) and temp_emails
+    // (one personal address, #160). Since #315 both are looked up by
+    // feed_token_hash, never by the plaintext feed_token column - the hash
+    // needs no key, so this keeps resolving even without WEBHOOKS_KEY. The
+    // account-wide lookup runs first so existing subscriptions resolve
+    // exactly as before. Guarded by tableHasColumn() so this behaves exactly
+    // as before migrate_feed_token_encryption.php has run.
+    $tokenHash = feedTokenHash($token);
+    $user = null;
+    if (feedTokenColumnsExist('pro_users')) {
+        $stmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE feed_token_hash = ? LIMIT 1");
+        $stmt->execute([$tokenHash]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
 
     if ($user) {
         $userId = (int)$user['id'];
@@ -172,14 +181,14 @@ try {
         $channelLink = $base . '/pro.php';
         $channelDescription = 'Recent messages for your Mail Shield account';
         $itemLink = $base . '/pro.php';
-    } elseif (tableHasColumn('temp_emails', 'feed_token')) {
+    } elseif (feedTokenColumnsExist('temp_emails')) {
         // Per-address feed. is_personal = 1 belongs in the SQL and not just in a
         // PHP check: it is the second line of defence behind the token issuance
         // rules, so an address that stops being personal stops serving even if it
-        // somehow kept a token. Guarded by tableHasColumn() so the endpoint
+        // somehow kept a token. Guarded by feedTokenColumnsExist() so the endpoint
         // behaves exactly as before the migration has run.
-        $q = $pdo->prepare("SELECT id, unique_address, pro_user_id FROM temp_emails WHERE feed_token = ? AND is_personal = 1 LIMIT 1");
-        $q->execute([$token]);
+        $q = $pdo->prepare("SELECT id, unique_address, pro_user_id FROM temp_emails WHERE feed_token_hash = ? AND is_personal = 1 LIMIT 1");
+        $q->execute([$tokenHash]);
         $addr = $q->fetch(PDO::FETCH_ASSOC);
 
         // A deleted address, a temporary one, or one whose owner has since been
@@ -248,7 +257,9 @@ try {
     http_response_code(500);
     header('Content-Type: text/plain; charset=utf-8');
     if (function_exists('logMessage')) {
-        logMessage('ERROR', '[pro_feed] Error', ['error' => $e->getMessage(), 'token' => $token ?? null]);
+        // Never a token: the hash is a safe reference (it identifies the
+        // request without letting anyone reading logs read the mail).
+        logMessage('ERROR', '[pro_feed] Error', ['error' => $e->getMessage(), 'token_hash' => $tokenHash ?? null]);
     } else {
         error_log('[pro_feed] Error: ' . $e->getMessage());
     }
