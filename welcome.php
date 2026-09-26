@@ -21,6 +21,7 @@ $msPage = [
     'description' => 'Your Mail Shield payment went through.',
     'path'        => '/welcome.php',
     'robots'      => 'noindex, nofollow',
+    'analytics'   => false,
 ];
 
 $msNavAnchors = false;

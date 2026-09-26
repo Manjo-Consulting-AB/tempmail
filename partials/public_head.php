@@ -2,7 +2,8 @@
 /**
  * Mail Shield marketing shell — document head and page opening.
  * Spec: documentaion/REDESIGN_BRIEF.md §11 (marketing pages load only the two
- * mailshield stylesheets), §12.10 (keep the analytics snippet as it is),
+ * mailshield stylesheets), §12.10 (Google Analytics only through
+ * partials/analytics.php, only on public pages, only after consent),
  * §14 (canonical/OG origin comes from $config, never hardcoded).
  *
  * The including page configures the head by setting $msPage before the require:
@@ -15,8 +16,14 @@
  *       'og_type'      => 'website',
  *       'preload_font' => true,
  *       'jsonld'       => [ … structured data … ],  // optional
+ *       'analytics'    => true,  // set false to opt this page out of GA (welcome.php)
  *   ];
  *   require 'partials/public_head.php';
+ *
+ * partials/analytics.php is included below unless the page set
+ * $msPage['analytics'] = false. It never requests Google Analytics itself —
+ * it only hands the measurement id to assets/js/consent.js, which decides
+ * whether gtag.js is ever loaded, based on the visitor's own consent choice.
  *
  * Emits through to the opening <div class="ms-page">. partials/public_footer.php
  * closes it, so the two are only valid as a pair.
@@ -35,6 +42,7 @@ $msDefaults = [
     'og_type'      => 'website',
     'preload_font' => false,
     'jsonld'       => null,
+    'analytics'    => true,
 ];
 
 if (!isset($msPage) || !is_array($msPage)) {
@@ -67,14 +75,9 @@ $msEsc = function ($value): string {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-BFX6EC3575"></script>
-        <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);} 
-        gtag('js', new Date());
-        gtag('config', 'G-BFX6EC3575');
-    </script>
+<?php if ($msPage['analytics'] !== false) : ?>
+    <?php require __DIR__ . '/analytics.php'; ?>
+<?php endif; ?>
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
