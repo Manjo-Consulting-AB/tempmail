@@ -22,7 +22,7 @@ $msLegalDoc = [
     'lede'        => 'If Mail Shield Pro is not right for you, you can have your money back within 30 days of paying. No questions asked.',
     'description' => 'Mail Shield offers a 30-day money-back guarantee on Pro subscriptions and Lifetime purchases. Refunds are issued by Paddle, our reseller.',
     'path'        => '/refund-policy.php',
-    'updated'     => '25 September 2026',
+    'updated'     => '26 September 2026',
     'sections'    => [
         [
             'id'      => 'guarantee',
@@ -33,7 +33,8 @@ $msLegalDoc = [
                 . '<li>each renewal of a subscription, counted from the date of that renewal;</li>'
                 . '<li>a one-time Lifetime purchase.</li>'
                 . '</ul>'
-                . '<p>You do not need to give a reason. The refund is for the full amount you paid, including any tax.</p>',
+                . '<p>You do not need to give a reason. The refund is for the full amount you paid, including any tax.</p>'
+                . '<p>This guarantee comes in addition to your statutory rights as a consumer, including any right of withdrawal, which Paddle handles as Merchant of Record under its buyer terms. It does not replace or limit them.</p>',
         ],
         [
             'id'      => 'how',
@@ -50,7 +51,9 @@ $msLegalDoc = [
             'id'      => 'after',
             'heading' => 'What happens to your account',
             'html'    => '<p>A refund ends the Pro time that the payment paid for, and a refunded subscription is cancelled so that it does not renew. Your account stays, as a free Regular account. As with any Pro plan that ends, sticky addresses are deleted 7 days later, with their mail, so move anything you want to keep before then.</p>'
-                . '<p>Any Pro time you had before the purchase — the free trial, or a voucher — is not affected by the refund.</p>',
+                . '<p>A refunded Lifetime purchase ends Pro on the date of the refund. After that the same 7 days apply before sticky addresses are deleted.</p>'
+                . '<p>Any Pro time you had before the purchase — the free trial, or a voucher — is not affected by the refund.</p>'
+                . '<p>A refund is not a request to delete your data. Apart from Pro ending, your account and its data follow the ordinary retention rules in our <a href="/privacy.php#retention">privacy policy</a>. To delete them, delete your account.</p>',
         ],
         [
             'id'      => 'cancel',

@@ -186,6 +186,16 @@ foreach ($hooks as $h) {
                 report('VARN', "{$label}: would be queued, but its token/user key cannot be decrypted (WEBHOOKS_KEY changed or missing?), so sending will fail");
             }
         }
+    } elseif ($kind === 'generic') {
+        // Custom header values are stored encrypted too (webhook_secret.php);
+        // check they still open, without ever printing a value.
+        $cfg = json_decode((string)$h['config'], true) ?: [];
+        require_once __DIR__ . '/webhook_secret.php';
+        try {
+            webhookConfigOpen($cfg, 'generic');
+        } catch (RuntimeException $e) {
+            report('VARN', "{$label}: would be queued, but a custom header value cannot be decrypted (WEBHOOKS_KEY changed or missing?), so sending will fail");
+        }
     }
     report('OK', "{$label}: would be queued");
     $wouldQueue++;

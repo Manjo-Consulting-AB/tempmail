@@ -6,6 +6,7 @@
 
 define('TEMPMAIL_APP', true);
 require_once 'config.php';
+require_once __DIR__ . '/feed_token.php';
 
 // Start session to detect logged-in pro users for AJAX actions
 if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -324,7 +325,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // be able to read live credentials from it. The credential is
                     // only ever returned by the Pro-gated address_feed_* actions
                     // in pro_profile.php.
-                    $feedEnabledCol = tableHasColumn('temp_emails', 'feed_token') ? ", (feed_token IS NOT NULL) AS feed_enabled" : "";
+                    // Since #315 the credential is feed_token_hash/feed_token_enc
+                    // (see feed_token.php); feed_enabled follows the hash column so
+                    // a row still holding only the retired plaintext feed_token
+                    // (pre-migration, or before migrate_feed_token_encryption.php's
+                    // --null-plaintext run) is unaffected either way.
+                    $feedEnabledCol = feedTokenColumnsExist('temp_emails')
+                        ? ", (feed_token_hash IS NOT NULL) AS feed_enabled"
+                        : (tableHasColumn('temp_emails', 'feed_token') ? ", (feed_token IS NOT NULL) AS feed_enabled" : "");
                     // hooks_paused exposed (#251 step 4) on the same terms: it is
                     // a preference, not a credential — no address, no hook and no
                     // URL travels with it, only whether the address' routing is

@@ -50,6 +50,7 @@ $msFooterEsc = function ($value): string {
                     <li><a href="/terms.php">Terms of service</a></li>
                     <li><a href="/privacy.php">Privacy policy</a></li>
                     <li><a href="/refund-policy.php">Refund policy</a></li>
+                    <li><button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button></li>
                 </ul>
                 <p class="ms-footer__legal">&copy; <?php echo $msFooterEsc($msFooterYear); ?> Manjo Consulting AB &middot; Mail Shield v<?php echo $msFooterEsc($msFooterVersion); ?></p>
             </div>

@@ -509,8 +509,15 @@ new assets with `filemtime()` the same way `app.js` already is.
 7. `php -l` must pass on every PHP file you touch.
 8. Check your work at 375px, 768px, 1024px and 1440px widths.
 9. No new external CDN dependency, no npm, no build step, no tracking script.
-10. Keep the existing Google Analytics snippet exactly where it already is on
-    pages that have it. Do not add it to pages that do not.
+10. Google Analytics loads only through `partials/analytics.php`, only on
+    public pages (`index.php`, `temporary-email.php`, `faq.php`, `blog.php`,
+    `pricing.php`, and `terms.php`/`privacy.php`/`refund-policy.php` through
+    `partials/legal_page.php`), and only after the visitor accepts the cookie
+    notice `assets/js/consent.js` shows (#313). `gtag.js` is never requested
+    until Accept; Decline, or no answer yet, means nothing is requested at
+    all. Never on an app, auth or checkout page — `inbox.php`, `pro.php`,
+    `pro_profile_page.php`, `pro_login.php`, `pro_logout.php`, `register.php`,
+    `welcome.php` and the rest of the app never include the partial.
 
 ---
 

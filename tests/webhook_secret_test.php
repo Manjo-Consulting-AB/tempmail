@@ -63,5 +63,27 @@ check('mask keeps the other fields', $masked['sound'] === 'magic');
 check('mask of legacy plaintext hides it too', webhookConfigMask($cfg, 'pushover', $key)['token'] === '••••' . substr($cfg['token'], -4));
 check('mask when it cannot decrypt shows no characters', webhookConfigMask($sealedCfg, 'pushover', 'other-key')['token'] === '••••');
 
+// --- Credentials inside a generic hook's `headers` object (#314) ---
+$genCfg = ['headers' => ['Authorization' => 'Bearer azGDORePK8gMaC0QOYAMyEEuzJnyUi', 'X-Api-Key' => 'short'], 'foo' => 'bar'];
+$sealedGen = webhookConfigSeal($genCfg, 'generic', $key);
+check('seal encrypts every header value', is_array($sealedGen)
+    && webhookConfigIsSealed($sealedGen['headers']['Authorization'])
+    && webhookConfigIsSealed($sealedGen['headers']['X-Api-Key']));
+check('seal leaves header names and other config readable', array_keys($sealedGen['headers']) === ['Authorization', 'X-Api-Key'] && $sealedGen['foo'] === 'bar');
+check('stored JSON no longer contains a header value', strpos(json_encode($sealedGen), 'Bearer azGDORePK8gMaC0QOYAMyEEuzJnyUi') === false);
+check('seal of headers is idempotent', webhookConfigSeal($sealedGen, 'generic', $key) === $sealedGen);
+check('open restores the original headers', webhookConfigOpen($sealedGen, 'generic', $key) === $genCfg);
+check('open passes legacy plaintext headers through', webhookConfigOpen($genCfg, 'generic', $key) === $genCfg);
+check('seal of headers without a key refuses', webhookConfigSeal($genCfg, 'generic', '') === null);
+$threwHeader = false;
+try { webhookConfigOpen($sealedGen, 'generic', 'other-key'); } catch (RuntimeException $e) { $threwHeader = true; }
+check('open of a header with the wrong key throws (delivery fails, never sends ciphertext)', $threwHeader);
+$maskedGen = webhookConfigMask($sealedGen, 'generic', $key);
+check('mask shows only the last four characters of each header value', $maskedGen['headers']['Authorization'] === '••••' . substr('Bearer azGDORePK8gMaC0QOYAMyEEuzJnyUi', -4)
+    && $maskedGen['headers']['X-Api-Key'] === '••••');
+check('mask of legacy plaintext headers hides them too', webhookConfigMask($genCfg, 'generic', $key)['headers']['Authorization'] === '••••' . substr('Bearer azGDORePK8gMaC0QOYAMyEEuzJnyUi', -4));
+check('mask of a header it cannot decrypt shows no characters', webhookConfigMask($sealedGen, 'generic', 'other-key')['headers']['Authorization'] === '••••');
+check('a config with no headers key is untouched', webhookConfigSeal(['foo' => 'bar'], 'generic', $key) === ['foo' => 'bar']);
+
 echo "\n" . ($passed + $failed) . " checks run, {$passed} passed, {$failed} failed.\n";
 exit($failed === 0 ? 0 : 1);

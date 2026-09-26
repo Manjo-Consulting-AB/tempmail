@@ -10,6 +10,7 @@ require_once __DIR__ . '/../TwoFactorAuth.php';
 require_once __DIR__ . '/../email_log_ref.php';
 require_once __DIR__ . '/../pii_crypto.php';
 require_once __DIR__ . '/../address_cooldown.php';
+require_once __DIR__ . '/../feed_token.php';
 
 // Säkerhetskontroll - endast CLI eller localhost eller HTTP-anrop med giltig hemlig nyckel
 // För att tillåta cron via HTTP (wget/curl), sätt miljövariabeln CRON_HTTP_SECRET i produktion
@@ -297,12 +298,13 @@ function cleanupExpiredRememberTokens() {
  *
  * Steg 1 (degradering, körs direkt vid pro_expires_at < NOW()):
  *   account_type='regular', digest_enabled=0, address_ttl_days=1,
- *   feed_token=NULL, och pro_webhooks pausas (filter_mode='paused')
+ *   feed_token=NULL (och sedan #315: feed_token_hash/feed_token_enc=NULL
+ *   också, se feed_token.php), och pro_webhooks pausas (filter_mode='paused')
  *   i stället för att raderas - de fungerar igen vid en ny uppgradering.
- *   Även de per-adress-flödena (#160) nollas: temp_emails.feed_token sätts
- *   till NULL för användarens personliga adresser, så en degraderad kontos
- *   gamla flödes-URL:er slutar fungera. Antalet nollade rader loggas som
- *   address_feed_tokens_cleared.
+ *   Även de per-adress-flödena (#160) nollas: temp_emails.feed_token (och
+ *   dess hash/enc-par) sätts till NULL för användarens personliga adresser,
+ *   så en degraderad kontos gamla flödes-URL:er slutar fungera. Antalet
+ *   nollade rader loggas som address_feed_tokens_cleared.
  *   password_hash rörs inte längre: kontot lever vidare som Regular och
  *   måste kunna logga in med lösenord.
  *
@@ -344,7 +346,11 @@ function cleanupExpiredProUsers() {
         foreach ($expired as $u) {
             $userId = (int)$u['id'];
 
-            $uup = $pdo->prepare("UPDATE pro_users SET account_type = 'regular', digest_enabled = 0, address_ttl_days = 1, feed_token = NULL WHERE id = ?");
+            // Since #315 the credential also lives in feed_token_hash/feed_token_enc
+            // (see feed_token.php); clear those too so a degraded account's old
+            // feed URL stops resolving even once the plaintext column is gone.
+            $feedHashEncClause = feedTokenColumnsExist('pro_users') ? ", feed_token_hash = NULL, feed_token_enc = NULL" : "";
+            $uup = $pdo->prepare("UPDATE pro_users SET account_type = 'regular', digest_enabled = 0, address_ttl_days = 1, feed_token = NULL{$feedHashEncClause} WHERE id = ?");
             $uup->execute([$userId]);
 
             $wstmt = $pdo->prepare("UPDATE pro_webhooks SET filter_mode = 'paused' WHERE user_id = ? AND filter_mode != 'paused'");
@@ -354,7 +360,11 @@ function cleanupExpiredProUsers() {
             // Nolla även per-adress-flödena (#160). Guarded: kolumnen finns inte
             // förrän migrate_address_feed_tokens.php har körts.
             $feedTokensCleared = 0;
-            if (tableHasColumn('temp_emails', 'feed_token')) {
+            if (feedTokenColumnsExist('temp_emails')) {
+                $fstmt = $pdo->prepare("UPDATE temp_emails SET feed_token = NULL, feed_token_hash = NULL, feed_token_enc = NULL WHERE pro_user_id = ? AND (feed_token IS NOT NULL OR feed_token_hash IS NOT NULL)");
+                $fstmt->execute([$userId]);
+                $feedTokensCleared = $fstmt->rowCount();
+            } elseif (tableHasColumn('temp_emails', 'feed_token')) {
                 $fstmt = $pdo->prepare("UPDATE temp_emails SET feed_token = NULL WHERE pro_user_id = ? AND feed_token IS NOT NULL");
                 $fstmt->execute([$userId]);
                 $feedTokensCleared = $fstmt->rowCount();

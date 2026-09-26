@@ -324,6 +324,7 @@ $msFaqJsonLd = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#FAFAF9">
+    <?php require __DIR__ . '/partials/analytics.php'; ?>
     <title><?php echo $msEsc($msTitle); ?></title>
     <meta name="description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="robots" content="index, follow">
@@ -429,6 +430,7 @@ $msFaqJsonLd = [
                 <a href="/temporary-email.php">Temporary email addresses</a>
                 <a href="/blog.php">Blog</a>
                 <a href="/faq.php">FAQ</a>
+                <button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button>
             </nav>
             <p class="ms-faq__foot-legal">&copy; <?php echo date('Y'); ?> Manjo Consulting AB <span aria-hidden="true">&middot;</span> Mail Shield v<?php echo $msEsc($config['app']['version'] ?? ''); ?></p>
         </div>

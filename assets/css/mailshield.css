@@ -817,6 +817,30 @@ a:hover {
     color: var(--ms-text);
 }
 
+/* "Cookie settings" — a plain button styled as a footer link (it reopens the
+   consent notice rather than navigating, so a <button> is the honest element;
+   see assets/js/consent.js). Shared between partials/public_footer.php's
+   list-based footer and the inline .ms-faq__foot-links row faq.php/blog.php
+   use, so it takes no font-size of its own — both ambient contexts are
+   already --ms-fs-sm. */
+.ms-footer__cookie {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: var(--ms-text-muted);
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.ms-footer__cookie:hover {
+    color: var(--ms-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
 /* The columns are vertical lists, so on a phone each link is a target in its
    own right rather than a word inside a sentence. Stacking them at full height
    supplies the separation the row gap used to, which is why the gap goes. */
@@ -5337,4 +5361,78 @@ a:hover {
     gap: var(--ms-space-3);
     margin-top: var(--ms-space-4);
     font-size: var(--ms-fs-sm);
+}
+
+/* ==========================================================================
+   hh. Cookie consent notice — assets/js/consent.js (#313)
+   ========================================================================== */
+
+/* Built by JS and appended to <body>, so it renders correctly however deep in
+   <head> or <body> partials/analytics.php happens to be included (marketing
+   pages via partials/public_head.php, faq.php and blog.php directly). No
+   Bootstrap class is used here on purpose: the notice must look identical on
+   the two marketing pages (no Bootstrap at all) and on faq.php/blog.php
+   (Bootstrap + the mailshield-bootstrap.css bridge) — the bridge only
+   restyles Bootstrap-named classes, never `ms-` ones, so this file is the only
+   place these rules live. It appears with no animation, so nothing here needs
+   the prefers-reduced-motion guard beyond the global one in section e. */
+.ms-consent {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 100;
+    background: var(--ms-bg-raised);
+    border-top: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-lg);
+}
+
+.ms-consent[hidden] {
+    display: none;
+}
+
+.ms-consent__inner {
+    max-width: var(--ms-container);
+    margin: 0 auto;
+    padding: var(--ms-space-4) var(--ms-gutter);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ms-space-4);
+}
+
+.ms-consent__text {
+    flex: 1 1 16rem;
+    margin: 0;
+    font-size: var(--ms-fs-sm);
+    color: var(--ms-text);
+}
+
+.ms-consent__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-3);
+}
+
+/* Accept and Decline share the same .ms-btn--secondary styling (equal visual
+   weight, deliberately: neither answer is nudged). */
+.ms-consent__btn {
+    min-width: 6rem;
+}
+
+@media (max-width: 480px) {
+    .ms-consent__inner {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    /* .ms-consent__text's flex-basis (16rem) sizes its *width* in the default
+       row layout; in this column layout the main axis is height, so it has
+       to be reset here or the text block is forced to a 16rem-tall box. */
+    .ms-consent__text {
+        flex: 0 1 auto;
+    }
+
+    .ms-consent__actions {
+        justify-content: flex-end;
+    }
 }

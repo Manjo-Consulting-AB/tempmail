@@ -77,6 +77,14 @@ if (!function_exists('webhookSecretDecrypt')) {
  * encrypted like the signing secret above, one value at a time, in the same
  * "v2:" format. The rest of the config (device, sound, priority, ...) stays
  * readable. Values written before this existed are plaintext and still work.
+ *
+ * A generic hook's `headers` object (ImapProcessor::CONFIG_HEADERS_KEY - the
+ * string is duplicated here rather than depending on that class, since this
+ * file is deliberately dependency-free) is the same kind of thing: its whole
+ * reason to exist is credentials such as {"Authorization": "Bearer ..."}.
+ * Header *names* stay readable (they are not secret and dispatch needs them
+ * to build the request); each header *value* is sealed on its own, in the
+ * same "v2:" format, same as a flat credential above.
  */
 
 if (!function_exists('webhookConfigSensitiveKeys')) {
@@ -84,6 +92,14 @@ if (!function_exists('webhookConfigSensitiveKeys')) {
     function webhookConfigSensitiveKeys(string $kind): array
     {
         return $kind === 'pushover' ? ['token', 'user'] : [];
+    }
+}
+
+if (!function_exists('WEBHOOK_CONFIG_HEADERS_KEY')) {
+    /** Mirrors ImapProcessor::CONFIG_HEADERS_KEY without requiring that class. */
+    function WEBHOOK_CONFIG_HEADERS_KEY(): string
+    {
+        return 'headers';
     }
 }
 
@@ -112,6 +128,19 @@ if (!function_exists('webhookConfigSeal')) {
             }
             $cfg[$key] = $sealed;
         }
+        $headersKey = WEBHOOK_CONFIG_HEADERS_KEY();
+        if (isset($cfg[$headersKey]) && is_array($cfg[$headersKey])) {
+            foreach ($cfg[$headersKey] as $name => $value) {
+                if (!is_scalar($value) || (string) $value === '' || webhookConfigIsSealed($value)) {
+                    continue;
+                }
+                $sealed = webhookSecretEncrypt((string) $value, $rawKey);
+                if ($sealed === null) {
+                    return null;
+                }
+                $cfg[$headersKey][$name] = $sealed;
+            }
+        }
         return $cfg;
     }
 }
@@ -134,6 +163,19 @@ if (!function_exists('webhookConfigOpen')) {
             }
             $cfg[$key] = $plain;
         }
+        $headersKey = WEBHOOK_CONFIG_HEADERS_KEY();
+        if (isset($cfg[$headersKey]) && is_array($cfg[$headersKey])) {
+            foreach ($cfg[$headersKey] as $name => $value) {
+                if (!webhookConfigIsSealed($value)) {
+                    continue;
+                }
+                $plain = webhookSecretDecrypt($value, $rawKey);
+                if ($plain === null) {
+                    throw new RuntimeException('Webhook header "' . (string) $name . '" could not be decrypted');
+                }
+                $cfg[$headersKey][$name] = $plain;
+            }
+        }
         return $cfg;
     }
 }
@@ -152,6 +194,16 @@ if (!function_exists('webhookConfigMask')) {
             }
             $plain = webhookConfigIsSealed($cfg[$key]) ? webhookSecretDecrypt($cfg[$key], $rawKey) : (string) $cfg[$key];
             $cfg[$key] = ($plain !== null && strlen($plain) > 8) ? '••••' . substr($plain, -4) : '••••';
+        }
+        $headersKey = WEBHOOK_CONFIG_HEADERS_KEY();
+        if (isset($cfg[$headersKey]) && is_array($cfg[$headersKey])) {
+            foreach ($cfg[$headersKey] as $name => $value) {
+                if (!is_scalar($value) || (string) $value === '') {
+                    continue;
+                }
+                $plain = webhookConfigIsSealed($value) ? webhookSecretDecrypt($value, $rawKey) : (string) $value;
+                $cfg[$headersKey][$name] = ($plain !== null && strlen($plain) > 8) ? '••••' . substr($plain, -4) : '••••';
+            }
         }
         return $cfg;
     }

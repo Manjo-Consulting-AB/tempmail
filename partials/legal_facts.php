@@ -37,4 +37,5 @@ return [
     'warn_days'    => (int) ($config['cleanup']['regular_inactivity_warn_days'] ?? 335),
     'delete_days'  => (int) ($config['cleanup']['regular_inactivity_days'] ?? 365),
     'cooldown_months' => (int) ($config['address_cooldown']['months'] ?? 6),
+    'hosting'      => 'Inleed, a trade name of Yelles AB (Sweden)',
 ];

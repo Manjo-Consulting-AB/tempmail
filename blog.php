@@ -261,14 +261,7 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#FAFAF9">
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-BFX6EC3575"></script>
-        <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-        gtag('config', 'G-BFX6EC3575');
-    </script>
+    <?php require __DIR__ . '/partials/analytics.php'; ?>
     <title><?php echo $msEsc($msTitle); ?></title>
     <meta name="description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="robots" content="<?php echo $msEsc($msRobots); ?>">
@@ -378,6 +371,7 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
                 <a href="/temporary-email.php">Temporary email addresses</a>
                 <a href="/blog.php">Blog</a>
                 <a href="/faq.php">FAQ</a>
+                <button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button>
             </nav>
             <p class="ms-faq__foot-legal">&copy; <?php echo date('Y'); ?> Manjo Consulting AB <span aria-hidden="true">&middot;</span> Mail Shield v<?php echo $msEsc($config['app']['version'] ?? ''); ?></p>
         </div>
