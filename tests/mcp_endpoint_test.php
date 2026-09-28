@@ -403,7 +403,11 @@ ms_test_same('1k. ... with no body at all', '', $response['body']);
 $response = ms_mcp_call($probePort, ['token' => $tokenPro, 'payload' => ms_mcp_rpc('tools/list', 2)]);
 ms_test_same('1l. tools/list answers 200', 200, $response['status']);
 $body = ms_mcp_decoded('1m. ... with a JSON body', $response);
-ms_test_same('1n. and an empty tool list (nothing is registered yet)', [], $body['result']['tools'] ?? null);
+ms_test_same(
+    '1n. ... listing the three read tools #322 registered',
+    ['list_addresses', 'list_messages', 'get_message'],
+    array_column($body['result']['tools'] ?? [], 'name')
+);
 
 $response = ms_mcp_call($probePort, ['token' => $tokenPro, 'payload' => ms_mcp_rpc('ping', 3)]);
 ms_test_same('1o. ping answers 200', 200, $response['status']);
@@ -598,11 +602,35 @@ ms_test_same('7e. read does not cover write', false, mcpTokenAllowsScope('read',
 ms_test_same('7f. read,write covers write', true, mcpTokenAllowsScope('read,write', 'write'));
 ms_test_same('7g. read,write covers read', true, mcpTokenAllowsScope('read,write', 'read'));
 ms_test_same('7h. an unknown scope is never allowed', false, mcpTokenAllowsScope('read,write', 'admin'));
-ms_test_same('7i. nothing is registered yet, so both tokens see the same empty list', [], mcpToolRegistry());
+ms_test_same(
+    '7i. the shipped registry holds the three read tools #322 added',
+    ['list_addresses', 'list_messages', 'get_message'],
+    array_column(mcpToolsForScopes(mcpToolRegistry(), 'read'), 'name')
+);
+ms_test_check(
+    '7i2. every shipped tool carries readOnlyHint, and none leaks its scope or handler',
+    (static function (): bool {
+        foreach (mcpToolRegistry() as $tool) {
+            if (($tool['annotations']['readOnlyHint'] ?? null) !== true) {
+                return false;
+            }
+        }
+        foreach (mcpToolsForScopes(mcpToolRegistry(), 'read,write') as $entry) {
+            if (array_key_exists('scope', $entry) || array_key_exists('handler', $entry)) {
+                return false;
+            }
+        }
+        return true;
+    })()
+);
 
 $response = ms_mcp_call($probePort, ['token' => $tokenWrite, 'payload' => ms_mcp_rpc('tools/list', 10)]);
 $body = ms_mcp_decoded('7j. a read,write token gets a tool list too', $response);
-ms_test_same('7k. ... which is empty until #322 registers something', [], $body['result']['tools'] ?? null);
+ms_test_same(
+    '7k. ... with the same three read tools (no write tool exists until #323)',
+    ['list_addresses', 'list_messages', 'get_message'],
+    array_column($body['result']['tools'] ?? [], 'name')
+);
 
 // ---------------------------------------------------------------------
 // 8. The per-token rate limit
