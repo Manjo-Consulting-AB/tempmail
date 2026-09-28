@@ -69,6 +69,10 @@ $msEsc = function ($value): string {
 
 $msDomain = $msEsc($domain);
 
+// Where an MCP client connects (#324): the configured origin plus /mcp, never a
+// literal. The automation answers below interpolate it.
+$msMcpUrl = $msEsc($msOrigin . '/mcp');
+
 // Every new account starts on Pro for this many days (epic #267). Read from
 // $config, never written into copy; at 0 every answer below falls back to its
 // pre-trial wording and the trial question is left out.
@@ -208,7 +212,14 @@ HTML,
 <li>Digest emails, a periodic summary of what arrived.</li>
 </ul>
 <p>If you run your own mail server, the Agent is there too: you manage sender lists and filter rules in Mail Shield, and the Agent applies them to a mailbox on your server. That mail stays on your server — it doesn't come into Mail Shield.</p>
-<p>A public API is coming; it isn't available yet.</p>
+<p>You can also connect an AI assistant to your account, to read and manage your addresses for you. That has its own question below.</p>
+HTML,
+            ],
+            [
+                'q' => 'Can I connect an AI assistant to my account?',
+                'a' => <<<HTML
+<p>Yes, on Pro. You create an access token in your profile and give it to the assistant, which connects to Mail Shield over the Model Context Protocol (MCP) at <code>{$msMcpUrl}</code>. It can then list your addresses, read your mail, and — if you gave the token write access — create and delete addresses for you.</p>
+<p>The assistant acts as your account, so treat its access token like a password. Anything it reads is sent to whoever runs it: that provider is chosen by you, not by us, and we are not its processor. Revoke a token from the Connected apps card in your profile and it stops working immediately; changing your password or your email address revokes every token at once.</p>
 HTML,
             ],
             [
