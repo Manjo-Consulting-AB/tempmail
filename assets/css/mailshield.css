@@ -1679,27 +1679,11 @@ a:hover {
 }
 
 /* Full strength, unlike the card bodies elsewhere on the page: these six are
-   the section's argument, and the one card that is deliberately quieter (below)
-   only reads as quieter against them. max-width only applies on the one-column
-   phone layout — everywhere else the grid column is narrower than the measure. */
+   the section's argument. max-width only applies on the one-column phone
+   layout — everywhere else the grid column is narrower than the measure. */
 .ms-automation__text {
     max-width: 46ch;
     margin: var(--ms-space-3) 0 0;
-}
-
-/* --- The one that has not shipped ----------------------------------------- */
-
-/* Two small differences: the body copy drops to --ms-text-muted and the
-   hairline is mixed back towards the card it outlines. Together they say "not
-   yet" without hiding it — this is a roadmap note, not a disabled control, so
-   it stays as legible as the five around it. Nothing else changes: the shadow,
-   the radius and the padding are the other cards'. */
-.ms-automation__card--soon {
-    border-color: color-mix(in srgb, var(--ms-border) 45%, var(--ms-bg-raised));
-}
-
-.ms-automation__card--soon .ms-automation__text {
-    color: var(--ms-text-muted);
 }
 
 /* The closing line: the section's own summary, at footnote size. */

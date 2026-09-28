@@ -9,7 +9,9 @@
  * with IP addresses (LOG_RETENTION_DAYS), removed personal addresses on the
  * cool-off list (address_cooldown.php, ADDRESS_COOLDOWN_MONTHS), the hashed trial claim
  * (pro_trial.php, five years), the Paddle mirror tables (paddle_sync.php), the
- * integrations a user configures themselves, Google Analytics loaded only
+ * integrations a user configures themselves, the access tokens a user creates
+ * for an app or AI assistant (mcp_tokens.php: only a hash of the token is
+ * stored), Google Analytics loaded only
  * after consent on the public pages (partials/analytics.php, consent-gated;
  * register.php no longer loads it), and the session and 2FA
  * trusted-device cookies (TwoFactorAuth::TRUSTED_DEVICE_COOKIE, 30 days), and
@@ -32,7 +34,7 @@ $msLegalDoc = [
     'lede'        => 'Mail Shield exists to keep your primary address out of places it does not need to be. This page says what we collect to do that, why, how long we keep it, and who else sees it.',
     'description' => 'What personal data Mail Shield collects, why, how long it is kept, and who processes it — including payments handled by Paddle.',
     'path'        => '/privacy.php',
-    'updated'     => '26 September 2026',
+    'updated'     => '28 September 2026',
     'sections'    => [
         [
             'id'      => 'controller',
@@ -48,6 +50,8 @@ $msLegalDoc = [
                 . '<p>Your registered email address is stored encrypted, and looked up through a keyed hash rather than in plain text.</p>'
                 . '<h3>The mail you receive</h3>'
                 . '<p>Messages sent to your Mail Shield addresses — headers, content and attachments — are stored so that you can read them. People at Mail Shield do not look at your mail as part of running the service, and it is never used for advertising or profiling. It is processed automatically to store it, show it to you and pass it to the integrations you have set up. We only access a specific message when that is needed to investigate abuse or a security incident, to help you when you ask us to, or when the law requires it.</p>'
+                . '<h3>Connected apps</h3>'
+                . '<p>You can connect an app or an AI assistant to your account with an access token. For each one we store a one-way hash of the token — never the token itself — with the name you gave it, the access you granted (read only, or read and change), when you created it, when it expires and when it was last used.</p>'
                 . '<h3>Technical data</h3>'
                 . '<p>Our server logs record events such as sign-ins, errors and suspicious requests, with the IP address involved. Sign-in attempts are recorded to stop password guessing. We do not write your registered email address into the logs.</p>'
                 . '<p>To protect addresses from floods of mail and the service from misuse, we count how many messages, and how many bytes, each address receives, how many addresses are created from each IP address and account, and how many notifications each integration sends. When a limit is reached we pause the address or the integration for a while and tell you, and we keep a record of that step.</p>'
@@ -82,6 +86,7 @@ $msLegalDoc = [
                 . '<li><strong>Abuse counters</strong> (messages per address, new addresses per IP address and account) — two days. The record of pauses, warnings and other protective steps — 90 days.</li>'
                 . '<li><strong>Trusted browsers for two-factor authentication</strong> — 30 days, or until you remove them.</li>'
                 . '<li><strong>Devices you keep signed in</strong> (a browser and operating system name, and when it was last used) — the period you chose, counted from the last visit and never more than 90 days after you signed in, or until you remove the device, sign out on it, or change your password or email address.</li>'
+                . '<li><strong>Access tokens for connected apps</strong> — until you revoke them, or until the expiry you chose. A revoked or expired token is deleted 30 days later. Changing your password or email address, or deleting your account, revokes them all at once.</li>'
                 . '<li><strong>Trial record</strong> — five years from the first time the address was used.</li>'
                 . '<li><strong>Payment records</strong> — seven years, as Swedish bookkeeping law requires.</li>'
                 . '</ul>',
@@ -99,8 +104,9 @@ $msLegalDoc = [
                 . '<li><strong>Webhook:</strong> the sender, the recipient address, the subject, the full message body and the time it arrived. Attachments are not sent, only how many there are.</li>'
                 . '<li><strong>Pushover:</strong> the subject and a plain-text excerpt of the body (up to about 4,000 characters), titled with the recipient address, sent to Pushover and on to your devices.</li>'
                 . '<li><strong>RSS feed:</strong> the sender, subject, date and full message body, with links to the attachments, available to anyone who has the feed link.</li>'
+                . '<li><strong>An app or AI assistant you connect with an access token:</strong> your addresses, and the mail it asks for — sender, subject, body and attachment links. Unlike the integrations above, that app fetches it itself, and what it does with it is between you and whoever runs it.</li>'
                 . '</ul>'
-                . 'Those services are chosen by you and handle the data under their own terms.</li>'
+                . 'Those services are chosen by you and handle the data under their own terms. An AI assistant you connect is no different: its provider answers to you, not to us, and is not our processor.</li>'
                 . '<li><strong>Authorities</strong>, where the law requires us to disclose data.</li>'
                 . '</ul>'
                 . '<p>A digest email is not shared with anyone else: it lists the sender, subject and time of your waiting messages and goes to your own registered address.</p>',
@@ -137,7 +143,7 @@ $msLegalDoc = [
         [
             'id'      => 'security',
             'heading' => 'How we protect it',
-            'html'    => '<p>Connections to Mail Shield are encrypted. Your registered address, two-factor secrets and your integrations\' credentials — webhook secrets and headers, Pushover keys and feed links — are encrypted at rest; passwords are hashed. Attachments are only served through signed, expiring links. Access to production data is limited to the people who run the service.</p>'
+            'html'    => '<p>Connections to Mail Shield are encrypted. Your registered address, two-factor secrets and your integrations\' credentials — webhook secrets and headers, Pushover keys and feed links — are encrypted at rest; passwords and the access tokens for connected apps are hashed rather than stored as themselves. Attachments are only served through signed, expiring links. Access to production data is limited to the people who run the service.</p>'
                 . '<p>Remember that email itself is usually not end-to-end encrypted, and that a shared inbox link can be read by anyone who has it.</p>',
         ],
         [
