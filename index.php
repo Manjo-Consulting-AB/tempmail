@@ -7,6 +7,7 @@
 define('TEMPMAIL_APP', true);
 require_once 'config.php';
 require_once __DIR__ . '/feed_token.php';
+require_once __DIR__ . '/mailbox_service.php';
 
 // Start session to detect logged-in pro users for AJAX actions
 if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -87,47 +88,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
      * on a database error, nothing is limited.
      */
     $creationLimited = static function (string $kind) use ($pdo): bool {
-        require_once __DIR__ . '/abuse_guard.php';
-        try {
-            if (!abuseGuardAvailable()) {
-                return false;
-            }
-            $settings = abuseGuardSettings();
-            $userId = (int)($_SESSION['pro_user_id'] ?? 0);
-            $ip = function_exists('getVisitorIp') ? (string)getVisitorIp() : (string)($_SERVER['REMOTE_ADDR'] ?? '');
-            if ($kind === 'personal') {
-                $rules = [['personal_user', (string)$userId, $settings['personal_user_day'], 86400]];
-            } elseif ($userId > 0) {
-                $rules = [['gen_user', (string)$userId, $settings['generate_user_day'], 86400]];
-            } else {
-                $rules = [
-                    ['gen_ip', $ip, $settings['generate_ip_hour'], 3600],
-                    ['gen_ip', $ip, $settings['generate_ip_day'], 86400],
-                ];
-            }
-            $now = time();
-            $result = abuseRateLimit($pdo, $rules, $now);
-            if (!$result['limited']) {
-                return false;
-            }
-            $rule = $result['rule'][0] . '/' . $result['rule'][3];
-            if ($result['first']) {
-                if ($userId > 0) {
-                    $step = abuseAccountStrike($pdo, $userId, $rule, $now, $settings);
-                    logMessage('WARNING', 'Address creation rate limit reached by an account', ['user_id' => $userId, 'rule' => $rule, 'step' => $step]);
-                } else {
-                    logMessage('WARNING', 'Address creation rate limit reached by an IP', ['ip' => $ip, 'rule' => $rule]);
-                    if (function_exists('flagMaliciousActivity')) {
-                        flagMaliciousActivity($ip, 'Address creation rate limit exceeded (' . $rule . ')');
-                    }
-                }
-            }
-            echo json_encode(['success' => false, 'error' => 'Too many new addresses in a short time. Please try again later.', 'rate_limited' => true]);
+        $userId = (int)($_SESSION['pro_user_id'] ?? 0);
+        $ip = function_exists('getVisitorIp') ? (string)getVisitorIp() : (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        $result = mailboxCreationLimited($pdo, $kind, $userId, $ip);
+        if (!$result['ok']) {
+            echo json_encode(['success' => false, 'error' => $result['error'], 'rate_limited' => true]);
             return true;
-        } catch (Throwable $e) {
-            logMessage('ERROR', 'Address creation rate limit check failed, allowing the request', ['error' => $e->getMessage()]);
-            return false;
         }
+        return false;
     };
 
     try {
@@ -199,7 +167,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
             case 'create_personal':
-                // Create a personal address for logged-in pro users with 50 years TTL
+                // Create a personal address for logged-in pro users with 50 years TTL.
+                // Session auth and Pro-gating stay here (mailbox_service.php never
+                // reads the session); everything else is mailboxCreateSticky() (#319).
                 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
                     echo json_encode(['success' => false, 'error' => 'Not authenticated']);
                     break;
@@ -210,106 +180,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     break;
                 }
                 $rawLocal = $_POST['local'] ?? '';
-                // Detect suspicious patterns
-                $suspicious = function_exists('detectSuspiciousPatterns') ? detectSuspiciousPatterns((string)$rawLocal) : [];
-                if (!empty($suspicious)) {
-                    logMessage('WARNING', 'Suspicious create_personal input', ['patterns' => $suspicious, 'user_id' => $_SESSION['pro_user_id']]);
-                    echo json_encode(['success' => false, 'error' => 'Invalid request']);
-                    break;
-                }
-                // Validate and sanitize local part using central function (already lowercased)
-                $local = function_exists('sanitizeLocalPart') ? sanitizeLocalPart($rawLocal, 3, 64) : null;
-                if (!$local) {
-                    echo json_encode(['success' => false, 'error' => 'Invalid local part']);
-                    break;
-                }
-                // A new address must also be a valid unquoted dot-atom: no
-                // leading/trailing ".", "-" or "_" and no "..". Only creation
-                // is checked; existing addresses keep receiving mail.
-                require_once __DIR__ . '/reserved_local_parts.php';
-                if (!isValidNewLocalPartSyntax($local)) {
-                    echo json_encode(['success' => false, 'error' => 'Invalid local part']);
-                    break;
-                }
-                // Role, system and brand names (postmaster@, admin@, noreply@ ...)
-                // may not be claimed - see reserved_local_parts.php.
-                if (isReservedLocalPart($local)) {
-                    logMessage('INFO', 'create_personal denied: reserved local part', ['user_id' => $_SESSION['pro_user_id'], 'local' => $local]);
-                    echo json_encode(['success' => false, 'error' => 'This local part is not allowed']);
-                    break;
-                }
-                // Check if already exists
-                $stmt = $pdo->prepare("SELECT id FROM temp_emails WHERE unique_address = ? LIMIT 1");
-                $stmt->execute([$local]);
-                if ($stmt->fetch()) {
-                    echo json_encode(['success' => false, 'error' => 'Address already taken']);
-                    break;
-                }
-                // A recently released personal address is reserved for its last
-                // owner (address_cooldown.php). Anyone else gets the same answer
-                // as for a live address, so the reservation reveals nothing.
-                $hasCooldowns = tableHasColumn('address_cooldowns', 'local_part');
-                if ($hasCooldowns) {
-                    require_once __DIR__ . '/address_cooldown.php';
-                    try {
-                        $holder = addressCooldownHolder($pdo, $local);
-                    } catch (Exception $e) {
-                        logMessage('ERROR', 'Could not check address cool-off', ['error' => $e->getMessage()]);
-                        echo json_encode(['success' => false, 'error' => 'Could not create address']);
-                        break;
+                $creatorIp = function_exists('getVisitorIp') ? (string)getVisitorIp() : (string)($_SERVER['REMOTE_ADDR'] ?? '');
+                $stickyResult = mailboxCreateSticky($pdo, (int)$_SESSION['pro_user_id'], (string)$rawLocal, $creatorIp);
+                if (!$stickyResult['ok']) {
+                    $stickyResponse = ['success' => false, 'error' => $stickyResult['error']];
+                    if (!empty($stickyResult['rate_limited'])) {
+                        $stickyResponse['rate_limited'] = true;
                     }
-                    if ($holder !== null && $holder !== (int)$_SESSION['pro_user_id']) {
-                        logMessage('INFO', 'create_personal denied: address in cool-off', ['user_id' => $_SESSION['pro_user_id'], 'local' => $local]);
-                        echo json_encode(['success' => false, 'error' => 'Address already taken']);
-                        break;
-                    }
-                }
-                // Enforce max 10 personal addresses per pro user
-                try {
-                    $cntStmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
-                    $cntStmt->execute([$_SESSION['pro_user_id']]);
-                    $cntRow = $cntStmt->fetch(PDO::FETCH_ASSOC);
-                    $existingCount = (int)($cntRow['cnt'] ?? 0);
-                    if ($existingCount >= 10) {
-                        echo json_encode(['success' => false, 'error' => 'Maximum of 10 sticky addresses allowed']);
-                        break;
-                    }
-                } catch (Exception $e) {
-                    // If counting fails, log and continue (but do not allow creation as safe default)
-                    logMessage('WARNING', 'Could not verify personal address count', ['error' => $e->getMessage()]);
-                    echo json_encode(['success' => false, 'error' => 'Could not verify address quota']);
+                    echo json_encode($stickyResponse);
                     break;
                 }
-                if ($creationLimited('personal')) {
-                    break;
-                }
-                // Create with 50 years TTL
-                $expiresAt = date('Y-m-d H:i:s', strtotime('+50 years'));
-                try {
-                    $ins = $pdo->prepare("INSERT INTO temp_emails (unique_address, expires_at, pro_user_id, is_personal) VALUES (?, ?, ?, 1)");
-                    $ins->execute([$local, $expiresAt, $_SESSION['pro_user_id']]);
-                    if (!createDirectAdminForwarder($local)) {
-                        $pdo->prepare("DELETE FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? AND is_personal = 1")
-                            ->execute([$local, $_SESSION['pro_user_id']]);
-                        echo json_encode(['success' => false, 'error' => 'Mail delivery could not be set up for this address, so it was not created. Please try again in a moment.']);
-                        break;
-                    }
-                    // The owner has taken the address back: the reservation ends.
-                    if ($hasCooldowns) {
-                        try {
-                            addressCooldownClear($pdo, (int)$_SESSION['pro_user_id'], $local);
-                        } catch (Exception $e) {
-                            // Harmless: a live temp_emails row blocks others anyway,
-                            // and the row expires on its own.
-                            logMessage('WARNING', 'Could not clear address cool-off', ['error' => $e->getMessage(), 'user_id' => $_SESSION['pro_user_id']]);
-                        }
-                    }
-                    logMessage('INFO', 'Personal address created', ['user_id' => $_SESSION['pro_user_id'], 'address' => $local]);
-                    echo json_encode(['success' => true, 'address' => $local, 'full_address' => $local . '@' . $config['email']['domain'], 'expires_at' => $expiresAt]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
-                } catch (Exception $e) {
-                    logMessage('ERROR', 'Failed creating personal address', ['error' => $e->getMessage()]);
-                    echo json_encode(['success' => false, 'error' => 'Could not create address']);
-                }
+                echo json_encode([ // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+                    'success' => true,
+                    'address' => $stickyResult['address'],
+                    'full_address' => $stickyResult['full_address'],
+                    'expires_at' => $stickyResult['expires_at'],
+                ]);
                 break;
             case 'list_personal':
                 // Avsiktligt inte Pro-gated: ett degraderat konto måste kunna se
@@ -318,70 +204,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'error' => 'Not authenticated']);
                     break;
                 }
-                try {
-                    // feed_enabled exposed (#160) so the UI can show feed state
-                    // without handing out the credential itself: this action is
-                    // deliberately not Pro-gated, and a degraded account must not
-                    // be able to read live credentials from it. The credential is
-                    // only ever returned by the Pro-gated address_feed_* actions
-                    // in pro_profile.php.
-                    // Since #315 the credential is feed_token_hash/feed_token_enc
-                    // (see feed_token.php); feed_enabled follows the hash column so
-                    // a row still holding only the retired plaintext feed_token
-                    // (pre-migration, or before migrate_feed_token_encryption.php's
-                    // --null-plaintext run) is unaffected either way.
-                    $feedEnabledCol = feedTokenColumnsExist('temp_emails')
-                        ? ", (feed_token_hash IS NOT NULL) AS feed_enabled"
-                        : (tableHasColumn('temp_emails', 'feed_token') ? ", (feed_token IS NOT NULL) AS feed_enabled" : "");
-                    // hooks_paused exposed (#251 step 4) on the same terms: it is
-                    // a preference, not a credential — no address, no hook and no
-                    // URL travels with it, only whether the address' routing is
-                    // silenced. The links themselves stay in pro_profile.php.
-                    $hooksPausedCol = tableHasColumn('temp_emails', 'hooks_paused') ? ", (hooks_paused = 1) AS hooks_paused" : "";
-                    $stmt = $pdo->prepare("SELECT id, unique_address AS address, expires_at{$feedEnabledCol}{$hooksPausedCol} FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1 ORDER BY created_at DESC");
-                    $stmt->execute([$_SESSION['pro_user_id']]);
-                    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    // Addresses the abuse guard has paused or closed, so the
-                    // owner sees why mail to them is refused (abuse_guard.php).
-                    $quarantines = [];
-                    require_once __DIR__ . '/abuse_guard.php';
-                    try {
-                        if (abuseGuardAvailable()) {
-                            $quarantines = abuseQuarantinesForUser($pdo, (int)$_SESSION['pro_user_id'], time());
-                        }
-                    } catch (Exception $e) {
-                        logMessage('WARNING', 'Could not read address quarantines', ['error' => $e->getMessage(), 'user_id' => $_SESSION['pro_user_id']]);
-                    }
-                    $list = [];
-                    foreach ($rows as $r) {
-                        $q = $quarantines[strtolower((string)$r['address'])] ?? null;
-                        $list[] = [
-                            'id' => $r['id'],
-                            'address' => $r['address'],
-                            'full_address' => $r['address'] . '@' . $config['email']['domain'],
-                            'expires_at' => $r['expires_at'],
-                            'feed_enabled' => !empty($r['feed_enabled']),
-                            // Absent when the migration hasn't run, and empty()
-                            // reads an undefined key as false, i.e. not paused.
-                            'hooks_paused' => !empty($r['hooks_paused']),
-                            'paused_until' => $q !== null ? $q['until'] : null,
-                            'closed' => $q !== null && $q['closed'],
-                        ];
-                    }
-                    // Recently deleted addresses still reserved for this account,
-                    // so the owner knows what they can take back and until when.
-                    $cooldown = [];
-                    if (tableHasColumn('address_cooldowns', 'local_part')) {
-                        require_once __DIR__ . '/address_cooldown.php';
-                        foreach (addressCooldownList($pdo, (int)$_SESSION['pro_user_id']) as $c) {
-                            $c['full_address'] = $c['address'] . '@' . $config['email']['domain'];
-                            $cooldown[] = $c;
-                        }
-                    }
-                    echo json_encode(['success' => true, 'personal' => $list, 'cooldown' => $cooldown]);
-                } catch (Exception $e) {
-                    echo json_encode(['success' => false, 'error' => 'Failed to list sticky addresses']);
+                $listResult = mailboxListAddresses($pdo, (int)$_SESSION['pro_user_id']);
+                if (!$listResult['ok']) {
+                    echo json_encode(['success' => false, 'error' => $listResult['error']]);
+                    break;
                 }
+                echo json_encode(['success' => true, 'personal' => $listResult['personal'], 'cooldown' => $listResult['cooldown']]);
                 break;
             case 'delete_personal':
                 // Avsiktligt inte Pro-gated: att kunna ta bort sina egna adresser
@@ -390,62 +218,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'error' => 'Not authenticated']);
                     break;
                 }
-                $id = (int)($_POST['id'] ?? 0);
-                if (!$id) {
-                    echo json_encode(['success' => false, 'error' => 'Invalid id']);
+                $deleteResult = mailboxDeleteSticky($pdo, (int)$_SESSION['pro_user_id'], (int)($_POST['id'] ?? 0));
+                if (!$deleteResult['ok']) {
+                    echo json_encode(['success' => false, 'error' => $deleteResult['error']]);
                     break;
                 }
-                try {
-                    // Ensure the address belongs to this pro user and is a personal address
-                    $stmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
-                    $stmt->execute([$id, $_SESSION['pro_user_id']]);
-                    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-                    if (!$row) {
-                        echo json_encode(['success' => false, 'error' => 'Address not found or not owned by user']);
-                        break;
-                    }
-                    $id = (int)$row['id'];
-                    $unique = $row['unique_address'];
-
-                    $pdo->beginTransaction();
-                    // Delete the stored emails and attachment rows explicitly: there is
-                    // no guaranteed FK cascade from temp_emails. The attachment files
-                    // are unlinked only after the commit, so a rollback cannot leave
-                    // rows pointing at deleted files.
-                    $attachmentFiles = deleteStoredEmailsForTempEmail($pdo, $id);
-                    // The routing links have no foreign key either (#251 step 4),
-                    // so they go with the address; a surviving row would keep
-                    // routing this now-reusable id to hooks that are not its own.
-                    if (tableHasColumn('pro_webhook_addresses', 'webhook_id')) {
-                        $dl = $pdo->prepare("DELETE FROM pro_webhook_addresses WHERE temp_email_id = ?");
-                        $dl->execute([$id]);
-                    }
-                    $d2 = $pdo->prepare("DELETE FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
-                    $d2->execute([$id, $_SESSION['pro_user_id']]);
-                    // Reserved for this owner for the cool-off period, in the
-                    // same transaction: no window where someone else can claim it.
-                    if (tableHasColumn('address_cooldowns', 'local_part')) {
-                        require_once __DIR__ . '/address_cooldown.php';
-                        [$cdMonths, $cdMax] = addressCooldownSettings();
-                        addressCooldownAdd($pdo, (int)$_SESSION['pro_user_id'], (string)$unique, $cdMonths, $cdMax);
-                    }
-
-                    $pdo->commit();
-                    unlinkAttachmentFiles($attachmentFiles);
-                    deleteDirectAdminForwarder($unique);
-                    logMessage('INFO', 'Personal address deleted', ['user_id' => $_SESSION['pro_user_id'], 'address' => $unique]);
-                    echo json_encode(['success' => true, 'deleted_address' => $unique]);
-                } catch (Exception $e) {
-                    if ($pdo->inTransaction()) $pdo->rollBack();
-                    logMessage('ERROR', 'Failed deleting personal address', ['error' => $e->getMessage()]);
-                    echo json_encode(['success' => false, 'error' => 'Delete failed']);
-                }
+                echo json_encode(['success' => true, 'deleted_address' => $deleteResult['deleted_address']]);
                 break;
             case 'generate':
                 if ($creationLimited('generate')) {
                     break;
                 }
-                // Generera ny temporär adress
+                $proUserId = (isset($_SESSION['pro_user_id']) && $_SESSION['pro_user_id']) ? (int)$_SESSION['pro_user_id'] : null;
+                if ($proUserId) {
+                    // Signed-in branch: mailboxCreateTimed() (#319) - the account's
+                    // one Timed address, replacing any existing one.
+                    $timedResult = mailboxCreateTimed($pdo, $proUserId);
+                    if (!$timedResult['ok']) {
+                        throw new Exception($timedResult['error']);
+                    }
+                    echo json_encode([
+                        'success' => true,
+                        'address' => $timedResult['address'],
+                        'full_address' => $timedResult['full_address'],
+                        'expires_at' => $timedResult['expires_at']
+                    ]);
+                    break;
+                }
+
+                // Anonymous (logged-out) branch: unchanged.
                 $address = generateUniqueString();
                 // A personal local part may be plain hex too: never hand out one
                 // that is reserved in the cool-off list (address_cooldown.php).
@@ -455,77 +256,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $address = generateUniqueString();
                     }
                 }
-                // Determine expires_at: if a pro user is logged in, use their preference
                 $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
-                if (isset($_SESSION['pro_user_id']) && $_SESSION['pro_user_id'] && proUserIsPro((int)$_SESSION['pro_user_id'])) {
-                    try {
-                        $stmt = $pdo->prepare("SELECT COALESCE(address_ttl_days, 1) AS ttl_days FROM pro_users WHERE id = ? LIMIT 1");
-                        $stmt->execute([$_SESSION['pro_user_id']]);
-                        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-                        if ($row && isset($row['ttl_days'])) {
-                            $ttlDays = (int)$row['ttl_days'];
-                            // enforce limits
-                            if ($ttlDays < 1) $ttlDays = 1;
-                            if ($ttlDays > 7) $ttlDays = 7;
-                            $expiresAt = date('Y-m-d H:i:s', strtotime("+$ttlDays days"));
-                        }
-                    } catch (Exception $e) {
-                        logMessage('WARNING', 'Could not fetch pro user TTL, falling back to default', ['error' => $e->getMessage()]);
-                    }
-                }
 
                 // Pass custom expires to saveNewAddress via global (keeps signature backward compatible)
                 $GLOBALS['__custom_expires_at'] = $expiresAt;
-                $proUserId = (isset($_SESSION['pro_user_id']) && $_SESSION['pro_user_id']) ? $_SESSION['pro_user_id'] : null;
-                // If this is a pro user, ensure they only have one non-personal temp address at a time.
-                if ($proUserId) {
-                    $replacedAddresses = [];
-                    $replacedAttachmentFiles = [];
-                    try {
-                        $pdo->beginTransaction();
-                        // Look up the address(es) about to be replaced so their DirectAdmin
-                        // forwarder can be removed after the transaction commits.
-                        $oldStmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
-                        $oldStmt->execute([$proUserId]);
-                        $oldRows = $oldStmt->fetchAll(PDO::FETCH_ASSOC);
-                        foreach ($oldRows as $oldRow) {
-                            $replacedAddresses[] = $oldRow['unique_address'];
-                            // Delete the stored emails and attachment rows explicitly:
-                            // there is no guaranteed FK cascade from temp_emails.
-                            $replacedAttachmentFiles = array_merge(
-                                $replacedAttachmentFiles,
-                                deleteStoredEmailsForTempEmail($pdo, (int)$oldRow['id'])
-                            );
-                        }
-                        // Delete any existing non-personal temp addresses for this pro user
-                        $del = $pdo->prepare("DELETE FROM temp_emails WHERE pro_user_id = ? AND is_personal = 0");
-                        $del->execute([$proUserId]);
-                        // Now insert new address
-                        $saved = saveNewAddress($address, $proUserId);
-                        if ($saved) {
-                            $pdo->commit();
-                        } else {
-                            // The new address could not be set up, so the previous
-                            // one is kept: rolling back undoes the delete above,
-                            // leaving its rows, its mail and its forwarder intact
-                            // (#212).
-                            $pdo->rollBack();
-                        }
-                    } catch (Exception $e) {
-                        if ($pdo->inTransaction()) $pdo->rollBack();
-                        throw $e;
-                    }
-                    if ($saved) {
-                        // Files are unlinked only after the commit, so a rollback cannot
-                        // leave rows pointing at deleted files.
-                        unlinkAttachmentFiles($replacedAttachmentFiles);
-                        foreach ($replacedAddresses as $replacedAddress) {
-                            deleteDirectAdminForwarder($replacedAddress);
-                        }
-                    }
-                } else {
-                    $saved = saveNewAddress($address, $proUserId);
-                }
+                $saved = saveNewAddress($address, null);
 
                 if ($saved) {
                     unset($GLOBALS['__custom_expires_at']);
