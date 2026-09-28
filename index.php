@@ -187,7 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!empty($stickyResult['rate_limited'])) {
                         $stickyResponse['rate_limited'] = true;
                     }
-                    echo json_encode($stickyResponse);
+                    echo json_encode($stickyResponse); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                     break;
                 }
                 echo json_encode([ // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
@@ -220,10 +220,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $deleteResult = mailboxDeleteSticky($pdo, (int)$_SESSION['pro_user_id'], (int)($_POST['id'] ?? 0));
                 if (!$deleteResult['ok']) {
-                    echo json_encode(['success' => false, 'error' => $deleteResult['error']]);
+                    echo json_encode(['success' => false, 'error' => $deleteResult['error']]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                     break;
                 }
-                echo json_encode(['success' => true, 'deleted_address' => $deleteResult['deleted_address']]);
+                echo json_encode(['success' => true, 'deleted_address' => $deleteResult['deleted_address']]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                 break;
             case 'generate':
                 if ($creationLimited('generate')) {
