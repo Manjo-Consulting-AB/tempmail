@@ -14,6 +14,7 @@
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/abuse_guard.php';
+require_once __DIR__ . '/mcp_tokens.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 // A suspended account is signed out before anything trusts the session.
@@ -57,6 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     $closed = abuseSuspendAccount($pdo, $userId, $adminId, $now, $settings);
                     $removals = abuseRetryForwarderRemovals($pdo, 'directAdminRemoveForwarder', $now);
+                    // A suspended account's MCP access tokens stop working at
+                    // once (mcp_tokens.php). resolve() refuses one anyway while
+                    // the suspension stands, so this makes it permanent.
+                    mcpTokensRevokeAllFor($userId);
                     logMessage('WARNING', 'Account suspended by an admin', ['user_id' => $userId, 'admin_id' => $adminId, 'addresses' => $closed, 'forwarders_failed' => $removals['failed']]);
                     $notice = "Account #{$userId} suspended; {$closed} address(es) closed"
                         . ($removals['failed'] > 0 ? ", {$removals['failed']} forwarder(s) left for the cron retry." : '.');

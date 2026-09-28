@@ -10,6 +10,7 @@ require_once __DIR__ . '/login_tokens.php';
 require_once __DIR__ . '/email_log_ref.php';
 require_once __DIR__ . '/pii_crypto.php';
 require_once __DIR__ . '/pro_remember.php';
+require_once __DIR__ . '/mcp_tokens.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
@@ -1317,8 +1318,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             // #267: a confirmed email change proves the new address - record it (no trial granted).
             proTrialRecordClaim($pdo, $newEmail, (string)($config['trial']['hash_key'] ?? ''));
 
-            // Devices kept signed in (pro_remember.php) sign in again.
+            // Devices kept signed in (pro_remember.php) sign in again, and the
+            // MCP access tokens (mcp_tokens.php) stop working.
             proRememberRevokeAllFor($userId);
+            mcpTokensRevokeAllFor($userId);
 
             // Notify old email that account email has changed (no undo link)
             try {
@@ -1375,10 +1378,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             }
 
             // A password change invalidates any "remember this browser"
-            // cookies — see documentaion/2FA_DESIGN.md §2 — and every device
-            // kept signed in (pro_remember.php).
+            // cookies — see documentaion/2FA_DESIGN.md §2 — every device kept
+            // signed in (pro_remember.php) and every MCP access token
+            // (mcp_tokens.php): a credential that outlives a password change is
+            // exactly what someone taking an account back has to shed.
             TwoFactorAuth::revokeAllTrustedDevices($userId);
             proRememberRevokeAllFor($userId);
+            mcpTokensRevokeAllFor($userId);
 
             // Notify old email that password has changed (no undo link)
             try {
@@ -1502,8 +1508,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
                     $pdo->commit();
 
                     // After the commit and fail-open: a missing
-                    // pro_remember_tokens table must not undo the deletion.
+                    // pro_remember_tokens or mcp_access_tokens table must not
+                    // undo the deletion.
                     proRememberRevokeAllFor($userId);
+                    mcpTokensRevokeAllFor($userId);
 
                     logMessage('INFO', 'Pro user account deleted via confirmation', ['user_id' => $userId]);
 
@@ -1588,8 +1596,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
             $u = $pdo->prepare("UPDATE pro_users SET email = ?" . ($pii ? ", email_enc = ?, email_hash = ?" : "") . " WHERE id = ?");
             $u->execute($pii ? [$oldEmail, $pii['email_enc'], $pii['email_hash'], $userId] : [$oldEmail, $userId]);
             // An undo is how a hijacked account is taken back: every device
-            // kept signed in (pro_remember.php) has to sign in again.
+            // kept signed in (pro_remember.php) and every MCP access token
+            // (mcp_tokens.php) has to be obtained again.
             proRememberRevokeAllFor($userId);
+            mcpTokensRevokeAllFor($userId);
             echo "Email change reverted. Your email is now: " . htmlspecialchars($oldEmail);
             exit;
         } elseif ($action === 'undo_set_password') {
@@ -1607,6 +1617,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
             $u = $pdo->prepare("UPDATE pro_users SET password_hash = ? WHERE id = ?");
             $u->execute([$oldHash, $userId]);
             proRememberRevokeAllFor($userId);
+            mcpTokensRevokeAllFor($userId);
             echo "Password change reverted. You can log in with your previous password.";
             exit;
         } else {

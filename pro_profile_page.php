@@ -74,6 +74,11 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
     && tableHasColumn('pro_webhooks', 'include_temporary')
     && tableHasColumn('temp_emails', 'hooks_paused');
 
+// Whether an app can connect at all yet (epic #318, #320). Until
+// migrate_mcp_tokens.php has run no token resolves, so the "Connected apps"
+// card renders its unavailable line instead of a form that cannot work.
+$mcpTokensAvailable = tableHasColumn('mcp_access_tokens', 'token_hash');
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -334,6 +339,60 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                                 </div>
                             </div>
 
+                            <!-- Connected apps: personal access tokens for the MCP
+                                 server (mcp_tokens.php). The token value is rendered
+                                 once, from the create response, and never fetched
+                                 again — nothing on the server can show it a second
+                                 time, so a lost token is revoked and replaced. -->
+                            <div class="ms-card" id="connectedAppsCard">
+                                <h3 class="ms-card__title">Connected apps</h3>
+                                <p class="ms-card__desc">Access tokens are credentials an app uses instead of your password, limited to the access you grant it here. Each one is shown once when you create it, and revoking it stops it working immediately.</p>
+<?php if (!$mcpTokensAvailable): ?>
+                                <p class="text-muted" id="connectedAppsUnavailable">Not available yet.</p>
+<?php else: ?>
+                                <div id="connectedAppsAlert"></div>
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="connectedAppsName">Name</label>
+                                    <input type="text" class="form-control" id="connectedAppsName" maxlength="64" placeholder="For example: Claude Desktop" style="max-width:320px;">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label" for="connectedAppsScope">Access</label>
+                                    <select id="connectedAppsScope" class="form-select" style="max-width:320px;">
+                                        <option value="read" selected>Read only</option>
+                                        <option value="read,write">Read and change</option>
+                                    </select>
+                                    <div class="form-text">Read only can see your addresses and messages. Read and change can also create addresses and change settings.</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label" for="connectedAppsExpiry">Expires</label>
+                                    <select id="connectedAppsExpiry" class="form-select" style="max-width:320px;">
+                                        <option value="0" selected>Never</option>
+                                        <option value="30">After 30 days</option>
+                                        <option value="90">After 90 days</option>
+                                        <option value="365">After 365 days</option>
+                                    </select>
+                                </div>
+                                <button type="button" id="connectedAppsCreateBtn" class="btn btn-secondary">Create access token</button>
+                                <div id="connectedAppsProNote" class="form-text text-muted d-none">Creating access tokens requires a Pro account.</div>
+
+                                <div id="connectedAppsNewToken" class="d-none mt-3">
+                                    <div class="alert alert-warning mb-2">
+                                        <strong>Copy this access token now.</strong> It is shown this one time only — if you lose it, revoke it and create another.
+                                    </div>
+                                    <div class="d-flex align-items-center flex-wrap" style="gap:8px;">
+                                        <code id="connectedAppsNewTokenValue" style="word-break:break-all;"></code>
+                                        <button type="button" id="connectedAppsCopyBtn" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                    </div>
+                                </div>
+
+                                <h4 class="ms-card__subtitle mt-4">Access tokens</h4>
+                                <p class="form-text">Changing your password or email address revokes them all.</p>
+                                <p id="connectedAppsEmpty" class="text-muted d-none">No access tokens yet.</p>
+                                <ul id="connectedAppsList" class="list-group mb-2"></ul>
+<?php endif; ?>
+                            </div>
+
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Two-factor authentication</h3>
                                 <p class="ms-card__desc">A code from your authenticator app, on top of your password.</p>
@@ -562,6 +621,13 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
                 // Pro RSS Feed
                 $('#copyFeedToken, #openFeedBtn, #regenFeedToken').prop('disabled', true);
                 $('#feedProNote').removeClass('d-none');
+
+                // Connected apps (access tokens): creating one is Pro-only,
+                // like every other way of wiring an integration up. Revoking is
+                // deliberately left enabled — taking a credential away must
+                // keep working on a degraded account.
+                $('#connectedAppsName, #connectedAppsScope, #connectedAppsExpiry, #connectedAppsCreateBtn').prop('disabled', true);
+                $('#connectedAppsProNote').removeClass('d-none');
             }
 
             $('#redeemVoucherBtn').on('click', function(){
@@ -994,6 +1060,104 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
             });
 
             staySignedInLoad();
+
+            // --- Connected apps: access tokens (mcp_tokens.php) ---
+            function connectedAppsAlert(kind, text) {
+                $('#connectedAppsAlert').empty().append($('<div>').addClass('alert alert-' + kind).text(text));
+            }
+
+            function connectedAppsScopeLabel(scopes) {
+                return scopes === 'read,write' ? 'Read and change' : 'Read only';
+            }
+
+            function connectedAppsRender(res) {
+                // available:false never reaches here — the page rendered the
+                // unavailable line server-side and there is no list to fill.
+                var tokens = res.tokens || [];
+                var $list = $('#connectedAppsList').empty();
+                $('#connectedAppsEmpty').toggleClass('d-none', tokens.length > 0);
+                tokens.forEach(function(t){
+                    var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
+                    var $info = $('<div>');
+                    $info.append($('<div>').text(t.name || 'Access token'));
+                    var meta = connectedAppsScopeLabel(t.scopes) +
+                        ' — created ' + tfaFormatDate(t.created_at) +
+                        ' — ' + (t.last_used_at ? 'last used ' + tfaFormatDate(t.last_used_at) : 'never used') +
+                        ' — ' + (t.expires_at ? (t.expired ? 'expired ' : 'expires ') + tfaFormatDate(t.expires_at) : 'no expiry');
+                    $info.append($('<div>').addClass('text-muted small').text(meta));
+                    // The prefix is the identifier the user sees in the list; the
+                    // rest of the token exists only in the database as a hash.
+                    $info.append($('<div>').addClass('text-muted small').append($('<code>').text(t.token_prefix + '…')));
+                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text('Revoke').data('id', t.id);
+                    $li.append($info).append($btn);
+                    $list.append($li);
+                });
+            }
+
+            function connectedAppsLoad() {
+                $.post('pro_profile.php', { action: 'mcp_token_list' }, function(res){
+                    if (res && res.success) {
+                        connectedAppsRender(res);
+                    }
+                }, 'json');
+            }
+
+            $('#connectedAppsCreateBtn').on('click', function(){
+                var name = $.trim($('#connectedAppsName').val() || '');
+                if (!name) {
+                    connectedAppsAlert('danger', 'Give the access token a name.');
+                    return;
+                }
+                var $btn = $(this).prop('disabled', true);
+                $.post('pro_profile.php', {
+                    action: 'mcp_token_create',
+                    name: name,
+                    scopes: $('#connectedAppsScope').val(),
+                    expires_days: $('#connectedAppsExpiry').val()
+                }, function(res){
+                    $btn.prop('disabled', false);
+                    if (res && res.success) {
+                        // Shown once, from this response only. Nothing on the
+                        // server can produce the value again.
+                        $('#connectedAppsNewTokenValue').text(res.token || '');
+                        $('#connectedAppsNewToken').removeClass('d-none');
+                        $('#connectedAppsName').val('');
+                        connectedAppsAlert('success', 'Access token created. Copy it now — it is not shown again.');
+                        connectedAppsLoad();
+                    } else {
+                        connectedAppsAlert('danger', (res && res.error) ? res.error : 'Could not create the access token');
+                    }
+                }, 'json').fail(function(){
+                    $btn.prop('disabled', false);
+                    connectedAppsAlert('danger', 'Network error');
+                });
+            });
+
+            $('#connectedAppsCopyBtn').on('click', function(){
+                var value = $('#connectedAppsNewTokenValue').text();
+                if (value && navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(value);
+                }
+            });
+
+            $('#connectedAppsList').on('click', 'button', function(){
+                var id = $(this).data('id');
+                if (!window.confirm('Revoke this access token? Any app using it stops working immediately.')) return;
+                $.post('pro_profile.php', { action: 'mcp_token_revoke', id: id }, function(res){
+                    if (res && res.success) {
+                        connectedAppsAlert('success', 'Access token revoked.');
+                        connectedAppsLoad();
+                    } else {
+                        connectedAppsAlert('danger', (res && res.error) ? res.error : 'Could not revoke the access token');
+                    }
+                }, 'json').fail(function(){ connectedAppsAlert('danger', 'Network error'); });
+            });
+
+            // Nothing to load when the schema is missing: the card rendered its
+            // unavailable line and has no list.
+            if ($('#connectedAppsList').length) {
+                connectedAppsLoad();
+            }
 
             // Paddle customer portal: the URL is one-time and short-lived, so it
             // is minted on every click and never kept. Same tab, so the portal's

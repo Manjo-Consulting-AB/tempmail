@@ -82,6 +82,11 @@ if (!in_array($action, $proProfileReadOnlyActions, true)) {
 // webhook_secret.php.
 require_once __DIR__ . '/webhook_secret.php';
 
+// MCP personal access tokens (epic #318, mcp_tokens.php). Loaded here rather
+// than at the top so it does not sit between session_start() and
+// proSessionEndIfSuspended() above — abuse_guard_test.php scans that window.
+require_once __DIR__ . '/mcp_tokens.php';
+
 // Helper: current password_hash for a pro user, or null if unset/column missing.
 // Several profile-security actions (password change, 2FA enroll/disable) need
 // this same "does a password exist" check.
@@ -821,6 +826,120 @@ try {
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed revoking stay-signed-in device', ['error' => $e->getMessage(), 'user_id' => $userId]);
                 send_json(['success' => false, 'error' => 'Could not remove device']);
+            }
+            break;
+
+        // Connected apps: personal access tokens for the MCP server (epic #318,
+        // mcp_tokens.php). Creating one is Pro-only, like every other way of
+        // wiring an integration up; listing and revoking are not, so a
+        // degraded account can still take a credential away. POST +
+        // same-origin through the gate above; the token itself is answered
+        // once, here, and never stored or logged.
+        case 'mcp_token_list':
+            if (!mcpTokenAvailable($pdo)) {
+                send_json(['success' => true, 'available' => false, 'tokens' => []]);
+            }
+            try {
+                send_json([
+                    'success' => true,
+                    'available' => true,
+                    'tokens' => array_map(static function ($t) {
+                        return [
+                            'id' => (int) $t['id'],
+                            'name' => (string) $t['name'],
+                            'token_prefix' => (string) $t['token_prefix'],
+                            'scopes' => (string) $t['scopes'],
+                            'created_at' => (string) $t['created_at'],
+                            'last_used_at' => $t['last_used_at'] !== null ? (string) $t['last_used_at'] : null,
+                            'expires_at' => $t['expires_at'] !== null ? (string) $t['expires_at'] : null,
+                            'expired' => (bool) $t['expired'],
+                        ];
+                    }, mcpTokenList($pdo, $userId)),
+                ]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed listing MCP access tokens', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not list access tokens']);
+            }
+            break;
+
+        case 'mcp_token_create':
+            require_pro($userId);
+            if (!mcpTokenAvailable($pdo)) {
+                send_json(['success' => false, 'error' => 'Connected apps are not available yet']);
+            }
+            $rawTokenName = (string) ($_POST['name'] ?? '');
+            $suspicious = detectSuspiciousPatterns($rawTokenName);
+            if (!empty($suspicious)) {
+                logMessage('WARNING', 'Suspicious access token name', ['patterns' => $suspicious, 'user_id' => $userId]);
+                $flagPatterns = patternsWarrantingIpFlag($suspicious);
+                if ($flagPatterns) {
+                    flagMaliciousActivity(getVisitorIp(), 'Suspicious access token name: ' . implode(', ', $flagPatterns)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
+                }
+                send_json(['success' => false, 'error' => 'Invalid request']);
+            }
+            // sanitizeString() trims but hands back an empty string for
+            // whitespace, and an unlabelled token is one the user cannot
+            // recognise in the list later, so require a real name.
+            $tokenName = trim($rawTokenName) === '' ? null : sanitizeString($rawTokenName, 64, true);
+            if ($tokenName === null) {
+                send_json(['success' => false, 'error' => 'Give the access token a name']);
+            }
+            $tokenScope = mcpTokenNormaliseScope($_POST['scopes'] ?? '');
+            if ($tokenScope === null) {
+                send_json(['success' => false, 'error' => 'Invalid access level']);
+            }
+            $tokenDays = mcpTokenNormaliseExpiryDays($_POST['expires_days'] ?? '');
+            if ($tokenDays === null) {
+                send_json(['success' => false, 'error' => 'Invalid expiry']);
+            }
+            try {
+                $created = mcpTokenCreate(
+                    $pdo,
+                    $userId,
+                    $tokenName,
+                    $tokenScope,
+                    $tokenDays > 0 ? time() + $tokenDays * 86400 : null
+                );
+                if ($created === null) {
+                    send_json([
+                        'success' => false,
+                        'error' => 'You already have ' . MCP_TOKEN_MAX_PER_USER . ' access tokens. Revoke one to create another.',
+                    ]);
+                }
+                // The id, never the token: the credential is answered to its
+                // owner and is nowhere in the log or the database.
+                logMessage('INFO', 'MCP access token created', ['user_id' => $userId, 'token_id' => $created['id'], 'scopes' => $created['scopes']]);
+                send_json([
+                    'success' => true,
+                    'id' => $created['id'],
+                    'token' => $created['token'],
+                    'token_prefix' => $created['token_prefix'],
+                    'name' => $created['name'],
+                    'scopes' => $created['scopes'],
+                    'expires_at' => $created['expires_at'],
+                ]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed creating MCP access token', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not create the access token']);
+            }
+            break;
+
+        case 'mcp_token_revoke':
+            // Deliberately not Pro-gated: revoking is how a credential is taken
+            // away, and that must keep working on a degraded account.
+            if (!mcpTokenAvailable($pdo)) {
+                send_json(['success' => false, 'error' => 'Connected apps are not available yet']);
+            }
+            $tokenId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+            try {
+                if (!mcpTokenRevoke($pdo, $userId, $tokenId)) {
+                    send_json(['success' => false, 'error' => 'Access token not found']);
+                }
+                logMessage('INFO', 'MCP access token revoked', ['user_id' => $userId, 'token_id' => $tokenId]);
+                send_json(['success' => true]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed revoking MCP access token', ['error' => $e->getMessage(), 'user_id' => $userId]);
+                send_json(['success' => false, 'error' => 'Could not revoke the access token']);
             }
             break;
 

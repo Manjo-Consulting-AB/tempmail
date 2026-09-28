@@ -11,6 +11,7 @@ require_once __DIR__ . '/../email_log_ref.php';
 require_once __DIR__ . '/../pii_crypto.php';
 require_once __DIR__ . '/../address_cooldown.php';
 require_once __DIR__ . '/../feed_token.php';
+require_once __DIR__ . '/../mcp_tokens.php';
 
 // Säkerhetskontroll - endast CLI eller localhost eller HTTP-anrop med giltig hemlig nyckel
 // För att tillåta cron via HTTP (wget/curl), sätt miljövariabeln CRON_HTTP_SECRET i produktion
@@ -286,6 +287,28 @@ function cleanupExpiredRememberTokens() {
         return $count;
     } catch (PDOException $e) {
         logMessage('ERROR', 'Failed to cleanup expired stay-signed-in tokens: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Rensa MCP-access-tokens (mcp_tokens.php) som har varit återkallade eller
+ * utgångna i 30 dagar, plus rader vars konto inte finns längre. Hoppar över
+ * tyst när migrate_mcp_tokens.php inte har körts.
+ */
+function cleanupExpiredMcpTokens() {
+    global $pdo;
+    if (!mcpTokenAvailable($pdo)) {
+        return false;
+    }
+    try {
+        $count = mcpTokenCleanup($pdo);
+        if ($count > 0) {
+            logMessage('INFO', 'Expired MCP access tokens cleaned up', ['count' => $count]);
+        }
+        return $count;
+    } catch (PDOException $e) {
+        logMessage('ERROR', 'Failed to cleanup MCP access tokens: ' . $e->getMessage());
         return false;
     }
 }
@@ -726,8 +749,10 @@ function cleanupInactiveRegularAccounts() {
             }
 
             // Efter commit och fail-open, som i pro_auth.php:s delete_account:
-            // en saknad pro_remember_tokens-tabell får inte stoppa raderingen.
+            // en saknad pro_remember_tokens- eller mcp_access_tokens-tabell får
+            // inte stoppa raderingen.
             proRememberRevokeAllFor($userId);
+            mcpTokensRevokeAllFor($userId);
 
             logMessage('INFO', 'Inactive regular account deleted', [
                 'user_id' => $userId,
@@ -993,6 +1018,12 @@ function runCleanup($options = []) {
     $rememberTokensResult = cleanupExpiredRememberTokens();
     if ($rememberTokensResult !== false) {
         $results['remember_tokens_cleaned'] = $rememberTokensResult;
+    }
+
+    // Rensa återkallade/utgångna MCP-access-tokens och föräldralösa rader
+    $mcpTokensResult = cleanupExpiredMcpTokens();
+    if ($mcpTokensResult !== false) {
+        $results['mcp_tokens_cleaned'] = $mcpTokensResult;
     }
     
     // Optimera databas (om begärt)
