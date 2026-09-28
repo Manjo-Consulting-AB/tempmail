@@ -79,6 +79,26 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
 // card renders its unavailable line instead of a form that cannot work.
 $mcpTokensAvailable = tableHasColumn('mcp_access_tokens', 'token_hash');
 
+// The endpoint the card's connect help points at (#324). Built from the
+// configured origin, never a literal: rtrim() tolerates the trailing slash
+// base_url is stored with, and the example cannot go stale if BASE_URL changes.
+$mcpEndpoint = rtrim((string) ($config['email']['base_url'] ?? ''), '/') . '/mcp';
+
+// The Claude Desktop entry, as one string so it stays a single <pre> block.
+// Desktop reaches a remote server through its Connectors screen, which
+// authenticates with OAuth — this endpoint takes a bearer token and has no
+// OAuth — so the config entry goes through the stdio bridge Desktop does
+// support, exactly as Claude Code's own `mcp add` example does for its
+// transport. Both placeholders are the same <token> the user copies below.
+$mcpDesktopConfig = '{
+  "mcpServers": {
+    "mailshield": {
+      "command": "npx",
+      "args": ["mcp-remote", "' . $mcpEndpoint . '", "--header", "Authorization: Bearer <token>"]
+    }
+  }
+}';
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -390,6 +410,18 @@ $mcpTokensAvailable = tableHasColumn('mcp_access_tokens', 'token_hash');
                                 <p class="form-text">Changing your password or email address revokes them all.</p>
                                 <p id="connectedAppsEmpty" class="text-muted d-none">No access tokens yet.</p>
                                 <ul id="connectedAppsList" class="list-group mb-2"></ul>
+
+                                <!-- How to connect (#324). Two copyable examples, both
+                                     pointing at the endpoint above. Anything the client
+                                     can read leaves Mail Shield for whoever runs that
+                                     client, so the line that says so sits with them. -->
+                                <h4 class="ms-card__subtitle mt-4">How to connect</h4>
+                                <p class="form-text">Point the app at <code><?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?></code> and give it one of your access tokens as a bearer token. Message content the app reads is sent to whoever runs it, so only connect a client you trust.</p>
+                                <p class="form-text mb-1">Claude Code</p>
+                                <pre class="p-2 border rounded mb-3" style="white-space:pre-wrap; word-break:break-word;"><code>claude mcp add --transport http mailshield <?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?> --header "Authorization: Bearer &lt;token&gt;"</code></pre>
+                                <p class="form-text mb-1">Claude Desktop &mdash; add to <code>claude_desktop_config.json</code> (needs Node.js)</p>
+                                <pre class="p-2 border rounded mb-0" style="white-space:pre-wrap; word-break:break-word;"><code><?php echo htmlspecialchars($mcpDesktopConfig, ENT_QUOTES, 'UTF-8'); ?></code></pre>
+                                <p class="form-text">Replace <code>&lt;token&gt;</code> with the token from the moment you created it.</p>
 <?php endif; ?>
                             </div>
 

@@ -3,17 +3,22 @@
  * Landing — automation. Spec: documentaion/REDESIGN_BRIEF.md §8 (copy), §9
  * (the honest feature inventory), §11 (marketing pages load no icon font).
  *
- * The differentiating section: six capabilities, laid out as one shelf. Five
- * of them ship and the sixth does not, and the whole section is only worth
- * anything if it keeps those two apart (§9). So every card below is a claim
- * the code backs today:
+ * The differentiating section: six capabilities, laid out as one shelf, and
+ * the whole section is only worth anything if every one of them is a claim the
+ * code backs today (§9):
  *
  *   RSS                pro_feed.php, a token-protected feed
  *   Webhooks           ImapProcessor::dispatchWebhooks(), a generic JSON POST
  *   Pushover           a webhook kind, not push infrastructure of our own
  *   Digest emails      cron/send-digests.php
  *   Agent              client/agent/, RSA-signed webhooks from this backend
- *   API                does not exist — hence the Coming badge and nothing else
+ *   AI assistants      mcp.php, an MCP server reached with an access token
+ *
+ * The sixth card used to be a roadmap note — `API`, with a `Coming` badge and
+ * no such thing behind it (#324). It is a shipped card now, so no card carries
+ * a badge any more and the --soon modifier it needed is gone from the
+ * stylesheet. There is still no public REST API and no OAuth connector, and
+ * none may be named here until one exists.
  *
  * There is deliberately no "External mailboxes" card. There used to be one
  * ("Point Mail Shield at a mailbox you already run"), and it promised a feature
@@ -40,10 +45,10 @@
  * font icon (§11); no third-party logo is reproduced, and no brand colour is
  * borrowed, because nothing here is drawn from the vendors' own marks.
  *
- * The sixth card is the only one with a badge. Six cards fill one, two or
- * three columns evenly, so the grid names those column counts itself (see
- * .ms-automation__grid in mailshield.css) instead of leaving auto-fit to open a
- * fourth column that would strand two cards on the last row.
+ * Six cards fill one, two or three columns evenly, so the grid names those
+ * column counts itself (see .ms-automation__grid in mailshield.css) instead of
+ * leaving auto-fit to open a fourth column that would strand two cards on the
+ * last row.
  */
 
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
@@ -109,13 +114,12 @@ $msAutoTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['tria
                 <p class="ms-automation__text">Run filtering on your own mail server, driven by signed webhooks.</p>
             </li>
 
-            <li class="ms-card ms-automation__card ms-automation__card--soon">
+            <li class="ms-card ms-automation__card">
                 <svg class="ms-automation__icon" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                    <path d="M8 6L3.5 10L8 14"/>
-                    <path d="M12 6L16.5 10L12 14"/>
+                    <path d="M10 3.2L11.5 8.5L16.8 10L11.5 11.5L10 16.8L8.5 11.5L3.2 10L8.5 8.5Z"/>
                 </svg>
-                <h3 class="ms-h3 ms-automation__title">API <span class="ms-badge ms-badge--soon">Coming</span></h3>
-                <p class="ms-automation__text">Programmatic access to your addresses and messages.</p>
+                <h3 class="ms-h3 ms-automation__title">AI assistants</h3>
+                <p class="ms-automation__text">Connect Claude or another MCP client to list, create and delete your addresses and read your mail.</p>
             </li>
         </ul>
 
