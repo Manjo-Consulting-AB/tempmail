@@ -26,6 +26,10 @@ if (!defined('TEMPMAIL_APP')) {
 require_once __DIR__ . '/reserved_local_parts.php';
 require_once __DIR__ . '/address_cooldown.php';
 require_once __DIR__ . '/abuse_guard.php';
+// mailboxListAddresses() asks feedTokenColumnsExist(); index.php happens to
+// require this too, but mcp.php does not, so the dependency is declared where
+// it is used.
+require_once __DIR__ . '/feed_token.php';
 
 /**
  * The rate limit on creating addresses (abuse_guard.php), moved out of
@@ -412,9 +416,10 @@ function mailboxCreateTimed(PDO $pdo, int $userId): array
 
 /**
  * List messages for one address the caller owns (either kind), newest
- * first. For the MCP tool surface — index.php's own get_emails keeps its
- * existing, broader behaviour (all of a signed-in account's addresses in
- * one list) untouched, see the file header.
+ * first, each row carrying an `attachment_count`. For the MCP tool surface
+ * — index.php's own get_emails keeps its existing, broader behaviour (all
+ * of a signed-in account's addresses in one list) untouched, see the file
+ * header.
  */
 function mailboxListMessages(PDO $pdo, int $userId, string $local, int $limit = 50): array
 {
@@ -446,12 +451,16 @@ function mailboxListMessages(PDO $pdo, int $userId, string $local, int $limit = 
     $now = date('Y-m-d H:i:s');
 
     try {
+        // attachment_count is a correlated subquery rather than a second,
+        // IN (...)-shaped query: the SQL stays static and one round trip
+        // answers the whole list.
         $stmt = $pdo->prepare(
-            "SELECT id, from_address, subject, body_text, body_html, received_at, to_address, expires_at
-             FROM stored_emails
-             WHERE to_address = ?
-               AND ((expires_at IS NULL AND received_at > ?) OR (expires_at IS NOT NULL AND expires_at > ?))
-             ORDER BY received_at DESC
+            "SELECT se.id, se.from_address, se.subject, se.body_text, se.body_html, se.received_at, se.to_address, se.expires_at,
+                    (SELECT COUNT(*) FROM email_attachments ea WHERE ea.email_id = se.id) AS attachment_count
+             FROM stored_emails se
+             WHERE se.to_address = ?
+               AND ((se.expires_at IS NULL AND se.received_at > ?) OR (se.expires_at IS NOT NULL AND se.expires_at > ?))
+             ORDER BY se.received_at DESC
              LIMIT ?"
         );
         $stmt->execute([$fullAddress, $cutoff, $now, max(1, $limit)]);
@@ -469,12 +478,12 @@ function mailboxListMessages(PDO $pdo, int $userId, string $local, int $limit = 
 
 /**
  * Fetch one message the caller owns, shaped for display (purified HTML,
- * signed attachment download URLs). Ownership is decided the same way as
- * mailboxListMessages: temp_emails.pro_user_id = $userId for the message's
- * to_address, for either address kind. Unlike index.php's own get_email,
- * this does not rewrite cid: references in the body - that rewrite is
- * tightly coupled to get_email's own attachment lookups and duplicating it
- * here would not be clean, see the file header.
+ * signed attachment download URLs with their expiry and size). Ownership is
+ * decided the same way as mailboxListMessages: temp_emails.pro_user_id =
+ * $userId for the message's to_address, for either address kind. Unlike
+ * index.php's own get_email, this does not rewrite cid: references in the
+ * body - that rewrite is tightly coupled to get_email's own attachment
+ * lookups and duplicating it here would not be clean, see the file header.
  */
 function mailboxGetMessage(PDO $pdo, int $userId, int $emailId): array
 {
@@ -525,9 +534,9 @@ function mailboxGetMessage(PDO $pdo, int $userId, int $emailId): array
     try {
         $hasContentId = tableHasColumn('email_attachments', 'content_id');
         if ($hasContentId) {
-            $ast = $pdo->prepare("SELECT id, filename, file_path, mime_type AS content_type, created_at, content_id FROM email_attachments WHERE email_id = ? ORDER BY id ASC");
+            $ast = $pdo->prepare("SELECT id, filename, file_path, mime_type AS content_type, file_size AS size, created_at, content_id FROM email_attachments WHERE email_id = ? ORDER BY id ASC");
         } else {
-            $ast = $pdo->prepare("SELECT id, filename, file_path, mime_type AS content_type, created_at FROM email_attachments WHERE email_id = ? ORDER BY id ASC");
+            $ast = $pdo->prepare("SELECT id, filename, file_path, mime_type AS content_type, file_size AS size, created_at FROM email_attachments WHERE email_id = ? ORDER BY id ASC");
         }
         $ast->execute([$emailId]);
         $attachments = $ast->fetchAll(PDO::FETCH_ASSOC);
@@ -535,16 +544,21 @@ function mailboxGetMessage(PDO $pdo, int $userId, int $emailId): array
         $attachments = [];
     }
 
-    // One signature timestamp for every attachment URL of this request.
+    // One signature timestamp for every attachment URL of this request, and
+    // the matching expiry, so the caller can tell the client when each URL
+    // stops working. generateSignedAttachmentUrl() is handed the same TTL so
+    // the URL and download_expires_at cannot disagree.
     $signatureTime = time();
+    $ttl = (int)($config['attachments']['download_ttl'] ?? 3600);
     foreach ($attachments as &$aRow) {
         $aid = (int)($aRow['id'] ?? 0);
         if ($aid <= 0) {
             continue;
         }
         $aRow['download_url'] = function_exists('generateSignedAttachmentUrl')
-            ? generateSignedAttachmentUrl($aid, null, $signatureTime)
+            ? generateSignedAttachmentUrl($aid, $ttl, $signatureTime)
             : (rtrim((string)($config['email']['base_url'] ?? ''), '/') ?: '') . '/files.php?id=' . $aid;
+        $aRow['download_expires_at'] = $signatureTime + $ttl;
     }
     unset($aRow);
 
