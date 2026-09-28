@@ -70,6 +70,7 @@ if (!function_exists('mcpToolRegistry')) {
     function mcpToolRegistry(): array
     {
         return [
+            // --- read tools (#322) -------------------------------------
             [
                 'name' => 'list_addresses',
                 'scope' => 'read',
@@ -140,6 +141,80 @@ if (!function_exists('mcpToolRegistry')) {
                 ],
                 'annotations' => ['readOnlyHint' => true],
                 'handler' => 'mcpToolGetMessage',
+            ],
+            // --- write tools (#323) ------------------------------------
+            [
+                'name' => 'create_sticky_address',
+                'scope' => 'write',
+                'description' => 'Create a Sticky address that does not expire, under the same rules the '
+                    . 'website applies: the local part is validated, reserved names are refused, an address '
+                    . 'someone else holds (or recently released) is refused, and an account may hold at most '
+                    . '10. The account must be Pro. Nothing is deleted by this tool.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'local_part' => [
+                            'type' => 'string',
+                            'description' => 'The part before the @, for example "orders". Lowercase letters, '
+                                . 'digits, dots, hyphens and underscores; it may not start or end with a dot, '
+                                . 'hyphen or underscore.',
+                        ],
+                    ],
+                    'required' => ['local_part'],
+                    'additionalProperties' => false,
+                ],
+                'annotations' => ['destructiveHint' => false],
+                'handler' => 'mcpToolCreateStickyAddress',
+            ],
+            [
+                'name' => 'create_timed_address',
+                'scope' => 'write',
+                'description' => 'Create the account\'s Timed address, which expires on its own after the '
+                    . 'account\'s lifetime setting (24 hours on the free tier, otherwise 1-7 days). An account '
+                    . 'has only one Timed address: if it already has one, this tool refuses unless '
+                    . 'replace_existing is true — and replacing deletes the current address and all the mail '
+                    . 'it holds, with no way back. The account must be Pro.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'replace_existing' => [
+                            'type' => 'boolean',
+                            'default' => false,
+                            'description' => 'Set to true to delete the account\'s current Timed address and '
+                                . 'all of its mail, replacing it with a new one. Required when one already '
+                                . 'exists; ignored when there is none.',
+                        ],
+                    ],
+                    'additionalProperties' => false,
+                ],
+                'annotations' => ['destructiveHint' => true],
+                'handler' => 'mcpToolCreateTimedAddress',
+            ],
+            [
+                'name' => 'delete_address',
+                'scope' => 'write',
+                'description' => 'Delete one of the account\'s addresses and every message it holds. Refused '
+                    . 'unless confirm is true, because the deletion cannot be undone. A Sticky address stays '
+                    . 'reserved for the account for a cool-off period, so nobody else can claim it; a Timed '
+                    . 'address is simply gone. The account must be Pro.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'address' => [
+                            'type' => 'string',
+                            'description' => 'The address to delete, either its local part or the full address.',
+                        ],
+                        'confirm' => [
+                            'type' => 'boolean',
+                            'description' => 'Must be true. A call without it is refused and says what would '
+                                . 'be deleted, so nothing is lost by accident.',
+                        ],
+                    ],
+                    'required' => ['address', 'confirm'],
+                    'additionalProperties' => false,
+                ],
+                'annotations' => ['destructiveHint' => true],
+                'handler' => 'mcpToolDeleteAddress',
             ],
         ];
     }
@@ -481,5 +556,242 @@ if (!function_exists('mcpToolGetMessage')) {
             'truncated' => $truncated,
             'attachments' => $attachments,
         ]];
+    }
+}
+
+// ---------------------------------------------------------------------
+// Write tools (#323) — create_sticky_address, create_timed_address,
+// delete_address
+//
+// Every decision an address' fate depends on is the service's
+// (mailbox_service.php, #319): ownership, the local-part rules, the cap of
+// 10, the cool-off list, the rate limits and the fail-closed forwarder. What
+// is added here is the MCP shape and the two guards the model must be made to
+// pass on purpose, because the result cannot be undone:
+//
+//   * create_timed_address refuses to replace a Timed address that is already
+//     there unless replace_existing is true — replacing deletes its mail;
+//   * delete_address refuses unless confirm is true, and says what would go.
+//
+// The handlers themselves never write: they hand the token's user id to the
+// service and pass its answer through. A failure is an ordinary tool result
+// with the site's own wording ("Address already taken", "Maximum of 10 sticky
+// addresses allowed", …), never a JSON-RPC error.
+//
+// Logging of the address itself happens in the service (INFO, user_id +
+// address): a Timed address is a service-domain address and may be logged,
+// and the endpoint's own per-call line already records the account, the token
+// and the tool. The address is never added to a log line here.
+// ---------------------------------------------------------------------
+
+if (!function_exists('mcpToolLocalPartOf')) {
+    /**
+     * The local part of an address argument, or null when it is not one of
+     * ours. A full address on another domain is not an error the caller may
+     * distinguish: it is answered "not found" by every caller of this, exactly
+     * as a local part that does not resolve is.
+     */
+    function mcpToolLocalPartOf(string $address): ?string
+    {
+        global $config;
+
+        $address = strtolower(trim($address));
+        if ($address === '') {
+            return null;
+        }
+        if (!str_contains($address, '@')) {
+            return $address;
+        }
+        $parts = explode('@', $address);
+        if (count($parts) !== 2 || strcasecmp($parts[1], (string) ($config['email']['domain'] ?? '')) !== 0) {
+            return null;
+        }
+        return $parts[0];
+    }
+}
+
+if (!function_exists('mcpToolCreateStickyAddress')) {
+    /**
+     * create_sticky_address: ask mailboxCreateSticky() for a new Sticky
+     * address. Every refusal the site makes — a reserved name, invalid syntax,
+     * an address someone holds or recently released, the cap of 10, the shared
+     * `personal_user` rate limit, a forwarder that could not be created — is
+     * passed through as the tool's own error, in the site's wording.
+     */
+    function mcpToolCreateStickyAddress(array $args, array $tokenRow, PDO $pdo): array
+    {
+        global $config;
+
+        $local = $args['local_part'] ?? null;
+        if (!is_string($local) || trim($local) === '') {
+            return ['ok' => false, 'error' => 'A local part is required'];
+        }
+
+        require_once __DIR__ . '/mailbox_service.php';
+        $result = mailboxCreateSticky($pdo, (int) $tokenRow['user_id'], $local);
+        if (($result['ok'] ?? false) !== true) {
+            return ['ok' => false, 'error' => (string) ($result['error'] ?? 'Could not create address')];
+        }
+
+        return ['ok' => true, 'data' => [
+            'address' => (string) ($result['full_address'] ?? ''),
+            'kind' => 'sticky',
+            'expires_at' => null,
+        ]];
+    }
+}
+
+if (!function_exists('mcpToolCreateTimedAddress')) {
+    /**
+     * create_timed_address: the account's one Timed address, created by
+     * mailboxCreateTimed(). If one is already there the call is refused unless
+     * replace_existing is true, and the refusal names the address that would
+     * go, because replacing it deletes its mail.
+     *
+     * The replace check runs before the rate limit on purpose: a call that
+     * cannot do anything must not spend the account's `gen_user` budget.
+     */
+    function mcpToolCreateTimedAddress(array $args, array $tokenRow, PDO $pdo): array
+    {
+        $userId = (int) $tokenRow['user_id'];
+
+        $replace = $args['replace_existing'] ?? false;
+        if (!is_bool($replace)) {
+            return ['ok' => false, 'error' => 'replace_existing must be true or false'];
+        }
+
+        require_once __DIR__ . '/mailbox_service.php';
+
+        $current = mailboxListAddresses($pdo, $userId);
+        if (($current['ok'] ?? false) !== true) {
+            return ['ok' => false, 'error' => 'Could not create address'];
+        }
+        $existing = is_array($current['temporary'] ?? null) ? $current['temporary'] : null;
+        if ($existing !== null && !$replace) {
+            return ['ok' => false, 'error' => 'This account already has a Timed address ('
+                . (string) ($existing['full_address'] ?? '') . '). Creating a new one deletes it and all its '
+                . 'mail. Call again with replace_existing: true to replace it.'];
+        }
+
+        $limited = mailboxCreationLimited($pdo, 'generate', $userId, '');
+        if (!$limited['ok']) {
+            return ['ok' => false, 'error' => (string) ($limited['error'] ?? 'Too many new addresses in a short time. Please try again later.')];
+        }
+
+        $result = mailboxCreateTimed($pdo, $userId);
+        if (($result['ok'] ?? false) !== true) {
+            return ['ok' => false, 'error' => (string) ($result['error'] ?? 'Could not create address')];
+        }
+
+        return ['ok' => true, 'data' => [
+            'address' => (string) ($result['full_address'] ?? ''),
+            'kind' => 'timed',
+            'expires_at' => mcpIso8601($result['expires_at'] ?? null),
+            'replaced' => $existing !== null ? (string) ($existing['full_address'] ?? '') : null,
+        ]];
+    }
+}
+
+if (!function_exists('mcpToolDeleteAddress')) {
+    /**
+     * delete_address: remove one address the account owns and everything it
+     * holds. The lookup is scoped to the token's account first, so another
+     * account's address, a missing one and a foreign domain all answer the
+     * same "Address not found"; only after that does the confirm gate apply,
+     * and it describes what would be deleted.
+     *
+     * A Sticky address goes through mailboxDeleteSticky() (which reserves it
+     * for the owner in the same transaction); a Timed one through
+     * mailboxDeleteTimed(). Both remove the mail, the attachment files and the
+     * forwarder.
+     */
+    function mcpToolDeleteAddress(array $args, array $tokenRow, PDO $pdo): array
+    {
+        global $config;
+
+        $userId = (int) $tokenRow['user_id'];
+
+        $address = $args['address'] ?? null;
+        if (!is_string($address) || trim($address) === '') {
+            return ['ok' => false, 'error' => 'An address is required'];
+        }
+        $confirm = $args['confirm'] ?? false;
+        if (!is_bool($confirm)) {
+            return ['ok' => false, 'error' => 'confirm must be true or false'];
+        }
+
+        $local = mcpToolLocalPartOf($address);
+        if ($local === null) {
+            return ['ok' => false, 'error' => 'Address not found'];
+        }
+
+        $domain = (string) ($config['email']['domain'] ?? '');
+        $fullAddress = $local . '@' . $domain;
+
+        require_once __DIR__ . '/mailbox_service.php';
+
+        // Ownership first, and before the confirm gate: an address that is not
+        // this account's must be answered the same whether or not confirm was
+        // passed, or the gate itself would leak which local parts exist.
+        $stmt = $pdo->prepare("SELECT id, is_personal FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? LIMIT 1");
+        $stmt->execute([$local, $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return ['ok' => false, 'error' => 'Address not found'];
+        }
+        $isPersonal = !empty($row['is_personal']);
+
+        if (!$confirm) {
+            return ['ok' => false, 'error' => 'This would delete the ' . ($isPersonal ? 'Sticky' : 'Timed')
+                . ' address ' . $fullAddress . ' and all of its mail, which cannot be undone. '
+                . 'Call again with confirm: true to delete it.'];
+        }
+
+        if ($isPersonal) {
+            $result = mailboxDeleteSticky($pdo, $userId, (int) $row['id']);
+            if (($result['ok'] ?? false) !== true) {
+                return ['ok' => false, 'error' => (string) ($result['error'] ?? 'Delete failed')];
+            }
+            $deleted = (string) ($result['deleted_address'] ?? $local);
+            return ['ok' => true, 'data' => [
+                'address' => $deleted . '@' . $domain,
+                'kind' => 'sticky',
+                'reserved_until' => mcpIso8601(mcpToolCooldownUntil($pdo, $userId, $deleted)),
+            ]];
+        }
+
+        $result = mailboxDeleteTimed($pdo, $userId, $local);
+        if (($result['ok'] ?? false) !== true) {
+            return ['ok' => false, 'error' => (string) ($result['error'] ?? 'Delete failed')];
+        }
+        return ['ok' => true, 'data' => [
+            'address' => (string) ($result['deleted_address'] ?? $local) . '@' . $domain,
+            'kind' => 'timed',
+            // A Timed address is not reserved, so nothing holds it after this.
+            'reserved_until' => null,
+        ]];
+    }
+}
+
+if (!function_exists('mcpToolCooldownUntil')) {
+    /**
+     * When a just-deleted Sticky address stops being reserved for its owner,
+     * or null when the cool-off table is not there. Read back after the
+     * deletion rather than computed, so the answer is what was actually
+     * written.
+     */
+    function mcpToolCooldownUntil(PDO $pdo, int $userId, string $local): ?string
+    {
+        if (!function_exists('tableHasColumn') || !tableHasColumn('address_cooldowns', 'local_part')) {
+            return null;
+        }
+        try {
+            $stmt = $pdo->prepare("SELECT blocked_until FROM address_cooldowns WHERE local_part = ? AND pro_user_id = ?");
+            $stmt->execute([$local, $userId]);
+            $value = $stmt->fetchColumn();
+            return is_string($value) && $value !== '' ? $value : null;
+        } catch (Exception $e) {
+            return null;
+        }
     }
 }

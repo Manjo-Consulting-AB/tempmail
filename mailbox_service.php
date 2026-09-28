@@ -5,10 +5,14 @@ declare(strict_types=1);
 /**
  * Address and mailbox service (#319, part of epic #318: an MCP server for
  * Pro accounts). The business logic behind create_personal, list_personal,
- * delete_personal, the signed-in branch of generate, and (for a future MCP
- * tool surface) listing/reading messages — factored out of index.php so a
- * second entry point (mcp.php) can call it without duplicating ownership
- * checks that would then drift apart.
+ * delete_personal, the signed-in branch of generate, and (for the MCP tool
+ * surface) listing/reading messages and deleting a Timed address — factored
+ * out of index.php so a second entry point (mcp.php) can call it without
+ * duplicating ownership checks that would then drift apart.
+ *
+ * mailboxDeleteTimed() has no counterpart in index.php: the site offers no
+ * way to delete a Timed address (it can only expire or be replaced), and the
+ * MCP `delete_address` tool (#323) is its only caller.
  *
  * Every function takes PDO $pdo and int $userId explicitly. None of them
  * read $_SESSION or echo: session handling (is anyone signed in, are they
@@ -319,6 +323,66 @@ function mailboxDeleteSticky(PDO $pdo, int $userId, int $id): array
             $pdo->rollBack();
         }
         logMessage('ERROR', 'Failed deleting personal address', ['error' => $e->getMessage()]);
+        return ['ok' => false, 'error' => 'Delete failed'];
+    }
+}
+
+/**
+ * Delete the account's Timed address (#323). The site has no action for this
+ * — a Timed address normally only expires or is replaced by `generate` — so
+ * this is the one deletion path that exists for the MCP `delete_address`
+ * tool. It follows the order the replacement in mailboxCreateTimed() uses:
+ * mail, attachment rows, the per-hook routing links and the address row go
+ * in one transaction; the attachment *files* and the DirectAdmin forwarder
+ * are handled after the commit, because neither has anything to roll back
+ * to and the forwarder call is fail-open.
+ *
+ * No cool-off reservation: address_cooldowns holds released *Sticky*
+ * addresses (see address_cooldown.php), and a Timed address' local part is
+ * free the moment it is gone — mailboxCreateTimed() only avoids local parts
+ * that are on the list, it never adds one.
+ *
+ * A wrong local part, another account's address and a Sticky address all
+ * answer the same "Address not found", so local parts reveal nothing.
+ */
+function mailboxDeleteTimed(PDO $pdo, int $userId, string $local): array
+{
+    $local = strtolower(trim($local));
+    if ($local === '' || strlen($local) > 64 || !preg_match('/^[a-z0-9._-]+$/', $local)) {
+        return ['ok' => false, 'error' => 'Address not found'];
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT id, unique_address FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? AND is_personal = 0 LIMIT 1");
+        $stmt->execute([$local, $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return ['ok' => false, 'error' => 'Address not found'];
+        }
+        $id = (int)$row['id'];
+        $unique = (string)$row['unique_address'];
+
+        $pdo->beginTransaction();
+        $attachmentFiles = deleteStoredEmailsForTempEmail($pdo, $id);
+        // The routing links have no foreign key (#251 step 4), so they go
+        // with the address.
+        if (tableHasColumn('pro_webhook_addresses', 'webhook_id')) {
+            $dl = $pdo->prepare("DELETE FROM pro_webhook_addresses WHERE temp_email_id = ?");
+            $dl->execute([$id]);
+        }
+        $d2 = $pdo->prepare("DELETE FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 0");
+        $d2->execute([$id, $userId]);
+        $pdo->commit();
+
+        unlinkAttachmentFiles($attachmentFiles);
+        deleteDirectAdminForwarder($unique);
+        logMessage('INFO', 'Timed address deleted', ['user_id' => $userId, 'address' => $unique]);
+        return ['ok' => true, 'deleted_address' => $unique];
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        logMessage('ERROR', 'Failed deleting Timed address', ['error' => $e->getMessage()]);
         return ['ok' => false, 'error' => 'Delete failed'];
     }
 }

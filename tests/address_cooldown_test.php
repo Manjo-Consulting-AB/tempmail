@@ -209,4 +209,22 @@ foreach ([
     ms_test_same("C. {$file} calls addressCooldownAdd() {$expected}x", $expected, substr_count($src, 'addressCooldownAdd('));
 }
 
+// The Timed-address deletion path (#323, mailboxDeleteTimed(), the MCP
+// delete_address tool's only new deletion path) must NOT reserve: the
+// cool-off list holds released Sticky addresses, and a Timed address' local
+// part is a random hex that is free the moment it is gone. The scan above
+// would notice a second reservation in the file, so this pins down that the
+// new path exists and that the count is still the one mailboxDeleteSticky()
+// makes.
+$serviceSrc = (string) file_get_contents($msRepoRoot . '/mailbox_service.php');
+ms_test_check(
+    'D1. mailboxDeleteTimed() exists (#323)',
+    str_contains($serviceSrc, 'function mailboxDeleteTimed(')
+);
+ms_test_check(
+    'D2. ... and is called by the MCP delete_address tool',
+    str_contains((string) file_get_contents($msRepoRoot . '/mcp_tools.php'), 'mailboxDeleteTimed(')
+);
+ms_test_same('D3. the new path adds no second reservation', 1, substr_count($serviceSrc, 'addressCooldownAdd('));
+
 exit(ms_test_summary());

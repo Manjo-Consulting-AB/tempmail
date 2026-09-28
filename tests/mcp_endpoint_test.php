@@ -608,10 +608,15 @@ ms_test_same(
     array_column(mcpToolsForScopes(mcpToolRegistry(), 'read'), 'name')
 );
 ms_test_check(
-    '7i2. every shipped tool carries readOnlyHint, and none leaks its scope or handler',
+    '7i2. every shipped read tool carries readOnlyHint, the write tools announce a deletion or not, '
+        . 'and none leaks its scope or handler',
     (static function (): bool {
         foreach (mcpToolRegistry() as $tool) {
-            if (($tool['annotations']['readOnlyHint'] ?? null) !== true) {
+            $annotations = $tool['annotations'] ?? [];
+            if ($tool['scope'] === 'read' && ($annotations['readOnlyHint'] ?? null) !== true) {
+                return false;
+            }
+            if ($tool['scope'] === 'write' && !array_key_exists('destructiveHint', $annotations)) {
                 return false;
             }
         }
@@ -627,8 +632,11 @@ ms_test_check(
 $response = ms_mcp_call($probePort, ['token' => $tokenWrite, 'payload' => ms_mcp_rpc('tools/list', 10)]);
 $body = ms_mcp_decoded('7j. a read,write token gets a tool list too', $response);
 ms_test_same(
-    '7k. ... with the same three read tools (no write tool exists until #323)',
-    ['list_addresses', 'list_messages', 'get_message'],
+    '7k. ... with the read tools #322 added and the write tools #323 added',
+    [
+        'list_addresses', 'list_messages', 'get_message',
+        'create_sticky_address', 'create_timed_address', 'delete_address',
+    ],
     array_column($body['result']['tools'] ?? [], 'name')
 );
 
