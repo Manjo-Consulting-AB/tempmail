@@ -201,7 +201,7 @@ ms_test_section('C. every personal-address deletion path reserves the address');
 // =====================================================================
 
 foreach ([
-    'index.php' => 1,           // delete_personal
+    'mailbox_service.php' => 1, // mailboxDeleteSticky(), called by index.php's delete_personal (#319)
     'pro_auth.php' => 1,        // delete_account
     'cron/cleanup.php' => 2,    // grace-period removal, inactive account removal
 ] as $file => $expected) {

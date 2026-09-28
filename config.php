@@ -1398,16 +1398,26 @@ function proSessionEndIfSuspended(): bool {
  * Spara en ny temporär e-postadress
  */
 function saveNewAddress($address, $proUserId = null, $isPersonal = 0) {
+    // Default expiresAt is 24 hours from now, unless the caller supplied a
+    // specific expires timestamp via the global (index.php's anonymous
+    // generate path still does this; mailbox_service.php's signed-in path
+    // calls saveNewAddressWithExpiry() directly instead - see #319).
+    $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+    if (isset($GLOBALS['__custom_expires_at']) && $GLOBALS['__custom_expires_at']) {
+        $expiresAt = $GLOBALS['__custom_expires_at'];
+    }
+    return saveNewAddressWithExpiry($address, $proUserId, $isPersonal, $expiresAt);
+}
+
+/**
+ * Same as saveNewAddress(), but takes the expiry explicitly instead of
+ * through $GLOBALS['__custom_expires_at'] (#319). saveNewAddress() itself
+ * keeps its signature for its other callers and delegates here.
+ */
+function saveNewAddressWithExpiry($address, $proUserId, $isPersonal, string $expiresAt) {
     global $pdo;
 
     try {
-        // Default expiresAt is 24 hours from now
-        $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
-        // If caller supplied a specific expires timestamp via global variable, use it
-        if (isset($GLOBALS['__custom_expires_at']) && $GLOBALS['__custom_expires_at']) {
-            $expiresAt = $GLOBALS['__custom_expires_at'];
-        }
-
         // Insert with optional pro_user_id and is_personal if the column exists
         $hasIsPersonal = tableHasColumn('temp_emails', 'is_personal');
         if ($proUserId) {

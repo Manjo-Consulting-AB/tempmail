@@ -373,7 +373,7 @@ function ms_test_probe_build(string $repoRoot): string {
         throw new RuntimeException("Could not create probe docroot at {$root}");
     }
 
-    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'login_tokens.php', 'TwoFactorAuth.php', 'php_imap_processor.php', 'webhook_secret.php', 'paddle_sync.php', 'reserved_local_parts.php', 'email_log_ref.php', 'pii_crypto.php', 'address_cooldown.php', 'abuse_guard.php', 'pro_remember.php', 'feed_token.php'] as $page) {
+    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'login_tokens.php', 'TwoFactorAuth.php', 'php_imap_processor.php', 'webhook_secret.php', 'paddle_sync.php', 'reserved_local_parts.php', 'email_log_ref.php', 'pii_crypto.php', 'address_cooldown.php', 'abuse_guard.php', 'pro_remember.php', 'feed_token.php', 'mailbox_service.php'] as $page) {
         if (!copy($repoRoot . '/' . $page, $root . '/' . $page)) {
             throw new RuntimeException("Could not copy {$page} into the probe docroot");
         }
@@ -656,6 +656,17 @@ function hasSessionAddressAccess(...$args) { return false; }
 function grantSessionAddressAccess(...$args) { return true; }
 function deleteStoredEmailsForTempEmail(PDO $pdo, int $tempEmailId): array { return []; }
 function unlinkAttachmentFiles(array $paths): void {}
+/** Mirrors config.php's saveNewAddressWithExpiry(): insert, then the same fail-closed forwarder check. */
+function saveNewAddressWithExpiry($address, $proUserId, $isPersonal, string $expiresAt) {
+    global $pdo;
+    $stmt = $pdo->prepare('INSERT INTO temp_emails (unique_address, pro_user_id, is_personal, expires_at, created_at) VALUES (?, ?, ?, ?, ?)');
+    $result = $stmt->execute([$address, $proUserId, $isPersonal ? 1 : 0, $expiresAt, date('Y-m-d H:i:s')]);
+    if ($result && !createDirectAdminForwarder($address)) {
+        $pdo->prepare('DELETE FROM temp_emails WHERE unique_address = ?')->execute([$address]);
+        return false;
+    }
+    return $result;
+}
 function getStats() { return []; }
 function resolveUrlToPublicTarget(...$args) { return ['ip' => '127.0.0.1', 'host' => 'localhost']; }
 PHP;
