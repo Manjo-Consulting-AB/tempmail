@@ -4,6 +4,15 @@
 # Aktivera mod_rewrite
 RewriteEngine On
 
+# MCP-endpointen (#321) autentiserar med `Authorization: Bearer …`. Apache med
+# CGI/FastCGI tar bort det huvudet innan PHP startar, så det kopieras in i
+# HTTP_AUTHORIZATION här (mcp.php läser även REDIRECT_HTTP_AUTHORIZATION, för
+# den interna omdirigeringen). CGIPassAuth hade varit renare, men det är en
+# directive som AllowOverride kan förbjuda — och då svarar hela trädet 500.
+# mod_rewrite är redan på och fungerar bevisligen här.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Directories that exist only for development, documentation or CLI use and
 # must never be fetched over HTTP. PHP still reads them from the filesystem
 # (require/include/file_get_contents are unaffected by .htaccess):
@@ -25,6 +34,10 @@ RewriteRule (?:^|/)\.(?!well-known(?:/|$)) - [F,L]
 
 # /sitemap.xml serveras av sitemap.php (genererad, se sitemap.php)
 RewriteRule ^sitemap\.xml$ sitemap.php [L]
+
+# MCP-endpointen (#321). /mcp är adressen användarna får och den som står i
+# klienternas konfiguration; mcp.php är filen som svarar.
+RewriteRule ^mcp/?$ mcp.php [L]
 
 # Sätt standardindex-fil
 DirectoryIndex index.php

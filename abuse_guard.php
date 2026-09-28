@@ -26,8 +26,10 @@ declare(strict_types=1);
  *
  * State:
  *  - abuse_counters: (scope, subject, window_start) buckets of hits, bytes
- *    and strikes. Scopes: 'addr' (a local part, 5-minute buckets), and the
- *    rate limits 'gen_ip', 'gen_user', 'personal_user', 'hook' (1-hour).
+ *    and strikes. Scopes: 'addr' (a local part, 5-minute buckets), the rate
+ *    limits 'gen_ip', 'gen_user', 'personal_user', 'hook' (1-hour), and
+ *    'mcp_token' (one access token, 1-minute buckets — the MCP endpoint
+ *    watches both a minute and an hour window over the same rows).
  *  - address_quarantines: one row per quarantined local part. A NULL
  *    quarantined_until means closed until someone acts. forwarder_removed
  *    says whether DirectAdmin has actually dropped the forwarder yet.
@@ -81,6 +83,9 @@ if (!function_exists('abuseGuardSettings')) {
             'max_inline_images' => $int('max_inline_images', 50, 1),
             // Deliveries queued per webhook per hour.
             'webhook_max_hour' => $int('webhook_max_hour', 60, 1),
+            // Requests per MCP access token, per minute and per hour (mcp.php).
+            'mcp_rate_per_minute' => $int('mcp_rate_per_minute', 120, 1),
+            'mcp_rate_per_hour' => $int('mcp_rate_per_hour', 2000, 1),
             // Address creation.
             'generate_ip_hour' => $int('generate_ip_hour', 10, 1),
             'generate_ip_day' => $int('generate_ip_day', 30, 1),
@@ -585,7 +590,7 @@ if (!function_exists('abuseLimitAttachments')) {
 }
 
 // ---------------------------------------------------------------------
-// Rate limits (address creation, webhooks)
+// Rate limits (address creation, webhooks, the MCP endpoint)
 // ---------------------------------------------------------------------
 
 if (!function_exists('abuseRateLimit')) {
@@ -621,6 +626,57 @@ if (!function_exists('abuseRateLimit')) {
             abuseCounterAdd($pdo, (string)$scope, (string)$subject, 3600, 1, 0, 0, $now);
         }
         return ['limited' => false, 'first' => false, 'rule' => null];
+    }
+}
+
+if (!function_exists('abuseMcpTokenRateLimit')) {
+    /**
+     * Count one request made with an MCP access token and say whether it may
+     * be served (mcp.php, #321). Two windows read off one set of 1-minute
+     * buckets: the current minute (mcp_rate_per_minute) and the last hour
+     * (mcp_rate_per_hour).
+     *
+     * The subject is the token's id and not the account: two clients of the
+     * same account must not spend each other's budget, and revoking one token
+     * starts the other from a clean sheet.
+     *
+     * The request is counted even when it is refused, so a client that keeps
+     * hammering stays refused until the window rolls rather than being let
+     * through one request per check. $retry_after is the seconds until the
+     * window that refused closes, for the endpoint's Retry-After header.
+     *
+     * Fail-open is the caller's job: mcp.php wraps this in a try/catch, like
+     * every other guard call on a live path, because a broken counter must
+     * never refuse a request that would otherwise be served.
+     *
+     * @return array{limited:bool, retry_after:int, rule:?string, hits:int}
+     */
+    function abuseMcpTokenRateLimit(PDO $pdo, int $tokenId, int $now, array $settings): array
+    {
+        $subject = 'token:' . $tokenId;
+        abuseCounterAdd($pdo, 'mcp_token', $subject, 60, 1, 0, 0, $now);
+
+        $minute = abuseCounterSum($pdo, 'mcp_token', $subject, $now - 60)['hits'];
+        if ($minute > $settings['mcp_rate_per_minute']) {
+            return [
+                'limited' => true,
+                'retry_after' => max(1, 60 - ($now % 60)),
+                'rule' => 'mcp_rate_per_minute',
+                'hits' => $minute,
+            ];
+        }
+
+        $hour = abuseCounterSum($pdo, 'mcp_token', $subject, $now - 3600)['hits'];
+        if ($hour > $settings['mcp_rate_per_hour']) {
+            return [
+                'limited' => true,
+                'retry_after' => max(1, 3600 - ($now % 3600)),
+                'rule' => 'mcp_rate_per_hour',
+                'hits' => $hour,
+            ];
+        }
+
+        return ['limited' => false, 'retry_after' => 0, 'rule' => null, 'hits' => $minute];
     }
 }
 

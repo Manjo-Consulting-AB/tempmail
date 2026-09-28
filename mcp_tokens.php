@@ -24,7 +24,9 @@ declare(strict_types=1);
  * validated before any query, then a revoked or expired row, an account that
  * is no longer Pro (proUserIsPro()) or a suspended one (proUserIsSuspended())
  * all resolve to nothing. last_used_at is written at most once a minute, so a
- * busy client does not turn every request into a write.
+ * busy client does not turn every request into a write. The resolve can also
+ * report *why* it said no, through an optional by-reference argument, for the
+ * endpoint in mcp.php that has to answer 401 or 403 (#321).
  *
  * Removal: an access token is revoked (revoked_at set) rather than deleted,
  * so the audit can still count it; the row is swept 30 days later by
@@ -223,29 +225,48 @@ if (!function_exists('mcpTokenResolve')) {
      * The token a Bearer credential names, or null. Null covers every
      * rejection alike — malformed, unknown, revoked, expired, an account that
      * is no longer Pro, a suspended account, or the table simply not being
-     * there — so a caller cannot tell them apart and neither can an attacker.
+     * there — so a caller that only asks "may I?" cannot tell them apart and
+     * neither can an attacker.
+     *
+     * $reason, when the caller passes a variable, receives *why*: 'ok' on
+     * success, else 'malformed', 'unavailable', 'unknown', 'revoked',
+     * 'expired', 'not_pro' or 'suspended'. It exists for an endpoint that has
+     * to choose between 401 and 403 for the token's own holder (mcp.php,
+     * #321): a token that is real but whose account has lost Pro should say
+     * so rather than look like a bad credential. It is not an oracle — every
+     * rejection that is not 'not_pro'/'suspended' arrives as a credential
+     * failure, and only someone already holding a working token can reach
+     * those two.
      *
      * The format is checked first, before any query. A successful resolve
      * touches last_used_at, at most once per MCP_TOKEN_TOUCH_SECONDS.
      */
-    function mcpTokenResolve(PDO $pdo, ?string $token, ?int $now = null): ?array
+    function mcpTokenResolve(PDO $pdo, ?string $token, ?int $now = null, ?string &$reason = null): ?array
     {
         $now = $now ?? time();
+        $reason = 'malformed';
         $valid = mcpTokenValidate($token);
         if ($valid === null) {
             return null;
         }
         try {
             if (!mcpTokenAvailable($pdo)) {
+                $reason = 'unavailable';
                 return null;
             }
             $stmt = $pdo->prepare('SELECT id, pro_user_id, name, scopes, created_at, last_used_at, expires_at, revoked_at FROM mcp_access_tokens WHERE token_hash = ? LIMIT 1');
             $stmt->execute([mcpTokenHash($valid)]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$row || $row['revoked_at'] !== null) {
+            if (!$row) {
+                $reason = 'unknown';
+                return null;
+            }
+            if ($row['revoked_at'] !== null) {
+                $reason = 'revoked';
                 return null;
             }
             if ($row['expires_at'] !== null && strtotime((string) $row['expires_at']) <= $now) {
+                $reason = 'expired';
                 return null;
             }
 
@@ -253,11 +274,14 @@ if (!function_exists('mcpTokenResolve')) {
             // Both live in config.php; a caller that has not loaded it cannot
             // be answered "yes" about entitlement, so it fails closed.
             if (!function_exists('proUserIsPro') || !proUserIsPro($userId)) {
+                $reason = 'not_pro';
                 return null;
             }
             if (function_exists('proUserIsSuspended') && proUserIsSuspended($userId)) {
+                $reason = 'suspended';
                 return null;
             }
+            $reason = 'ok';
 
             $touched = $row['last_used_at'] === null || strtotime((string) $row['last_used_at']) <= $now - MCP_TOKEN_TOUCH_SECONDS;
             if ($touched) {
@@ -277,6 +301,7 @@ if (!function_exists('mcpTokenResolve')) {
                 'expires_at' => $row['expires_at'] !== null ? (string) $row['expires_at'] : null,
             ];
         } catch (Throwable $e) {
+            $reason = 'unavailable';
             if (function_exists('logMessage')) {
                 logMessage('WARNING', 'MCP access token lookup failed', ['error' => $e->getMessage()]);
             }
