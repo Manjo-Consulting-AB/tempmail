@@ -96,6 +96,10 @@ if (!defined('OAUTH_CLIENT_ID_BYTES')) {
     define('OAUTH_GRANT_MAX_PER_USER', 10);
     // oauth_clients.last_used_at is written at most this often, in seconds.
     define('OAUTH_CLIENT_TOUCH_SECONDS', 3600);
+    // A spent or expired authorization code is swept once it is this old.
+    define('OAUTH_CODE_SWEEP_SECONDS', 86400);
+    // A client with no token row and no activity this long is swept.
+    define('OAUTH_CLIENT_IDLE_SECONDS', 30 * 86400);
     // Scope names on the wire, and the two internal scopes they map to.
     define('OAUTH_SCOPE_READ', 'mcp:read');
     define('OAUTH_SCOPE_WRITE', 'mcp:write');
@@ -1253,6 +1257,59 @@ if (!function_exists('oauthTokenRevoke')) {
             return $update->rowCount() > 0;
         } catch (Throwable $e) {
             return false;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Cleanup (cron/cleanup.php, step 4/6)
+// ---------------------------------------------------------------------
+
+if (!function_exists('oauthCodeCleanup')) {
+    /**
+     * Removes authorization codes that are past their usefulness: a code lives
+     * for OAUTH_CODE_TTL_SECONDS and every exchange refuses an expired or spent
+     * one, so anything older than OAUTH_CODE_SWEEP_SECONDS is kept only for the
+     * audit. All of it goes, used or not. Fail-open: a missing table (the
+     * migration has not run) removes nothing rather than failing the cron.
+     */
+    function oauthCodeCleanup(PDO $pdo, ?int $now = null): int
+    {
+        $now = $now ?? time();
+        $cutoff = date('Y-m-d H:i:s', $now - OAUTH_CODE_SWEEP_SECONDS);
+        try {
+            $stmt = $pdo->prepare('DELETE FROM oauth_authorization_codes WHERE expires_at <= ?');
+            $stmt->execute([$cutoff]);
+            return $stmt->rowCount();
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('oauthClientCleanup')) {
+    /**
+     * Removes registered clients nothing points at any more: no token row
+     * carries the client_id (so no grant exists, live or revoked-but-unswept)
+     * and the client has been idle for OAUTH_CLIENT_IDLE_SECONDS, where
+     * "idle" is COALESCE(last_used_at, created_at) — a client that registered
+     * and was never used ages out from its creation.
+     *
+     * The no-token-row condition is not a nicety: deleting a client a token
+     * still links to leaves exactly the orphan check_oauth.php reports. Since
+     * mcpTokenCleanup() removes revoked rows first, a client whose grant is
+     * gone becomes sweepable on a later run. Fail-open.
+     */
+    function oauthClientCleanup(PDO $pdo, ?int $now = null): int
+    {
+        $now = $now ?? time();
+        $cutoff = date('Y-m-d H:i:s', $now - OAUTH_CLIENT_IDLE_SECONDS);
+        try {
+            $stmt = $pdo->prepare('DELETE FROM oauth_clients WHERE client_id NOT IN (SELECT oauth_client_id FROM mcp_access_tokens WHERE oauth_client_id IS NOT NULL) AND COALESCE(last_used_at, created_at) <= ?');
+            $stmt->execute([$cutoff]);
+            return $stmt->rowCount();
+        } catch (Throwable $e) {
+            return 0;
         }
     }
 }

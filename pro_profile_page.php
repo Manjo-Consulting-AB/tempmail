@@ -359,18 +359,29 @@ $mcpDesktopConfig = '{
                                 </div>
                             </div>
 
-                            <!-- Connected apps: personal access tokens for the MCP
-                                 server (mcp_tokens.php). The token value is rendered
-                                 once, from the create response, and never fetched
-                                 again — nothing on the server can show it a second
-                                 time, so a lost token is revoked and replaced. -->
+                            <!-- Connected apps: apps connected through the OAuth
+                                 consent page (#331) and personal access tokens for
+                                 the MCP server (mcp_tokens.php, #320). A token value
+                                 is rendered once, from the create response, and never
+                                 fetched again — nothing on the server can show it a
+                                 second time, so a lost token is revoked and replaced.
+                                 Both groups are filled from mcp_token_list and told
+                                 apart by its is_oauth flag; an app's name is its own
+                                 (attacker-controlled) so it is inserted with .text(),
+                                 never as markup. -->
                             <div class="ms-card" id="connectedAppsCard">
                                 <h3 class="ms-card__title">Connected apps</h3>
-                                <p class="ms-card__desc">Access tokens are credentials an app uses instead of your password, limited to the access you grant it here. Each one is shown once when you create it, and revoking it stops it working immediately.</p>
+                                <p class="ms-card__desc">Apps that can reach your mailbox. The ones you connected with a sign-in, and the access tokens you created by hand, are both listed here — each limited to the access you allowed. Revoking one stops it working immediately.</p>
 <?php if (!$mcpTokensAvailable): ?>
                                 <p class="text-muted" id="connectedAppsUnavailable">Not available yet.</p>
 <?php else: ?>
                                 <div id="connectedAppsAlert"></div>
+
+                                <p id="connectedAppsGrantsEmpty" class="text-muted d-none">No apps are connected yet. An app that offers a "Connect" or "Sign in" button appears here once you approve it.</p>
+                                <ul id="connectedAppsGrantList" class="list-group mb-2"></ul>
+
+                                <h4 class="ms-card__subtitle mt-4">Access tokens</h4>
+                                <p class="form-text">For apps that ask you to paste a token. Each one is shown once when you create it. Changing your password or email address revokes them all.</p>
 
                                 <div class="mb-3">
                                     <label class="form-label" for="connectedAppsName">Name</label>
@@ -406,8 +417,6 @@ $mcpDesktopConfig = '{
                                     </div>
                                 </div>
 
-                                <h4 class="ms-card__subtitle mt-4">Access tokens</h4>
-                                <p class="form-text">Changing your password or email address revokes them all.</p>
                                 <p id="connectedAppsEmpty" class="text-muted d-none">No access tokens yet.</p>
                                 <ul id="connectedAppsList" class="list-group mb-2"></ul>
 
@@ -416,7 +425,7 @@ $mcpDesktopConfig = '{
                                      can read leaves Mail Shield for whoever runs that
                                      client, so the line that says so sits with them. -->
                                 <h4 class="ms-card__subtitle mt-4">How to connect</h4>
-                                <p class="form-text">Point the app at <code><?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?></code> and give it one of your access tokens as a bearer token. Message content the app reads is sent to whoever runs it, so only connect a client you trust.</p>
+                                <p class="form-text">An app that offers a "Connect" or "Sign in" button needs no token — approve it and it appears above. For any other app, point it at <code><?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?></code> and give it one of your access tokens as a bearer token. Message content the app reads is sent to whoever runs it, so only connect a client you trust.</p>
                                 <p class="form-text mb-1">Claude Code</p>
                                 <pre class="p-2 border rounded mb-3" style="white-space:pre-wrap; word-break:break-word;"><code>claude mcp add --transport http mailshield <?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?> --header "Authorization: Bearer &lt;token&gt;"</code></pre>
                                 <p class="form-text mb-1">Claude Desktop &mdash; add to <code>claude_desktop_config.json</code> (needs Node.js)</p>
@@ -1106,9 +1115,30 @@ $mcpDesktopConfig = '{
                 // available:false never reaches here — the page rendered the
                 // unavailable line server-side and there is no list to fill.
                 var tokens = res.tokens || [];
+                var grants = tokens.filter(function(t){ return !!t.is_oauth; });
+                var manual = tokens.filter(function(t){ return !t.is_oauth; });
+
+                // Connected apps: approved on the consent page. The app named
+                // itself, so every value here is inserted with .text() — never
+                // as markup.
+                var $grantList = $('#connectedAppsGrantList').empty();
+                $('#connectedAppsGrantsEmpty').toggleClass('d-none', grants.length > 0);
+                grants.forEach(function(t){
+                    var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
+                    var $info = $('<div>');
+                    $info.append($('<div>').text(t.oauth_client_name || t.name || 'Connected app'));
+                    var meta = connectedAppsScopeLabel(t.scopes) +
+                        ' — connected ' + tfaFormatDate(t.grant_created_at || t.created_at) +
+                        ' — ' + (t.last_used_at ? 'last used ' + tfaFormatDate(t.last_used_at) : 'never used');
+                    $info.append($('<div>').addClass('text-muted small').text(meta));
+                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text('Revoke').data('id', t.id).data('grant', true);
+                    $li.append($info).append($btn);
+                    $grantList.append($li);
+                });
+
                 var $list = $('#connectedAppsList').empty();
-                $('#connectedAppsEmpty').toggleClass('d-none', tokens.length > 0);
-                tokens.forEach(function(t){
+                $('#connectedAppsEmpty').toggleClass('d-none', manual.length > 0);
+                manual.forEach(function(t){
                     var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
                     var $info = $('<div>');
                     $info.append($('<div>').text(t.name || 'Access token'));
@@ -1172,15 +1202,22 @@ $mcpDesktopConfig = '{
                 }
             });
 
-            $('#connectedAppsList').on('click', 'button', function(){
+            // One handler for both groups: revoking a connection and revoking a
+            // token are the same action — the row holds the access token and, for
+            // a connection, the refresh token too, so both stop at once.
+            $('#connectedAppsList, #connectedAppsGrantList').on('click', 'button', function(){
                 var id = $(this).data('id');
-                if (!window.confirm('Revoke this access token? Any app using it stops working immediately.')) return;
+                var isGrant = $(this).data('grant') === true;
+                var question = isGrant
+                    ? 'Revoke this connection? The app loses access immediately and has to be approved again.'
+                    : 'Revoke this access token? Any app using it stops working immediately.';
+                if (!window.confirm(question)) return;
                 $.post('pro_profile.php', { action: 'mcp_token_revoke', id: id }, function(res){
                     if (res && res.success) {
-                        connectedAppsAlert('success', 'Access token revoked.');
+                        connectedAppsAlert('success', isGrant ? 'Connection revoked.' : 'Access token revoked.');
                         connectedAppsLoad();
                     } else {
-                        connectedAppsAlert('danger', (res && res.error) ? res.error : 'Could not revoke the access token');
+                        connectedAppsAlert('danger', (res && res.error) ? res.error : 'Could not revoke it');
                     }
                 }, 'json').fail(function(){ connectedAppsAlert('danger', 'Network error'); });
             });

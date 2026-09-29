@@ -159,6 +159,34 @@ if (!function_exists('mcpTokenAvailable')) {
     }
 }
 
+if (!function_exists('mcpTokenGrantColumnsAvailable')) {
+    /**
+     * Are the OAuth grant columns there (migrate_oauth.php, epic #331)? Cached
+     * per PDO. The dependency between this file and oauth_server.php runs the
+     * other way — oauth_server.php requires this one — so the check is by
+     * column, and everything OAuth-aware here degrades to "no grant" rather
+     * than failing when the migration has not run.
+     *
+     * The join target is checked too: the columns and oauth_clients are created
+     * together, so a half-migrated database counts as "not there".
+     */
+    function mcpTokenGrantColumnsAvailable(PDO $pdo): bool
+    {
+        static $cache = [];
+        $key = spl_object_id($pdo);
+        if (!array_key_exists($key, $cache)) {
+            try {
+                $pdo->query('SELECT oauth_client_id FROM mcp_access_tokens WHERE 1 = 0');
+                $pdo->query('SELECT client_id FROM oauth_clients WHERE 1 = 0');
+                $cache[$key] = true;
+            } catch (Throwable $e) {
+                $cache[$key] = false;
+            }
+        }
+        return $cache[$key];
+    }
+}
+
 if (!function_exists('mcpTokenActiveCount')) {
     /**
      * How many of the account's tokens still work: not revoked and not
@@ -316,19 +344,49 @@ if (!function_exists('mcpTokenList')) {
      * secrets: token_hash is never returned, and token_prefix is the 12
      * characters the user already sees in the list. Revoked tokens are left
      * out — they are kept only for the audit and the 30-day sweep.
+     *
+     * A row that carries an oauth_client_id is not a manually created token but
+     * a grant: an app the user approved on the consent page (epic #331). Those
+     * rows also carry the app's name — from oauth_clients, falling back to the
+     * name the row itself holds — and the time the grant was made, so the
+     * profile can list connections apart from tokens. The name is
+     * attacker-controlled (the app registered it): it is data here and must be
+     * escaped by whoever prints it.
+     *
+     * The shape is the same whether or not the OAuth columns exist, so a caller
+     * never has to ask; without them every row is simply not a grant.
      */
     function mcpTokenList(PDO $pdo, int $userId, ?int $now = null): array
     {
         $now = $now ?? time();
-        $stmt = $pdo->prepare('SELECT id, name, token_prefix, scopes, created_at, last_used_at, expires_at FROM mcp_access_tokens WHERE pro_user_id = ? AND revoked_at IS NULL ORDER BY id DESC');
+        $withGrants = mcpTokenGrantColumnsAvailable($pdo);
+        if ($withGrants) {
+            $stmt = $pdo->prepare('SELECT t.id, t.name, t.token_prefix, t.scopes, t.created_at, t.last_used_at, t.expires_at, t.oauth_client_id, t.grant_created_at, c.client_name AS oauth_client_name FROM mcp_access_tokens t LEFT JOIN oauth_clients c ON c.client_id = t.oauth_client_id WHERE t.pro_user_id = ? AND t.revoked_at IS NULL ORDER BY t.id DESC');
+        } else {
+            $stmt = $pdo->prepare('SELECT id, name, token_prefix, scopes, created_at, last_used_at, expires_at FROM mcp_access_tokens WHERE pro_user_id = ? AND revoked_at IS NULL ORDER BY id DESC');
+        }
         $stmt->execute([$userId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows as &$row) {
-            $row['id'] = (int) $row['id'];
-            $row['expired'] = $row['expires_at'] !== null && strtotime((string) $row['expires_at']) <= $now;
+
+        $out = [];
+        foreach ($rows as $row) {
+            $isOauth = $withGrants && isset($row['oauth_client_id']) && $row['oauth_client_id'] !== null;
+            $clientName = $isOauth ? trim((string) ($row['oauth_client_name'] ?? '')) : '';
+            $out[] = [
+                'id' => (int) $row['id'],
+                'name' => (string) $row['name'],
+                'token_prefix' => (string) $row['token_prefix'],
+                'scopes' => (string) $row['scopes'],
+                'created_at' => (string) $row['created_at'],
+                'last_used_at' => $row['last_used_at'] !== null ? (string) $row['last_used_at'] : null,
+                'expires_at' => $row['expires_at'] !== null ? (string) $row['expires_at'] : null,
+                'expired' => $row['expires_at'] !== null && strtotime((string) $row['expires_at']) <= $now,
+                'is_oauth' => $isOauth,
+                'oauth_client_name' => $isOauth ? ($clientName !== '' ? $clientName : (string) $row['name']) : null,
+                'grant_created_at' => $isOauth && !empty($row['grant_created_at']) ? (string) $row['grant_created_at'] : null,
+            ];
         }
-        unset($row);
-        return $rows;
+        return $out;
     }
 }
 
@@ -373,13 +431,27 @@ if (!function_exists('mcpTokenCleanup')) {
      * whose account no longer exists (whatever their state — an orphan can
      * never resolve, so there is nothing to wait for). Called from
      * cron/cleanup.php. Returns how many rows were removed.
+     *
+     * A grant row (epic #331) holds two credentials, and the access token's
+     * expires_at is only an hour ahead of the grant while the refresh token
+     * lives for 90 days — so the expiry branch must not remove a row that can
+     * still refresh, or a connected app would break the moment its last access
+     * token aged out. The revoked branch needs no such guard: revoked_at is set
+     * when the grant is revoked, and the refresh path refuses a revoked row
+     * outright, so there is nothing left to refresh.
      */
     function mcpTokenCleanup(PDO $pdo, ?int $now = null): int
     {
         $now = $now ?? time();
         $deadline = date('Y-m-d H:i:s', $now - MCP_TOKEN_SWEEP_DAYS * 86400);
-        $stmt = $pdo->prepare('DELETE FROM mcp_access_tokens WHERE pro_user_id NOT IN (SELECT id FROM pro_users) OR (revoked_at IS NOT NULL AND revoked_at <= ?) OR (expires_at IS NOT NULL AND expires_at <= ?)');
-        $stmt->execute([$deadline, $deadline]);
+        $params = [$deadline, $deadline];
+        $liveRefreshGuard = '';
+        if (mcpTokenGrantColumnsAvailable($pdo)) {
+            $liveRefreshGuard = ' AND (refresh_expires_at IS NULL OR refresh_expires_at <= ?)';
+            $params[] = $deadline;
+        }
+        $stmt = $pdo->prepare('DELETE FROM mcp_access_tokens WHERE pro_user_id NOT IN (SELECT id FROM pro_users) OR (revoked_at IS NOT NULL AND revoked_at <= ?) OR (expires_at IS NOT NULL AND expires_at <= ?' . $liveRefreshGuard . ')');
+        $stmt->execute($params);
         return $stmt->rowCount();
     }
 }

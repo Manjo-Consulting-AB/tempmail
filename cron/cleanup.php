@@ -12,6 +12,7 @@ require_once __DIR__ . '/../pii_crypto.php';
 require_once __DIR__ . '/../address_cooldown.php';
 require_once __DIR__ . '/../feed_token.php';
 require_once __DIR__ . '/../mcp_tokens.php';
+require_once __DIR__ . '/../oauth_server.php';
 
 // Säkerhetskontroll - endast CLI eller localhost eller HTTP-anrop med giltig hemlig nyckel
 // För att tillåta cron via HTTP (wget/curl), sätt miljövariabeln CRON_HTTP_SECRET i produktion
@@ -309,6 +310,33 @@ function cleanupExpiredMcpTokens() {
         return $count;
     } catch (PDOException $e) {
         logMessage('ERROR', 'Failed to cleanup MCP access tokens: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Rensa auktoriseringskoder (oauth_authorization_codes) som är för gamla och
+ * oauth_clients som varken har någon token-rad kvar eller har varit aktiva på
+ * 30 dagar (epic #331). Samma fail-open-mönster som cleanupExpiredMcpTokens():
+ * hoppar över tyst när migrate_oauth.php inte har körts.
+ *
+ * Måste köras efter cleanupExpiredMcpTokens(), som tar bort återkallade
+ * token-rader — först då blir en klient utan grant städbar.
+ */
+function cleanupExpiredOauth() {
+    global $pdo;
+    if (!function_exists('oauthAvailable') || !oauthAvailable($pdo)) {
+        return false;
+    }
+    try {
+        $codes = oauthCodeCleanup($pdo);
+        $clients = oauthClientCleanup($pdo);
+        if ($codes > 0 || $clients > 0) {
+            logMessage('INFO', 'Expired OAuth codes and idle clients cleaned up', ['codes' => $codes, 'clients' => $clients]);
+        }
+        return $codes + $clients;
+    } catch (PDOException $e) {
+        logMessage('ERROR', 'Failed to cleanup OAuth data: ' . $e->getMessage());
         return false;
     }
 }
@@ -1025,7 +1053,15 @@ function runCleanup($options = []) {
     if ($mcpTokensResult !== false) {
         $results['mcp_tokens_cleaned'] = $mcpTokensResult;
     }
-    
+
+    // Rensa utgångna OAuth-auktoriseringskoder och oanvända klienter (#331).
+    // Efter tokenstädningen ovan, så en klient vars grant städats blir möjlig
+    // att ta bort i samma körning.
+    $oauthResult = cleanupExpiredOauth();
+    if ($oauthResult !== false) {
+        $results['oauth_cleaned'] = $oauthResult;
+    }
+
     // Optimera databas (om begärt)
     if (isset($options['optimize']) && $options['optimize']) {
         $results['optimized'] = optimizeDatabase();
