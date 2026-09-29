@@ -5420,3 +5420,129 @@ a:hover {
         justify-content: flex-end;
     }
 }
+
+/* ==========================================================================
+   ii. OAuth consent — oauth_authorize.php (epic #331 step 3/6)
+   ==========================================================================
+
+   The page an OAuth client sends the user to, so they can see which app wants
+   access and answer. It is the auth shell (.ms-auth, section v) with one
+   centred card, because it is the same kind of page: one task, no navigation
+   to wander off into. What is new here is only the content of that card — who
+   is asking, what they would get, and the two answers.
+
+   The app's name is attacker-controlled, so it is quoted and labelled rather
+   than dressed up as a verified identity; nothing on this page implies Mail
+   Shield has checked it. */
+
+/* The app block: the name, the label that says who wrote it, and where the
+   user is sent back to. A sunken surface separates all of it from the form
+   below, so the name cannot be mistaken for our own copy. */
+.ms-grant__app {
+    margin-top: var(--ms-space-5);
+    padding: var(--ms-space-4);
+    background: var(--ms-bg-sunken);
+    border-radius: var(--ms-radius-md);
+}
+
+.ms-grant__app-name {
+    margin: 0;
+    font-size: var(--ms-fs-body);
+    line-height: var(--ms-lh-sm);
+    font-weight: 600;
+    color: var(--ms-text);
+    /* A very long name wraps instead of pushing the card wider than 440px. */
+    overflow-wrap: anywhere;
+}
+
+.ms-grant__app-note {
+    margin: var(--ms-space-2) 0 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-grant__app-host {
+    margin: var(--ms-space-3) 0 0;
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-grant__app-host code {
+    font-family: var(--ms-font-mono);
+    font-size: 0.9em;
+    color: var(--ms-text);
+    overflow-wrap: anywhere;
+}
+
+/* --- The permission choice ------------------------------------------------ */
+
+/* The two answers are radio rows, not a checkbox: when write access was asked
+   for, "read only" has to be a real, visible option rather than the absence of
+   a tick — a checkbox would make the broader grant the default. */
+.ms-grant__scopes {
+    margin: var(--ms-space-5) 0 0;
+    padding: 0;
+    border: 0;
+}
+
+.ms-grant__scope {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ms-space-3);
+    margin-top: var(--ms-space-3);
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text);
+    cursor: pointer;
+}
+
+.ms-grant__scope input {
+    /* Aligned with the first line of its label, not with the row's centre. */
+    flex: 0 0 auto;
+    margin: 0.2rem 0 0;
+}
+
+.ms-grant__scope-title {
+    display: block;
+    font-weight: 600;
+}
+
+.ms-grant__scope-detail {
+    display: block;
+    margin-top: 0.15rem;
+    color: var(--ms-text-muted);
+}
+
+/* --- The notice and the two actions --------------------------------------- */
+
+.ms-grant__notice {
+    margin: var(--ms-space-5) 0 0;
+    padding-top: var(--ms-space-4);
+    border-top: 1px solid var(--ms-border);
+    font-size: var(--ms-fs-xs);
+    line-height: var(--ms-lh-xs);
+    color: var(--ms-text-muted);
+}
+
+.ms-grant__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--ms-space-3);
+    margin-top: var(--ms-space-5);
+}
+
+/* Full-width stacked buttons on a phone, the natural size of a thumb — and
+   stacked in DOM order, so what a keyboard tabs through is what is on screen
+   (Cancel first, then the primary Allow). */
+@media (max-width: 479px) {
+    .ms-grant__actions {
+        flex-direction: column;
+    }
+
+    .ms-grant__actions .btn {
+        width: 100%;
+    }
+}
