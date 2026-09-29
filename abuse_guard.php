@@ -92,6 +92,11 @@ if (!function_exists('abuseGuardSettings')) {
             'oauth_register_ip_hour' => $int('oauth_register_ip_hour', 10, 1),
             'oauth_register_ip_day' => $int('oauth_register_ip_day', 30, 1),
             'oauth_max_clients' => $int('oauth_max_clients', 2000, 1),
+            // OAuth token exchanges (oauth_token.php, #331): per-IP code
+            // exchanges and refreshes per hour and per day. A connected client
+            // refreshes about once an hour, so this only trips on abuse.
+            'oauth_token_ip_hour' => $int('oauth_token_ip_hour', 60, 1),
+            'oauth_token_ip_day' => $int('oauth_token_ip_day', 300, 1),
             // Address creation.
             'generate_ip_hour' => $int('generate_ip_hour', 10, 1),
             'generate_ip_day' => $int('generate_ip_day', 30, 1),
@@ -727,6 +732,56 @@ if (!function_exists('abuseOauthRegisterRateLimit')) {
                 'limited' => true,
                 'retry_after' => max(1, 3600 - ($now % 3600)),
                 'rule' => 'oauth_register_ip_day',
+                'hits' => $day,
+            ];
+        }
+
+        return ['limited' => false, 'retry_after' => 0, 'rule' => null, 'hits' => $hour];
+    }
+}
+
+if (!function_exists('abuseOauthTokenRateLimit')) {
+    /**
+     * Count one OAuth token exchange and say whether it may go ahead
+     * (oauth_token.php, #331 step 2/6). Two windows over one set of 1-hour
+     * buckets: the current hour (oauth_token_ip_hour) and the last 24
+     * (oauth_token_ip_day).
+     *
+     * The subject is oauthIpHash()'s keyed hash of the visitor's IP — never the
+     * raw address, and never a code, a verifier or a token: a counter keyed on
+     * a credential would put one in the database. A caller with no key to hash
+     * with (the hash came back null) does not call this at all, so the limit
+     * simply does not apply rather than counting everyone under one bucket.
+     *
+     * The exchange is counted even when it is refused, so a client that keeps
+     * hammering stays refused until the window rolls. $retry_after is the
+     * seconds until the hour that refused rolls over, for Retry-After.
+     *
+     * Fail-open is the caller's job: oauth_token.php wraps this in a try/catch,
+     * like every other guard call on a live path.
+     *
+     * @return array{limited:bool, retry_after:int, rule:?string, hits:int}
+     */
+    function abuseOauthTokenRateLimit(PDO $pdo, string $subject, int $now, array $settings): array
+    {
+        abuseCounterAdd($pdo, 'oauth_token_ip', $subject, 3600, 1, 0, 0, $now);
+
+        $hour = abuseCounterSum($pdo, 'oauth_token_ip', $subject, $now - 3600)['hits'];
+        if ($hour > $settings['oauth_token_ip_hour']) {
+            return [
+                'limited' => true,
+                'retry_after' => max(1, 3600 - ($now % 3600)),
+                'rule' => 'oauth_token_ip_hour',
+                'hits' => $hour,
+            ];
+        }
+
+        $day = abuseCounterSum($pdo, 'oauth_token_ip', $subject, $now - 86400)['hits'];
+        if ($day > $settings['oauth_token_ip_day']) {
+            return [
+                'limited' => true,
+                'retry_after' => max(1, 3600 - ($now % 3600)),
+                'rule' => 'oauth_token_ip_day',
                 'hits' => $day,
             ];
         }
