@@ -39,6 +39,11 @@ RewriteRule ^sitemap\.xml$ sitemap.php [L]
 # klienternas konfiguration; mcp.php är filen som svarar.
 RewriteRule ^mcp/?$ mcp.php [L]
 
+# OAuth-klientregistrering (#331). En OAuth-klient (Claude.ai, Claude Code)
+# registrerar sig själv här innan den skickar användaren till samtyckessidan;
+# oauth_register.php svarar. Se oauth_server.php.
+RewriteRule ^oauth/register/?$ oauth_register.php [L]
+
 # Sätt standardindex-fil
 DirectoryIndex index.php
 
