@@ -53,6 +53,8 @@ $hasCodes = tableHasColumn('oauth_authorization_codes', 'code_hash');
 
 if (!$hasClients && !$hasCodes) {
     echo "[FEL] OAuth tables exist — they are missing\n";
+    echo "\nWhile they are, the metadata documents are 404 and a client that tries to sign in\n";
+    echo "fails closed: mcp.php keeps asking for a Bearer token, exactly as before OAuth.\n";
     echo "\nRun: php migrate_oauth.php\n";
     exit(2);
 }

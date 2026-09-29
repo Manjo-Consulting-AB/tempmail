@@ -12,13 +12,19 @@
  *   Pushover           a webhook kind, not push infrastructure of our own
  *   Digest emails      cron/send-digests.php
  *   Agent              client/agent/, RSA-signed webhooks from this backend
- *   AI assistants      mcp.php, an MCP server reached with an access token
+ *   AI assistants      mcp.php, an MCP server reached by signing in or with an
+ *                      access token (#331: the OAuth flow, once switched on)
  *
  * The sixth card used to be a roadmap note — `API`, with a `Coming` badge and
  * no such thing behind it (#324). It is a shipped card now, so no card carries
  * a badge any more and the --soon modifier it needed is gone from the
- * stylesheet. There is still no public REST API and no OAuth connector, and
- * none may be named here until one exists.
+ * stylesheet. There is still no public REST API and none may be named here.
+ *
+ * The card's one line follows the OAuth switch too (#331, step 6): $msMcpSignIn,
+ * computed by index.php from oauthDiscoveryEnabled() — OAUTH_ENABLED *and* the
+ * migration — decides whether it may name the sign-in. While OAuth is off the
+ * card says access token and nothing else, because a sign-in no client can
+ * perform would be a claim the code does not back (§9).
  *
  * There is deliberately no "External mailboxes" card. There used to be one
  * ("Point Mail Shield at a mailbox you already run"), and it promised a feature
@@ -55,6 +61,14 @@ if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 
 // Same trial note as the personal-addresses section (epic #267), signed-out only.
 $msAutoTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['trial']['days'] ?? 0)) : 0;
+
+// An MCP client's way in, as the card states it (#331, step 6). index.php sets
+// $msMcpSignIn from oauthDiscoveryEnabled(); defaulted here so the card still
+// reads as a token card if it is ever included without it.
+$msMcpSignIn = !empty($msMcpSignIn);
+$msAiCardText = $msMcpSignIn
+    ? 'Connect Claude or another MCP client by signing in, or with an access token, to list, create and delete your addresses and read your mail.'
+    : 'Connect Claude or another MCP client with an access token to list, create and delete your addresses and read your mail.';
 ?>
 <section class="ms-section ms-section--sunken" id="automation">
     <div class="ms-container">
@@ -119,7 +133,7 @@ $msAutoTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['tria
                     <path d="M10 3.2L11.5 8.5L16.8 10L11.5 11.5L10 16.8L8.5 11.5L3.2 10L8.5 8.5Z"/>
                 </svg>
                 <h3 class="ms-h3 ms-automation__title">AI assistants</h3>
-                <p class="ms-automation__text">Connect Claude or another MCP client to list, create and delete your addresses and read your mail.</p>
+                <p class="ms-automation__text"><?php echo htmlspecialchars($msAiCardText, ENT_QUOTES, 'UTF-8'); ?></p>
             </li>
         </ul>
 

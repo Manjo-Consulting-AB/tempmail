@@ -884,6 +884,15 @@ $msPage = [
     ],
 ];
 
+// Whether an MCP client can connect by signing in yet (#331, step 6). The same
+// pair mcp.php advertises the flow on — the operator's OAUTH_ENABLED switch and
+// migrate_oauth.php — through oauthDiscoveryEnabled(), which fails closed on
+// either half, so the landing page's AI-assistants card promises a sign-in only
+// while OAuth is actually on and says tokens otherwise. This sits on the
+// landing-render path only: every action above answers JSON and exits before it.
+require_once __DIR__ . '/oauth_server.php';
+$msMcpSignIn = oauthDiscoveryEnabled($pdo);
+
 require 'partials/brand.php';
 require 'partials/public_head.php';
 require 'partials/public_nav.php';

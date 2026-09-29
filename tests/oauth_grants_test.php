@@ -439,8 +439,25 @@ check('B8. the card renders both group headings and both lists',
     && strpos($render['stdout'], 'id="connectedAppsGrantList"') !== false
     && strpos($render['stdout'], 'id="connectedAppsList"') !== false
     && strpos($render['stdout'], 'id="connectedAppsGrantsEmpty"') !== false);
-check('B9. the help text says an app with a Connect/Sign in button needs no token',
-    strpos($render['stdout'], 'Sign in') !== false && strpos($render['stdout'], 'needs no token') !== false);
+// The connect help follows the OAuth switch (#331 step 6). This probe sets no
+// OAUTH_ENABLED, so the page must offer the token route and say nothing about
+// a sign-in — copy may promise only what ships.
+check('B9. while OAuth is off the help offers the token route only',
+    strpos($render['stdout'], 'access tokens as a bearer token') !== false
+    && strpos($render['stdout'], 'sign in when it asks') === false
+    && strpos($render['stdout'], 'needs no token') === false);
+
+// Flip the switch on: the OAuth schema is already here, so
+// oauthDiscoveryEnabled() turns true and the same page leads with the sign-in.
+file_put_contents($msProbe . '/config.php', "\n\$config['oauth']['enabled'] = true;\n", FILE_APPEND);
+$renderSignIn = ms_test_request($msProbe, ['page' => 'pro_profile_page.php', 'method' => 'GET', 'user_id' => $userPro, 'user_email' => 'greta@example.com']);
+ms_test_no_php_errors('B9a. ... and renders without PHP errors with OAuth on', $renderSignIn);
+check('B9b. with OAuth on it leads with adding the endpoint and signing in',
+    strpos($renderSignIn['stdout'], 'in your app and sign in when it asks') !== false
+    && strpos($renderSignIn['stdout'], 'give it one of your access tokens instead') !== false
+    && strpos($renderSignIn['stdout'], 'Authorization: Bearer') !== false);
+// Put the probe back the way every later scenario expects it.
+file_put_contents($msProbe . '/config.php', ms_test_stub_config_php());
 check('B10. no app name reaches the page as markup', strpos($render['stdout'], 'alert(1)') === false);
 check('B11. the renderer inserts every app name with .text(), never .html()',
     preg_match('/\.text\(t\.oauth_client_name/', $render['stdout']) === 1

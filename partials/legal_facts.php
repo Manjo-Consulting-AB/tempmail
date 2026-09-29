@@ -10,6 +10,15 @@
  * 24 hours for a free temporary address (config app.cleanup_hours), 1–7 days on
  * Pro, a 7-day grace before a lapsed Pro account's personal addresses go
  * (cron/cleanup.php), and the inactivity rule for Regular accounts.
+ *
+ * The three connected-app numbers mirror oauth_server.php's constants — a grant
+ * survives as long as its refresh token does (OAUTH_REFRESH_TOKEN_TTL_SECONDS,
+ * sliding from every rotation), an authorization code is short-lived
+ * (OAUTH_CODE_TTL_SECONDS), and a client with no grant and no activity is swept
+ * (OAUTH_CLIENT_IDLE_SECONDS). They are written here rather than read from the
+ * constants because this file is shared by the legal pages, which have no
+ * business loading the OAuth library; check them against oauth_server.php when
+ * any of the three is changed.
  */
 
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
@@ -37,5 +46,11 @@ return [
     'warn_days'    => (int) ($config['cleanup']['regular_inactivity_warn_days'] ?? 335),
     'delete_days'  => (int) ($config['cleanup']['regular_inactivity_days'] ?? 365),
     'cooldown_months' => (int) ($config['address_cooldown']['months'] ?? 6),
+    // Connected apps (#331): a grant lives while its refresh token does, an
+    // authorization code is good for a minute, and an unused registered client
+    // is swept after a month. See the note above.
+    'grant_idle_days' => 90,
+    'code_seconds'    => 60,
+    'client_idle_days' => 30,
     'hosting'      => 'Inleed, a trade name of Yelles AB (Sweden)',
 ];
