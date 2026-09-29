@@ -49,6 +49,9 @@ Standardvärdena sätts i `abuseGuardSettings()`. Env-variabler i `.env.*` skriv
 | Överträdelser inom 24 h innan kontokarantän | 3 | `ABUSE_ACCOUNT_STRIKES_DAY` |
 | Kontokarantänens längd i minuter | 360 | `ABUSE_ACCOUNT_QUARANTINE_MINUTES` |
 | Kontokarantäner inom 7 dygn innan förslag om avstängning | 2 | `ABUSE_ACCOUNT_QUARANTINES_WEEK` |
+| OAuth-klientregistreringar per IP och klocktimme (`/oauth/register`) | 10 | `OAUTH_REGISTER_IP_HOUR` |
+| OAuth-klientregistreringar per IP och dygn | 30 | `OAUTH_REGISTER_IP_DAY` |
+| Lagrade OAuth-klienter totalt (tak; lediga klienter städas i steg 4/6) | 2000 | `OAUTH_MAX_CLIENTS` |
 
 Maxstorleken per meddelande (`MAX_MESSAGE_BYTES`, 10 MB) och lagringskvoten (`MAILBOX_QUOTA_BYTES`, 100 MB) gäller som förut.
 

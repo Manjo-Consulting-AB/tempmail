@@ -31,6 +31,7 @@ Disallow: /abuse_admin.php
 Disallow: /paddle_webhook.php
 Disallow: /mcp
 Disallow: /mcp.php
+Disallow: /oauth/
 Disallow: /parse.php
 Disallow: /documentaion/
 Disallow: /partials/
