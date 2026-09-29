@@ -853,6 +853,12 @@ try {
                             'last_used_at' => $t['last_used_at'] !== null ? (string) $t['last_used_at'] : null,
                             'expires_at' => $t['expires_at'] !== null ? (string) $t['expires_at'] : null,
                             'expired' => (bool) $t['expired'],
+                            // An app the user approved on the consent page (#331)
+                            // rather than a token created here. The name is the
+                            // app's own, so it is data the client must escape.
+                            'is_oauth' => (bool) ($t['is_oauth'] ?? false),
+                            'oauth_client_name' => ($t['oauth_client_name'] ?? null) !== null ? (string) $t['oauth_client_name'] : null,
+                            'grant_created_at' => ($t['grant_created_at'] ?? null) !== null ? (string) $t['grant_created_at'] : null,
                         ];
                     }, mcpTokenList($pdo, $userId)),
                 ]);

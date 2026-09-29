@@ -25,6 +25,7 @@ if (php_sapi_name() !== 'cli') {
 
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/oauth_server.php';
 
 $failures = 0;
 $total = 0;
@@ -134,6 +135,48 @@ if (tableHasColumn('mcp_access_tokens', 'oauth_client_id')) {
     $stmt->execute();
     $counts = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     echo "[OK] tokens: " . (int) ($counts['oauth'] ?? 0) . " via OAuth, " . (int) ($counts['manual'] ?? 0) . " manual\n";
+}
+
+// ---------------------------------------------------------------------
+// Grants: an OAuth access token is an mcp_access_tokens row that is also a
+// grant. The two states below are never legitimate; the two counts are what
+// step 4/6's sweep works from.
+// ---------------------------------------------------------------------
+
+echo "\n-- grants --\n";
+
+if (tableHasColumn('mcp_access_tokens', 'oauth_client_id')) {
+    $activeGrants = (int) $pdo->query('SELECT COUNT(*) FROM mcp_access_tokens WHERE oauth_client_id IS NOT NULL AND revoked_at IS NULL')->fetchColumn();
+    echo "[OK] active grants: {$activeGrants}\n";
+
+    // The 11th authorisation is refused (step 3/6 and the exchange), so an
+    // account above the cap got there through a path that skipped the check.
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM (SELECT pro_user_id FROM mcp_access_tokens WHERE oauth_client_id IS NOT NULL AND revoked_at IS NULL GROUP BY pro_user_id HAVING COUNT(*) > ?) over_cap');
+    $stmt->execute([OAUTH_GRANT_MAX_PER_USER]);
+    $overCap = (int) $stmt->fetchColumn();
+    oauthCheck(
+        'no account holds more than ' . OAUTH_GRANT_MAX_PER_USER . ' grants',
+        $overCap === 0,
+        $overCap . ' account(s) are over the cap'
+    );
+
+    // A grant whose account is gone can never resolve; mcpTokenCleanup()
+    // removes it, so one still here means the sweep has not run.
+    $orphanGrants = (int) $pdo->query('SELECT COUNT(*) FROM mcp_access_tokens WHERE oauth_client_id IS NOT NULL AND pro_user_id NOT IN (SELECT id FROM pro_users)')->fetchColumn();
+    oauthCheck(
+        'every grant belongs to an existing account',
+        $orphanGrants === 0,
+        $orphanGrants . ' grant(s) belong to a missing account'
+    );
+
+    // Informational: clients no grant points at (the sweep removes those idle
+    // for 30 days) and codes old enough that the sweep should have taken them.
+    $clientsWithoutGrants = (int) $pdo->query('SELECT COUNT(*) FROM oauth_clients WHERE client_id NOT IN (SELECT oauth_client_id FROM mcp_access_tokens WHERE oauth_client_id IS NOT NULL)')->fetchColumn();
+    echo "[OK] clients without grants: {$clientsWithoutGrants}\n";
+
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM oauth_authorization_codes WHERE expires_at <= ?');
+    $stmt->execute([date('Y-m-d H:i:s', time() - OAUTH_CODE_SWEEP_SECONDS)]);
+    echo "[OK] expired codes not yet swept: " . (int) $stmt->fetchColumn() . "\n";
 }
 
 // ---------------------------------------------------------------------
