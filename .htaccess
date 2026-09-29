@@ -50,6 +50,12 @@ RewriteRule ^oauth/register/?$ oauth_register.php [L]
 RewriteRule ^oauth/token/?$ oauth_token.php [L]
 RewriteRule ^oauth/revoke/?$ oauth_revoke.php [L]
 
+# OAuth-samtyckessidan (#331 steg 3/6). Klienten skickar hit användaren, som
+# loggar in och svarar ja eller nej; oauth_authorize.php svarar. Se
+# oauth_server.php och after_login.php (inloggningen måste kunna komma tillbaka
+# hit).
+RewriteRule ^oauth/authorize/?$ oauth_authorize.php [L]
+
 # Sätt standardindex-fil
 DirectoryIndex index.php
 

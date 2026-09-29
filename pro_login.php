@@ -15,6 +15,7 @@
 require_once 'config.php';
 require_once __DIR__ . '/pro_auth.php';
 require_once __DIR__ . '/pro_trial.php';
+require_once __DIR__ . '/after_login.php';
 require_once __DIR__ . '/partials/brand.php';
 
 session_start();
@@ -26,9 +27,11 @@ if (!isset($_GET['token'])) {
     proRememberRestoreSession();
 }
 
-// If already logged in, redirect to dashboard
+// If already logged in, redirect to dashboard — or back to whatever asked to
+// be resumed (after_login.php: a device restored by "Stay signed in" above, or
+// a user who signed in in another tab). Single-use either way.
 if (isset($_SESSION['pro_user_id'])) {
-    header('Location: pro.php');
+    header('Location: ' . (afterLoginTake() ?? 'pro.php'));
     exit;
 }
 
@@ -71,7 +74,7 @@ if ($token) {
             }
         }
 
-        header('Location: pro.php');
+        header('Location: ' . (afterLoginTake() ?? 'pro.php'));
         exit;
     }
 }

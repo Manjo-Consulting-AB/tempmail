@@ -20,6 +20,17 @@ declare(strict_types=1);
  *  - redirect-URI validation: the exact-match allow-list a later step checks a
  *    client's requested redirect_uri against.
  *
+ * What lives here (step 3/6, the authorization endpoint and consent page in
+ * oauth_authorize.php):
+ *  - oauthCanonicalResource(): the one resource identifier (RFC 8707) this
+ *    server accepts, built from base_url and never from a literal.
+ *  - oauthAuthorizeRequestValidate(): the authorization request, checked in
+ *    the order RFC 6749 §4.1.2.1 requires — and, crucially, the two failures
+ *    that must never redirect (an unknown client, a redirect_uri that is not
+ *    an exact registered match) are told apart from the ones that must.
+ *  - oauthAuthorizationCodeCreate(): mints the single-use code, stored only as
+ *    its sha256, exactly as the token endpoint already expects to find it.
+ *
  * What lives here (step 2/6, the token endpoint in oauth_token.php and the
  * revocation endpoint in oauth_revoke.php):
  *  - oauthCodeGenerate() / oauthRefreshTokenGenerate() and their validators:
@@ -59,6 +70,10 @@ require_once __DIR__ . '/mcp_tokens.php';
 if (!defined('OAUTH_CLIENT_ID_BYTES')) {
     // client_id = 32 hex characters from this many random bytes.
     define('OAUTH_CLIENT_ID_BYTES', 16);
+    // The PKCE challenge is an unpadded base64url sha256: always 43 characters.
+    define('OAUTH_CODE_CHALLENGE_LENGTH', 43);
+    // Longest accepted state parameter, matching what a redirect can carry.
+    define('OAUTH_STATE_MAX_LENGTH', 512);
     // A client may register between 1 and this many redirect URIs.
     define('OAUTH_REDIRECT_URI_MAX_COUNT', 5);
     // Longest accepted redirect URI, matching the column's width.
@@ -125,6 +140,24 @@ if (!function_exists('oauthRandomHex')) {
     function oauthRandomHex(int $bytes = 32): string
     {
         return bin2hex(random_bytes(max(1, $bytes)));
+    }
+}
+
+if (!function_exists('oauthCanonicalResource')) {
+    /**
+     * The one resource identifier (RFC 8707) this server serves: the MCP
+     * endpoint, built from $config['email']['base_url'] and never from a
+     * literal, so it follows BASE_URL like every other URL the site emits. A
+     * request that names a different resource is refused rather than quietly
+     * ignored — an access token is only good for the thing it was asked for.
+     */
+    function oauthCanonicalResource(?string $baseUrl = null): string
+    {
+        if ($baseUrl === null) {
+            $config = $GLOBALS['config'] ?? null;
+            $baseUrl = is_array($config) ? (string) ($config['email']['base_url'] ?? '') : '';
+        }
+        return rtrim($baseUrl, '/') . '/mcp';
     }
 }
 
@@ -581,6 +614,193 @@ if (!function_exists('oauthScopeSetFromInternal')) {
 }
 
 // ---------------------------------------------------------------------
+// The authorization request (step 3/6)
+// ---------------------------------------------------------------------
+
+if (!function_exists('oauthAuthorizeRequestValidate')) {
+    /**
+     * Validate one authorization request (RFC 6749 §4.1.2, OAuth 2.1 §4.1.1)
+     * and, on success, hand back exactly what a code needs to be minted from.
+     *
+     * $params is the parsed query (GET) or form body (POST). The checks run in
+     * the order the issue gives, and the *kind* of failure matters as much as
+     * the failure itself:
+     *
+     *   - 'fatal' => true means the request must NOT be redirected. Only two
+     *     things are fatal, and both are the cases §4.1.2.1 names: a client_id
+     *     that names no registered client (including a malformed one, refused
+     *     before any query), and a redirect_uri that is missing or is not an
+     *     **exact** string match of one the client registered. Redirecting
+     *     either would hand an attacker a redirect gadget; the caller renders
+     *     an error on our own origin instead.
+     *   - 'fatal' => false means the redirect_uri is proven, so the error goes
+     *     back to it as `error=…&state=…&iss=…`, as §4.1.2.1 requires.
+     *
+     * The redirect_uri is never normalised, decoded or compared case-
+     * insensitively: the registered string is what comes back, so a URI that
+     * merely looks close to a registered one is a different URI.
+     *
+     * On success, 'request' carries the validated request — the values a code
+     * row is written from, and the values the consent page renders. Nothing in
+     * it comes from the caller without having been checked: the scope set is
+     * one of the two this server has, the challenge is 43 base64url
+     * characters, and the state is opaque and length-capped.
+     *
+     * @param array<string,mixed> $params
+     * @return array<string,mixed>
+     */
+    function oauthAuthorizeRequestValidate(PDO $pdo, array $params, ?string $baseUrl = null): array
+    {
+        // 1. The client, and its redirect_uri. Both failures are fatal.
+        $clientId = oauthClientIdValid(isset($params['client_id']) && is_string($params['client_id']) ? $params['client_id'] : null);
+        $client = $clientId !== null ? oauthClientFind($pdo, $clientId) : null;
+        if ($client === null) {
+            return [
+                'ok' => false,
+                'fatal' => true,
+                'error' => 'invalid_client',
+                'error_description' => 'This application is not registered, so it cannot be connected.',
+            ];
+        }
+
+        $redirectUri = isset($params['redirect_uri']) && is_string($params['redirect_uri']) ? $params['redirect_uri'] : null;
+        if ($redirectUri === null || !in_array($redirectUri, $client['redirect_uris'], true)) {
+            return [
+                'ok' => false,
+                'fatal' => true,
+                'error' => 'invalid_request',
+                'error_description' => 'The requested redirect address does not match the one this application registered.',
+            ];
+        }
+
+        // 2. Everything below this line answers at the redirect_uri.
+        $responseType = isset($params['response_type']) && is_string($params['response_type']) ? $params['response_type'] : null;
+        if ($responseType === null || $responseType === '') {
+            return oauthAuthorizeError($redirectUri, 'invalid_request', 'The response_type parameter is required.');
+        }
+        if ($responseType !== 'code') {
+            return oauthAuthorizeError($redirectUri, 'unsupported_response_type', 'Only the "code" response type is supported.');
+        }
+
+        // PKCE is mandatory, and only S256 is spoken: "plain" is refused
+        // outright rather than downgraded, because accepting it would let a
+        // code be replayed by anyone who saw the redirect.
+        $challenge = isset($params['code_challenge']) && is_string($params['code_challenge']) ? $params['code_challenge'] : null;
+        if ($challenge === null || preg_match('/^[A-Za-z0-9_-]{' . OAUTH_CODE_CHALLENGE_LENGTH . '}$/', $challenge) !== 1) {
+            return oauthAuthorizeError($redirectUri, 'invalid_request', 'A code_challenge of ' . OAUTH_CODE_CHALLENGE_LENGTH . ' characters is required.');
+        }
+        $method = isset($params['code_challenge_method']) && is_string($params['code_challenge_method']) ? $params['code_challenge_method'] : null;
+        if ($method !== 'S256') {
+            return oauthAuthorizeError($redirectUri, 'invalid_request', 'Only the S256 code_challenge_method is supported.');
+        }
+
+        // Scope: what was asked for, or read alone when nothing was. An
+        // unknown scope is refused rather than ignored — dropping it silently
+        // would grant something other than what was asked for.
+        $scopeParam = isset($params['scope']) && is_string($params['scope']) ? $params['scope'] : '';
+        $scopeSet = oauthScopeSetFromExternal($scopeParam);
+        if ($scopeSet === null) {
+            return oauthAuthorizeError($redirectUri, 'invalid_scope', 'Unknown scope.');
+        }
+        if ($scopeSet === []) {
+            $scopeSet = ['read'];
+        }
+
+        // RFC 8707: a named resource must be the one this server serves.
+        $resource = isset($params['resource']) && is_string($params['resource']) ? $params['resource'] : '';
+        if ($resource !== '' && !hash_equals(oauthCanonicalResource($baseUrl), $resource)) {
+            return oauthAuthorizeError($redirectUri, 'invalid_request', 'The requested resource is not served here.');
+        }
+
+        // Opaque and passed through untouched, but not unbounded: it is
+        // echoed into a Location header.
+        $state = isset($params['state']) && is_string($params['state']) ? $params['state'] : '';
+        if (strlen($state) > OAUTH_STATE_MAX_LENGTH) {
+            return oauthAuthorizeError($redirectUri, 'invalid_request', 'The state parameter is too long.');
+        }
+
+        return [
+            'ok' => true,
+            'request' => [
+                'client_id' => (string) $client['client_id'],
+                'client_name' => (string) $client['client_name'],
+                'redirect_uri' => $redirectUri,
+                'code_challenge' => $challenge,
+                'scopes' => $scopeSet,
+                'scope' => oauthScopeExternalFromSet($scopeSet),
+                'resource' => $resource,
+                'state' => $state,
+            ],
+        ];
+    }
+}
+
+if (!function_exists('oauthAuthorizeError')) {
+    /**
+     * A non-fatal authorization error — one the caller sends back to the
+     * proven redirect_uri with `error=…&state=…&iss=…`. The URI rides along
+     * because by the time one of these is returned it has already been matched
+     * exactly against the client's registered list, so the caller does not
+     * have to re-read the request to find it.
+     */
+    function oauthAuthorizeError(string $redirectUri, string $code, string $description): array
+    {
+        return [
+            'ok' => false,
+            'fatal' => false,
+            'error' => $code,
+            'error_description' => $description,
+            'redirect_uri' => $redirectUri,
+        ];
+    }
+}
+
+if (!function_exists('oauthAuthorizationCodeCreate')) {
+    /**
+     * Mint the single-use authorization code a consenting user just approved,
+     * and store it — only its sha256, never the code itself.
+     *
+     * Returns the plaintext code (the one moment it exists outside the
+     * redirect) or null when $clientId is malformed. $scopeExternal is the
+     * wire form the token endpoint parses back with
+     * oauthScopeSetFromExternal(); $resource is '' when the authorization
+     * named none, and the token endpoint then ignores the parameter.
+     *
+     * $now is passed in so the suites can run this on SQLite, where NOW() is
+     * not the clock the rest of the row uses.
+     */
+    function oauthAuthorizationCodeCreate(
+        PDO $pdo,
+        string $clientId,
+        int $userId,
+        string $redirectUri,
+        string $scopeExternal,
+        string $codeChallenge,
+        string $resource = '',
+        ?int $now = null
+    ): ?string {
+        $validClient = oauthClientIdValid($clientId);
+        if ($validClient === null || $userId <= 0) {
+            return null;
+        }
+        $now = $now ?? time();
+        $code = oauthCodeGenerate();
+        $pdo->prepare('INSERT INTO oauth_authorization_codes (code_hash, client_id, pro_user_id, redirect_uri, scopes, code_challenge, resource, expires_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+            ->execute([
+                oauthHash($code),
+                $validClient,
+                $userId,
+                $redirectUri,
+                $scopeExternal,
+                $codeChallenge,
+                $resource,
+                date('Y-m-d H:i:s', $now + OAUTH_CODE_TTL_SECONDS),
+            ]);
+        return $code;
+    }
+}
+
+// ---------------------------------------------------------------------
 // Grants
 // ---------------------------------------------------------------------
 
@@ -593,6 +813,32 @@ if (!function_exists('oauthGrantCount')) {
         $count = (int) $stmt->fetchColumn();
         $stmt->closeCursor();
         return $count;
+    }
+}
+
+if (!function_exists('oauthGrantExists')) {
+    /**
+     * Does this account already hold a grant for this client? One grant per
+     * (user, client), so this is what tells the consent page's cap check
+     * "authorising again would replace this one" from "this would be an
+     * eleventh app". Revoked rows do not count: a re-authorisation replaces
+     * them (oauthAuthorizationCodeExchange() deletes the pair's rows).
+     */
+    function oauthGrantExists(PDO $pdo, string $clientId, int $userId): bool
+    {
+        $validClient = oauthClientIdValid($clientId);
+        if ($validClient === null || $userId <= 0) {
+            return false;
+        }
+        try {
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM mcp_access_tokens WHERE oauth_client_id = ? AND pro_user_id = ? AND revoked_at IS NULL');
+            $stmt->execute([$validClient, $userId]);
+            $count = (int) $stmt->fetchColumn();
+            $stmt->closeCursor();
+            return $count > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 }
 

@@ -11,6 +11,7 @@ require_once __DIR__ . '/email_log_ref.php';
 require_once __DIR__ . '/pii_crypto.php';
 require_once __DIR__ . '/pro_remember.php';
 require_once __DIR__ . '/mcp_tokens.php';
+require_once __DIR__ . '/after_login.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
@@ -1071,7 +1072,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             logMessage('INFO', 'Pro user logged in via password + trusted device', ['user_id' => $user['id']]);
 
             $addr = getProUserLatestAddress($pdo, $config, $user['id']);
-            echo json_encode(['success' => true, 'redirect' => 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
+            echo json_encode(['success' => true, 'redirect' => afterLoginTake() ?? 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
             exit;
         }
 
@@ -1105,7 +1106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     logMessage('INFO', 'Pro user logged in via password', ['user_id' => $user['id']]);
 
     $addr = getProUserLatestAddress($pdo, $config, $user['id']);
-    echo json_encode(['success' => true, 'redirect' => 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
+    echo json_encode(['success' => true, 'redirect' => afterLoginTake() ?? 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
     exit;
 }
 
@@ -1202,7 +1203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     $addr = getProUserLatestAddress($pdo, $config, $userId);
-    echo json_encode(['success' => true, 'redirect' => 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
+    echo json_encode(['success' => true, 'redirect' => afterLoginTake() ?? 'pro.php', 'current_address' => $addr['current_address'], 'expires_at' => $addr['expires_at']]);
     exit;
 }
 
@@ -1243,8 +1244,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['token'])) {
     $_SESSION['pro_user_email'] = $result['email'];
     $_SESSION['pro_login_method'] = 'magic_link';
     proRememberIssue((int) $result['user_id'], proRememberNormaliseDays($_GET['stay'] ?? 0));
-    // Redirect to dashboard so server-side will load the user's latest active temp address
-    header('Location: pro.php');
+    // Back to where the sign-in started, when something asked to be resumed
+    // (after_login.php — the OAuth consent page today); otherwise to the
+    // dashboard, which loads the user's latest active temp address.
+    header('Location: ' . (afterLoginTake() ?? 'pro.php'));
     exit;
 }
 
