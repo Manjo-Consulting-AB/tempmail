@@ -316,6 +316,17 @@ $baseConfig = [
         // caller changes behavior based on it yet.
         'self_signup_enabled' => filter_var($_ENV['PRO_SELF_SIGNUP_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)
     ],
+    // OAuth discovery for the MCP endpoint (epic #331 step 5/6). Off by
+    // default on purpose: the metadata documents and the 401 challenge are
+    // what make a client find and use the OAuth flow, so they stay dark until
+    // the owner has run migrate_oauth.php and checked the flow by hand. While
+    // off (or while the schema is missing), mcp.php answers exactly as before
+    // and the .well-known URLs are 404 — a half-migrated deploy never
+    // advertises a dead end. Read by oauthDiscoveryEnabled() in
+    // oauth_server.php, which mcp.php and oauth_metadata.php both call.
+    'oauth' => [
+        'enabled' => filter_var($_ENV['OAUTH_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)
+    ],
     'paddle' => [
         // Deliberately no defaults: paddleClientSettings() refuses to run when
         // either is missing, so pricing.php can never silently talk to the

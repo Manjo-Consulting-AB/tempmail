@@ -465,7 +465,9 @@ check('B17. revoking another account\'s grant is refused', (ms_test_json('', $re
 echo "\nC. the real mcp.php over PHP's built-in web server\n";
 // ---------------------------------------------------------------------------
 
-foreach (['mcp.php', 'mcp_tools.php', 'email_html_sanitizer.php'] as $file) {
+// oauth_server.php is what mcp.php requires for the 401 challenge since #331
+// step 5/6 (this probe has no OAuth schema, so it stays the bare one).
+foreach (['mcp.php', 'mcp_tools.php', 'email_html_sanitizer.php', 'oauth_server.php'] as $file) {
     if (!copy($repoRoot . '/' . $file, $msProbe . '/' . $file)) {
         throw new RuntimeException("Could not copy {$file} into the probe docroot");
     }

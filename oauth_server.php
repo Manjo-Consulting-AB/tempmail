@@ -46,6 +46,17 @@ declare(strict_types=1);
  *  - oauthTokenRevoke(): RFC 7009 revocation, by access or refresh token.
  *  - oauthClientTouch(): oauth_clients.last_used_at, at most once an hour.
  *
+ * What lives here (step 5/6, the discovery documents in oauth_metadata.php and
+ * the 401 challenge in mcp.php):
+ *  - oauthEnabled() / oauthDiscoveryEnabled(): the env kill switch and the
+ *    schema check together decide whether anything is advertised at all.
+ *  - oauthIssuer() / oauthResourceMetadataUrl(): the origin and the
+ *    metadata URL, both built from base_url.
+ *  - oauthProtectedResourceMetadata() / oauthAuthorizationServerMetadata():
+ *    the two documents themselves.
+ *  - oauthWwwAuthenticate(): the challenge a 401 carries, unchanged from
+ *    before this step while discovery is off.
+ *
  * An OAuth access token is an ordinary mcp_access_tokens row — minted with
  * mcpTokenGenerate() and stored with mcpTokenHash(), never a fork of that
  * code — so mcpTokenResolve() decides on it with no change at all. The OAuth
@@ -162,6 +173,155 @@ if (!function_exists('oauthCanonicalResource')) {
             $baseUrl = is_array($config) ? (string) ($config['email']['base_url'] ?? '') : '';
         }
         return rtrim($baseUrl, '/') . '/mcp';
+    }
+}
+
+// ---------------------------------------------------------------------
+// Discovery (step 5/6): the metadata documents and the 401 challenge
+// ---------------------------------------------------------------------
+
+if (!defined('OAUTH_PROTECTED_RESOURCE_PATH')) {
+    // Where a client is told to look for the resource's metadata (RFC 9728),
+    // and the path-specific form for the /mcp resource.
+    define('OAUTH_PROTECTED_RESOURCE_PATH', '/.well-known/oauth-protected-resource');
+    // The authorization server's own document (RFC 8414), plus the
+    // OpenID-Connect-style alias some clients probe first.
+    define('OAUTH_AUTHZ_SERVER_PATH', '/.well-known/oauth-authorization-server');
+    define('OAUTH_OPENID_CONFIG_PATH', '/.well-known/openid-configuration');
+    // How long a client may cache the public documents, in seconds.
+    define('OAUTH_METADATA_MAX_AGE', 3600);
+}
+
+if (!function_exists('oauthEnabled')) {
+    /**
+     * The operator's kill switch, $config['oauth']['enabled'] (env
+     * OAUTH_ENABLED), off by default. It gates discovery only — the metadata
+     * documents and the 401 challenge — never the endpoints themselves, which
+     * stay gated on oauthAvailable() exactly as the earlier steps left them.
+     */
+    function oauthEnabled(?array $config = null): bool
+    {
+        if ($config === null) {
+            $config = $GLOBALS['config'] ?? [];
+        }
+        return is_array($config)
+            && filter_var($config['oauth']['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    }
+}
+
+if (!function_exists('oauthIssuer')) {
+    /**
+     * The issuer / authorization-server identifier: the *origin* of
+     * $config['email']['base_url'], with any path dropped. RFC 8414 wants an
+     * origin and RFC 9728 an authorization-server identifier, and every
+     * endpoint below is built from this, so it follows BASE_URL and is never a
+     * literal.
+     */
+    function oauthIssuer(?string $baseUrl = null): string
+    {
+        if ($baseUrl === null) {
+            $config = $GLOBALS['config'] ?? null;
+            $baseUrl = is_array($config) ? (string) ($config['email']['base_url'] ?? '') : '';
+        }
+        $parts = parse_url($baseUrl);
+        if (!is_array($parts) || empty($parts['host'])) {
+            // Not a parseable absolute URL; strip the trailing slash and trust
+            // the operator rather than emit an empty issuer.
+            return rtrim($baseUrl, '/');
+        }
+        $issuer = strtolower((string) ($parts['scheme'] ?? 'https')) . '://' . $parts['host'];
+        if (isset($parts['port'])) {
+            $issuer .= ':' . (int) $parts['port'];
+        }
+        return $issuer;
+    }
+}
+
+if (!function_exists('oauthResourceMetadataUrl')) {
+    /** The absolute URL of the protected-resource metadata document. */
+    function oauthResourceMetadataUrl(?string $baseUrl = null): string
+    {
+        return oauthIssuer($baseUrl) . OAUTH_PROTECTED_RESOURCE_PATH;
+    }
+}
+
+if (!function_exists('oauthDiscoveryEnabled')) {
+    /**
+     * Should OAuth be advertised? Both halves must hold: the operator turned
+     * OAUTH_ENABLED on, and migrate_oauth.php has run. Without a PDO the
+     * schema cannot be checked, so the answer is no — fail closed, so a
+     * half-migrated deploy never points a client at a dead end.
+     */
+    function oauthDiscoveryEnabled(?PDO $pdo = null): bool
+    {
+        if (!oauthEnabled() || !$pdo instanceof PDO) {
+            return false;
+        }
+        return oauthAvailable($pdo);
+    }
+}
+
+if (!function_exists('oauthWwwAuthenticate')) {
+    /**
+     * The WWW-Authenticate challenge a 401 carries. With discovery on it
+     * points the client at the resource metadata (RFC 9728 §5.1); otherwise it
+     * is the bare challenge mcp.php has always sent, byte for byte, so an
+     * existing token user sees no change.
+     */
+    function oauthWwwAuthenticate(?PDO $pdo = null): string
+    {
+        $challenge = 'Bearer realm="Mail Shield"';
+        if (oauthDiscoveryEnabled($pdo)) {
+            $challenge .= ', resource_metadata="' . oauthResourceMetadataUrl() . '"';
+        }
+        return $challenge;
+    }
+}
+
+if (!function_exists('oauthProtectedResourceMetadata')) {
+    /**
+     * The RFC 9728 protected-resource metadata document for the MCP endpoint.
+     * `resource` is the canonical identifier the authorization endpoint
+     * validates a request's `resource` against, so the two can never disagree.
+     *
+     * @return array<string,mixed>
+     */
+    function oauthProtectedResourceMetadata(?string $baseUrl = null): array
+    {
+        return [
+            'resource' => oauthCanonicalResource($baseUrl),
+            'authorization_servers' => [oauthIssuer($baseUrl)],
+            'scopes_supported' => [OAUTH_SCOPE_READ, OAUTH_SCOPE_WRITE],
+            'bearer_methods_supported' => ['header'],
+            'resource_name' => 'Mail Shield',
+        ];
+    }
+}
+
+if (!function_exists('oauthAuthorizationServerMetadata')) {
+    /**
+     * The RFC 8414 authorization-server metadata document. Every endpoint is
+     * built from the issuer, so nothing here is a literal and everything
+     * follows BASE_URL.
+     *
+     * @return array<string,mixed>
+     */
+    function oauthAuthorizationServerMetadata(?string $baseUrl = null): array
+    {
+        $issuer = oauthIssuer($baseUrl);
+        return [
+            'issuer' => $issuer,
+            'authorization_endpoint' => $issuer . '/oauth/authorize',
+            'token_endpoint' => $issuer . '/oauth/token',
+            'registration_endpoint' => $issuer . '/oauth/register',
+            'revocation_endpoint' => $issuer . '/oauth/revoke',
+            'response_types_supported' => ['code'],
+            'grant_types_supported' => ['authorization_code', 'refresh_token'],
+            'code_challenge_methods_supported' => ['S256'],
+            'token_endpoint_auth_methods_supported' => ['none'],
+            'scopes_supported' => [OAUTH_SCOPE_READ, OAUTH_SCOPE_WRITE],
+            'authorization_response_iss_parameter_supported' => true,
+        ];
     }
 }
 
