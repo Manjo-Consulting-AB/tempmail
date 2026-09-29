@@ -45,7 +45,8 @@ $msLegalDoc = [
                 . '<li>keep up to 10 sticky addresses (Pro only);</li>'
                 . '<li>forward what arrives to other systems — RSS, webhooks, Pushover and digest emails (Pro only).</li>'
                 . '</ul>'
-                . '<p>Each account has a storage quota of ' . $f['quota_mb'] . ' MB. When the quota is reached, the oldest messages are deleted automatically to make room for new ones, even if the address they arrived at has not expired yet.</p>'
+                . '<p>A free account has a storage quota of ' . $f['quota_free_mb'] . ' MB and a Pro account one of ' . $f['quota_pro_mb'] . ' MB; the Pro figure applies from the first day of the trial, because a trial account is a Pro account. Mail to an address that is not linked to an account has its own ' . $f['quota_free_mb'] . ' MB. When a quota is reached, the oldest messages in it are deleted automatically to make room for new ones, even if the address they arrived at has not expired yet.</p>'
+                . '<p>The quota that counts is the one that applies when a message arrives. If a Pro plan ends and the account is then over the free quota, it is trimmed down to it — oldest messages first — as new mail comes in.</p>'
                 . '<p>Addresses and integrations have usage limits that protect them and the service. When a limit is reached, the address or integration is paused automatically for a while and you are told; see <a href="/privacy.php#automated-limits">Automated limits</a>.</p>'
                 . '<p>Mail is deleted automatically when an address expires or is removed. Mail Shield is not an archive: keep a copy elsewhere of anything you need to keep.</p>',
         ],

@@ -55,7 +55,7 @@ Standardvärdena sätts i `abuseGuardSettings()`. Env-variabler i `.env.*` skriv
 | OAuth-tokenväxlingar per IP och klocktimme (`/oauth/token`) | 60 | `OAUTH_TOKEN_IP_HOUR` |
 | OAuth-tokenväxlingar per IP och dygn | 300 | `OAUTH_TOKEN_IP_DAY` |
 
-Maxstorleken per meddelande (`MAX_MESSAGE_BYTES`, 10 MB) och lagringskvoten (`MAILBOX_QUOTA_BYTES`, 100 MB) gäller som förut.
+Maxstorleken per meddelande (`MAX_MESSAGE_BYTES`, 10 MB) gäller som förut. Lagringskvoten är sedan #340 två gränser: `MAILBOX_QUOTA_PRO_BYTES` (100 MB, med `MAILBOX_QUOTA_BYTES` som fallback för en äldre deploy) för ett Pro-konto och `MAILBOX_QUOTA_FREE_BYTES` (10 MB) för ett Regular-konto eller en anonym adress; kvoten är ingen missbruksgräns och mejl avvisas aldrig för att den är full.
 
 Trimma gränserna utifrån timrapporten (§8) i stället för att gissa.
 

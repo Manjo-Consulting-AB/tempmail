@@ -165,7 +165,7 @@ and are listed so the inventory is complete:
 | `pro_auth.php:1339, 1343` | `DELETE FROM email_attachments` / `DELETE FROM stored_emails` | account deletion |
 | `index.php:255, 304` | deletes the `temp_emails` row a FK cascades from | address deletion; the cascade is the schema's, not a statement here |
 | `cron/send-digests.php:198` | `UPDATE stored_emails SET digest_included_at = ?` | read-side bookkeeping for the digest |
-| `EmailStorage/MailboxQuota.php` | `DELETE FROM email_attachments WHERE email_id = ?` / `DELETE FROM stored_emails WHERE id = ?` | the stored-mail quota (#227): a post-storage listener that, once a new message is committed, deletes the oldest mail in the same scope until the scope is back at or below `$config['email']['quota_bytes']` |
+| `EmailStorage/MailboxQuota.php` | `DELETE FROM email_attachments WHERE email_id = ?` / `DELETE FROM stored_emails WHERE id = ?` | the stored-mail quota (#227, tiered by #340): a post-storage listener that, once a new message is committed, deletes the oldest mail in the same scope until the scope is back at or below its limit. The limit is resolved per message: `$config['email']['quota_bytes_pro']` for an account `proUserIsPro()` calls Pro, `quota_bytes_free` for a Regular account or an anonymous address; a tier lookup failure falls back to the Pro limit |
 
 Read-side consumers of these rows: `index.php` (inbox), `inbox.php`, `files.php` (signed URLs over
 `email_attachments.file_path`), `pro_feed.php`, `cron/send-digests.php`.

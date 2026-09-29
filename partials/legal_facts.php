@@ -5,7 +5,9 @@
  * company, contact address and retention numbers instead of each typing them.
  *
  * Everything that is configured is read from $config, never written into copy:
- * the mail domain, the origin, the Pro trial length and the mailbox quota. The
+ * the mail domain, the origin, the Pro trial length and the two mailbox quotas
+ * (Free and Pro, #340 — the trial counts as Pro through proUserIsPro(), so it
+ * gets the Pro figure). The
  * retention numbers that are not configurable are the ones the code enforces:
  * 24 hours for a free temporary address (config app.cleanup_hours), 1–7 days on
  * Pro, a 7-day grace before a lapsed Pro account's personal addresses go
@@ -40,7 +42,10 @@ return [
     'contact'      => '<a href="mailto:' . $msLegalH($msLegalContact) . '">' . $msLegalH($msLegalContact) . '</a>',
     'domain'       => $msLegalH($config['email']['domain'] ?? ''),
     'trial_days'   => max(0, (int) ($config['trial']['days'] ?? 0)),
-    'quota_mb'     => (int) round(((int) ($config['email']['quota_bytes'] ?? 104857600)) / 1048576),
+    // The storage limit is per tier, and the pages quote both figures. A trial
+    // account is Pro through proUserIsPro(), so it is on `quota_pro_mb`.
+    'quota_free_mb'   => (int) round(((int) ($config['email']['quota_bytes_free'] ?? 10485760)) / 1048576),
+    'quota_pro_mb'    => (int) round(((int) ($config['email']['quota_bytes_pro'] ?? 104857600)) / 1048576),
     'log_days'     => (int) ($config['cleanup']['log_retention_days'] ?? 30),
     'free_hours'   => (int) ($config['app']['cleanup_hours'] ?? 24),
     'warn_days'    => (int) ($config['cleanup']['regular_inactivity_warn_days'] ?? 335),

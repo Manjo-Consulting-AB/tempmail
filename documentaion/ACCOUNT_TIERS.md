@@ -119,6 +119,7 @@ kontot Regular trots betald eller inlöst Pro:
 |---|---|---|---|
 | Skapa temporär adress | ✗ | ✓ (en aktiv åt gången) | ✓ (en aktiv åt gången) |
 | Adressens livslängd | — | 24 h | 1–7 dygn, valbart |
+| Lagringskvot för mottagen mejl | 10 MB (per anonym adress) | 10 MB | 100 MB |
 | Läsa inkorg via delad länk | ✓ | ✓ | ✓ |
 | Skapa personlig adress | ✗ | ✗ | ✓ (max 10) |
 | Lista/radera egna personliga adresser | ✗ | ✓ | ✓ |
@@ -132,6 +133,14 @@ kontot Regular trots betald eller inlöst Pro:
 **Notera raden "Lista/radera egna personliga adresser".** Den är öppen för
 Regular med flit: ett degraderat konto måste kunna se och ta bort sina adresser
 under grace-perioden (avsnitt 6.1). Endast *skapandet* kräver Pro.
+
+**Notera raden "Lagringskvot för mottagen mejl".** Den är per konto (alla
+kontots adresser) och, för en adress utan konto, per adress. Nivån avgörs av
+`proUserIsPro()`, som en provperiod räknas som Pro i; gränsen läses om vid
+varje mejl i `MailboxQuota` (#340), så ett konto som tappar Pro trimmas till
+10 MB av nästa mejl (äldst först) och ett som uppgraderar slutar trimmas.
+Mejl avvisas aldrig för att kvoten är full, och ingen underrättas. Se
+`documentaion/EMAIL_STORAGE_ARCHITECTURE.md` §3.1 och avsnitt 6.1 nedan.
 
 **Notera raden "RSS-feed".** Den täcker båda slagen av flöde: kontots flöde
 (`pro_users.feed_token`, alla adresser) och per-adress-flödena
@@ -237,6 +246,11 @@ sju dagars grace. Med en Regular-nivå är rätt beteende att degradera:
 4. Personliga adresser behålls till `pro_expires_at + 7 dagar` och raderas
    därefter tillsammans med sina DirectAdmin-forwarders. Dagens sjudagarsgrace
    flyttas alltså från kontot till adresserna.
+5. **Lagringskvoten följer med ned.** Ingen separat städning behövs: gränsen
+   läses om vid varje mejl, så ett konto som ligger över 10 MB trimmas (äldst
+   först, högst `MAX_DELETIONS_PER_RUN` = 500 rader per anrop) av nästa mejl
+   som kommer in. Ingen varning, ingen notis — och kontots minne av
+   nedgraderingen finns kvar i `account_type`, inte i någon kvotkolumn.
 
 Rutinen ska vara idempotent: en redan degraderad användare behandlas inte om vid
 varje körning.
@@ -308,6 +322,11 @@ och registrera samma adress igen startar inte om provperioden - de 60 dagarna
 räknas alltid från den dag adressen **först** sågs. Ett konto som raderas dag
 20 och registreras om dag 30 får därför 30 dagars Pro kvar; registreras det om
 dag 70 får det ingen alls.
+
+Under provperioden är kontot Pro även för lagringskvoten: `proUserIsPro()`
+svarar true, så det är `MAILBOX_QUOTA_PRO_BYTES` (100 MB) som gäller. När
+perioden tar slut går kontot tillbaka till 10 MB, och överskjutande mejl
+trimmas äldst först när nästa mejl kommer in (avsnitt 6.1 punkt 5).
 
 Fyra vägar registrerar en adress i `pro_trial_claims`, via
 `proTrialRecordClaim()` i `pro_trial.php`:
