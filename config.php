@@ -248,8 +248,15 @@ $baseConfig = [
         'base_url' => $_ENV['BASE_URL'] ?? ($environment === 'production' ? 'https://manjo.me/' : 'http://localhost:8085/'),
         // Largest raw message parse.php accepts, in bytes (#212). 10 MB.
         'max_message_bytes' => (int)($_ENV['MAX_MESSAGE_BYTES'] ?? 10485760),
-        // Stored-mail quota per user account, or per anonymous address, in bytes (#212). 100 MB.
-        'quota_bytes' => (int)($_ENV['MAILBOX_QUOTA_BYTES'] ?? 104857600),
+        // Stored-mail quota per scope, in bytes (#212, #340). A Pro account — the
+        // 60-day trial included, since it is Pro through proUserIsPro() — gets
+        // `quota_bytes_pro`; a Regular account and an anonymous address (no
+        // account, its own scope) get `quota_bytes_free`.
+        'quota_bytes_free' => (int)($_ENV['MAILBOX_QUOTA_FREE_BYTES'] ?? 10485760),
+        // MAILBOX_QUOTA_BYTES is the Pro limit's fallback: a deploy that set only
+        // the old variable keeps the storage it had instead of silently dropping
+        // to the Free figure.
+        'quota_bytes_pro' => (int)($_ENV['MAILBOX_QUOTA_PRO_BYTES'] ?? $_ENV['MAILBOX_QUOTA_BYTES'] ?? 104857600),
     ],
     'app' => [
         'cleanup_hours' => 24,
@@ -1821,6 +1828,10 @@ function getStats() {
  * enforced against. "Emails" applies the same visibility rule as get_emails in
  * index.php, so the count matches what the inbox can show.
  *
+ * `quota_bytes` is the account's own limit, not a single figure for everyone:
+ * the same tier decision MailboxQuota makes at enforce time (#340), so the
+ * footer shows the number the next message will actually be trimmed against.
+ *
  * @return array{emails:int, received_24h:int, addresses:int, storage_bytes:int, quota_bytes:int}
  */
 function getUserStats($userId) {
@@ -1832,11 +1843,19 @@ function getUserStats($userId) {
         'received_24h' => 0,
         'addresses' => 0,
         'storage_bytes' => 0,
-        'quota_bytes' => (int)($config['email']['quota_bytes'] ?? 104857600),
+        // Logged out, or an unusable id: the Free limit, which is also what an
+        // anonymous address is enforced against.
+        'quota_bytes' => (int)($config['email']['quota_bytes_free'] ?? 10485760),
     ];
     if ($userId <= 0) {
         return $stats;
     }
+
+    // Fail-closed (a lookup error answers "not Pro"), which here only decides
+    // which number is displayed, never what is deleted.
+    $stats['quota_bytes'] = proUserIsPro($userId)
+        ? (int)($config['email']['quota_bytes_pro'] ?? 104857600)
+        : (int)($config['email']['quota_bytes_free'] ?? 10485760);
 
     $scope = 'se.temp_email_id IN (SELECT id FROM temp_emails WHERE pro_user_id = ?)';
 

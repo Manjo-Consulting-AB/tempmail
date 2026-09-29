@@ -16,16 +16,21 @@ if (!defined('TEMPMAIL_APP')) {
  *
  * The rules, decided by the owner and the architect:
  *
- *  - 100 MB (104857600 bytes) of stored mail by default, per scope.
  *  - The scope is the user account when the recipient address belongs to one
  *    (`temp_emails.pro_user_id` is not NULL) — every address of that account,
- *    personal and temporary, Regular and Pro alike. An anonymous address
- *    (`pro_user_id` NULL) is its own scope.
+ *    personal and temporary alike. An anonymous address (`pro_user_id` NULL)
+ *    is its own scope.
+ *  - The limit depends on the tier (#340) and is resolved per message, not at
+ *    construction: a Pro account gets the Pro limit, a Regular account and an
+ *    anonymous address the Free one. The tier is read through
+ *    `proUserIsPro()`, so a trial or a plan ending changes the limit the next
+ *    message is enforced against. An account that has slipped below its old
+ *    limit is trimmed then, oldest first; an upgrade simply stops trimming.
  *  - One stored email weighs `LENGTH(subject) + LENGTH(body_text) +
  *    LENGTH(body_html)` plus the `file_size` of each of its attachments.
  *  - Mail is never refused for quota reasons. Once a new message has been
  *    stored, the oldest messages in the same scope — `ORDER BY received_at
- *    ASC, id ASC` — are deleted until usage is at or below the quota. The
+ *    ASC, id ASC` — are deleted until usage is at or below the limit. The
  *    message just stored is never one of them. Nobody is notified.
  *
  * It is registered as a listener through `attach()`, never called directly by an
@@ -43,23 +48,47 @@ final class MailboxQuota
     /** What one stored email weighs before its attachments, in bytes. */
     private const BODY_BYTES_SQL = 'COALESCE(LENGTH(se.subject), 0) + COALESCE(LENGTH(se.body_text), 0) + COALESCE(LENGTH(se.body_html), 0)';
 
-    /** 100 MB: the default, and the fallback for a nonsensical configuration. */
-    private const DEFAULT_QUOTA_BYTES = 104857600;
+    /** 10 MB: the Free limit, and the fallback for a nonsensical configuration. */
+    private const DEFAULT_QUOTA_FREE_BYTES = 10485760;
+
+    /** 100 MB: the Pro limit, and the fallback for a nonsensical configuration. */
+    private const DEFAULT_QUOTA_PRO_BYTES = 104857600;
 
     private PDO $pdo;
     private string $attachmentsDirectory;
-    private int $quotaBytes;
+    private int $freeBytes;
+    private int $proBytes;
+
+    /**
+     * Resolves "is this account Pro right now?". Null means the shipped
+     * `proUserIsPro()`; it exists so a caller (or a test) can supply the tier
+     * decision, and so the lookup-failure branch is reachable at all —
+     * `proUserIsPro()` itself answers "not Pro" rather than throwing.
+     *
+     * @var ?callable(int):bool
+     */
+    private $tierResolver;
 
     /**
      * @param string $attachmentsDirectory Absolute path of the directory holding
      *        the attachment files — the same one the storage service writes to,
      *        because the files of a deleted row have to go with it.
+     * @param int $freeBytes the limit for a Regular account and an anonymous address
+     * @param int $proBytes the limit for an account that is Pro (a trial included)
+     * @param ?callable(int):bool $tierResolver tier lookup; null uses proUserIsPro()
      */
-    public function __construct(PDO $pdo, string $attachmentsDirectory, int $quotaBytes)
-    {
+    public function __construct(
+        PDO $pdo,
+        string $attachmentsDirectory,
+        int $freeBytes,
+        int $proBytes,
+        ?callable $tierResolver = null
+    ) {
         $this->pdo = $pdo;
         $this->attachmentsDirectory = rtrim($attachmentsDirectory, '/');
-        $this->quotaBytes = $quotaBytes > 0 ? $quotaBytes : self::DEFAULT_QUOTA_BYTES;
+        $this->freeBytes = $freeBytes > 0 ? $freeBytes : self::DEFAULT_QUOTA_FREE_BYTES;
+        $this->proBytes = $proBytes > 0 ? $proBytes : self::DEFAULT_QUOTA_PRO_BYTES;
+        $this->tierResolver = $tierResolver;
     }
 
     /**
@@ -71,9 +100,14 @@ final class MailboxQuota
      * consumer first, so every webhook is queued before any quota cleanup
      * deletes rows.
      */
-    public static function attach(EmailStorage $storage, PDO $pdo, string $attachmentsDirectory, int $quotaBytes): void
-    {
-        $quota = new self($pdo, $attachmentsDirectory, $quotaBytes);
+    public static function attach(
+        EmailStorage $storage,
+        PDO $pdo,
+        string $attachmentsDirectory,
+        int $freeBytes,
+        int $proBytes
+    ): void {
+        $quota = new self($pdo, $attachmentsDirectory, $freeBytes, $proBytes);
         $storage->onStored(static fn (array $c) => $quota->enforce($c));
     }
 
@@ -111,6 +145,10 @@ final class MailboxQuota
             return 0;
         }
 
+        // Resolved per message, never cached: the tier can change between two
+        // messages, and the limit has to be the one that applies now.
+        $quotaBytes = $this->limitFor($proUserId);
+
         $usageBefore = 0;
         $usage = 0;
         $deleted = 0;
@@ -119,7 +157,7 @@ final class MailboxQuota
             $usage = $this->usage($scopeSql, $scopeParams);
             $usageBefore = $usage;
 
-            while ($usage > $this->quotaBytes && $deleted < self::MAX_DELETIONS_PER_RUN) {
+            while ($usage > $quotaBytes && $deleted < self::MAX_DELETIONS_PER_RUN) {
                 $oldest = $this->oldestRow($scopeSql, $scopeParams, $currentId);
                 if ($oldest === null) {
                     // Only the message just stored is left in scope.
@@ -180,11 +218,49 @@ final class MailboxQuota
                 'deleted' => $deleted,
                 'usage_before' => $usageBefore,
                 'usage_after' => $usage,
-                'quota_bytes' => $this->quotaBytes,
+                'quota_bytes' => $quotaBytes,
             ]);
         }
 
         return $deleted;
+    }
+
+    /**
+     * The limit that applies to this scope right now.
+     *
+     * An anonymous address has no account and therefore no tier: always the
+     * Free limit. A user-owned address is decided by the account's tier,
+     * through `proUserIsPro()` (so a trial counts as Pro, and an expired plan
+     * does not). A lookup that fails — the function missing, or a Throwable
+     * that escapes it — falls back to the **Pro** limit: a listener must never
+     * delete a paying account's mail because it could not read a tier, and the
+     * Pro limit is the larger of the two. The failure is logged with the
+     * `user_id` and nothing else.
+     */
+    private function limitFor(?int $proUserId): int
+    {
+        if ($proUserId === null) {
+            return $this->freeBytes;
+        }
+
+        try {
+            $resolver = $this->tierResolver;
+            if ($resolver === null) {
+                if (!function_exists('proUserIsPro')) {
+                    throw new RuntimeException('proUserIsPro() is not available');
+                }
+                $resolver = 'proUserIsPro';
+            }
+
+            return $resolver($proUserId) ? $this->proBytes : $this->freeBytes;
+        } catch (\Throwable $e) {
+            $this->log('WARNING', 'MailboxQuota could not resolve the account tier; using the Pro quota', [
+                'user_id' => $proUserId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->proBytes;
+        }
     }
 
     /**

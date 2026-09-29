@@ -420,11 +420,19 @@ $emailStorage = new EmailStorage($pdo, !empty($config['app']['debug_mode']));
 require_once __DIR__ . '/EmailStorage/PostStorageWebhooks.php';
 PostStorageWebhooks::attach($emailStorage, $config, $pdo, !empty($config['app']['debug_mode']));
 
-// The stored-mail quota (#227) is a second post-storage listener. Registered
-// after the webhooks on purpose: registration order is run order, so every
-// webhook is queued before this one deletes an over-quota row.
+// The stored-mail quota (#227, tiered by #340) is a second post-storage
+// listener. Registered after the webhooks on purpose: registration order is run
+// order, so every webhook is queued before this one deletes an over-quota row.
+// Both limits are passed; which one applies is decided per message, by the
+// recipient's tier, inside the listener.
 require_once __DIR__ . '/EmailStorage/MailboxQuota.php';
-MailboxQuota::attach($emailStorage, $pdo, __DIR__ . '/attachments', (int)($config['email']['quota_bytes'] ?? 104857600));
+MailboxQuota::attach(
+    $emailStorage,
+    $pdo,
+    __DIR__ . '/attachments',
+    (int)($config['email']['quota_bytes_free'] ?? 10485760),
+    (int)($config['email']['quota_bytes_pro'] ?? 104857600)
+);
 
 try {
     $result = $emailStorage->store(

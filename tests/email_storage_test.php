@@ -680,10 +680,11 @@ ms_test_check(
 );
 
 // An anonymous address, quota 70, three 31-byte messages: the third takes the
-// scope to 93, so the oldest goes and the two newest stay at 62.
+// scope to 93, so the oldest goes and the two newest stay at 62. An anonymous
+// address is always on the Free limit, so that is the one passed here.
 $msQuotaAnonLocal = 'quota0001';
 $msQuotaAnonAddress = ms_test_seed_address($pdo, $msQuotaAnonLocal, ['pro_user_id' => null, 'is_personal' => 0]);
-$msQuotaAnon = new MailboxQuota($pdo, $msQuotaAttachments, 70);
+$msQuotaAnon = new MailboxQuota($pdo, $msQuotaAttachments, 70, 100);
 
 $msQuotaAnonIds = [];
 $msQuotaAnonDeleted = 0;
@@ -714,7 +715,7 @@ ms_test_same('7b5. the address is left with two rows', 2, ms_test_count($pdo, 's
 // heavier than the whole quota.
 $msQuotaNewLocal = 'quota0002';
 $msQuotaNewAddress = ms_test_seed_address($pdo, $msQuotaNewLocal, ['pro_user_id' => null, 'is_personal' => 0]);
-$msQuotaNew = new MailboxQuota($pdo, $msQuotaAttachments, 10);
+$msQuotaNew = new MailboxQuota($pdo, $msQuotaAttachments, 10, 100);
 [$msQuotaNewResult, $msQuotaNewContext] = $msQuotaStore($msQuotaNewLocal, $msQuotaReceived, $msQuotaNewAddress, null);
 $msQuotaNewId = (int) $msQuotaNewResult->storedEmailId;
 ms_test_same('7b6. a quota below the message itself deletes nothing', 0, $msQuotaNew->enforce($msQuotaNewContext));
@@ -727,7 +728,10 @@ $msQuotaALocal = 'quota0003';
 $msQuotaBLocal = 'quota0004';
 $msQuotaAAddress = ms_test_seed_address($pdo, $msQuotaALocal, ['pro_user_id' => $msQuotaUserId, 'is_personal' => 1]);
 $msQuotaBAddress = ms_test_seed_address($pdo, $msQuotaBLocal, ['pro_user_id' => $msQuotaUserId, 'is_personal' => 1]);
-$msQuotaUser = new MailboxQuota($pdo, $msQuotaAttachments, 70);
+// The account is Pro, so the 70-byte limit is its Pro one; the Free limit is
+// deliberately lower, so a code path that read the wrong one would over-delete
+// and fail the checks below rather than pass them by accident.
+$msQuotaUser = new MailboxQuota($pdo, $msQuotaAttachments, 10, 70);
 
 [$msQuotaFirstResult, $msQuotaFirstContext] = $msQuotaStore($msQuotaALocal, $msQuotaReceived, $msQuotaAAddress, $msQuotaUserId);
 $msQuotaUser->enforce($msQuotaFirstContext);
@@ -752,7 +756,7 @@ ms_test_check(
 // goes — its row, its email_attachments row and its file.
 $msQuotaAttachmentLocal = 'quota0005';
 $msQuotaAttachmentAddress = ms_test_seed_address($pdo, $msQuotaAttachmentLocal, ['pro_user_id' => null, 'is_personal' => 0]);
-$msQuotaAttached = new MailboxQuota($pdo, $msQuotaAttachments, 74);
+$msQuotaAttached = new MailboxQuota($pdo, $msQuotaAttachments, 74, 100);
 $msQuotaFilesBefore = count(ms_test_storage_files($msProbe));
 
 [$msQuotaAttachedResult, $msQuotaAttachedContext] = $msQuotaStore(
@@ -801,6 +805,132 @@ ms_test_same(
     1,
     ms_test_count($pdo, 'stored_emails', 'temp_email_id = ?', [$msQuotaOtherAddress])
 );
+
+// The limit depends on the tier (#340), and which one applied is read off how
+// many messages were deleted. Every block below stores the same three 31-byte
+// messages, which weigh 93 bytes together: over a Free limit of 10 and under a
+// Pro limit of 100. So 2 deletions mean the Free limit was applied, 0 means the
+// Pro limit was.
+
+/**
+ * Store three 31-byte messages into $localPart, enforcing $quota after each,
+ * and return how many rows were deleted across the three calls.
+ */
+$msTierRun = static function (
+    MailboxQuota $quota,
+    string $localPart,
+    int $tempEmailId,
+    ?int $proUserId,
+    DateTimeImmutable $from
+) use ($msQuotaStore): int {
+    $deleted = 0;
+    for ($i = 0; $i < 3; $i++) {
+        [, $context] = $msQuotaStore($localPart, $from->modify('+' . $i . ' minutes'), $tempEmailId, $proUserId);
+        $deleted += $quota->enforce($context);
+    }
+    return $deleted;
+};
+
+// A Regular account: the Free limit, even though the Pro limit is the larger.
+$msTierRegularUserId = ms_test_seed_user($pdo, 'tier-free@example.com', 'regular');
+$msTierRegularLocal = 'tier0001';
+$msTierRegularAddress = ms_test_seed_address($pdo, $msTierRegularLocal, ['pro_user_id' => $msTierRegularUserId, 'is_personal' => 1]);
+$msTierRegularDeleted = $msTierRun(new MailboxQuota($pdo, $msQuotaAttachments, 10, 100), $msTierRegularLocal, $msTierRegularAddress, $msTierRegularUserId, $msQuotaReceived);
+
+ms_test_same('7b19. a Regular account is trimmed to the Free limit', 2, $msTierRegularDeleted);
+ms_test_same(
+    '7b20. leaving only the message just stored',
+    1,
+    ms_test_count($pdo, 'stored_emails', 'temp_email_id = ?', [$msTierRegularAddress])
+);
+
+// A Pro account: the same three messages fit, so nothing is deleted.
+$msTierProUserId = ms_test_seed_user($pdo, 'tier-pro@example.com', 'pro');
+$msTierProLocal = 'tier0002';
+$msTierProAddress = ms_test_seed_address($pdo, $msTierProLocal, ['pro_user_id' => $msTierProUserId, 'is_personal' => 1]);
+$msTierPro = new MailboxQuota($pdo, $msQuotaAttachments, 10, 100);
+$msTierProDeleted = $msTierRun($msTierPro, $msTierProLocal, $msTierProAddress, $msTierProUserId, $msQuotaReceived);
+
+ms_test_same('7b21. a Pro account is not trimmed under the Pro limit', 0, $msTierProDeleted);
+ms_test_same(
+    '7b22. so it still holds all three messages',
+    3,
+    ms_test_count($pdo, 'stored_emails', 'temp_email_id = ?', [$msTierProAddress])
+);
+
+// The tier is read when the message is enforced, not when the listener is
+// built: the same account, its plan gone, is trimmed by the next message.
+$pdo->prepare("UPDATE pro_users SET account_type = 'regular' WHERE id = ?")->execute([$msTierProUserId]);
+[, $msTierDowngradedContext] = $msQuotaStore($msTierProLocal, $msQuotaReceived->modify('+3 minutes'), $msTierProAddress, $msTierProUserId);
+$msTierDowngradedDeleted = $msTierPro->enforce($msTierDowngradedContext);
+
+ms_test_same('7b23. a downgraded account is trimmed to the Free limit on its next message', 3, $msTierDowngradedDeleted);
+ms_test_same(
+    '7b24. and only the message just stored is left',
+    1,
+    ms_test_count($pdo, 'stored_emails', 'temp_email_id = ?', [$msTierProAddress])
+);
+
+// An anonymous address has no account and so no tier: the Free limit, even
+// with a Pro limit in hand.
+$msTierAnonLocal = 'tier0003';
+$msTierAnonAddress = ms_test_seed_address($pdo, $msTierAnonLocal, ['pro_user_id' => null, 'is_personal' => 0]);
+$msTierAnonDeleted = $msTierRun(new MailboxQuota($pdo, $msQuotaAttachments, 10, 100), $msTierAnonLocal, $msTierAnonAddress, null, $msQuotaReceived);
+
+ms_test_same('7b25. an anonymous address is trimmed to the Free limit', 2, $msTierAnonDeleted);
+ms_test_same(
+    '7b26. leaving only the message just stored',
+    1,
+    ms_test_count($pdo, 'stored_emails', 'temp_email_id = ?', [$msTierAnonAddress])
+);
+
+// A tier lookup that fails must fall back to the Pro limit — a listener may
+// never delete a paying account's mail because it could not read a tier — and
+// say so with the account id. proUserIsPro() answers "not Pro" on an error it
+// catches, so the failing lookup is supplied here.
+$msTierBrokenUserId = ms_test_seed_user($pdo, 'tier-broken@example.com', 'regular');
+$msTierBrokenLocal = 'tier0004';
+$msTierBrokenAddress = ms_test_seed_address($pdo, $msTierBrokenLocal, ['pro_user_id' => $msTierBrokenUserId, 'is_personal' => 1]);
+$msTierBroken = new MailboxQuota(
+    $pdo,
+    $msQuotaAttachments,
+    10,
+    100,
+    static function (int $userId): bool {
+        throw new RuntimeException('tier lookup failed');
+    }
+);
+
+ms_test_forget_logs();
+$msTierBrokenDeleted = $msTierRun($msTierBroken, $msTierBrokenLocal, $msTierBrokenAddress, $msTierBrokenUserId, $msQuotaReceived);
+
+ms_test_same('7b27. a failed tier lookup trims nothing, i.e. the Pro limit is used', 0, $msTierBrokenDeleted);
+ms_test_same(
+    '7b28. so every message survives the failed lookup',
+    3,
+    ms_test_count($pdo, 'stored_emails', 'temp_email_id = ?', [$msTierBrokenAddress])
+);
+
+$msTierWarned = false;
+foreach ($GLOBALS['ms_test_logs'] as $msTierLogEntry) {
+    if ($msTierLogEntry['level'] === 'WARNING'
+        && str_contains((string) $msTierLogEntry['message'], 'Pro quota')
+        && (int) ($msTierLogEntry['context']['user_id'] ?? 0) === $msTierBrokenUserId
+    ) {
+        $msTierWarned = true;
+        break;
+    }
+}
+ms_test_check('7b29. and the fallback is logged as a WARNING naming the account', $msTierWarned);
+
+// A nonsensical configuration — 0, which is what a missing or unparsable env
+// var leaves behind — falls back to the shipped limits rather than trimming
+// everything: 93 bytes is under both, so nothing is deleted.
+$msTierDefaultsLocal = 'tier0005';
+$msTierDefaultsAddress = ms_test_seed_address($pdo, $msTierDefaultsLocal, ['pro_user_id' => null, 'is_personal' => 0]);
+$msTierDefaultsDeleted = $msTierRun(new MailboxQuota($pdo, $msQuotaAttachments, 0, 0), $msTierDefaultsLocal, $msTierDefaultsAddress, null, $msQuotaReceived);
+
+ms_test_same('7b30. a nonsensical (0-byte) configuration falls back to the shipped limits', 0, $msTierDefaultsDeleted);
 
 // ---------------------------------------------------------------------
 // 9. DirectAdmin pipe adapter (parse.php)
