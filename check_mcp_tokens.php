@@ -51,6 +51,8 @@ function mcpTokenCheckIndexExists(PDO $pdo, array $config, string $table, string
 
 if (!tableHasColumn('mcp_access_tokens', 'token_hash')) {
     echo "[FEL] mcp_access_tokens.token_hash exists — the table is missing\n";
+    echo "\nThis is what the profile page's Connected apps card reports as \"Not available yet\":\n";
+    echo "no token resolves and no app can connect until the table exists.\n";
     echo "\nRun: php migrate_mcp_tokens.php\n";
     exit(2);
 }

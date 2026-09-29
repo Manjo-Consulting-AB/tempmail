@@ -350,12 +350,19 @@ when `<N>` is 0 every line falls back to its pre-trial wording (here:
   3. `Pushover` — `Get incoming mail as a push notification on your phone.`
   4. `Digest emails` — `A periodic summary of what arrived, sent to your real inbox.`
   5. `Agent` — `Run filtering on your own mail server, driven by signed webhooks.`
-  6. `AI assistants` — `Connect Claude or another MCP client to list, create and delete your addresses and read your mail.`
+  6. `AI assistants` — `Connect Claude or another MCP client by signing in, or with an access token, to list, create and delete your addresses and read your mail.`
 - Tier note: `Automation is part of Pro — and included in your first <N> days.` (signed in: `Automation is part of Pro.`)
+
+Card 6 has a second, shorter form for the state where OAuth is switched off
+(`OAUTH_ENABLED`, epic #331): `Connect Claude or another MCP client with an
+access token to list, create and delete your addresses and read your mail.`
+The card names the sign-in only while the flow is actually advertised
+(`oauthDiscoveryEnabled()`), the way every other page does — a sign-in no client
+can perform is a claim the code does not back (§9).
 
 No card carries a badge or a link, because all six are shipped features.
 Browser push notifications do not exist — never mention them. A public REST
-API and OAuth connectors do not exist either — never mention them (§9).
+API does not exist either — never offer one (§9).
 
 Card 6 was `API` with a `Coming` badge until #324, when the MCP server it
 stood for shipped.
@@ -421,8 +428,8 @@ Copy may only promise what this table says exists.
 | External mailboxes | Does not exist — nothing reads, fetches or receives mail from a mailbox the user runs | never offer it as a feature; the Agent section may name "the mailbox you already run" only as the place its rules apply |
 | Attachments | Signed, time-limited download links | ships |
 | 2FA | TOTP on password login | ships |
-| MCP server | Pro, personal access token (`mcp.php`, epic #318: read and write tools, no OAuth) | ships |
-| Public REST API / OAuth connectors | **does not exist** | never mention |
+| MCP server | Pro (`mcp.php`, epic #318: read and write tools). Reached by signing in through the OAuth flow (epic #331, `oauth_server.php`) or with a personal access token | ships; the sign-in is named only while `OAUTH_ENABLED` is on, otherwise "access token" |
+| Public REST API | **does not exist** | never mention |
 | Browser/web push | **does not exist** (no VAPID) | never mention |
 | Pro trial | Every new account, `<N>` days (default 60) from first email verification, once per email address (`pro_trial.php`, epic #267); afterwards the account is Free and sticky addresses go 7 days later | "`<N>` days of Pro, free" — never "free forever", never a trial for signed-in users |
 | Online payment for Pro | **does not exist**; voucher code only | "after the trial, Pro continues with a voucher code" |

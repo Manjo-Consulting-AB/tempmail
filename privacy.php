@@ -9,9 +9,11 @@
  * with IP addresses (LOG_RETENTION_DAYS), removed personal addresses on the
  * cool-off list (address_cooldown.php, ADDRESS_COOLDOWN_MONTHS), the hashed trial claim
  * (pro_trial.php, five years), the Paddle mirror tables (paddle_sync.php), the
- * integrations a user configures themselves, the access tokens a user creates
- * for an app or AI assistant (mcp_tokens.php: only a hash of the token is
- * stored), Google Analytics loaded only
+ * integrations a user configures themselves, the apps a user connects to the
+ * MCP endpoint — by approving one on the OAuth consent page (oauth_server.php:
+ * the name it registered and the redirect host, plus a hash of each token) or
+ * with an access token of their own (mcp_tokens.php: only a hash of the token
+ * is stored), Google Analytics loaded only
  * after consent on the public pages (partials/analytics.php, consent-gated;
  * register.php no longer loads it), and the session and 2FA
  * trusted-device cookies (TwoFactorAuth::TRUSTED_DEVICE_COOKIE, 30 days), and
@@ -34,7 +36,7 @@ $msLegalDoc = [
     'lede'        => 'Mail Shield exists to keep your primary address out of places it does not need to be. This page says what we collect to do that, why, how long we keep it, and who else sees it.',
     'description' => 'What personal data Mail Shield collects, why, how long it is kept, and who processes it — including payments handled by Paddle.',
     'path'        => '/privacy.php',
-    'updated'     => '28 September 2026',
+    'updated'     => '29 September 2026',
     'sections'    => [
         [
             'id'      => 'controller',
@@ -51,7 +53,8 @@ $msLegalDoc = [
                 . '<h3>The mail you receive</h3>'
                 . '<p>Messages sent to your Mail Shield addresses — headers, content and attachments — are stored so that you can read them. People at Mail Shield do not look at your mail as part of running the service, and it is never used for advertising or profiling. It is processed automatically to store it, show it to you and pass it to the integrations you have set up. We only access a specific message when that is needed to investigate abuse or a security incident, to help you when you ask us to, or when the law requires it.</p>'
                 . '<h3>Connected apps</h3>'
-                . '<p>You can connect an app or an AI assistant to your account with an access token. For each one we store a one-way hash of the token — never the token itself — with the name you gave it, the access you granted (read only, or read and change), when you created it, when it expires and when it was last used.</p>'
+                . '<p>You can connect an app or an AI assistant to your account: either by signing in and approving the app when it asks, or by creating an access token and giving that to the app. Either way we store only a one-way hash of the credential — never the token itself — together with the access you granted (read only, or read and change) and when it was last used. A token you created yourself also carries the name you gave it and the expiry you chose.</p>'
+                . '<p>For an app you approve on the sign-in screen we keep the name the app gave itself, the host of the address it asked to be sent back to, and when you connected it. The app supplies those details itself when it registers; they are what the Connected apps card shows you, so you can tell one app from another and disconnect it.</p>'
                 . '<h3>Technical data</h3>'
                 . '<p>Our server logs record events such as sign-ins, errors and suspicious requests, with the IP address involved. Sign-in attempts are recorded to stop password guessing. We do not write your registered email address into the logs.</p>'
                 . '<p>To protect addresses from floods of mail and the service from misuse, we count how many messages, and how many bytes, each address receives, how many addresses are created from each IP address and account, and how many notifications each integration sends. When a limit is reached we pause the address or the integration for a while and tell you, and we keep a record of that step.</p>'
@@ -86,7 +89,8 @@ $msLegalDoc = [
                 . '<li><strong>Abuse counters</strong> (messages per address, new addresses per IP address and account) — two days. The record of pauses, warnings and other protective steps — 90 days.</li>'
                 . '<li><strong>Trusted browsers for two-factor authentication</strong> — 30 days, or until you remove them.</li>'
                 . '<li><strong>Devices you keep signed in</strong> (a browser and operating system name, and when it was last used) — the period you chose, counted from the last visit and never more than 90 days after you signed in, or until you remove the device, sign out on it, or change your password or email address.</li>'
-                . '<li><strong>Access tokens for connected apps</strong> — until you revoke them, or until the expiry you chose. A revoked or expired token is deleted 30 days later. Changing your password or email address, or deleting your account, revokes them all at once.</li>'
+                . '<li><strong>Access tokens you created yourself</strong> — until you revoke them, or until the expiry you chose. A revoked or expired token is deleted 30 days later. Changing your password or email address, or deleting your account, revokes them all at once.</li>'
+                . '<li><strong>Apps you connected by signing in</strong> — until you disconnect them, or ' . $f['grant_idle_days'] . ' days after the app last used its access, whichever comes first. A sign-in you started but never approved lapses after ' . $f['code_seconds'] . ' seconds, and an app that registered itself and was never used is removed after ' . $f['client_idle_days'] . ' days. Disconnecting an app, changing your password or email address, or deleting your account ends these at once.</li>'
                 . '<li><strong>Trial record</strong> — five years from the first time the address was used.</li>'
                 . '<li><strong>Payment records</strong> — seven years, as Swedish bookkeeping law requires.</li>'
                 . '</ul>',
@@ -104,7 +108,7 @@ $msLegalDoc = [
                 . '<li><strong>Webhook:</strong> the sender, the recipient address, the subject, the full message body and the time it arrived. Attachments are not sent, only how many there are.</li>'
                 . '<li><strong>Pushover:</strong> the subject and a plain-text excerpt of the body (up to about 4,000 characters), titled with the recipient address, sent to Pushover and on to your devices.</li>'
                 . '<li><strong>RSS feed:</strong> the sender, subject, date and full message body, with links to the attachments, available to anyone who has the feed link.</li>'
-                . '<li><strong>An app or AI assistant you connect with an access token:</strong> your addresses, and the mail it asks for — sender, subject, body and attachment links. Unlike the integrations above, that app fetches it itself, and what it does with it is between you and whoever runs it.</li>'
+                . '<li><strong>An app or AI assistant you connect</strong> — whether you approved it on the sign-in screen or gave it an access token: your addresses, and the mail it asks for — sender, subject, body and attachment links. Unlike the integrations above, that app fetches it itself, and what it does with it is between you and whoever runs it.</li>'
                 . '</ul>'
                 . 'Those services are chosen by you and handle the data under their own terms. An AI assistant you connect is no different: its provider answers to you, not to us, and is not our processor.</li>'
                 . '<li><strong>Authorities</strong>, where the law requires us to disclose data.</li>'

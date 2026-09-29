@@ -290,6 +290,16 @@ if (!function_exists('adminOverview')) {
         if ($abuse['enabled'] && !$abuseAvailable) {
             $add('warning', 'The abuse guard tables are missing: run php migrate_abuse_guard.php.');
         }
+        // The MCP credential tables (#320, #331). Without mcp_access_tokens no
+        // token resolves and the Connected apps card reads "Not available yet";
+        // the OAuth tables are only missed when the operator has switched the
+        // flow on, and then a client that tries to sign in hits a dead end.
+        if (!$hasCol('mcp_access_tokens', 'token_hash')) {
+            $add('warning', 'The MCP access-token table is missing: run php migrate_mcp_tokens.php, or the Connected apps card stays "Not available yet".');
+        }
+        if (!empty($config['oauth']['enabled']) && !$hasCol('oauth_clients', 'client_id')) {
+            $add('warning', 'OAuth is switched on but its tables are missing: run php migrate_oauth.php.');
+        }
         if (!$health['pii_keys']) {
             $add('danger', 'PII_ENCRYPTION_KEY / PII_INDEX_KEY are not set: nobody can log in by email.');
         }

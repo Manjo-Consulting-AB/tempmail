@@ -79,17 +79,26 @@ $hookRoutingAvailable = tableHasColumn('pro_webhook_addresses', 'webhook_id')
 // card renders its unavailable line instead of a form that cannot work.
 $mcpTokensAvailable = tableHasColumn('mcp_access_tokens', 'token_hash');
 
+// Whether a client can connect by signing in yet (#331, step 6). This is the
+// same pair mcp.php advertises the flow on — the operator's OAUTH_ENABLED
+// switch and migrate_oauth.php — so the connect help never promises a sign-in
+// that is not there, and falls back to the token wording while OAuth is off.
+// oauthDiscoveryEnabled() itself fails closed, so neither half missing means
+// "token only".
+require_once __DIR__ . '/oauth_server.php';
+$mcpSignInAvailable = oauthDiscoveryEnabled($pdo);
+
 // The endpoint the card's connect help points at (#324). Built from the
 // configured origin, never a literal: rtrim() tolerates the trailing slash
 // base_url is stored with, and the example cannot go stale if BASE_URL changes.
 $mcpEndpoint = rtrim((string) ($config['email']['base_url'] ?? ''), '/') . '/mcp';
 
 // The Claude Desktop entry, as one string so it stays a single <pre> block.
-// Desktop reaches a remote server through its Connectors screen, which
-// authenticates with OAuth — this endpoint takes a bearer token and has no
-// OAuth — so the config entry goes through the stdio bridge Desktop does
-// support, exactly as Claude Code's own `mcp add` example does for its
-// transport. Both placeholders are the same <token> the user copies below.
+// It is the token route: Desktop's Connectors screen signs in over OAuth when
+// that is switched on (the lead sentence says so), while a client whose config
+// only takes a command needs the stdio bridge below, exactly as Claude Code's
+// own `mcp add` example does for its transport. Both placeholders are the same
+// <token> the user copies below.
 $mcpDesktopConfig = '{
   "mcpServers": {
     "mailshield": {
@@ -371,13 +380,17 @@ $mcpDesktopConfig = '{
                                  never as markup. -->
                             <div class="ms-card" id="connectedAppsCard">
                                 <h3 class="ms-card__title">Connected apps</h3>
-                                <p class="ms-card__desc">Apps that can reach your mailbox. The ones you connected with a sign-in, and the access tokens you created by hand, are both listed here — each limited to the access you allowed. Revoking one stops it working immediately.</p>
+                                <p class="ms-card__desc">Apps that can reach your mailbox.<?php if ($mcpSignInAvailable): ?> The ones you connected with a sign-in, and the access tokens you created by hand, are both listed here — each limited to the access you allowed.<?php else: ?> The access tokens you created by hand are listed here, each limited to the access you allowed.<?php endif; ?> Revoking one stops it working immediately.</p>
 <?php if (!$mcpTokensAvailable): ?>
                                 <p class="text-muted" id="connectedAppsUnavailable">Not available yet.</p>
 <?php else: ?>
                                 <div id="connectedAppsAlert"></div>
 
+<?php if ($mcpSignInAvailable): ?>
                                 <p id="connectedAppsGrantsEmpty" class="text-muted d-none">No apps are connected yet. An app that offers a "Connect" or "Sign in" button appears here once you approve it.</p>
+<?php else: ?>
+                                <p id="connectedAppsGrantsEmpty" class="text-muted d-none">No apps are connected yet.</p>
+<?php endif; ?>
                                 <ul id="connectedAppsGrantList" class="list-group mb-2"></ul>
 
                                 <h4 class="ms-card__subtitle mt-4">Access tokens</h4>
@@ -420,12 +433,24 @@ $mcpDesktopConfig = '{
                                 <p id="connectedAppsEmpty" class="text-muted d-none">No access tokens yet.</p>
                                 <ul id="connectedAppsList" class="list-group mb-2"></ul>
 
-                                <!-- How to connect (#324). Two copyable examples, both
-                                     pointing at the endpoint above. Anything the client
-                                     can read leaves Mail Shield for whoever runs that
-                                     client, so the line that says so sits with them. -->
+                                <!-- How to connect (#324, #331 step 6). The lead
+                                     depends on the same switch mcp.php advertises
+                                     the flow on: with OAuth on, adding the endpoint
+                                     and signing in is the way in, and the copyable
+                                     examples below are the token alternative for a
+                                     client that only takes a header. With OAuth off
+                                     the token wording is all there is — never a
+                                     sign-in that cannot happen. Anything the client
+                                     can read leaves Mail Shield for whoever runs
+                                     that client, so the line that says so sits with
+                                     them. -->
                                 <h4 class="ms-card__subtitle mt-4">How to connect</h4>
-                                <p class="form-text">An app that offers a "Connect" or "Sign in" button needs no token — approve it and it appears above. For any other app, point it at <code><?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?></code> and give it one of your access tokens as a bearer token. Message content the app reads is sent to whoever runs it, so only connect a client you trust.</p>
+<?php if ($mcpSignInAvailable): ?>
+                                <p class="form-text">Add <code><?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?></code> in your app and sign in when it asks &mdash; Claude.ai, a Claude Desktop custom connector and Claude Code all connect that way. Approve the request and the app appears above. Message content the app reads is sent to whoever runs it, so only connect a client you trust.</p>
+                                <p class="form-text">For a client that only accepts a header, give it one of your access tokens instead:</p>
+<?php else: ?>
+                                <p class="form-text">Point your app at <code><?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?></code> and give it one of your access tokens as a bearer token. Message content the app reads is sent to whoever runs it, so only connect a client you trust.</p>
+<?php endif; ?>
                                 <p class="form-text mb-1">Claude Code</p>
                                 <pre class="p-2 border rounded mb-3" style="white-space:pre-wrap; word-break:break-word;"><code>claude mcp add --transport http mailshield <?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?> --header "Authorization: Bearer &lt;token&gt;"</code></pre>
                                 <p class="form-text mb-1">Claude Desktop &mdash; add to <code>claude_desktop_config.json</code> (needs Node.js)</p>

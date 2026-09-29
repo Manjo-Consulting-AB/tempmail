@@ -73,10 +73,35 @@ $msDomain = $msEsc($domain);
 // literal. The automation answers below interpolate it.
 $msMcpUrl = $msEsc($msOrigin . '/mcp');
 
+// Whether a client can connect by signing in yet (#331, step 6) — the same pair
+// mcp.php advertises the flow on: the operator's OAUTH_ENABLED switch and
+// migrate_oauth.php, through oauthDiscoveryEnabled(), which fails closed. The
+// AI-assistant answer below promises a sign-in only while this holds and falls
+// back to the token wording otherwise, so the page never claims OAuth exists
+// while it is switched off.
+require_once __DIR__ . '/oauth_server.php';
+$msMcpSignIn = oauthDiscoveryEnabled($pdo);
+
 // Every new account starts on Pro for this many days (epic #267). Read from
 // $config, never written into copy; at 0 every answer below falls back to its
 // pre-trial wording and the trial question is left out.
 $msT = max(0, (int) ($config['trial']['days'] ?? 0));
+
+// The AI-assistant answer, in whichever of its two forms matches the switch
+// (#331, step 6). Both are Pro-only, both stop at the tool list brief §9
+// carries, and neither names a price or a date; the sign-in one is shown only
+// while OAuth is actually on, so a switched-off deploy says tokens and nothing
+// more. The provider sentence stays in both: an approved app is the user's
+// choice, not our processor.
+$msAiSignInAnswer = <<<HTML
+<p>Yes, on Pro. Add <code>{$msMcpUrl}</code> in your app and sign in when it asks — Mail Shield shows you what the app wants and you approve it. A client that only accepts a header takes one of your access tokens instead. Either way the assistant connects over the Model Context Protocol (MCP), and it can then list your addresses, read your mail, and — if you gave it write access — create and delete addresses for you.</p>
+<p>The assistant acts as your account, so treat what you give it like a password. Anything it reads is sent to whoever runs it: that provider is chosen by you, not by us, and we are not its processor. Disconnect an app, or revoke a token, in the Connected apps card in your profile and it stops working immediately; changing your password or your email address cuts every connection at once.</p>
+HTML;
+$msAiTokenAnswer = <<<HTML
+<p>Yes, on Pro. You create an access token in your profile and give it to the assistant, which connects to Mail Shield over the Model Context Protocol (MCP) at <code>{$msMcpUrl}</code>. It can then list your addresses, read your mail, and — if you gave the token write access — create and delete addresses for you.</p>
+<p>The assistant acts as your account, so treat its access token like a password. Anything it reads is sent to whoever runs it: that provider is chosen by you, not by us, and we are not its processor. Revoke a token from the Connected apps card in your profile and it stops working immediately; changing your password or your email address revokes every token at once.</p>
+HTML;
+$msAiAnswer = $msMcpSignIn ? $msAiSignInAnswer : $msAiTokenAnswer;
 
 /**
  * The whole page as data: six groups, in page order, each holding its questions.
@@ -217,10 +242,7 @@ HTML,
             ],
             [
                 'q' => 'Can I connect an AI assistant to my account?',
-                'a' => <<<HTML
-<p>Yes, on Pro. You create an access token in your profile and give it to the assistant, which connects to Mail Shield over the Model Context Protocol (MCP) at <code>{$msMcpUrl}</code>. It can then list your addresses, read your mail, and — if you gave the token write access — create and delete addresses for you.</p>
-<p>The assistant acts as your account, so treat its access token like a password. Anything it reads is sent to whoever runs it: that provider is chosen by you, not by us, and we are not its processor. Revoke a token from the Connected apps card in your profile and it stops working immediately; changing your password or your email address revokes every token at once.</p>
-HTML,
+                'a' => $msAiAnswer,
             ],
             [
                 'q' => 'Is automation included in a free account?',
