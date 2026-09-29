@@ -27,6 +27,16 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 # In a per-directory .htaccess the pattern is matched without a leading slash.
 RewriteRule ^(?:vendor|tests|documentaion|client)(?:/|$) - [F,L]
 
+# OAuth-metadatadokumenten (#331 steg 5/6). En MCP-klient hittar
+# auktoriseringsservern härifrån; oauth_metadata.php svarar med rätt dokument
+# beroende på sökvägen (RFC 9728 för resursen, RFC 8414 för servern, plus
+# OpenID-anslutningens alias). Reglerna måste ligga före dotfile-spärren
+# nedan, som annars nekar allt som börjar med en punkt — den undantar redan
+# .well-known/, och den exemptionen är kvar oförändrad.
+RewriteRule ^\.well-known/oauth-protected-resource(?:/mcp)?/?$ oauth_metadata.php [L]
+RewriteRule ^\.well-known/oauth-authorization-server/?$ oauth_metadata.php [L]
+RewriteRule ^\.well-known/openid-configuration/?$ oauth_metadata.php [L]
+
 # Any path component that starts with a dot (.git/, .github/, .claude/, ...) is
 # refused, except .well-known/ which ACME (Let's Encrypt) and other RFC 8615
 # consumers need. Dotfiles themselves are also refused by the FilesMatch below.

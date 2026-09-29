@@ -43,6 +43,12 @@ declare(strict_types=1);
  * There is no session, no cookie and no CSRF token on this path, so none is
  * read or set.
  *
+ * Since #331 step 5/6 every 401 also carries a `resource_metadata` pointer to
+ * /.well-known/oauth-protected-resource — but only while OAuth discovery is
+ * switched on (env OAUTH_ENABLED) and migrate_oauth.php has run, so an
+ * existing token user sees exactly the challenge they saw before. The 403 is
+ * unchanged: the credential is fine there, and offering OAuth would not help.
+ *
  * The check order is the one in the issue, and it stops at the first failure:
  * method and Content-Type, protocol version, Origin, Bearer token, Pro
  * entitlement, rate limit, body size and JSON, then dispatch. The Origin
@@ -71,6 +77,9 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/mcp_tokens.php';
 require_once __DIR__ . '/mcp_tools.php';
 require_once __DIR__ . '/abuse_guard.php';
+// For the OAuth discovery challenge on a 401 (#331 step 5/6). Loaded for its
+// functions only; it defines nothing at include time and needs no session.
+require_once __DIR__ . '/oauth_server.php';
 
 /** The protocol revision this endpoint speaks; see the file header. */
 const MCP_PROTOCOL_VERSION = '2025-11-25';
@@ -227,9 +236,16 @@ if ($origin !== null && !mcpOriginAllowed($origin, $config)) {
 // 3. Bearer token, and 4. the account behind it
 // ---------------------------------------------------------------------
 
+// Every 401 carries the same challenge: once OAuth discovery is switched on
+// (env OAUTH_ENABLED, schema present) it also names the protected-resource
+// metadata document, which is how a client that supports OAuth learns where to
+// start (#331 step 5/6). While discovery is off — or the migration has not run
+// — it is the bare challenge this endpoint has always sent, byte for byte.
 if (mcpAuthorizationHeader() === null) {
-    header('WWW-Authenticate: Bearer realm="Mail Shield"');
-    mcpRespond(401, mcpError(null, MCP_ERR_REQUEST, 'A Bearer token is required.'));
+    header('WWW-Authenticate: ' . oauthWwwAuthenticate($pdo));
+    mcpRespond(401, mcpError(null, MCP_ERR_REQUEST, oauthDiscoveryEnabled($pdo)
+        ? 'A Bearer token is required. Connect this app from your MCP client\'s sign-in flow, or create an access token under Profile → Security → Connected apps.'
+        : 'A Bearer token is required.'));
 }
 
 $bearer = mcpBearerToken();
@@ -237,7 +253,7 @@ if ($bearer === null) {
     // The header is there but is not a Bearer credential. The value is never
     // logged — it may well be somebody's key for something else.
     logMessage('WARNING', 'MCP request rejected: malformed Authorization header', ['ip' => getVisitorIp()]);
-    header('WWW-Authenticate: Bearer realm="Mail Shield"');
+    header('WWW-Authenticate: ' . oauthWwwAuthenticate($pdo));
     mcpRespond(401, mcpError(null, MCP_ERR_REQUEST, 'A Bearer token is required.'));
 }
 
@@ -254,7 +270,7 @@ if ($tokenRow === null) {
     if ($rejection === 'malformed') {
         logMessage('WARNING', 'MCP request rejected: malformed token', ['ip' => getVisitorIp()]);
     }
-    header('WWW-Authenticate: Bearer realm="Mail Shield"');
+    header('WWW-Authenticate: ' . oauthWwwAuthenticate($pdo));
     mcpRespond(401, mcpError(null, MCP_ERR_REQUEST, 'The Bearer token is not valid.'));
 }
 

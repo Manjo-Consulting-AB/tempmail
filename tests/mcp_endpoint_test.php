@@ -116,7 +116,11 @@ SQL;
  */
 function ms_mcp_prepare_probe(string $repoRoot, string $probe, int $perMinute, int $perHour): void
 {
-    foreach (['mcp.php', 'mcp_tools.php'] as $file) {
+    // oauth_server.php came along with #331 step 5/6: mcp.php requires it for
+    // the discovery challenge on a 401. This suite never creates the OAuth
+    // schema, so oauthAvailable() is false and the challenge stays the bare
+    // one — which is exactly the "nothing changes while OAuth is off" case.
+    foreach (['mcp.php', 'mcp_tools.php', 'oauth_server.php'] as $file) {
         if (!copy($repoRoot . '/' . $file, $probe . '/' . $file)) {
             throw new RuntimeException("Could not copy {$file} into the probe docroot");
         }
@@ -433,6 +437,15 @@ ms_test_check(
     '2b. ... with a WWW-Authenticate challenge naming the realm',
     str_contains((string) ($response['headers']['www-authenticate'] ?? ''), 'Bearer realm="Mail Shield"'),
     'got: ' . (string) ($response['headers']['www-authenticate'] ?? '(none)')
+);
+// #331 step 5/6 appends resource_metadata once OAuth discovery is on; this
+// suite has no OAuth schema and sets no OAUTH_ENABLED, so the challenge must be
+// exactly what it always was — the "nothing changes for existing token users"
+// case the issue asks to keep.
+ms_test_same(
+    '2b2. ... and exactly the bare challenge while OAuth discovery is off',
+    'Bearer realm="Mail Shield"',
+    $response['headers']['www-authenticate'] ?? null
 );
 
 foreach ([

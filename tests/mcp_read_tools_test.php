@@ -109,7 +109,9 @@ function ms_mrt_prepare_probe(string $repoRoot, string $probe): void
 {
     // email_html_sanitizer.php is not part of ms_test_probe_build()'s set, and
     // mailbox_service.php requires it whenever it shapes a message.
-    foreach (['mcp.php', 'mcp_tools.php', 'email_html_sanitizer.php'] as $file) {
+    // oauth_server.php is what mcp.php requires for the 401 challenge since
+    // #331 step 5/6 (this probe has no OAuth schema, so it stays the bare one).
+    foreach (['mcp.php', 'mcp_tools.php', 'email_html_sanitizer.php', 'oauth_server.php'] as $file) {
         if (!copy($repoRoot . '/' . $file, $probe . '/' . $file)) {
             throw new RuntimeException("Could not copy {$file} into the probe docroot");
         }
