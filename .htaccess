@@ -44,6 +44,12 @@ RewriteRule ^mcp/?$ mcp.php [L]
 # oauth_register.php svarar. Se oauth_server.php.
 RewriteRule ^oauth/register/?$ oauth_register.php [L]
 
+# OAuth-tokenväxling och återkallning (#331 steg 2/6). Klienten byter sin
+# kod mot en åtkomsttoken här och återkallar den senare; oauth_token.php och
+# oauth_revoke.php svarar. Se oauth_server.php.
+RewriteRule ^oauth/token/?$ oauth_token.php [L]
+RewriteRule ^oauth/revoke/?$ oauth_revoke.php [L]
+
 # Sätt standardindex-fil
 DirectoryIndex index.php
 

@@ -52,6 +52,8 @@ Standardvärdena sätts i `abuseGuardSettings()`. Env-variabler i `.env.*` skriv
 | OAuth-klientregistreringar per IP och klocktimme (`/oauth/register`) | 10 | `OAUTH_REGISTER_IP_HOUR` |
 | OAuth-klientregistreringar per IP och dygn | 30 | `OAUTH_REGISTER_IP_DAY` |
 | Lagrade OAuth-klienter totalt (tak; lediga klienter städas i steg 4/6) | 2000 | `OAUTH_MAX_CLIENTS` |
+| OAuth-tokenväxlingar per IP och klocktimme (`/oauth/token`) | 60 | `OAUTH_TOKEN_IP_HOUR` |
+| OAuth-tokenväxlingar per IP och dygn | 300 | `OAUTH_TOKEN_IP_DAY` |
 
 Maxstorleken per meddelande (`MAX_MESSAGE_BYTES`, 10 MB) och lagringskvoten (`MAILBOX_QUOTA_BYTES`, 100 MB) gäller som förut.
 
