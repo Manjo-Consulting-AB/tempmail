@@ -29,6 +29,9 @@ declare(strict_types=1);
  * tables in SQLite.
  *
  * Usage: php migrate_paddle_billing.php
+ * Needs PADDLE_ENVIRONMENT set to "sandbox" or "production" once it reaches the
+ * backfill below, which re-applies entitlements against that environment's
+ * price IDs (#350).
  */
 
 if (php_sapi_name() !== 'cli') {
@@ -57,8 +60,19 @@ $pdo->exec("ALTER TABLE paddle_entitlements
     ADD COLUMN coverage_ended TINYINT(1) NOT NULL DEFAULT 0");
 echo "[done] paddle_entitlements.bonus_seconds/last_target/coverage_ended: columns added\n";
 
+// pricing_tiers.php carries the sandbox and the live price IDs and
+// PADDLE_ENVIRONMENT picks one (#350). The backfill below re-applies
+// entitlements, so it must not run on the wrong catalog: an environment that is
+// missing or unknown stops the script instead of guessing.
+try {
+    $tiers = paddleTiersForEnvironment(require __DIR__ . '/pricing_tiers.php', (string) ($config['paddle']['environment'] ?? ''));
+} catch (Throwable $e) {
+    fwrite(STDERR, "PADDLE_ENVIRONMENT must be \"sandbox\" or \"production\": {$e->getMessage()}\n");
+    exit(1);
+}
+
 $options = [
-    'prices' => paddlePlanPriceIds(require __DIR__ . '/pricing_tiers.php'),
+    'prices' => paddlePlanPriceIds($tiers),
     'has_account_type' => tableHasColumn('pro_users', 'account_type'),
     'log' => function (string $level, string $message, array $context): void {
         logMessage($level, $message, $context);

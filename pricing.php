@@ -8,8 +8,10 @@
  *   - This file detects the visitor's country from CDN headers, validates the
  *     Paddle settings (paddleClientSettings() in config.php — it throws when
  *     PADDLE_ENVIRONMENT or PADDLE_CLIENT_TOKEN is missing or mismatched, and
- *     this page then answers 500 rather than guessing an environment), and
- *     hands both to the browser as a JSON block.
+ *     this page then answers 500 rather than guessing an environment), resolves
+ *     pricing_tiers.php to that environment's catalog (paddleTiersForEnvironment()
+ *     in paddle_sync.php — the file holds the sandbox and live price IDs side by
+ *     side), and hands both to the browser as a JSON block.
  *   - assets/js/pricing.js loads nothing but Paddle.js: Paddle.PricePreview()
  *     for the prices and Paddle.Checkout.open() for Subscribe. It prints the
  *     formattedTotals strings Paddle returns and does no price math.
@@ -41,6 +43,7 @@
 
 define('TEMPMAIL_APP', true);
 require_once 'config.php';
+require_once __DIR__ . '/paddle_sync.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -48,6 +51,10 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 try {
     $paddle = paddleClientSettings($config);
+    // Which catalog's price IDs the browser may preview: the plans carry both
+    // environments and $paddle['environment'] — already validated above — picks
+    // one, so a page can never show live prices under the sandbox token.
+    $tiers  = paddleTiersForEnvironment(require __DIR__ . '/pricing_tiers.php', $paddle['environment']);
 } catch (RuntimeException $e) {
     logMessage('ERROR', 'pricing.php: Paddle is not configured', ['error' => $e->getMessage()]);
     http_response_code(500);
@@ -55,8 +62,6 @@ try {
     echo 'Pricing is unavailable: Paddle is not configured on this server.';
     exit;
 }
-
-$tiers = require __DIR__ . '/pricing_tiers.php';
 
 /**
  * ISO 3166-1 alpha-2 country from the CDN in front of the site, or null.

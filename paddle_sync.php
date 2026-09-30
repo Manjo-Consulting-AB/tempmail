@@ -104,7 +104,42 @@ function paddleVerifySignature(string $rawBody, string $header, string $secret, 
 }
 
 /**
- * Which price IDs grant Pro, from the plans in pricing_tiers.php:
+ * The plans from pricing_tiers.php with `priceId` resolved for ONE Paddle
+ * environment, in the flat ['month' => …, 'year' => …] / ['once' => …] form
+ * the callers below expect. The file keeps both catalogs side by side and this
+ * picks one, so switching environments is an env change rather than a code
+ * change that can get out of step with the client token and the webhook.
+ *
+ * An unknown environment — or a plan with no IDs for it — throws. There is
+ * deliberately no fallback to the other environment: an id from it does not
+ * exist in the Paddle account in use, so the payment would be stored and grant
+ * nothing, which is exactly the silent breakage this arrangement prevents.
+ * The environment is matched exactly as written: a value that is not
+ * 'sandbox' or 'production' is a misconfiguration, not a spelling to guess at
+ * (paddleApplyEntitlement() compares the same string, so being lax here could
+ * resolve one catalog and apply another environment's rules).
+ */
+function paddleTiersForEnvironment(array $tiers, string $environment): array
+{
+    if ($environment !== 'sandbox' && $environment !== 'production') {
+        throw new RuntimeException('Unknown Paddle environment "' . $environment . '": expected "sandbox" or "production"');
+    }
+
+    $resolved = [];
+    foreach ($tiers as $tier) {
+        $priceId = $tier['priceId'][$environment] ?? null;
+        if (!is_array($priceId) || $priceId === []) {
+            throw new RuntimeException('Plan "' . (string) ($tier['name'] ?? '?') . '" has no price IDs for the ' . $environment . ' environment');
+        }
+        $tier['priceId'] = $priceId;
+        $resolved[] = $tier;
+    }
+    return $resolved;
+}
+
+/**
+ * Which price IDs grant Pro, from one environment's plans
+ * (paddleTiersForEnvironment()):
  * ['subscription' => [...month/year ids], 'lifetime' => [...once ids]].
  * A price outside both lists is stored but grants nothing.
  */

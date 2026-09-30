@@ -8,15 +8,22 @@
  *   'description' string   one line under the name
  *   'features'    string[] the bullet list
  *   'featured'    bool     marked as the recommended card
- *   'priceId'     either   ['month' => 'pri_…', 'year' => 'pri_…']  subscription,
- *                                                                  follows the toggle
- *                 or       ['once' => 'pri_…']                     one-time purchase
+ *   'priceId'     one entry per Paddle environment, each holding either
+ *                 ['month' => 'pri_…', 'year' => 'pri_…']   subscription,
+ *                                                            follows the toggle
+ *                 or ['once' => 'pri_…']                     one-time purchase
  *
- * The price IDs belong to ONE Paddle environment. The ones below are the
- * SANDBOX catalog (product "Mail Shield Pro"); a sandbox pri_… does not exist
- * in production, so switch these when PADDLE_ENVIRONMENT goes to production.
- * The amounts live in Paddle, not here — pricing.php shows whatever Paddle
- * returns for the visitor's country.
+ * Both catalogs sit side by side and PADDLE_ENVIRONMENT picks one:
+ * paddleTiersForEnvironment() in paddle_sync.php resolves the entry into the
+ * flat ['month' => …, 'year' => …] / ['once' => …] form before anything reads
+ * it. Switching to production — and rolling back — is therefore one env
+ * change, never a code change that can get out of step with the client token
+ * and the webhook's own environment: a pri_… from one environment does not
+ * exist in the other, and a payment on an unknown price grants nothing.
+ *
+ * Sandbox and production both hold the product "Mail Shield Pro", created
+ * 2026-09-30. The amounts live in Paddle, not here — pricing.php shows
+ * whatever Paddle returns for the visitor's country.
  *
  * Copy rule (CLAUDE.md, brief §9): every feature listed must be one the code
  * has. These are the Pro features from partials/landing/plans.php.
@@ -39,8 +46,14 @@ return [
         'features'    => $proFeatures,
         'featured'    => true,
         'priceId'     => [
-            'month' => 'pri_01m3a6bdv26jf8dw0z8b8xp81k',
-            'year'  => 'pri_01m3a6bdzwq8enav6qbvdme5db',
+            'sandbox'    => [
+                'month' => 'pri_01m3a6bdv26jf8dw0z8b8xp81k',
+                'year'  => 'pri_01m3a6bdzwq8enav6qbvdme5db',
+            ],
+            'production' => [
+                'month' => 'pri_01m3s15f9tbhrvd3zrff8h1ybg',
+                'year'  => 'pri_01m3s14qntdr6zy9pwa5jw2f21',
+            ],
         ],
     ],
     [
@@ -52,7 +65,12 @@ return [
         ],
         'featured'    => false,
         'priceId'     => [
-            'once' => 'pri_01m3a6j2gy3f6bkqaf6jpysdrc',
+            'sandbox'    => [
+                'once' => 'pri_01m3a6j2gy3f6bkqaf6jpysdrc',
+            ],
+            'production' => [
+                'once' => 'pri_01m3s13tx4qxqnvccz2ef5wqef',
+            ],
         ],
     ],
 ];
