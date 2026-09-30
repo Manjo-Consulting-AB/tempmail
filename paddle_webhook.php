@@ -13,9 +13,11 @@
  *
  *   - 2xx is the only answer Paddle treats as delivered; anything else is
  *     retried (sandbox ~15 min, live ~3 days), so every failure — missing
- *     secret, bad signature, database error — answers non-2xx and nothing is
- *     lost. A bad signature cannot be told apart from a rotated secret that
- *     has not been deployed yet, which is why that is retryable too (401).
+ *     secret, bad signature, database error, an unusable PADDLE_ENVIRONMENT
+ *     (pricing_tiers.php holds the sandbox and the live price IDs and the
+ *     environment picks one, #350) — answers non-2xx and nothing is lost. A
+ *     bad signature cannot be told apart from a rotated secret that has not
+ *     been deployed yet, which is why that is retryable too (401).
  *   - The signature is checked over the raw body before anything is parsed.
  *   - Handling is a few indexed queries, well inside Paddle's 5-second limit.
  *   - A sandbox event for an account that is not on PADDLE_SANDBOX_USER_IDS is
@@ -40,6 +42,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 $secret = trim((string) ($config['paddle']['webhook_secret'] ?? ''));
 if ($secret === '') {
     logMessage('ERROR', 'Paddle webhook secret not configured (PADDLE_WEBHOOK_SECRET)');
+    http_response_code(500);
+    echo json_encode(['error' => 'Server configuration error']);
+    exit;
+}
+
+// Which price IDs grant Pro: pricing_tiers.php holds the sandbox and the live
+// catalog, and PADDLE_ENVIRONMENT picks one (#350). An environment that is
+// missing or unknown is answered non-2xx, so Paddle retries and nothing is
+// granted — never a fallback to the other catalog, whose price IDs do not
+// exist in the account this signature was verified against.
+$environment = (string) ($config['paddle']['environment'] ?? '');
+try {
+    $tiers = paddleTiersForEnvironment(require __DIR__ . '/pricing_tiers.php', $environment);
+} catch (Throwable $e) {
+    logMessage('ERROR', 'Paddle webhook: PADDLE_ENVIRONMENT is not usable', ['error' => $e->getMessage()]);
     http_response_code(500);
     echo json_encode(['error' => 'Server configuration error']);
     exit;
@@ -70,12 +87,12 @@ if (!is_array($event)) {
 
 try {
     $outcome = paddleHandleEvent($pdo, $event, [
-        'prices' => paddlePlanPriceIds(require __DIR__ . '/pricing_tiers.php'),
+        'prices' => paddlePlanPriceIds($tiers),
         'has_account_type' => tableHasColumn('pro_users', 'account_type'),
         'customer_email_pii' => piiEmailColumnsExist('paddle_customers'),
         // While this is sandbox only PADDLE_SANDBOX_USER_IDS may be granted Pro
         // (#346) — the sandbox destination points at this live endpoint.
-        'environment' => (string) ($config['paddle']['environment'] ?? ''),
+        'environment' => $environment,
         'sandbox_user_ids' => $config['paddle']['sandbox_user_ids'] ?? [],
         'log' => function (string $level, string $message, array $context): void {
             logMessage($level, $message, $context);

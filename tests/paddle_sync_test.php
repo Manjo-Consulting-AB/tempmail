@@ -459,5 +459,93 @@ addUser($pdo, 42, 'buyer@example.com');
 run($pdo, subEvent('active'), $prices);
 check('no environment option → unchanged behaviour', user($pdo, 42)['account_type'] === 'pro');
 
+// ---------------------------------------------------------------------
+echo "\n28. pricing_tiers.php holds both catalogs and PADDLE_ENVIRONMENT picks one (#350)\n";
+$tiers = require dirname(__DIR__) . '/pricing_tiers.php';
+$sandboxTiers    = paddleTiersForEnvironment($tiers, 'sandbox');
+$productionTiers = paddleTiersForEnvironment($tiers, 'production');
+
+// The IDs as they were created in each Paddle account (2026-09-30) — a
+// transposed digit would otherwise only surface as a payment that grants
+// nothing.
+check('sandbox resolves to the sandbox subscription prices',
+    $sandboxTiers[0]['priceId'] === ['month' => 'pri_01m3a6bdv26jf8dw0z8b8xp81k', 'year' => 'pri_01m3a6bdzwq8enav6qbvdme5db'],
+    json_encode($sandboxTiers[0]['priceId']));
+check('sandbox resolves to the sandbox lifetime price',
+    $sandboxTiers[1]['priceId'] === ['once' => 'pri_01m3a6j2gy3f6bkqaf6jpysdrc'],
+    json_encode($sandboxTiers[1]['priceId']));
+check('production resolves to the live subscription prices',
+    $productionTiers[0]['priceId'] === ['month' => 'pri_01m3s15f9tbhrvd3zrff8h1ybg', 'year' => 'pri_01m3s14qntdr6zy9pwa5jw2f21'],
+    json_encode($productionTiers[0]['priceId']));
+check('production resolves to the live lifetime price',
+    $productionTiers[1]['priceId'] === ['once' => 'pri_01m3s13tx4qxqnvccz2ef5wqef'],
+    json_encode($productionTiers[1]['priceId']));
+check('the rest of the plan is carried over unchanged',
+    $sandboxTiers[0]['name'] === 'Pro' && $sandboxTiers[0]['featured'] === true && $sandboxTiers[1]['name'] === 'Lifetime');
+check('the two catalogs have no price id in common',
+    array_intersect(paddlePlanPriceIds($sandboxTiers)['subscription'], paddlePlanPriceIds($productionTiers)['subscription']) === []
+    && array_intersect(paddlePlanPriceIds($sandboxTiers)['lifetime'], paddlePlanPriceIds($productionTiers)['lifetime']) === []);
+
+$sandboxPrices    = paddlePlanPriceIds($sandboxTiers);
+$productionPrices = paddlePlanPriceIds($productionTiers);
+$liveMonth    = 'pri_01m3s15f9tbhrvd3zrff8h1ybg';
+$liveLifetime = 'pri_01m3s13tx4qxqnvccz2ef5wqef';
+$sandboxMonth = 'pri_01m3a6bdv26jf8dw0z8b8xp81k';
+
+// The price a subscription actually carries still grants under its own catalog…
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', ['items' => [['price' => ['id' => $sandboxMonth]]]]), $sandboxPrices);
+check('a sandbox price grants while the environment is sandbox', user($pdo, 42)['account_type'] === 'pro');
+
+// …and a price from the other environment grants nothing: it does not exist in
+// the account the webhook was verified against, which is what this arrangement
+// exists to make impossible to deploy by halves.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', ['items' => [['price' => ['id' => $liveMonth]]]]), $sandboxPrices);
+run($pdo, lifetimeEvent(['items' => [['price' => ['id' => $liveLifetime]]]]), $sandboxPrices);
+check('a live price while the environment is sandbox grants nothing',
+    user($pdo, 42) === ['account_type' => 'regular', 'pro_expires_at' => '2020-01-01 00:00:00'], json_encode(user($pdo, 42)));
+
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', ['items' => [['price' => ['id' => $sandboxMonth]]]]), $productionPrices);
+run($pdo, lifetimeEvent(), $productionPrices);   // a sandbox lifetime id
+check('a sandbox price while the environment is production grants nothing',
+    user($pdo, 42) === ['account_type' => 'regular', 'pro_expires_at' => '2020-01-01 00:00:00'], json_encode(user($pdo, 42)));
+
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', ['items' => [['price' => ['id' => $liveMonth]]]]), $productionPrices);
+check('the live price does grant under production', user($pdo, 42) === ['account_type' => 'pro', 'pro_expires_at' => $periodEnd], json_encode(user($pdo, 42)));
+
+// An unknown environment throws rather than falling back to the other catalog.
+foreach (['staging', '', 'Sandbox', ' sandbox'] as $bad) {
+    $threw = false;
+    try {
+        paddleTiersForEnvironment($tiers, $bad);
+    } catch (RuntimeException $e) {
+        $threw = true;
+    }
+    check('environment ' . var_export($bad, true) . ' throws', $threw);
+}
+
+$threw = false;
+try {
+    paddleTiersForEnvironment([['name' => 'Pro', 'priceId' => ['sandbox' => ['month' => 'pri_x']]]], 'production');
+} catch (RuntimeException $e) {
+    $threw = true;
+}
+check('a plan with no IDs for the environment throws rather than falling back', $threw);
+
+$threw = false;
+try {
+    paddleTiersForEnvironment([['name' => 'Pro', 'priceId' => ['production' => []]]], 'production');
+} catch (RuntimeException $e) {
+    $threw = true;
+}
+check('an empty price list for the environment throws', $threw);
+
 echo "\n" . ($failures === 0 ? "All checks passed.\n" : "{$failures} check(s) FAILED.\n");
 exit($failures === 0 ? 0 : 1);
