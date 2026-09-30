@@ -347,7 +347,24 @@ $baseConfig = [
         'webhook_secret' => $_ENV['PADDLE_WEBHOOK_SECRET'] ?? null,
         // Server-side API key (pdl_sdbx_apikey_… / pdl_live_apikey_…) with only
         // the customer-portal-session permission; read by paddle_api.php.
-        'api_key' => $_ENV['PADDLE_API_KEY'] ?? null
+        'api_key' => $_ENV['PADDLE_API_KEY'] ?? null,
+        // pro_users.id a *sandbox* checkout may still grant Pro to, as a
+        // comma-separated list (#346). Empty or missing means nobody, which is
+        // the point: the sandbox notification destination points at the live
+        // paddle_webhook.php, so without this any checkout paid with a Paddle
+        // test card would hand out real Pro time to anyone. Read only while
+        // environment is 'sandbox' — a production event ignores it entirely.
+        // Anything that is not a positive integer is dropped.
+        'sandbox_user_ids' => (static function (): array {
+            $ids = [];
+            foreach (explode(',', (string) ($_ENV['PADDLE_SANDBOX_USER_IDS'] ?? '')) as $raw) {
+                $raw = trim($raw);
+                if (ctype_digit($raw) && (int) $raw > 0) {
+                    $ids[] = (int) $raw;
+                }
+            }
+            return $ids;
+        })(),
     ],
     // 60-day Pro trial for new Regular accounts, one trial per email address,
     // ever (epic #267). hash_key must never change once set: it is the HMAC

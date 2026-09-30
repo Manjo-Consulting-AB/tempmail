@@ -398,5 +398,66 @@ check('no keys: a WARNING through the log option', in_array('WARNING', array_col
 run($pdo, subEvent('active', ['custom_data' => null, 'customer_id' => 'ctm_pii']), $prices);
 check('no keys: fail closed, the payment is not linked by email', user($pdo, 42)['account_type'] === 'regular');
 
+echo "\n27. Sandbox allowlist: only PADDLE_SANDBOX_USER_IDS may be granted Pro (#346)\n";
+// The sandbox notification destination points at the live paddle_webhook.php,
+// so a test-card checkout must not hand out real Pro time unless the account is
+// on the list. Everything but pro_users is mirrored as usual.
+function sandboxOptions(array $prices, array $userIds, string $environment, ?array &$log = null): array
+{
+    $options = [
+        'prices' => $prices,
+        'has_account_type' => true,
+        'now' => NOW,
+        'customer_email_pii' => true,
+        'environment' => $environment,
+        'sandbox_user_ids' => $userIds,
+    ];
+    if ($log !== null) {
+        $options['log'] = function ($level, $message, $context) use (&$log) { $log[] = [$level, $message, $context]; };
+    }
+    return $options;
+}
+
+// On the list: granted exactly as before.
+$pdo = freshDb();
+addUser($pdo, 105, 'allowlisted@example.com');
+$out = paddleHandleEvent($pdo, subEvent('active', ['custom_data' => ['pro_user_id' => '105']]), sandboxOptions($prices, [105], 'sandbox'));
+check('sandbox + allowlisted → Pro granted', user($pdo, 105) === ['account_type' => 'pro', 'pro_expires_at' => $periodEnd], $out . ' ' . json_encode(user($pdo, 105)));
+
+// Not on the list: pro_users untouched, the mirror written, the new outcome.
+$pdo = freshDb();
+addUser($pdo, 42, 'stranger@example.com');
+$log = [];
+$out = paddleHandleEvent($pdo, subEvent('active'), sandboxOptions($prices, [105], 'sandbox', $log));
+check('sandbox + not allowlisted → the new outcome', strpos($out, 'sandbox user not allowed') !== false, $out);
+check('sandbox + not allowlisted → pro_users untouched', user($pdo, 42) === ['account_type' => 'regular', 'pro_expires_at' => '2020-01-01 00:00:00'], json_encode(user($pdo, 42)));
+$row = paddleFetch($pdo, 'SELECT pro_user_id, granted_until FROM paddle_subscriptions WHERE subscription_id = ?', ['sub_1']);
+check('the subscription mirror row is still written', $row !== null && (int) $row['pro_user_id'] === 42 && $row['granted_until'] === $periodEnd, json_encode($row));
+check('no paddle_entitlements row (nothing was applied)', paddleFetch($pdo, 'SELECT 1 FROM paddle_entitlements WHERE pro_user_id = ?', [42]) === null);
+$warnings = array_values(array_filter($log, fn($l) => $l[0] === 'WARNING' && ($l[2]['user_id'] ?? null) === 42));
+check('a WARNING with the user id through the log option', $warnings !== [], json_encode($log));
+
+// A lifetime purchase is refused the same way.
+$out = paddleHandleEvent($pdo, lifetimeEvent(), sandboxOptions($prices, [105], 'sandbox'));
+check('sandbox + not allowlisted → a lifetime purchase grants nothing either', user($pdo, 42)['pro_expires_at'] === '2020-01-01 00:00:00' && strpos($out, 'sandbox user not allowed') !== false, $out);
+
+// Empty list: nobody, not even an account that would otherwise link by email.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+$out = paddleHandleEvent($pdo, subEvent('active'), sandboxOptions($prices, [], 'sandbox'));
+check('sandbox + empty list → nobody gets Pro', user($pdo, 42)['account_type'] === 'regular' && strpos($out, 'sandbox user not allowed') !== false, $out);
+
+// Production ignores the list entirely.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+$out = paddleHandleEvent($pdo, subEvent('active'), sandboxOptions($prices, [], 'production'));
+check('production + empty list → Pro granted', user($pdo, 42) === ['account_type' => 'pro', 'pro_expires_at' => $periodEnd], $out . ' ' . json_encode(user($pdo, 42)));
+
+// No environment option at all (the pre-#346 callers): the list is not consulted.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active'), $prices);
+check('no environment option → unchanged behaviour', user($pdo, 42)['account_type'] === 'pro');
+
 echo "\n" . ($failures === 0 ? "All checks passed.\n" : "{$failures} check(s) FAILED.\n");
 exit($failures === 0 ? 0 : 1);

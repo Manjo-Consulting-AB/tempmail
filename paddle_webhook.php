@@ -18,6 +18,9 @@
  *     has not been deployed yet, which is why that is retryable too (401).
  *   - The signature is checked over the raw body before anything is parsed.
  *   - Handling is a few indexed queries, well inside Paddle's 5-second limit.
+ *   - A sandbox event for an account that is not on PADDLE_SANDBOX_USER_IDS is
+ *     still answered 200: refusing to grant Pro is a decision, not a failure,
+ *     so Paddle must not retry it (#346).
  *
  * Requires migrate_paddle_billing.php to have run (the paddle_* tables).
  */
@@ -70,6 +73,10 @@ try {
         'prices' => paddlePlanPriceIds(require __DIR__ . '/pricing_tiers.php'),
         'has_account_type' => tableHasColumn('pro_users', 'account_type'),
         'customer_email_pii' => piiEmailColumnsExist('paddle_customers'),
+        // While this is sandbox only PADDLE_SANDBOX_USER_IDS may be granted Pro
+        // (#346) — the sandbox destination points at this live endpoint.
+        'environment' => (string) ($config['paddle']['environment'] ?? ''),
+        'sandbox_user_ids' => $config['paddle']['sandbox_user_ids'] ?? [],
         'log' => function (string $level, string $message, array $context): void {
             logMessage($level, $message, $context);
         },
