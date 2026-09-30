@@ -422,10 +422,13 @@ $baseConfig = [
     })(),
     // Who the legal pages (terms.php, privacy.php, refund-policy.php) name as
     // the seller and data controller. contact_email falls back to support@ on
-    // the mail domain; org_number is left out of the copy while it is empty.
+    // the mail domain; org_number and vat_number are left out of the copy while
+    // they are empty. The VAT number is the international form of the Swedish
+    // org number (SE + the ten digits + 01).
     'legal' => [
         'company' => 'Manjo Consulting AB',
-        'org_number' => (string)($_ENV['LEGAL_ORG_NUMBER'] ?? ''),
+        'org_number' => (string)($_ENV['LEGAL_ORG_NUMBER'] ?? '556813-8464'),
+        'vat_number' => (string)($_ENV['LEGAL_VAT_NUMBER'] ?? 'SE556813846401'),
         'contact_email' => (string)($_ENV['LEGAL_CONTACT_EMAIL'] ?? ('support@' . ($_ENV['EMAIL_DOMAIN'] ?? 'manjo.me'))),
     ],
 ];
