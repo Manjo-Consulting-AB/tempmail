@@ -49,6 +49,11 @@
  * neither is stored unlinked and logged; a later customer.created /
  * customer.updated event re-tries the email match and applies it then.
  *
+ * Sandbox allowlist (#346): while 'environment' is 'sandbox', only the
+ * pro_users.id in 'sandbox_user_ids' (PADDLE_SANDBOX_USER_IDS) may be granted
+ * Pro — every other account is mirrored as usual but pro_users is left alone,
+ * and the outcome says so. See paddleApplyEntitlement().
+ *
  * Ordering: Paddle does not deliver in order. Every row stores the
  * occurred_at of the event that last wrote it, and an older event is ignored,
  * so retries and reordering converge on the latest state.
@@ -195,7 +200,8 @@ function paddleEventOrderKey(string $occurredAt): string
  * $options: 'prices' (paddlePlanPriceIds()), 'log' (callable level, msg, ctx),
  * 'has_account_type' (bool, whether pro_users.account_type exists), 'now' (int),
  * 'customer_email_pii' (bool, whether paddle_customers has email_enc and
- * email_hash — see paddleCustomerEmailFields()), and optionally
+ * email_hash — see paddleCustomerEmailFields()), 'environment' ('sandbox' or
+ * 'production') with 'sandbox_user_ids' (int[]), and optionally
  * 'pii_encryption_key' / 'pii_index_key' (raw keys; default: the
  * PII_ENCRYPTION_KEY / PII_INDEX_KEY environment variables).
  */
@@ -471,6 +477,20 @@ function paddleResolveUser(PDO $pdo, $customData, string $customerId): ?int
  */
 function paddleApplyEntitlement(PDO $pdo, int $userId, array $options): string
 {
+    // Sandbox allowlist (#346): while PADDLE_ENVIRONMENT=sandbox the sandbox
+    // notification destination still points at the live webhook, so a checkout
+    // paid with a Paddle test card would otherwise grant real Pro time. Only an
+    // account on the list is written; everything else is mirrored but refused.
+    // A deliberate refusal, not a failure — the endpoint still answers 200, so
+    // Paddle does not retry. Outside sandbox the list has no effect at all.
+    if (strtolower(trim((string) ($options['environment'] ?? ''))) === 'sandbox'
+        && !in_array($userId, array_map('intval', $options['sandbox_user_ids'] ?? []), true)) {
+        paddleLog($options, 'WARNING', 'Paddle sandbox event for an account that is not allowlisted — Pro not granted', [
+            'user_id' => $userId,
+        ]);
+        return 'sandbox user not allowed';
+    }
+
     $now = $options['now'] ?? time();
     $user = paddleFetch($pdo, 'SELECT pro_expires_at FROM pro_users WHERE id = ?', [$userId]);
     if (!$user) {
