@@ -26,12 +26,15 @@
  *   personal addresses are private    index.php's owner check on is_personal
  *                                     rows, plus pro_profile_page.php settings
  *   support                           pro_contact.php, open to any signed-in account
+ *   mail storage, 10 / 100 MB         EmailStorage/MailboxQuota.php, the tiered
+ *                                     limits in $config['email'] (#340)
+ *   your AI assistant                 mcp.php (epic #318), sign-in named only
+ *                                     while oauthDiscoveryEnabled() (#331)
  *
- * There is no price anywhere in it, on purpose. Online checkout is not open on
- * the public site yet: Pro is unlocked with a voucher code and
- * PRO_SELF_SIGNUP_ENABLED is off by default, so the note under the cards links
- * to pricing.php for the plans and prices and says checkout opens shortly.
- * Nothing here invents a number or a currency.
+ * No amount is written here, on purpose. The Pro amounts live in Paddle and
+ * pricing.php shows them localised to the visitor's country, so the Pro card
+ * names the billing periods pricing_tiers.php actually has (month, year, once)
+ * and links to pricing.php. Nothing here invents a number or a currency.
  *
  * The one offer it does make is real: every new account starts on Pro for
  * $config['trial']['days'] days (epic #267, pro_trial.php, granted on first
@@ -52,6 +55,21 @@ if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 
 $msPlansSignedIn = !empty($_SESSION['pro_user_id']);
 $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'] ?? 0));
+
+// Mailbox storage per tier (#340), read the way legal_facts.php reads it.
+// MailboxQuota deletes the oldest mail once a mailbox is over its limit, so
+// the bullet says that rather than implying mail is bounced. The "×N" is only
+// stated when the Pro figure is a whole multiple of the Free one.
+$msPlansQuotaFree = (int) round(((int) ($config['email']['quota_bytes_free'] ?? 10485760)) / 1048576);
+$msPlansQuotaPro  = (int) round(((int) ($config['email']['quota_bytes_pro'] ?? 104857600)) / 1048576);
+$msPlansQuotaRatio = ($msPlansQuotaFree > 0 && $msPlansQuotaPro > $msPlansQuotaFree && $msPlansQuotaPro % $msPlansQuotaFree === 0)
+    ? (int) ($msPlansQuotaPro / $msPlansQuotaFree) : 0;
+
+// The MCP bullet names the sign-in only while OAuth discovery is on, like the
+// AI assistants card in automation.php; index.php sets $msMcpSignIn.
+$msPlansMcpText = !empty($msMcpSignIn)
+    ? 'Let your AI assistant handle your mail &mdash; connect Claude or another MCP client by signing in'
+    : 'Let your AI assistant handle your mail &mdash; connect Claude or another MCP client with an access token';
 ?>
 <section class="ms-section" id="plans">
     <div class="ms-container">
@@ -68,10 +86,12 @@ $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'
                     <h3 class="ms-h3">Free</h3>
                 </div>
                 <p class="ms-plans__summary">Timed addresses, in a real inbox.</p>
+                <p class="ms-plans__price"><span class="ms-plans__amount">No cost</span> No card needed</p>
 
                 <ul class="ms-plans__list">
                     <li>One timed address at a time</li>
                     <li>Addresses and messages deleted after 24 hours</li>
+                    <li><?php echo $msPlansQuotaFree; ?> MB of mail storage &mdash; the oldest mail makes room for new</li>
                     <li>Read your mail on the web</li>
                     <li>Signed, time-limited attachment links</li>
                 </ul>
@@ -83,11 +103,14 @@ $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'
                     <span class="ms-chip"><?php echo $msPlansTrialDays > 0 ? 'First ' . $msPlansTrialDays . ' days free' : 'Most useful'; ?></span>
                 </div>
                 <p class="ms-plans__summary">Your second inbox, with the wiring.</p>
+                <p class="ms-plans__price"><span class="ms-plans__amount">Monthly, yearly or once</span> <a href="/pricing.php">See prices</a></p>
 
                 <ul class="ms-plans__list">
                     <li>Up to 10 sticky addresses</li>
                     <li>Timed address lifetime configurable from 1 to 7 days</li>
+                    <li><?php echo $msPlansQuotaPro; ?> MB of mail storage<?php echo $msPlansQuotaRatio > 1 ? ' &mdash; ' . $msPlansQuotaRatio . '&times; Free' : ''; ?></li>
                     <li>Incoming mail is cleaned up automatically according to your retention settings</li>
+                    <li><?php echo $msPlansMcpText; ?></li>
                     <li>RSS, webhooks, Pushover and digest emails</li>
                     <li>The Agent, for sender rules on your own mail server</li>
                     <li>Sticky addresses belong to your account</li>

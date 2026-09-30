@@ -1926,6 +1926,26 @@ a:hover {
     color: var(--ms-text-muted);
 }
 
+/* The price line: a short amount-sized phrase and a muted aside (or the link to
+   pricing.php). No figure is written on the landing page — see plans.php. */
+.ms-plans__price {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--ms-space-2);
+    margin: var(--ms-space-4) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
+.ms-plans__amount {
+    font-size: var(--ms-fs-h3);
+    line-height: var(--ms-lh-h3);
+    font-weight: var(--ms-fw-h3);
+    color: var(--ms-text);
+}
+
 .ms-plans__list {
     margin: var(--ms-space-5) 0 0;
     padding: 0;
