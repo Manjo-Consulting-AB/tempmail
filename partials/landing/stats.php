@@ -13,7 +13,9 @@
  *   emails_processed       bumped by EmailStorage::store() for every stored message
  *   emails_created         bumped by saveNewAddress() in config.php
  *   attachments_processed  bumped by EmailStorage for every stored attachment
- *   active addresses       counted live from temp_emails
+ *
+ * The number of currently active addresses is deliberately not shown either:
+ * it is an operational figure, not something a visitor needs.
  *
  * `emails_total` is deliberately not shown: it counted messages examined by
  * the IMAP intake, which was removed in #212, so it no longer moves.
@@ -26,23 +28,12 @@
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 
 $msStats = function_exists('getStats') ? getStats() : [];
-$msStatsActive = null;
-try {
-    if (isset($pdo) && $pdo instanceof PDO) {
-        $msStatsActive = (int) $pdo->query('SELECT COUNT(*) FROM temp_emails WHERE expires_at > NOW()')->fetchColumn();
-    }
-} catch (Throwable $e) {
-    $msStatsActive = null;
-}
 
 $msStatsItems = [
     ['value' => (int) ($msStats['emails_processed'] ?? 0), 'label' => 'Emails received'],
     ['value' => (int) ($msStats['emails_created'] ?? 0), 'label' => 'Addresses created'],
     ['value' => (int) ($msStats['attachments_processed'] ?? 0), 'label' => 'Attachments handled'],
 ];
-if ($msStatsActive !== null) {
-    $msStatsItems[] = ['value' => $msStatsActive, 'label' => 'Addresses active right now'];
-}
 
 $msStatsHasData = false;
 foreach ($msStatsItems as $msStatsItem) {

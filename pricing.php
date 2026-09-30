@@ -44,6 +44,7 @@
 define('TEMPMAIL_APP', true);
 require_once 'config.php';
 require_once __DIR__ . '/paddle_sync.php';
+require_once __DIR__ . '/pricing_helpers.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -63,23 +64,7 @@ try {
     exit;
 }
 
-/**
- * ISO 3166-1 alpha-2 country from the CDN in front of the site, or null.
- * Vercel sends x-vercel-ip-country, Cloudflare cf-ipcountry (with XX for
- * "unknown" and T1 for Tor, neither of which is a country).
- */
-function pricingDetectCountry(): ?string
-{
-    foreach (['HTTP_X_VERCEL_IP_COUNTRY', 'HTTP_CF_IPCOUNTRY'] as $header) {
-        $value = strtoupper(trim((string) ($_SERVER[$header] ?? '')));
-        if (preg_match('/^[A-Z]{2}$/', $value) && $value !== 'XX' && $value !== 'T1') {
-            return $value;
-        }
-    }
-    return null;
-}
-
-$signedIn      = !empty($_SESSION['pro_user_id']);
+$signedIn     = !empty($_SESSION['pro_user_id']);
 $customerEmail = $signedIn ? (string) ($_SESSION['pro_user_email'] ?? '') : '';
 $origin        = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 
