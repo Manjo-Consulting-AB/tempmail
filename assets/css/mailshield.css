@@ -4890,6 +4890,16 @@ a:hover {
     width: 100%;
 }
 
+/* Shown in the button's place while checkout is closed (#347). Same muted
+   note register as .ms-plans__note, sized to fill the row the button would
+   have taken so the cards stay level. */
+.ms-pricing__closed {
+    margin: var(--ms-space-5) 0 0;
+    font-size: var(--ms-fs-sm);
+    line-height: var(--ms-lh-sm);
+    color: var(--ms-text-muted);
+}
+
 /* ==========================================================================
    ff. Welcome — welcome.php (after a completed checkout)
    ========================================================================== */
