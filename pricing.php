@@ -166,7 +166,7 @@ $esc = function ($value): string {
                 <?php endforeach; ?>
             </div>
 
-            <?php if (!$signedIn) : ?>
+            <?php if (!$signedIn && $checkoutEnabled) : ?>
                 <p class="ms-plans__note">You need a Mail Shield account to subscribe, so the plan lands on the right inbox. No account yet? <a href="/register.php?plan=regular">Create one for free</a>, then come back here.</p>
             <?php endif; ?>
             <p class="ms-plans__note">Payments are handled by Paddle, our reseller and Merchant of Record, which also sends your receipt. Every payment comes with a 30-day money-back guarantee.</p>
