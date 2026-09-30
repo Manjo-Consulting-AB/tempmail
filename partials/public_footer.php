@@ -7,7 +7,9 @@
  * the app (pro_contact.php) requires a login.
  *
  * The three Legal links are required by Paddle, our reseller, before it
- * approves the domain; pricing.php links the same three pages.
+ * approves the domain; pricing.php links the same three pages. Pricing sits
+ * with them (#347) so a reviewer can find the plans and prices; it is not in
+ * the nav or sitemap.php until the switch to production (#280 §6).
  */
 
 if (!isset($config) || !is_array($config)) {
@@ -47,6 +49,7 @@ $msFooterEsc = function ($value): string {
             <div class="ms-footer__col">
                 <h2 class="ms-footer__heading">Legal</h2>
                 <ul class="ms-footer__links">
+                    <li><a href="/pricing.php">Pricing</a></li>
                     <li><a href="/terms.php">Terms of service</a></li>
                     <li><a href="/privacy.php">Privacy policy</a></li>
                     <li><a href="/refund-policy.php">Refund policy</a></li>

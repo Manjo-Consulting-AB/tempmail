@@ -27,10 +27,11 @@
  *                                     rows, plus pro_profile_page.php settings
  *   support                           pro_contact.php, open to any signed-in account
  *
- * There is no price anywhere in it, on purpose. Online payment does not exist:
- * Pro is unlocked with a voucher code and PRO_SELF_SIGNUP_ENABLED is off by
- * default, so the note under the cards says exactly that and nothing here
- * invents a number or a currency.
+ * There is no price anywhere in it, on purpose. Online checkout is not open on
+ * the public site yet: Pro is unlocked with a voucher code and
+ * PRO_SELF_SIGNUP_ENABLED is off by default, so the note under the cards links
+ * to pricing.php for the plans and prices and says checkout opens shortly.
+ * Nothing here invents a number or a currency.
  *
  * The one offer it does make is real: every new account starts on Pro for
  * $config['trial']['days'] days (epic #267, pro_trial.php, granted on first
@@ -96,9 +97,9 @@ $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'
         </div>
 
         <?php if ($msPlansTrialDays > 0) : ?>
-            <p class="ms-plans__note">No card needed, and nothing to cancel. One trial per email address. After the trial, Pro continues with a voucher code &mdash; online payment is on the way.</p>
+            <p class="ms-plans__note">No card needed, and nothing to cancel. One trial per email address. After the trial, Pro continues with a voucher code &mdash; see <a href="/pricing.php">plans and prices</a>; online checkout opens shortly.</p>
         <?php else : ?>
-            <p class="ms-plans__note">Pro currently requires a voucher code &mdash; online payment is on the way.</p>
+            <p class="ms-plans__note">Pro currently requires a voucher code &mdash; see <a href="/pricing.php">plans and prices</a>; online checkout opens shortly.</p>
         <?php endif; ?>
 
         <div class="ms-plans__actions">

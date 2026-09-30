@@ -27,9 +27,16 @@
  * visitor by IP. There is no sentinel country code sent to Paddle.
  *
  * Indexing follows the Paddle environment: a sandbox page is noindex, so the
- * test catalog never ends up in search results. The page is not in the nav or
- * sitemap.php yet — payment is being built step by step. A completed checkout
- * grants Pro through paddle_webhook.php (see paddle_sync.php).
+ * test catalog never ends up in search results. The page is linked from the
+ * footer and the landing plans card, but deliberately not from the nav or
+ * sitemap.php yet (#347) — those come with the switch to production (#280 §6).
+ *
+ * Checkout is open only where it is real: on production, or for a sandbox
+ * account named in PADDLE_SANDBOX_USER_IDS so the live site can still be tested
+ * (#346). Everywhere else the prices are shown as usual but each card carries a
+ * short note instead of Subscribe, so nobody is pointed at a checkout that would
+ * only accept a test card. A completed checkout grants Pro through
+ * paddle_webhook.php (see paddle_sync.php).
  */
 
 define('TEMPMAIL_APP', true);
@@ -71,14 +78,22 @@ $signedIn      = !empty($_SESSION['pro_user_id']);
 $customerEmail = $signedIn ? (string) ($_SESSION['pro_user_email'] ?? '') : '';
 $origin        = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 
+// Checkout is offered only where it is genuine: on production, or on sandbox
+// for the accounts named in PADDLE_SANDBOX_USER_IDS (#346). On sandbox anyone
+// else sees the prices but a note instead of Subscribe — a checkout there would
+// only take a Paddle test card, and a real payment would grant nothing.
+$checkoutEnabled = $paddle['environment'] === 'production'
+    || ($signedIn && in_array((int) $_SESSION['pro_user_id'], $config['paddle']['sandbox_user_ids'] ?? [], true));
+
 $pricingConfig = [
-    'environment' => $paddle['environment'],
-    'token'       => $paddle['token'],
-    'country'     => pricingDetectCountry(),
-    'email'       => $customerEmail !== '' ? $customerEmail : null,
-    'userId'      => $signedIn ? (int) $_SESSION['pro_user_id'] : null,
-    'successUrl'  => $origin . '/welcome.php',
-    'tiers'       => array_map(function (array $tier): array {
+    'environment'     => $paddle['environment'],
+    'token'           => $paddle['token'],
+    'country'         => pricingDetectCountry(),
+    'email'           => $customerEmail !== '' ? $customerEmail : null,
+    'userId'          => $signedIn ? (int) $_SESSION['pro_user_id'] : null,
+    'checkoutEnabled' => $checkoutEnabled,
+    'successUrl'      => $origin . '/welcome.php',
+    'tiers'           => array_map(function (array $tier): array {
         return ['name' => $tier['name'], 'priceId' => $tier['priceId']];
     }, $tiers),
 ];
@@ -132,7 +147,9 @@ $esc = function ($value): string {
                             <span class="ms-pricing__per"<?php echo $oneTime ? '' : ' data-per'; ?>><?php echo $oneTime ? 'one-time' : '/ month'; ?></span>
                         </p>
 
-                        <?php if ($signedIn) : ?>
+                        <?php if (!$checkoutEnabled) : ?>
+                            <p class="ms-pricing__closed">Online checkout opens shortly. Until then, Pro is available with a voucher code.</p>
+                        <?php elseif ($signedIn) : ?>
                             <button type="button" class="ms-btn <?php echo $featured ? 'ms-btn--primary' : 'ms-btn--secondary'; ?> ms-pricing__subscribe"
                                     data-tier="<?php echo (int) $index; ?>" disabled><?php echo $oneTime ? 'Buy' : 'Subscribe'; ?></button>
                         <?php else : ?>
@@ -149,7 +166,7 @@ $esc = function ($value): string {
                 <?php endforeach; ?>
             </div>
 
-            <?php if (!$signedIn) : ?>
+            <?php if (!$signedIn && $checkoutEnabled) : ?>
                 <p class="ms-plans__note">You need a Mail Shield account to subscribe, so the plan lands on the right inbox. No account yet? <a href="/register.php?plan=regular">Create one for free</a>, then come back here.</p>
             <?php endif; ?>
             <p class="ms-plans__note">Payments are handled by Paddle, our reseller and Merchant of Record, which also sends your receipt. Every payment comes with a 30-day money-back guarantee.</p>

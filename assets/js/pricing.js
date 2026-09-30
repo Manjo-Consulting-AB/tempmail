@@ -11,7 +11,10 @@
  * it is null no address is sent and Paddle geolocates the visitor by IP.
  *
  * Subscribe: Paddle.Checkout.open() for the exact price ID on screen, as the
- * one-page overlay, prefilling the email of a signed-in visitor.
+ * one-page overlay, prefilling the email of a signed-in visitor. It only runs
+ * while config.checkoutEnabled holds — false on sandbox for anyone not on
+ * PADDLE_SANDBOX_USER_IDS, where pricing.php renders a note instead of a
+ * Subscribe button (#347).
  */
 (function () {
     'use strict';
@@ -97,6 +100,12 @@
 
     subscribeEls.forEach(function (el) {
         el.addEventListener('click', function () {
+            // pricing.php renders no Subscribe button while checkout is closed,
+            // but guard here too: a stray click must never open a sandbox-only
+            // checkout on a page that says payment is not open yet.
+            if (!config.checkoutEnabled) {
+                return;
+            }
             var checkout = {
                 items: [{ priceId: currentPriceId(Number(el.getAttribute('data-tier'))), quantity: 1 }],
                 settings: {

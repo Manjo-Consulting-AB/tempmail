@@ -17,8 +17,9 @@
  *      Creating an address requires a registered account (inbox.php gates the
  *      generator on it), the retention split is 24 hours free / 1–7 days Pro
  *      (index.php:256 and :266), the personal-address cap is 10 (index.php:166),
- *      and Pro is unlocked by voucher code only (PRO_SELF_SIGNUP_ENABLED is
- *      off).
+ *      and Pro is unlocked by voucher code only for now — the plans and prices
+ *      are on pricing.php and online checkout opens shortly
+ *      (PRO_SELF_SIGNUP_ENABLED is off).
  *
  * The layout is grouped sections of always-visible copy, not collapsible
  * disclosure widgets: a page that hides every answer by default is worse for the
@@ -142,9 +143,9 @@ HTML,
             [
                 'q' => 'Does it cost anything?',
                 'a' => $msT > 0 ? <<<HTML
-<p>A free account costs nothing and needs no card, and every new account starts with <strong>{$msT} days of Pro</strong> at no cost. After that, Pro is unlocked with a voucher code — online payment is on the way — and no prices have been published yet.</p>
+<p>A free account costs nothing and needs no card, and every new account starts with <strong>{$msT} days of Pro</strong> at no cost. After that, Pro is unlocked with a voucher code — see <a href="/pricing.php">plans and prices</a>; online checkout opens shortly.</p>
 HTML : <<<HTML
-<p>A free account costs nothing and needs no card. Pro is unlocked with a voucher code today — online payment is on the way — and no prices have been published yet.</p>
+<p>A free account costs nothing and needs no card. Pro is unlocked with a voucher code today — see <a href="/pricing.php">plans and prices</a>; online checkout opens shortly.</p>
 HTML,
             ],
         ],
@@ -166,7 +167,7 @@ HTML : ''),
                 'a' => <<<HTML
 <p>Every new account gets Pro for its first {$msT} days, starting when you confirm your email address. There's no card to enter and nothing to cancel.</p>
 <p>The trial is once per email address. If you delete your account and sign up again with the same address, the clock keeps running from your first sign-up — it doesn't start over.</p>
-<p>When the trial ends, your account carries on as a free one. Automation is switched off, and sticky addresses — with the mail in them — are deleted 7 days later, so move anything you still need first. To stay on Pro, redeem a voucher code in your profile; online payment is on the way.</p>
+<p>When the trial ends, your account carries on as a free one. Automation is switched off, and sticky addresses — with the mail in them — are deleted 7 days later, so move anything you still need first. To stay on Pro, redeem a voucher code in your profile, or see our <a href="/pricing.php">plans and prices</a>; online checkout opens shortly.</p>
 HTML,
             ]] : []),
             [
@@ -179,9 +180,9 @@ HTML,
             [
                 'q' => 'How do I create a Pro account?',
                 'a' => $msT > 0 ? <<<HTML
-<p>Create an account — it starts on Pro for its first {$msT} days. To keep Pro after that, redeem a voucher code in your profile; redeemed during the trial, the code's time is added after the trial ends. There is no online checkout yet; payment is on the way. Accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
+<p>Create an account — it starts on Pro for its first {$msT} days. To keep Pro after that, redeem a voucher code in your profile; redeemed during the trial, the code's time is added after the trial ends. Online checkout is not open yet — see <a href="/pricing.php">plans and prices</a>. Accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
 HTML : <<<HTML
-<p>Register with a voucher code — pick Pro on the sign-up page and enter the code. There is no online checkout yet; payment is on the way. Pro accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
+<p>Register with a voucher code — pick Pro on the sign-up page and enter the code. Online checkout is not open yet — see <a href="/pricing.php">plans and prices</a>. Pro accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
 HTML,
             ],
             [
