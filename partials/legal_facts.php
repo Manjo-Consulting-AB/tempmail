@@ -31,13 +31,24 @@ $msLegalH = function ($value): string {
 
 $msLegalCompany   = (string) ($config['legal']['company'] ?? 'Manjo Consulting AB');
 $msLegalOrgNumber = trim((string) ($config['legal']['org_number'] ?? ''));
+$msLegalVatNumber = trim((string) ($config['legal']['vat_number'] ?? ''));
 $msLegalContact   = (string) ($config['legal']['contact_email'] ?? '');
+
+// "corporate identity number 556…, VAT number SE556…01", whichever are set.
+$msLegalIds = [];
+if ($msLegalOrgNumber !== '') {
+    $msLegalIds[] = 'corporate identity number ' . $msLegalH($msLegalOrgNumber);
+}
+if ($msLegalVatNumber !== '') {
+    $msLegalIds[] = 'VAT number ' . $msLegalH($msLegalVatNumber);
+}
 
 return [
     'company'      => $msLegalH($msLegalCompany),
-    // "Manjo Consulting AB (org. no. 556…), Sweden" when the number is set.
+    // "Manjo Consulting AB (corporate identity number …, VAT number …), a
+    // company registered in Sweden" — the brackets only when a number is set.
     'company_full' => $msLegalH($msLegalCompany)
-        . ($msLegalOrgNumber !== '' ? ' (corporate identity number ' . $msLegalH($msLegalOrgNumber) . ')' : '')
+        . ($msLegalIds !== [] ? ' (' . implode(', ', $msLegalIds) . ')' : '')
         . ', a company registered in Sweden',
     'contact'      => '<a href="mailto:' . $msLegalH($msLegalContact) . '">' . $msLegalH($msLegalContact) . '</a>',
     'domain'       => $msLegalH($config['email']['domain'] ?? ''),
