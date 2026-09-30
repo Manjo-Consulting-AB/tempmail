@@ -36,7 +36,7 @@ $msLegalDoc = [
     'lede'        => 'Mail Shield exists to keep your primary address out of places it does not need to be. This page says what we collect to do that, why, how long we keep it, and who else sees it.',
     'description' => 'What personal data Mail Shield collects, why, how long it is kept, and who processes it — including payments handled by Paddle.',
     'path'        => '/privacy.php',
-    'updated'     => '29 September 2026',
+    'updated'     => '30 September 2026',
     'sections'    => [
         [
             'id'      => 'controller',
@@ -124,7 +124,7 @@ $msLegalDoc = [
             'id'      => 'payments',
             'heading' => 'Payments are processed by Paddle',
             'html'    => '<p>Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. When you check out, you give your payment details, name, country and email address to Paddle, not to us, and Paddle processes them as an independent controller under <a href="https://www.paddle.com/legal/privacy" rel="noopener">Paddle\'s privacy policy</a>.</p>'
-                . '<p>The pricing page loads Paddle\'s script to show prices in your currency and to open the checkout; Paddle may set its own cookies there.</p>',
+                . '<p>The pricing page, and the plans section of the front page, load Paddle\'s script to show prices in your currency, and the checkout uses it to open. Loading it means your browser contacts Paddle, which then sees your IP address; Paddle may set its own cookies there.</p>',
         ],
         [
             'id'      => 'cookies',
@@ -134,7 +134,7 @@ $msLegalDoc = [
                 . '<li><strong>A trusted-browser cookie</strong>, set only if you choose to have a browser remembered for two-factor authentication. It lasts 30 days.</li>'
                 . '<li><strong>A stay-signed-in cookie</strong>, set only if you choose to stay signed in on a device. It lasts the period you chose (1, 7 or 30 days from your last visit, at most 90 days) and is removed when you sign out.</li>'
                 . '<li><strong>Google Analytics cookies</strong>, set only on the public pages (never on the inbox, your account or sign-in pages) and only after you click Accept in the cookie notice. Use Cookie settings in the footer to withdraw your consent; that stops these cookies being set on later pages and deletes the ones already set.</li>'
-                . '<li><strong>Paddle cookies</strong> on the pricing page and in the checkout.</li>'
+                . '<li><strong>Paddle cookies</strong> on the front page, the pricing page and in the checkout.</li>'
                 . '<li><strong>Your cookie choice</strong> itself is remembered in your browser\'s local storage, not a cookie, so we can honour it; it is strictly necessary and is not sent to us.</li>'
                 . '</ul>'
                 . '<p>You can block or delete cookies in your browser. Blocking the session cookie means you cannot sign in.</p>',

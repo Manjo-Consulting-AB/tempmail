@@ -32,9 +32,15 @@
  *                                     while oauthDiscoveryEnabled() (#331)
  *
  * No amount is written here, on purpose. The Pro amounts live in Paddle and
- * pricing.php shows them localised to the visitor's country, so the Pro card
- * names the billing periods pricing_tiers.php actually has (month, year, once)
- * and links to pricing.php. Nothing here invents a number or a currency.
+ * pricing.php shows them localised to the visitor's country. The card is
+ * rendered price-free — it names the billing periods pricing_tiers.php actually
+ * has (month, year, once) and links to pricing.php — and, on production only,
+ * assets/js/landing-price.js replaces that wording with "From <monthly price>"
+ * in the visitor's currency, straight from Paddle.PricePreview(), the same
+ * source and country detection as pricing.php (pricing_helpers.php). Without
+ * JavaScript, or when Paddle cannot be reached, or on sandbox (test prices on
+ * an indexable page), the price-free wording stays. Nothing here invents a
+ * number or a currency.
  *
  * The one offer it does make is real: every new account starts on Pro for
  * $config['trial']['days'] days (epic #267, pro_trial.php, granted on first
@@ -52,6 +58,12 @@
  */
 
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
+
+require_once __DIR__ . '/../../pricing_helpers.php';
+
+// Null unless this is production with a monthly price: the card then stays
+// price-free and no third-party script is loaded.
+$msPlansPrice = pricingLandingConfig($config);
 
 $msPlansSignedIn = !empty($_SESSION['pro_user_id']);
 $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'] ?? 0));
@@ -103,7 +115,7 @@ $msPlansMcpText = !empty($msMcpSignIn)
                     <span class="ms-chip"><?php echo $msPlansTrialDays > 0 ? 'First ' . $msPlansTrialDays . ' days free' : 'Most useful'; ?></span>
                 </div>
                 <p class="ms-plans__summary">Your second inbox, with the wiring.</p>
-                <p class="ms-plans__price"><span class="ms-plans__amount">Monthly, yearly or once</span> <a href="/pricing.php">See prices</a></p>
+                <p class="ms-plans__price"><span class="ms-plans__amount"<?php echo $msPlansPrice !== null ? ' data-landing-price' : ''; ?>>Monthly, yearly or once</span> <a href="/pricing.php">See prices</a></p>
 
                 <ul class="ms-plans__list">
                     <li>Up to 10 sticky addresses</li>
@@ -135,3 +147,11 @@ $msPlansMcpText = !empty($msMcpSignIn)
         </div>
     </div>
 </section>
+<?php if ($msPlansPrice !== null) : ?>
+<!-- Data for assets/js/landing-price.js. json_encode's HEX flags keep "<", ">",
+     "&" and quotes from ending this element early. Both scripts are deferred,
+     so Paddle.js has run before landing-price.js does. -->
+<script type="application/json" id="ms-landing-price-config"><?php echo json_encode($msPlansPrice, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
+<script src="https://cdn.paddle.com/paddle/v2/paddle.js" defer></script>
+<script src="/assets/js/landing-price.js?v=<?php echo @filemtime(__DIR__ . '/../../assets/js/landing-price.js') ?: 1; ?>" defer></script>
+<?php endif; ?>

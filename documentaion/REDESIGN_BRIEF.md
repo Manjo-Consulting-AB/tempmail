@@ -520,7 +520,7 @@ new assets with `filemtime()` the same way `app.js` already is.
    suppress them; a `// nosemgrep` needs a comment explaining the false positive.
 7. `php -l` must pass on every PHP file you touch.
 8. Check your work at 375px, 768px, 1024px and 1440px widths.
-9. No new external CDN dependency, no npm, no build step, no tracking script.
+9. No new external CDN dependency, no npm, no build step, no tracking script. The one accepted exception is Paddle.js (`cdn.paddle.com`), loaded on `pricing.php` and — on production only — by the landing page's plans card to show the Pro price in the visitor's currency; `privacy.php` describes it.
 10. Google Analytics loads only through `partials/analytics.php`, only on
     public pages (`index.php`, `temporary-email.php`, `faq.php`, `blog.php`,
     `pricing.php`, and `terms.php`/`privacy.php`/`refund-policy.php` through
