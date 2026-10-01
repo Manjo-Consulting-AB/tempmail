@@ -224,18 +224,21 @@ function mailboxCreateSticky(PDO $pdo, int $userId, string $rawLocal, string $ip
         }
     }
 
-    // Enforce max 10 personal addresses per pro user.
-    try {
-        $cntStmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
-        $cntStmt->execute([$userId]);
-        $cntRow = $cntStmt->fetch(PDO::FETCH_ASSOC);
-        $existingCount = (int)($cntRow['cnt'] ?? 0);
-        if ($existingCount >= 10) {
-            return ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'];
+    // Enforce max 10 personal addresses per pro user. Admin accounts
+    // (ADMIN_USER_IDS) have no cap.
+    if (!(function_exists('isAdminUser') && isAdminUser($userId))) {
+        try {
+            $cntStmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
+            $cntStmt->execute([$userId]);
+            $cntRow = $cntStmt->fetch(PDO::FETCH_ASSOC);
+            $existingCount = (int)($cntRow['cnt'] ?? 0);
+            if ($existingCount >= 10) {
+                return ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'];
+            }
+        } catch (Exception $e) {
+            logMessage('WARNING', 'Could not verify personal address count', ['error' => $e->getMessage()]);
+            return ['ok' => false, 'error' => 'Could not verify address quota'];
         }
-    } catch (Exception $e) {
-        logMessage('WARNING', 'Could not verify personal address count', ['error' => $e->getMessage()]);
-        return ['ok' => false, 'error' => 'Could not verify address quota'];
     }
 
     $limited = mailboxCreationLimited($pdo, 'personal', $userId, $ip);
