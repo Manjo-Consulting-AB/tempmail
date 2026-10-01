@@ -44,7 +44,18 @@ if (!empty($_SESSION['pro_user_id'] ?? null) && isset($pdo)) {
 }
 
 $msNavSignedIn = !empty($_SESSION['pro_user_id'] ?? null);
-$msNavEmail    = (string) ($_SESSION['pro_user_email'] ?? '');
+$msNavEmail    = trim((string) ($_SESSION['pro_user_email'] ?? ''));
+// The account type is rendered here so every page shows it, including the ones
+// without an inline script writing into #proExpiryLine; those scripts then
+// replace it with the expiry wording.
+$msNavType     = '';
+if ($msNavSignedIn && function_exists('proUserIsPro')) {
+    try {
+        $msNavType = proUserIsPro((int) $_SESSION['pro_user_id']) ? 'Pro' : 'Free';
+    } catch (Throwable $e) {
+        $msNavType = '';
+    }
+}
 // The Admin link is shown only to the accounts in ADMIN_USER_IDS; the admin
 // pages enforce the same gate themselves, so hiding the link is not the
 // protection, only the menu staying clean for everyone else.
@@ -96,8 +107,10 @@ $msNavEsc = function ($value): string {
 
             <?php if ($msNavSignedIn) : ?>
             <div class="ms-appnav__account">
+                <?php if ($msNavEmail !== '') : ?>
                 <span class="ms-appnav__email">Signed in as <span class="ms-appnav__email-addr"><?php echo $msNavEsc($msNavEmail); ?></span></span>
-                <span id="proExpiryLine" class="ms-appnav__status"></span>
+                <?php endif; ?>
+                <span id="proExpiryLine" class="ms-appnav__status"><?php echo $msNavEsc($msNavType); ?></span>
             </div>
             <?php endif; ?>
         </div>
