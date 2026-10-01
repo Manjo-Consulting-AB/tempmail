@@ -422,7 +422,7 @@ if (!function_exists('mcpToolListAddresses')) {
             // The count and the cap describe the Sticky addresses whatever
             // the filter, so a client can tell whether one more fits.
             'sticky_count' => count($personal),
-            'sticky_limit' => 10,
+            'sticky_limit' => (function_exists('isAdminUser') && isAdminUser((int) $tokenRow['user_id'])) ? null : 10,
         ]];
     }
 }
