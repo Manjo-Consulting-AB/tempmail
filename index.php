@@ -280,10 +280,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'get_emails':
                 // Hämta e-postmeddelanden för adress
                 $address = $_POST['address'] ?? '';
-                if (!$address || !isValidAddress($address)) {
+                // A signed-in user whose Timed address has expired has no address to
+                // send; an empty one then means "the account's own inbox". The set
+                // built below still adds all the account's addresses.
+                $accountInbox = $address === '' && !empty($_SESSION['pro_user_id']);
+                if (!$accountInbox && (!$address || !isValidAddress($address))) {
                     throw new Exception('Ogiltig adress');
                 }
-                
+
                 // Check if this address is marked as personal - only personal addresses require authentication
                 $ownerCheck = $pdo->prepare("SELECT pro_user_id, is_personal FROM temp_emails WHERE unique_address = ? LIMIT 1");
                 $ownerCheck->execute([$address]);
@@ -366,7 +370,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Lightweight check: return latest stored_emails.id for this address set
                 $address = $_POST['address'] ?? '';
                 $lastKnown = (int)($_POST['last_known_id'] ?? 0);
-                if (!$address || !isValidAddress($address)) {
+                // Empty address = the signed-in account's own inbox (see get_emails)
+                $accountInbox = $address === '' && !empty($_SESSION['pro_user_id']);
+                if (!$accountInbox && (!$address || !isValidAddress($address))) {
                     throw new Exception('Ogiltig adress');
                 }
 

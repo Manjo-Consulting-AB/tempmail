@@ -92,12 +92,27 @@ class TempMailApp {
         if (urlAddress) {
             // URL-adress har högst prioritet but verify ownership before showing
             handleLoadedAddress(urlAddress, urlExpiresAt, true);
+        } else if (window.tempMailConfig?.isPro) {
+            // Pro with no live Timed address (it expired): the server is the
+            // source of truth, so a stale saved address must not stand in for
+            // it. Show the account's inbox without one.
+            try { localStorage.removeItem('tempmail_address'); } catch (e) {}
+            this.updateUI();
+            this.loadEmails();
         } else if (savedAddress) {
             // Verify saved address ownership before showing
             handleLoadedAddress(savedAddress, null, false).then(() => {}).catch(()=>{});
         }
 
         console.log('TempMail application initialized');
+    }
+
+    /**
+     * Inloggad pro-användare utan aktiv Timed address (den har löpt ut):
+     * inkorgen visas ändå, för kontots övriga adresser.
+     */
+    isAccountInbox() {
+        return !!window.tempMailConfig?.isPro && !this.currentAddress;
     }
 
     /**
@@ -476,17 +491,19 @@ class TempMailApp {
      * Ladda e-postmeddelanden (utan IMAP-refresh)
      */
     async loadEmails(forceRefresh = false) {
-        if (!this.currentAddress) {
+        const accountInbox = this.isAccountInbox();
+        if (!this.currentAddress && !accountInbox) {
             return;
         }
-        
+
         try {
             const actionText = forceRefresh ? 'Fetching from server...' : 'Updating...';
             this.showLoading('#refreshBtn', actionText);
             this.updateStatus('loading');
-            
-            const requestData = { 
-                action: forceRefresh ? 'refresh_emails' : 'get_emails',
+
+            const requestData = {
+                // refresh_emails needs an address; the account inbox only re-reads
+                action: (forceRefresh && !accountInbox) ? 'refresh_emails' : 'get_emails',
                 address: this.currentAddress 
             };
             
@@ -739,7 +756,7 @@ class TempMailApp {
      * Lightweight check to see whether there are new emails since last known id
      */
     async checkForNewEmails() {
-        if (!this.currentAddress) return { success: false };
+        if (!this.currentAddress && !this.isAccountInbox()) return { success: false };
         try {
             const response = await $.ajax({
                 url: 'index.php',
@@ -1030,7 +1047,7 @@ class TempMailApp {
                     this.autoRefreshCount++;
                     
                     // Hämta e-post om vi har en adress
-                    if (this.currentAddress) {
+                    if (this.currentAddress || this.isAccountInbox()) {
                         // Gör en IMAP-refresh var 5:e auto-refresh (var 50:e sekund)
                         const shouldForceRefresh = (this.autoRefreshCount % 5 === 0);
                         if (shouldForceRefresh) {
@@ -1105,6 +1122,10 @@ class TempMailApp {
             }
         } else {
             $('.email-container').addClass('d-none');
+            // pro.php: the message list stays, only the address head goes
+            if (window.tempMailConfig?.isPro) {
+                $('.ms-dash__messages .email-container').removeClass('d-none');
+            }
             $('#initial-generator').removeClass('d-none');
             $('#generateBtn, #newAddressBtn').text('Get Email Address');
             this.stopValidityCountdown();
