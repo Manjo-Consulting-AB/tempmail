@@ -327,6 +327,7 @@ const VOUCHER_ERROR_CODE_EXPIRED = 'code_expired';
 const VOUCHER_ERROR_CODE_FULLY_REDEEMED = 'code_fully_redeemed';
 const VOUCHER_ERROR_DOMAIN_NOT_ALLOWED = 'domain_not_allowed';
 const VOUCHER_ERROR_ALREADY_REDEEMED = 'already_redeemed';
+const VOUCHER_ERROR_ALREADY_LIFETIME = 'already_lifetime';
 const VOUCHER_ERROR_REDEMPTION_FAILED = 'redemption_failed';
 
 /**
@@ -348,6 +349,7 @@ function voucherRedemptionErrorMessage(?string $code): string {
         VOUCHER_ERROR_CODE_FULLY_REDEEMED => 'This code has been fully redeemed',
         VOUCHER_ERROR_DOMAIN_NOT_ALLOWED => 'Email addresses at this domain are not allowed',
         VOUCHER_ERROR_ALREADY_REDEEMED => 'You have already redeemed this code',
+        VOUCHER_ERROR_ALREADY_LIFETIME => 'Your account already has lifetime Pro',
         VOUCHER_ERROR_REDEMPTION_FAILED => 'Redemption failed',
     ];
     return $messages[$code] ?? 'Redemption failed';
@@ -400,7 +402,10 @@ function redeemVoucherForEmail(string $email, string $code): array {
         }
 
         // Lock or create user
-        $ustmt = $pdo->prepare("SELECT id, pro_expires_at FROM pro_users WHERE email_hash = ? FOR UPDATE");
+        $hasAccountType = tableHasColumn('pro_users', 'account_type');
+        $ustmt = $pdo->prepare($hasAccountType
+            ? "SELECT id, pro_expires_at, account_type FROM pro_users WHERE email_hash = ? FOR UPDATE"
+            : "SELECT id, pro_expires_at FROM pro_users WHERE email_hash = ? FOR UPDATE");
         $ustmt->execute([piiEmailLookupHash($email)]);
         $u = $ustmt->fetch(PDO::FETCH_ASSOC);
         $now = time();
@@ -408,6 +413,20 @@ function redeemVoucherForEmail(string $email, string $code): array {
         if ($u) {
             $userId = $u['id'];
             $currentExpires = $u['pro_expires_at'];
+            // Lifetime Pro (account_type = 'pro' with no end date: a lifetime
+            // voucher, Paddle's `once` price) must never have its NULL expiry
+            // replaced by now + N days - that would turn "forever" into a
+            // date. Refuse instead, so the code is not used up and the account
+            // keeps its lifetime entitlement. A `regular` account with a NULL
+            // pro_expires_at is not lifetime Pro and stays upgradable, and a
+            // lifetime voucher on a lifetime account is a no-op, as before.
+            if (!is_null($v['duration_days'])
+                && $hasAccountType
+                && ($u['account_type'] ?? '') === 'pro'
+                && is_null($currentExpires)) {
+                $pdo->rollBack();
+                return ['success' => false, 'error_code' => VOUCHER_ERROR_ALREADY_LIFETIME, 'user_id' => null];
+            }
             if (is_null($v['duration_days'])) {
                 $newExpires = null; // forever
             } else {
@@ -418,7 +437,7 @@ function redeemVoucherForEmail(string $email, string $code): array {
                     $newExpires = date('Y-m-d H:i:s', strtotime("+{$dur} days"));
                 }
             }
-            if (tableHasColumn('pro_users', 'account_type')) {
+            if ($hasAccountType) {
                 $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ?, account_type = 'pro' WHERE id = ?");
             } else {
                 $up = $pdo->prepare("UPDATE pro_users SET pro_expires_at = ? WHERE id = ?");
@@ -441,7 +460,7 @@ function redeemVoucherForEmail(string $email, string $code): array {
                 $newExpires = date('Y-m-d H:i:s', strtotime("+{$dur} days"));
             }
             $defaultTtl = 1;
-            if (tableHasColumn('pro_users', 'account_type')) {
+            if ($hasAccountType) {
                 $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days, account_type, email_verified_at) VALUES (?, ?, ?, 'pro', NOW())");
             } else {
                 $ins = $pdo->prepare("INSERT INTO pro_users (email, pro_expires_at, address_ttl_days) VALUES (?, ?, ?)");
@@ -479,7 +498,10 @@ function redeemVoucherForEmail(string $email, string $code): array {
         return ['success' => true, 'error_code' => null, 'user_id' => (int)$userId];
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        logMessage('ERROR', 'Voucher redemption failed', ['error' => $e->getMessage(), 'code' => $code] + emailLogContext((string) $email, empty($created) ? ($userId ?? null) : null));
+        // A voucher code is a credential: it is never logged, not even the one
+        // the user typed. The address is logged as its keyed reference, or as
+        // the account id when one was created.
+        logMessage('ERROR', 'Voucher redemption failed', ['error' => $e->getMessage()] + emailLogContext((string) $email, empty($created) ? ($userId ?? null) : null));
         return ['success' => false, 'error_code' => VOUCHER_ERROR_REDEMPTION_FAILED, 'user_id' => null];
     }
 }
