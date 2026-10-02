@@ -61,7 +61,7 @@ if ($msNavSignedIn && function_exists('proUserIsPro')) {
 // protection, only the menu staying clean for everyone else.
 $msNavAdmin    = $msNavSignedIn && function_exists('isAdminUser')
     && isAdminUser((int) $_SESSION['pro_user_id']);
-$msNavAdminActive = in_array($current, ['log_viewer.php', 'abuse_admin.php'], true);
+$msNavAdminActive = in_array($current, ['log_viewer.php', 'abuse_admin.php', 'voucher_admin.php'], true);
 
 $msNavEsc = function ($value): string {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');

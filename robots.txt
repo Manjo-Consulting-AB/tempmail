@@ -28,6 +28,7 @@ Disallow: /client_agent_install_download.php
 Disallow: /client_agent_manage.php
 Disallow: /log_viewer.php
 Disallow: /abuse_admin.php
+Disallow: /voucher_admin.php
 Disallow: /paddle_webhook.php
 Disallow: /mcp
 Disallow: /mcp.php

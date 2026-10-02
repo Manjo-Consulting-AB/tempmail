@@ -5068,6 +5068,46 @@ a:hover {
     font: inherit;
 }
 
+/* The voucher page's create form (voucher_admin.php), on the same
+   .ms-admin__filters row log_viewer.php uses: the Duration group stacks its
+   label, its two radios and the days input; a hint sits under the control it
+   belongs to; .ms-admin__code is the one-time code a create answered with.
+   The flash can hold several lines, so it is a grid. */
+.ms-admin__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ms-space-1);
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-admin__hint {
+    display: block;
+    margin-top: var(--ms-space-1);
+    color: var(--ms-text-muted);
+    font-size: var(--ms-fs-xs);
+}
+
+.ms-admin__code {
+    font-family: var(--ms-font-mono);
+    font-size: var(--ms-fs-body);
+    padding: var(--ms-space-1) var(--ms-space-2);
+    background: var(--ms-bg);
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-sm);
+}
+
+.ms-admin__flash {
+    display: grid;
+    gap: var(--ms-space-2);
+    justify-items: start;
+    margin-bottom: var(--ms-space-3);
+}
+
+.ms-admin__flash > p {
+    margin: 0;
+}
+
 /* --- Admin overview and log viewer (log_viewer.php, partials/admin_*.php) ----
    The admin pages sit in the app shell (partials/nav.php) and share a tab row.
    Figures come in cards of definition lists; charts are plain CSS bars of a
