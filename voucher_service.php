@@ -3,14 +3,16 @@
 declare(strict_types=1);
 
 /**
- * voucher_service.php — the voucher business logic (epic #359, step 2/4;
- * the schema is migrate_vouchers.php, the read-only audit check_vouchers.php).
+ * voucher_service.php — the voucher business logic (epic #359, steps 2/4 and
+ * 4/4; the schema is migrate_vouchers.php, the read-only audit
+ * check_vouchers.php, the design document documentaion/VOUCHERS.md).
  *
  * The one place a voucher is created, listed, (de)activated and its
- * redemptions read. The admin page (step 3) and a future seller API both call
- * these functions rather than writing their own INSERT, so their rules —
- * which durations and use counts are allowed, what an actor may touch, never
- * logging a code — cannot drift apart.
+ * redemptions read, and since step 4/4 also where a batch of single-use codes
+ * is created and exported as CSV. The admin page (step 3) and a future seller
+ * API both call these functions rather than writing their own INSERT, so their
+ * rules — which durations and use counts are allowed, what an actor may touch,
+ * never logging a code — cannot drift apart.
  *
  * Like mailbox_service.php: every function takes PDO $pdo explicitly, never
  * reads $_SESSION and never echoes. The caller decides who is acting and
@@ -56,6 +58,12 @@ const VOUCHER_MAX_USES_MAX = 10000;
 const VOUCHER_NOTE_MAX_LENGTH = 255;
 const VOUCHER_EXTERNAL_REF_MAX_LENGTH = 128;
 const VOUCHER_LIST_MAX_LIMIT = 500;
+
+/** A batch is 1-500 single-use codes; every one is max_uses = 1. */
+const VOUCHER_BATCH_MIN = 1;
+const VOUCHER_BATCH_MAX = 500;
+/** A batch_id is 16 lowercase hex characters (random_bytes(8)). */
+const VOUCHER_BATCH_ID_PATTERN = '/^[a-f0-9]{16}$/';
 
 /**
  * A fresh voucher code (voucherGenerateCode()), e.g. MS-7K4P-QW2M-XR9T. Each
@@ -201,6 +209,25 @@ function voucherRowShape(array $row): array
     ];
 }
 
+/**
+ * The one-word status of a shaped voucher row, as the admin page and the CSV
+ * both label it. Inactive wins over expired, exactly as voucherList()'s
+ * filters do, so a row's label and the filter that selects it always agree.
+ */
+function voucherStatusLabel(array $voucher): string
+{
+    if (!($voucher['is_active'] ?? false)) {
+        return 'Inactive';
+    }
+    if (($voucher['expires_at'] ?? null) !== null && strtotime((string) $voucher['expires_at']) <= time()) {
+        return 'Expired';
+    }
+    if (($voucher['max_uses'] ?? null) !== null && (int) $voucher['current_uses'] >= (int) $voucher['max_uses']) {
+        return 'Used up';
+    }
+    return 'Active';
+}
+
 /** Whether a code is already taken. Codes are compared whole, case-sensitively. */
 function voucherCodeExists(PDO $pdo, string $code): bool
 {
@@ -210,14 +237,14 @@ function voucherCodeExists(PDO $pdo, string $code): bool
 }
 
 /**
- * The one INSERT. Always active and unused, created now, with a NULL
- * batch_id (a batch is assigned by the batch action, step 4).
+ * The one INSERT. Always active and unused, created now. $batchId is null for
+ * a single code and the batch's id for a code voucherCreateBatch() creates.
  */
-function voucherInsert(PDO $pdo, string $code, ?int $durationDays, int $maxUses, ?string $expiresAt, ?string $note, array $actorRow, ?string $externalRef): int
+function voucherInsert(PDO $pdo, string $code, ?int $durationDays, int $maxUses, ?string $expiresAt, ?string $note, array $actorRow, ?string $externalRef, ?string $batchId = null): int
 {
     $stmt = $pdo->prepare(
-        'INSERT INTO vouchers (code, is_active, expires_at, max_uses, current_uses, duration_days, created_at, source, created_by_user_id, issuer_id, external_ref, note)
-         VALUES (?, 1, ?, ?, 0, ?, NOW(), ?, ?, ?, ?, ?)'
+        'INSERT INTO vouchers (code, is_active, expires_at, max_uses, current_uses, duration_days, created_at, source, created_by_user_id, issuer_id, external_ref, note, batch_id)
+         VALUES (?, 1, ?, ?, 0, ?, NOW(), ?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         $code,
@@ -229,6 +256,7 @@ function voucherInsert(PDO $pdo, string $code, ?int $durationDays, int $maxUses,
         $actorRow['issuer_id'],
         $externalRef,
         $note,
+        $batchId,
     ]);
     return (int) $pdo->lastInsertId();
 }
@@ -265,6 +293,34 @@ function voucherCreate(PDO $pdo, array $spec, array $actor): array
         return ['ok' => false, 'error' => 'Unknown actor'];
     }
 
+    $result = voucherCreateValidated($pdo, $spec, $actorRow);
+    // An idempotent retry (the same issuer external_ref) returns the row the
+    // first call made. Nothing was created, so nothing is logged as created.
+    if (!($result['ok'] ?? false) || ($result['existing'] ?? false)) {
+        return $result;
+    }
+
+    logMessage('INFO', 'Voucher created', [
+        'voucher_id' => $result['voucher']['id'],
+        'duration_days' => $result['voucher']['duration_days'],
+        'max_uses' => $result['voucher']['max_uses'],
+    ] + voucherActorLogContext($actorRow));
+
+    return $result;
+}
+
+/**
+ * Validate one voucher's $spec and insert it — everything voucherCreate()
+ * does except the actor resolve and the log line, so voucherCreateBatch()
+ * reuses this exact validation and insert path rather than a second copy of
+ * it that could drift. $batchId groups every code one batch creates and is
+ * null for a single code. This function opens no transaction: its callers own
+ * that, and the batch's rollback depends on it staying that way.
+ *
+ * @return array{ok:bool, voucher?:array<string,mixed>, existing?:bool, error?:string}
+ */
+function voucherCreateValidated(PDO $pdo, array $spec, array $actorRow, ?string $batchId = null): array
+{
     if (!array_key_exists('duration_days', $spec)) {
         return ['ok' => false, 'error' => 'duration_days is required'];
     }
@@ -327,7 +383,7 @@ function voucherCreate(PDO $pdo, array $spec, array $actor): array
             if (voucherCodeExists($pdo, $customCode)) {
                 return ['ok' => false, 'error' => 'That code already exists'];
             }
-            $voucherId = voucherInsert($pdo, $customCode, $durationDays, $maxUses, $expiresAt, $note, $actorRow, $externalRef);
+            $voucherId = voucherInsert($pdo, $customCode, $durationDays, $maxUses, $expiresAt, $note, $actorRow, $externalRef, $batchId);
         } catch (PDOException $e) {
             if (voucherIsDuplicateError($e)) {
                 return ['ok' => false, 'error' => 'That code already exists'];
@@ -342,7 +398,7 @@ function voucherCreate(PDO $pdo, array $spec, array $actor): array
                 if (voucherCodeExists($pdo, $code)) {
                     continue;
                 }
-                $voucherId = voucherInsert($pdo, $code, $durationDays, $maxUses, $expiresAt, $note, $actorRow, $externalRef);
+                $voucherId = voucherInsert($pdo, $code, $durationDays, $maxUses, $expiresAt, $note, $actorRow, $externalRef, $batchId);
                 break;
             } catch (PDOException $e) {
                 if (voucherIsDuplicateError($e)) {
@@ -361,12 +417,6 @@ function voucherCreate(PDO $pdo, array $spec, array $actor): array
     if ($voucher === null) {
         return ['ok' => false, 'error' => 'Could not create voucher'];
     }
-
-    logMessage('INFO', 'Voucher created', [
-        'voucher_id' => $voucher['id'],
-        'duration_days' => $durationDays,
-        'max_uses' => $maxUses,
-    ] + voucherActorLogContext($actorRow));
 
     return ['ok' => true, 'voucher' => $voucher];
 }
@@ -390,6 +440,164 @@ function voucherFetchByExternalRef(PDO $pdo, int $issuerId, string $externalRef)
         return null;
     }
     return is_array($row) ? voucherRowShape($row) : null;
+}
+
+/**
+ * Create a batch of single-use codes: $count codes, each redeemable by one
+ * account, all created together or none at all.
+ *
+ * $spec is voucherCreate()'s, except that:
+ *   - max_uses is forced to 1. A batch is single-use by definition, so
+ *     whatever the caller passed for it is ignored rather than trusted;
+ *   - code and external_ref are refused when given — a batch generates one
+ *     code per row, and an idempotency key identifies a single call.
+ * $count is 1-500.
+ *
+ * Every code goes through voucherCreateValidated() — the same validation and
+ * insert voucherCreate() uses — inside one transaction. A failure on any code
+ * (a rejected spec, a code collision, the database) rolls the whole batch
+ * back: there are never half batches.
+ *
+ * One INFO line is logged for the batch. The individual codes are not: a code
+ * is a credential.
+ *
+ * @return array{ok:bool, batch_id?:string, vouchers?:list<array<string,mixed>>, error?:string}
+ */
+function voucherCreateBatch(PDO $pdo, array $spec, int $count, array $actor): array
+{
+    $actorRow = voucherActorResolve($actor);
+    if ($actorRow === null) {
+        return ['ok' => false, 'error' => 'Unknown actor'];
+    }
+    if ($count < VOUCHER_BATCH_MIN || $count > VOUCHER_BATCH_MAX) {
+        return ['ok' => false, 'error' => 'count must be an integer between 1 and 500'];
+    }
+    if (array_key_exists('code', $spec) && $spec['code'] !== null && $spec['code'] !== '') {
+        return ['ok' => false, 'error' => 'code is not allowed in a batch'];
+    }
+    if (array_key_exists('external_ref', $spec) && $spec['external_ref'] !== null && $spec['external_ref'] !== '') {
+        return ['ok' => false, 'error' => 'external_ref is not allowed in a batch'];
+    }
+    $spec['max_uses'] = 1;
+
+    $batchId = bin2hex(random_bytes(8));
+    $vouchers = [];
+
+    try {
+        $pdo->beginTransaction();
+        for ($i = 0; $i < $count; $i++) {
+            $result = voucherCreateValidated($pdo, $spec, $actorRow, $batchId);
+            if (!($result['ok'] ?? false)) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                return ['ok' => false, 'error' => (string) ($result['error'] ?? 'Could not create voucher')];
+            }
+            $vouchers[] = $result['voucher'];
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        // The exception class only: a driver error can quote the code it
+        // rejected, and a code is a credential.
+        logMessage('ERROR', 'Voucher batch creation failed', [
+            'batch_id' => $batchId,
+            'count' => $count,
+            'exception' => get_class($e),
+        ] + voucherActorLogContext($actorRow));
+        return ['ok' => false, 'error' => 'Could not create the batch'];
+    }
+
+    logMessage('INFO', 'Voucher batch created', [
+        'batch_id' => $batchId,
+        'count' => count($vouchers),
+        'duration_days' => $spec['duration_days'],
+    ] + voucherActorLogContext($actorRow));
+
+    return ['ok' => true, 'batch_id' => $batchId, 'vouchers' => $vouchers];
+}
+
+/**
+ * A batch as CSV: a header row plus one row per code, columns
+ * code,pro_time,redeemable_until,status,redeemed. The note is never exported:
+ * it is internal.
+ *
+ * An issuer gets only a batch it issued, an admin any. A batch that does not
+ * exist, is not the actor's, or whose id is not 16 lowercase hex characters
+ * all return null — and a malformed id returns null before any query, so a
+ * caller cannot use this to learn which batches exist. Returns null, never an
+ * empty string, when there is nothing to export.
+ */
+function voucherBatchCsv(PDO $pdo, string $batchId, array $actor): ?string
+{
+    $actorRow = voucherActorResolve($actor);
+    if ($actorRow === null) {
+        return null;
+    }
+    if (preg_match(VOUCHER_BATCH_ID_PATTERN, $batchId) !== 1) {
+        return null;
+    }
+
+    $sql = 'SELECT * FROM vouchers WHERE batch_id = ?';
+    $params = [$batchId];
+    if ($actorRow['source'] === VOUCHER_SOURCE_ISSUER) {
+        $sql .= ' AND issuer_id = ?';
+        $params[] = $actorRow['issuer_id'];
+    }
+    $sql .= ' ORDER BY id ASC';
+
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        logMessage('ERROR', 'Voucher batch export failed', ['error' => $e->getMessage(), 'batch_id' => $batchId]);
+        return null;
+    }
+    if ($rows === []) {
+        return null;
+    }
+
+    $handle = fopen('php://temp', 'r+');
+    if ($handle === false) {
+        return null;
+    }
+    // The fifth argument is the escape character; '' is RFC 4180 CSV with no
+    // backslash escaping, and it is also required — PHP 8.4 deprecates
+    // fputcsv()'s old default.
+    fputcsv($handle, ['code', 'pro_time', 'redeemable_until', 'status', 'redeemed'], ',', '"', '');
+    foreach ($rows as $row) {
+        $voucher = voucherRowShape($row);
+        fputcsv($handle, [
+            voucherCsvCell($voucher['code']),
+            voucherCsvCell($voucher['duration_days'] === null ? 'Lifetime' : $voucher['duration_days'] . ' days'),
+            voucherCsvCell((string) ($voucher['expires_at'] ?? '')),
+            voucherCsvCell(voucherStatusLabel($voucher)),
+            voucherCsvCell($voucher['current_uses'] > 0 ? 'yes' : 'no'),
+        ], ',', '"', '');
+    }
+    rewind($handle);
+    $csv = (string) stream_get_contents($handle);
+    fclose($handle);
+
+    return $csv;
+}
+
+/**
+ * A CSV cell made safe against formula injection: a spreadsheet treats a cell
+ * beginning with =, +, - or @ as a formula, so one gets an apostrophe in front
+ * of it. A generated code never starts with one of those characters, but a row
+ * can also be hand-inserted or come from the future seller API, and the check
+ * costs nothing.
+ */
+function voucherCsvCell(string $value): string
+{
+    if ($value !== '' && strpos('=+-@', $value[0]) !== false) {
+        return "'" . $value;
+    }
+    return $value;
 }
 
 /**

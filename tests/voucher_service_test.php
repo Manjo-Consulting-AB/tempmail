@@ -21,7 +21,13 @@ declare(strict_types=1);
  *     redeemable, max_uses is a hard cap, and a timed voucher cannot shorten
  *     lifetime Pro;
  *  G. repository scans: only voucher_service.php INSERTs into vouchers, and
- *     no logMessage() in voucher_service.php / pro_auth.php carries a code.
+ *     no logMessage() in voucher_service.php / pro_auth.php carries a code;
+ *  H. voucherCreateBatch(): the count bounds, the refused keys, the shared
+ *     validation, one transaction (a forced failure leaves zero rows), a
+ *     forced max_uses of 1, and a batch code redeemed exactly once by the
+ *     real redeemVoucherForEmail();
+ *  I. voucherBatchCsv(): the header, the row content, the formula-injection
+ *     guard, the issuer scoping and a malformed id reaching no query.
  *
  * See also tests/pii_crypto_test.php (the address-at-rest harness this file's
  * subprocess probe is modelled on) and tests/mailbox_service_test.php (the
@@ -838,6 +844,233 @@ ms_test_same('G5. the code-key scan does catch a planted call (self-test)',
 ms_test_check('G6. the scan really walks the log calls it clears (voucher_service.php and pro_auth.php both have many)',
     $scannedCalls['voucher_service.php'] > 0 && $scannedCalls['pro_auth.php'] > 30,
     'voucher_service.php: ' . $scannedCalls['voucher_service.php'] . ', pro_auth.php: ' . $scannedCalls['pro_auth.php']);
+
+// =====================================================================
+ms_test_section('H. voucherCreateBatch()');
+// =====================================================================
+
+/** A PDO that fails the Nth INSERT into vouchers, to prove a batch rolls back. */
+final class VoucherFailMidBatchPdo extends PDO
+{
+    public int $failAfter = 0;
+    private int $inserts = 0;
+
+    public function prepare(string $query, array $options = []): PDOStatement|false
+    {
+        if ($this->failAfter > 0 && stripos($query, 'INSERT INTO vouchers') !== false) {
+            $this->inserts++;
+            if ($this->inserts > $this->failAfter) {
+                throw new PDOException('forced mid-batch failure');
+            }
+        }
+        return parent::prepare($query, $options);
+    }
+}
+
+/** A PDO that refuses every query, to prove a malformed batch id reaches none. */
+final class VoucherNoQueryPdo extends PDO
+{
+    public int $prepared = 0;
+
+    public function prepare(string $query, array $options = []): PDOStatement|false
+    {
+        $this->prepared++;
+        throw new RuntimeException('no query expected');
+    }
+}
+
+/** CSV text as rows, header first, parsed the way a spreadsheet would. */
+function voucherTestCsvRows(string $csv): array
+{
+    $rows = [];
+    foreach (explode("\n", trim($csv)) as $line) {
+        if ($line === '') {
+            continue;
+        }
+        $rows[] = str_getcsv($line, ',', '"', '');
+    }
+    return $rows;
+}
+
+$voucherCount = static fn(PDO $conn, string $where = ''): int =>
+    (int) $conn->query('SELECT COUNT(*) FROM vouchers' . ($where === '' ? '' : ' WHERE ' . $where))->fetchColumn();
+$createdLogsBefore = count(voucherTestLogs('Voucher created'));
+
+// --- the count bounds -----------------------------------------------------
+
+$b1 = voucherCreateBatch($pdo, ['duration_days' => 30], 1, $admin);
+ms_test_same('H1. a batch of one is accepted', true, $b1['ok'] ?? null);
+ms_test_check('H2. ... with a 16-character lowercase hex batch_id',
+    preg_match('/^[a-f0-9]{16}$/', (string) ($b1['batch_id'] ?? '')) === 1, (string) ($b1['batch_id'] ?? ''));
+ms_test_same('H3. ... and one voucher', 1, count($b1['vouchers'] ?? []));
+$b1Row = voucherTestRow($pdo, (int) $b1['vouchers'][0]['id']);
+ms_test_same('H4. the row carries that batch_id, max_uses 1 and source admin',
+    [$b1['batch_id'], 1, 'admin'], [$b1Row['batch_id'], (int) $b1Row['max_uses'], $b1Row['source']]);
+ms_test_same('H5. ... and is active and unused', [1, 0], [(int) $b1Row['is_active'], (int) $b1Row['current_uses']]);
+ms_test_same('H6. the voucher it returns is the row it stored', true, $b1['vouchers'][0]['code'] === $b1Row['code']);
+
+$b500 = voucherCreateBatch($pdo, ['duration_days' => 7], 500, $admin);
+ms_test_same('H7. a batch of 500 is accepted', true, $b500['ok'] ?? null);
+ms_test_same('H8. ... with 500 vouchers', 500, count($b500['vouchers'] ?? []));
+ms_test_same('H9. ... every one single-use', 500,
+    count(array_filter($b500['vouchers'], static fn(array $v): bool => $v['max_uses'] === 1)));
+ms_test_same('H10. ... all 500 codes distinct', 500,
+    count(array_unique(array_map(static fn(array $v): string => (string) $v['code'], $b500['vouchers']))));
+ms_test_same('H11. ... and all under the one batch_id', 1, count(array_unique(array_column($b500['vouchers'], 'batch_id'))));
+
+$beforeRefused = $voucherCount($pdo);
+foreach ([0, 501, -1] as $badCount) {
+    ms_test_same("H12. count = {$badCount} is refused",
+        ['ok' => false, 'error' => 'count must be an integer between 1 and 500'],
+        voucherCreateBatch($pdo, ['duration_days' => 30], $badCount, $admin));
+}
+ms_test_same('H13. ... and none of them created a row', $beforeRefused, $voucherCount($pdo));
+
+// --- the refused keys and the shared validation ---------------------------
+
+ms_test_same('H14. a code in a batch spec is refused',
+    ['ok' => false, 'error' => 'code is not allowed in a batch'],
+    voucherCreateBatch($pdo, ['duration_days' => 30, 'code' => 'X'], 2, $admin));
+ms_test_same('H15. an external_ref is refused for an admin',
+    ['ok' => false, 'error' => 'external_ref is not allowed in a batch'],
+    voucherCreateBatch($pdo, ['duration_days' => 30, 'external_ref' => 'ref-1'], 2, $admin));
+ms_test_same('H16. ... and for an issuer too',
+    ['ok' => false, 'error' => 'external_ref is not allowed in a batch'],
+    voucherCreateBatch($pdo, ['duration_days' => 30, 'external_ref' => 'ref-1'], 2, $issuer));
+
+ms_test_same('H17. a missing duration_days is refused by the shared rule',
+    ['ok' => false, 'error' => 'duration_days is required'], voucherCreateBatch($pdo, [], 2, $admin));
+ms_test_check('H18. a duration outside 1-3650 is refused',
+    (voucherCreateBatch($pdo, ['duration_days' => 0], 2, $admin)['ok'] ?? true) === false);
+ms_test_check('H19. an invalid actor is refused',
+    (voucherCreateBatch($pdo, ['duration_days' => 30], 2, ['type' => 'nobody', 'id' => 1])['ok'] ?? true) === false);
+
+// --- a forced max_uses ----------------------------------------------------
+
+$bMax = voucherCreateBatch($pdo, ['duration_days' => 30, 'max_uses' => 5], 2, $admin);
+ms_test_same('H20. a max_uses in the spec is ignored — a batch is single-use',
+    [1, 1], array_map(static fn(array $v): int => (int) $v['max_uses'], $bMax['vouchers']));
+
+// --- a lifetime batch -----------------------------------------------------
+
+$bLife = voucherCreateBatch($pdo, ['duration_days' => null], 2, $admin);
+ms_test_same('H21. a lifetime batch is accepted', true, $bLife['ok'] ?? null);
+ms_test_same('H22. ... and every code is lifetime (no duration)',
+    [true, true], array_map(static fn(array $v): bool => $v['duration_days'] === null, $bLife['vouchers']));
+
+// --- an issuer batch ------------------------------------------------------
+
+$bIssuer = voucherCreateBatch($pdo, ['duration_days' => 30], 2, $issuer);
+$bIssuerRow = voucherTestRow($pdo, (int) $bIssuer['vouchers'][0]['id']);
+ms_test_same('H23. an issuer batch is stored as source issuer with issuer_id',
+    ['issuer', 7], [$bIssuerRow['source'], (int) $bIssuerRow['issuer_id']]);
+
+// --- one transaction: a failure part-way leaves no rows -------------------
+
+$beforeFail = $voucherCount($pdo);
+$batchedBefore = $voucherCount($pdo, 'batch_id IS NOT NULL');
+$failPdo = new VoucherFailMidBatchPdo('sqlite:' . $db, null, null, [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+]);
+$failPdo->exec('PRAGMA busy_timeout = 5000');
+$failPdo->sqliteCreateFunction('NOW', static fn(): string => date('Y-m-d H:i:s'));
+$failPdo->failAfter = 5;
+$failedBatch = voucherCreateBatch($failPdo, ['duration_days' => 30], 20, $admin);
+ms_test_check('H24. a failure part-way through a batch is reported as a failure', ($failedBatch['ok'] ?? true) === false);
+ms_test_same('H25. ... and leaves no rows at all (no half batch)', $beforeFail, $voucherCount($pdo));
+ms_test_same('H26. ... and no new batch row exists', $batchedBefore, $voucherCount($pdo, 'batch_id IS NOT NULL'));
+
+// --- logging: one line per batch, never per code --------------------------
+
+$batchLogs = voucherTestLogs('Voucher batch created');
+ms_test_check('H27. creating a batch logs INFO "Voucher batch created"',
+    $batchLogs !== [] && $batchLogs[0]['level'] === 'INFO' && count($batchLogs) === 5);
+ms_test_same('H28. ... carrying batch_id, count, duration_days, source and actor_id',
+    [true, true, true],
+    [
+        preg_match('/^[a-f0-9]{16}$/', (string) $batchLogs[0]['context']['batch_id']) === 1,
+        $batchLogs[0]['context']['count'] === 1 && $batchLogs[0]['context']['duration_days'] === 30,
+        $batchLogs[0]['context']['source'] === 'admin' && $batchLogs[0]['context']['actor_id'] === 1,
+    ]);
+ms_test_check('H29. ... and never a code',
+    strpos((string) json_encode($batchLogs[0]['context']), 'MS-') === false);
+ms_test_same('H30. a batch writes no per-code "Voucher created" line',
+    $createdLogsBefore, count(voucherTestLogs('Voucher created')));
+
+// --- a batch code is redeemable exactly once ------------------------------
+
+voucherTestSeedUser($pdo, 'batch-one@example.com', 'regular', null, $encKey, $idxKey);
+voucherTestSeedUser($pdo, 'batch-two@example.com', 'regular', null, $encKey, $idxKey);
+$bRedeem = voucherCreateBatch($pdo, ['duration_days' => 30], 1, $admin);
+$bRedeemId = (int) $bRedeem['vouchers'][0]['id'];
+$bRedeemCode = (string) $bRedeem['vouchers'][0]['code'];
+
+$res = voucherTestRedeem($probe, $db, 'batch-one@example.com', $bRedeemCode, $piiEnv);
+ms_test_same('H31. a batch code redeems for the first account', true, $res['success'] ?? null);
+$res = voucherTestRedeem($probe, $db, 'batch-two@example.com', $bRedeemCode, $piiEnv);
+ms_test_same('H32. ... and is then refused for a second account', 'code_fully_redeemed', $res['error_code'] ?? null);
+ms_test_same('H33. ... the row records the one use', 1, (int) voucherTestRow($pdo, $bRedeemId)['current_uses']);
+
+// =====================================================================
+ms_test_section('I. voucherBatchCsv()');
+// =====================================================================
+
+$contentBatch = 'aa11bb22cc33dd44';
+$formulaBatch = '00112233445566aa';
+$issuerBatch = 'ffeeddccbbaa9988';
+$csvExpiry = date('Y-m-d H:i:s', time() + 5 * 86400);
+
+$insertVoucher = $pdo->prepare(
+    'INSERT INTO vouchers (code, is_active, expires_at, max_uses, current_uses, duration_days, created_at, source, created_by_user_id, issuer_id, external_ref, batch_id, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+);
+
+$insertVoucher->execute(['MS-CONT-ENT1-AAAA', 1, null, 1, 0, 30, '2026-01-01 00:00:00', 'admin', 1, null, null, $contentBatch, 'internal note one']);
+$insertVoucher->execute(['MS-CONT-ENT2-BBBB', 1, null, 1, 0, null, '2026-01-02 00:00:00', 'admin', 1, null, null, $contentBatch, null]);
+$insertVoucher->execute(['MS-CONT-ENT3-CCCC', 1, null, 1, 1, 30, '2026-01-03 00:00:00', 'admin', 1, null, null, $contentBatch, null]);
+$insertVoucher->execute(['MS-CONT-ENT4-DDDD', 1, $csvExpiry, 1, 0, 30, '2026-01-04 00:00:00', 'admin', 1, null, null, $contentBatch, null]);
+
+$csv = voucherBatchCsv($pdo, $contentBatch, $admin);
+ms_test_check('I1. a batch exports a string', is_string($csv) && $csv !== '');
+$csvRows = voucherTestCsvRows((string) $csv);
+ms_test_same('I2. the header row is exactly as documented',
+    ['code', 'pro_time', 'redeemable_until', 'status', 'redeemed'], $csvRows[0]);
+ms_test_same('I3. ... with one row per code', 5, count($csvRows));
+ms_test_same('I4. the first code is there with its days of Pro',
+    ['MS-CONT-ENT1-AAAA', '30 days'], [$csvRows[1][0], $csvRows[1][1]]);
+ms_test_same('I5. a lifetime code exports Lifetime', 'Lifetime', $csvRows[2][1]);
+ms_test_same('I6. an empty redeemable_until is an empty cell', '', $csvRows[1][2]);
+ms_test_same('I7. a set redeemable_until is exported as stored', $csvExpiry, $csvRows[4][2]);
+ms_test_same('I8. an unused, live code reads Active / no', ['Active', 'no'], [$csvRows[1][3], $csvRows[1][4]]);
+ms_test_same('I9. a fully redeemed code reads Used up / yes', ['Used up', 'yes'], [$csvRows[3][3], $csvRows[3][4]]);
+ms_test_check('I10. the note is never exported', strpos((string) $csv, 'internal note one') === false);
+
+// --- formula injection ----------------------------------------------------
+
+foreach (['=1+1', '+1+1', '-1+1', '@SUM(1)'] as $tricky) {
+    $insertVoucher->execute([$tricky, 1, null, 1, 0, 30, '2026-01-05 00:00:00', 'admin', 1, null, null, $formulaBatch, null]);
+}
+$formulaRows = voucherTestCsvRows((string) voucherBatchCsv($pdo, $formulaBatch, $admin));
+ms_test_same('I11. a cell starting with = is prefixed with an apostrophe', "'=1+1", $formulaRows[1][0]);
+ms_test_same('I12. ... and likewise for +, - and @',
+    ["'+1+1", "'-1+1", "'@SUM(1)"], [$formulaRows[2][0], $formulaRows[3][0], $formulaRows[4][0]]);
+
+// --- scoping and refusals -------------------------------------------------
+
+$insertVoucher->execute(['MS-ISSU-ER01-AAAA', 1, null, 1, 0, 30, '2026-01-06 00:00:00', 'issuer', null, 7, null, $issuerBatch, null]);
+ms_test_check('I13. an issuer can export its own batch', is_string(voucherBatchCsv($pdo, $issuerBatch, ['type' => 'issuer', 'id' => 7])));
+ms_test_same('I14. ... but not another issuer\'s (not found and not yours are the same null)',
+    null, voucherBatchCsv($pdo, $issuerBatch, ['type' => 'issuer', 'id' => 8]));
+ms_test_same('I15. ... and an admin can export any batch',
+    true, is_string(voucherBatchCsv($pdo, $issuerBatch, $admin)));
+ms_test_same('I16. an unknown batch id answers null', null, voucherBatchCsv($pdo, 'aaaaaaaaaaaaaaaa', $admin));
+ms_test_same('I17. an invalid actor answers null', null, voucherBatchCsv($pdo, $contentBatch, ['type' => 'nobody', 'id' => 1]));
+ms_test_same('I18. a malformed batch id answers null', null, voucherBatchCsv($pdo, 'NOT-HEX', $admin));
+
+$noQueryPdo = new VoucherNoQueryPdo('sqlite:' . $db, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+ms_test_same('I19. ... and reaches no query at all before refusing',
+    [null, 0], [voucherBatchCsv($noQueryPdo, '../../etc/passwd', $admin), $noQueryPdo->prepared]);
 
 // Clean up.
 ms_test_rrmdir($probe);

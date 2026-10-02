@@ -288,6 +288,10 @@ Trösklarna är konfigurerbara via `REGULAR_INACTIVITY_DAYS` och
 Uppgradering från Regular till Pro sker med voucher, från profilsidan, via samma
 `redeemVoucherForEmail()` som registreringen använder.
 
+Vouchers skapas av en administratör på `voucher_admin.php` — enstaka koder eller
+ett parti om upp till 500 engångskoder, med CSV-export — se
+`documentaion/VOUCHERS.md`.
+
 Påslaget av betallösningen ska vara en env-ändring, inte en kodändring. Därför
 styrs kravet på voucherkod i `register.php?plan=pro` av en enda flagga,
 `PRO_SELF_SIGNUP_ENABLED` (default av). När den slås på öppnas publik

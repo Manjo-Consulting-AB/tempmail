@@ -25,7 +25,11 @@ declare(strict_types=1);
  *  E. the redemptions view: account ids, no address;
  *  F. the "not available" page before migrate_vouchers.php has run;
  *  G. repository scans: robots.txt, the admin tab row, and no log line in the
- *     page that could carry a code.
+ *     page that could carry a code;
+ *  H. the batch form and the batch view (?view=batch);
+ *  I. the CSV download: the headers, the body, a non-admin 403 and a
+ *     malformed batch id;
+ *  J. the list's batch filter and the per-row batch link.
  *
  * The redemption itself is covered by tests/voucher_service_test.php section F
  * (the real redeemVoucherForEmail() on a voucher the service created); this
@@ -382,6 +386,34 @@ function ms_va_create_fields(array $overrides = []): array
     ], $overrides);
 }
 
+/** The batch form as the page sends it, with $overrides applied. */
+function ms_va_batch_fields(array $overrides = []): array
+{
+    return array_merge([
+        'action' => 'create_batch',
+        'duration' => 'days',
+        'days' => '30',
+        'count' => '3',
+        'redeemable_until' => '',
+        'note' => '',
+    ], $overrides);
+}
+
+/** The batch_id a create-batch redirect points at, or '' when there is none. */
+function ms_va_redirect_batch_id(array $response): string
+{
+    $location = (string) ($response['headers']['location'] ?? '');
+    return preg_match('/[?&]id=([a-f0-9]{16})(?:&|$)/', $location, $m) === 1 ? $m[1] : '';
+}
+
+/** Every code stored under one batch_id, oldest first. */
+function ms_va_batch_codes(PDO $pdo, string $batchId): array
+{
+    $stmt = $pdo->prepare('SELECT code FROM vouchers WHERE batch_id = ? ORDER BY id ASC');
+    $stmt->execute([$batchId]);
+    return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
 // ---------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------
@@ -644,6 +676,123 @@ ms_test_check('G4. the page logs nothing with a code key',
     preg_match('/logMessage\([^;]*[\'"]code[\'"]\s*=>/s', $page) === 0);
 ms_test_check('G5. ... and there is at least one log call, so the scan is not vacuous',
     preg_match('/logMessage\(/', $page) === 1);
+
+// =====================================================================
+ms_test_section('H. Batch of single-use codes');
+// =====================================================================
+
+$body = $admin->get('/voucher_admin.php')['body'];
+ms_test_check('H1. the page offers the batch form',
+    str_contains($body, 'Create a batch of single-use codes') && str_contains($body, 'name="count"'));
+ms_test_check('H2. ... capped at 500', str_contains($body, 'name="count" id="batchCount" min="1" max="500"'));
+
+$response = ms_va_post($admin, ms_va_batch_fields(['count' => '3']), MS_VA_ORIGIN);
+ms_test_same('H3. creating a batch answers a redirect', 303, $response['status']);
+$batchId = ms_va_redirect_batch_id($response);
+ms_test_check('H4. ... to the batch view for the new batch',
+    $batchId !== '' && str_contains((string) ($response['headers']['location'] ?? ''), 'view=batch'),
+    (string) ($response['headers']['location'] ?? ''));
+$pdo = ms_test_db($sqlite);
+ms_test_same('H5. ... and stores three codes under that batch_id', 3, count(ms_va_batch_codes($pdo, $batchId)));
+ms_test_same('H6. ... every one single-use',
+    [1], array_values(array_unique(array_map('intval', $pdo->query('SELECT max_uses FROM vouchers WHERE batch_id = ' . $pdo->quote($batchId))->fetchAll(PDO::FETCH_COLUMN)))));
+
+$response = $admin->get('/voucher_admin.php?view=batch&id=' . $batchId);
+ms_test_same('H7. the batch view answers', 200, $response['status']);
+ms_test_check('H8. ... with the flash saying how many were created',
+    str_contains($response['body'], '3 single-use codes created'));
+ms_test_check('H9. ... naming the batch and that they are single-use',
+    str_contains($response['body'], $batchId) && str_contains($response['body'], 'single-use codes'));
+$pdo = ms_test_db($sqlite);
+$allListed = true;
+foreach (ms_va_batch_codes($pdo, $batchId) as $batchCode) {
+    if (!str_contains($response['body'], $batchCode)) {
+        $allListed = false;
+    }
+}
+ms_test_check('H10. ... and listing every code in it', $allListed);
+ms_test_check('H11. ... with a Download CSV link for that batch',
+    str_contains($response['body'], 'action=batch_csv&amp;id=' . $batchId));
+
+$before = ms_va_count(ms_test_db($sqlite));
+foreach (['0', '501'] as $badCount) {
+    $body = ms_va_post_then_get($admin, ms_va_batch_fields(['count' => $badCount]))['body'];
+    ms_test_check("H12. count '{$badCount}' is refused with the service's message",
+        str_contains($body, 'count must be an integer between 1 and 500'));
+}
+ms_test_same('H13. ... and neither created anything', $before, ms_va_count(ms_test_db($sqlite)));
+
+$before = ms_va_count(ms_test_db($sqlite));
+$body = ms_va_post_then_get($admin, ms_va_batch_fields(['duration' => 'days', 'days' => '']))['body'];
+ms_test_check('H14. an empty days field in the batch form is refused (the shared rule)',
+    str_contains($body, 'Enter the number of days, or choose Lifetime.'));
+ms_test_same('H15. ... and creates nothing', $before, ms_va_count(ms_test_db($sqlite)));
+
+$response = $adminNoSchema->get('/voucher_admin.php');
+ms_test_check('H16. the batch form is absent before the migration',
+    !str_contains($response['body'], 'Create a batch of single-use codes'));
+
+// =====================================================================
+ms_test_section('I. CSV download');
+// =====================================================================
+
+$response = $admin->get('/voucher_admin.php?action=batch_csv&id=' . $batchId);
+ms_test_same('I1. the CSV download answers', 200, $response['status']);
+ms_test_same('I2. ... as UTF-8 CSV', 'text/csv; charset=utf-8', $response['headers']['content-type'] ?? null);
+ms_test_same('I3. ... downloaded, named after the batch',
+    'attachment; filename="vouchers-' . $batchId . '.csv"', $response['headers']['content-disposition'] ?? null);
+ms_test_same('I4. ... never cached', 'no-store', $response['headers']['cache-control'] ?? null);
+ms_test_same('I5. ... and never sniffed', 'nosniff', $response['headers']['x-content-type-options'] ?? null);
+ms_test_same('I6. the body starts with the documented header row',
+    'code,pro_time,redeemable_until,status,redeemed', trim(strtok($response['body'], "\n")));
+$csvLines = array_values(array_filter(explode("\n", trim($response['body'])), static fn(string $l): bool => $l !== ''));
+ms_test_same('I7. ... with the header plus one row per code', 4, count($csvLines));
+$pdo = ms_test_db($sqlite);
+$csvHasEveryCode = true;
+foreach (ms_va_batch_codes($pdo, $batchId) as $batchCode) {
+    if (!str_contains($response['body'], $batchCode)) {
+        $csvHasEveryCode = false;
+    }
+}
+ms_test_check('I8. ... carrying every code in the batch', $csvHasEveryCode);
+ms_test_check('I9. ... and the note is not a column', !str_contains($csvLines[0], 'note'));
+
+$response = $other->get('/voucher_admin.php?action=batch_csv&id=' . $batchId);
+ms_test_same('I10. a non-admin is refused the CSV', 403, $response['status']);
+ms_test_check('I11. ... and gets no CSV body', !str_contains($response['body'], 'code,pro_time,redeemable_until'));
+
+$response = $guest->get('/voucher_admin.php?action=batch_csv&id=' . $batchId);
+ms_test_same('I12. a visitor with no session is refused the CSV', 403, $response['status']);
+
+$response = $admin->get('/voucher_admin.php?action=batch_csv&id=NOT-A-BATCH-ID');
+ms_test_same('I13. a malformed batch_id is refused before any query', 404, $response['status']);
+ms_test_check('I14. ... with no CSV body', !str_contains($response['body'], 'code,pro_time'));
+
+$response = $admin->get('/voucher_admin.php?action=batch_csv&id=aaaaaaaaaaaaaaaa');
+ms_test_same('I15. an unknown batch_id answers the same 404', 404, $response['status']);
+
+// =====================================================================
+ms_test_section('J. The list\'s batch filter');
+// =====================================================================
+
+$body = $admin->get('/voucher_admin.php')['body'];
+ms_test_check('J1. the list offers a batch filter', str_contains($body, 'name="batch_id"'));
+ms_test_check('J2. ... and links a batched row to its batch',
+    str_contains($body, 'view=batch&amp;id=' . $batchId));
+
+$body = $admin->get('/voucher_admin.php?batch_id=' . $batchId)['body'];
+$pdo = ms_test_db($sqlite);
+$filteredShowsAll = true;
+foreach (ms_va_batch_codes($pdo, $batchId) as $batchCode) {
+    if (!str_contains($body, $batchCode)) {
+        $filteredShowsAll = false;
+    }
+}
+ms_test_check('J3. filtering by batch_id lists exactly that batch', $filteredShowsAll);
+ms_test_check('J4. ... and not the custom single code from earlier', !str_contains($body, 'MY-ADMIN-CODE1'));
+
+$body = $admin->get('/voucher_admin.php?batch_id=aaaaaaaaaaaaaaaa')['body'];
+ms_test_check('J5. an unknown batch_id filters everything out', str_contains($body, 'No codes'));
 
 // ---------------------------------------------------------------------
 // Summary
