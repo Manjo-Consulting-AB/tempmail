@@ -323,10 +323,10 @@ function voucherCreate(PDO $pdo, array $spec, array $actor): array
     }
 
     if ($customCode !== null) {
-        if (voucherCodeExists($pdo, $customCode)) {
-            return ['ok' => false, 'error' => 'That code already exists'];
-        }
         try {
+            if (voucherCodeExists($pdo, $customCode)) {
+                return ['ok' => false, 'error' => 'That code already exists'];
+            }
             $voucherId = voucherInsert($pdo, $customCode, $durationDays, $maxUses, $expiresAt, $note, $actorRow, $externalRef);
         } catch (PDOException $e) {
             if (voucherIsDuplicateError($e)) {
