@@ -1,10 +1,11 @@
 <?php
 /**
- * Sub-navigation shared by the admin pages (log_viewer.php, abuse_admin.php).
+ * Sub-navigation shared by the admin pages (log_viewer.php, abuse_admin.php,
+ * voucher_admin.php).
  *
- * Expects $msAdminTab to name the current tab: 'overview', 'logs', 'types' or
- * 'abuse'. The pages themselves enforce the ADMIN_USER_IDS gate; this partial
- * only renders links.
+ * Expects $msAdminTab to name the current tab: 'overview', 'logs', 'types',
+ * 'abuse' or 'vouchers'. The pages themselves enforce the ADMIN_USER_IDS gate;
+ * this partial only renders links.
  */
 if (!defined('TEMPMAIL_APP')) {
     http_response_code(403);
@@ -16,6 +17,7 @@ $msAdminTabs = [
     'logs' => ['Logs', 'log_viewer.php?view=logs'],
     'types' => ['Log types', 'log_viewer.php?view=types'],
     'abuse' => ['Abuse guard', 'abuse_admin.php'],
+    'vouchers' => ['Vouchers', 'voucher_admin.php'],
 ];
 $msAdminCurrent = (string) ($msAdminTab ?? '');
 ?>
