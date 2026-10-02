@@ -560,7 +560,11 @@ body {
     transform: none;
 }
 
+/* style.css gives the toast z-index 1001, which sits under the sticky
+   .ms-appnav (1030). 1090 is Bootstrap's --bs-zindex-toast layer: above the
+   app bar and modals, so feedback is never hidden behind either. */
 .copy-notification {
+    z-index: 1090;
     background: var(--ms-success);
     border-radius: var(--ms-radius-md);
     box-shadow: var(--ms-shadow-md);
