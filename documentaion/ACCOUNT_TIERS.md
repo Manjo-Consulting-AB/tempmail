@@ -384,3 +384,49 @@ Utrullningsordning: kör `migrate_trial_claims.php` och sätt
 `PRO_TRIAL_HASH_KEY` **innan** steg 2-koden (första verifieringen beviljar
 provperioder) driftsätts. Utan dem loggas ett fel och ingen provperiod
 beviljas, men inget annat går sönder.
+
+## 11. Retentionsspärr (retention hold, #369)
+
+Ett Pro-konto kan pausa raderingen av sin egen inkommande post. En **spärr**
+(retention hold) förlänger det som annars skulle raderas: medan den är aktiv
+behålls posten på kontots **Sticky-adresser** i `days` dagar från det att den
+anlände, i stället för kontots vanliga adresslivslängd (`address_ttl_days`,
+1–7 dagar). **Tidsatta adresser berörs inte** — de löper ut enligt sitt eget
+schema och tar sin post med sig. Lagringskvoten är oförändrad: en spärr flyttar
+bara ett meddelandes utgångsdatum framåt, den rör varken kvotens storlek eller
+`MailboxQuota`s ordning äldst-först (avsnitt 6.1 punkt 5).
+
+- **Endast Pro.** `EmailStorage::resolveExpiresAt()` läser en aktiv spärr via
+  `activeRetentionHoldDays()` bara för en Sticky-adress vars ägare
+  `ownerIsPro()` säger är Pro. Ett Regular-konto, en Tidsatt adress, en anonym
+  adress, ett konto utan aktiv spärr och ett konto vars Pro löpt ut får exakt
+  dagens beteende.
+- **Gränser.** En spärr varar `$config['retention_hold']['days']` (default 30,
+  `RETENTION_HOLD_DAYS`), och ett konto får starta högst
+  `$config['retention_hold']['max_per_year']` (default 4,
+  `RETENTION_HOLD_MAX_PER_YEAR`) spärrar i valfritt 365-dagarsfönster. Varje rad
+  räknas, även en som avslutades i förtid, och en redan aktiv spärr blockerar en
+  ny.
+- **Start och slut.** `retentionHoldStart()` i `retention_hold.php` vägrar en
+  aktiv spärr eller en förbrukad årsram och förlänger, i samma transaktion, den
+  post som annars skulle gå ut inom fönstret till `received_at + days` — men
+  aldrig kortare än det datum raden redan har. `retentionHoldEnd()` sätter
+  `ended_at` och lämnar de förlängda datumen orörda: det som redan förlängts
+  ligger kvar. Kontot väljer spärren i **Default lifetime**-kortet på
+  profilsidan.
+- **Fail-open på mejlvägen.** En saknad tabell (`migrate_retention_holds.php`
+  har inte körts), ett saknat bibliotek eller ett uppslagsfel ger ingen spärr —
+  som mest en WARNING med `user_id` — och kan aldrig fördröja eller avvisa ett
+  mejl.
+- **Vid degradering.** När Pro tar slut (avsnitt 6.1) är ägaren inte längre Pro,
+  så `resolveExpiresAt()` slutar lägga på spärren: ny post får den vanliga
+  livslängden, och `address_ttl_days` sätts till 1 av degraderingen. Post som
+  redan förlängts behåller sitt datum och följer den ordinarie
+  degraderingsvägen — Sticky-adresserna och deras post raderas
+  `pro_expires_at + 7 dagar` enligt 6.1 punkt 4.
+
+Tabellen `retention_holds` skapas av `migrate_retention_holds.php` och har
+medvetet ingen främmande nyckel till `pro_users` (som `address_cooldowns`), så
+en spärr går att räkna även efter att kontot raderats; `check_retention_holds.php`
+rapporterar en sådan föräldralös rad i stället för att kaskadradera den.
+`tests/retention_hold_test.php` är regressionssviten.

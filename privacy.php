@@ -5,7 +5,8 @@
  *
  * Every data flow described here is one the code has, and the list has to be
  * kept in step with it: the account address (encrypted at rest, pii_crypto.php),
- * received mail and its retention (cron/cleanup.php, MailboxQuota), system logs
+ * received mail and its retention (cron/cleanup.php, MailboxQuota, and the
+ * retention hold a Pro account may start — retention_hold.php), system logs
  * with IP addresses (LOG_RETENTION_DAYS), removed personal addresses on the
  * cool-off list (address_cooldown.php, ADDRESS_COOLDOWN_MONTHS), the hashed trial claim
  * (pro_trial.php, five years), the Paddle mirror tables (paddle_sync.php), the
@@ -82,6 +83,7 @@ $msLegalDoc = [
             'html'    => '<ul>'
                 . '<li><strong>Timed addresses and their mail</strong> — ' . $f['free_hours'] . ' hours on a free account, or the 1 to 7 days you choose on Pro. Then they are deleted automatically.</li>'
                 . '<li><strong>Sticky addresses</strong> — until you remove them, or 7 days after your Pro plan ends. Their mail is deleted with them.</li>'
+                . '<li><strong>Mail you choose to keep longer</strong> — a Pro account can hold back the clean-up of its sticky addresses\' mail: up to ' . $f['hold_max'] . ' times a year, a hold extends that mail to ' . $f['hold_days'] . ' days from the day it arrived. Ending a hold early leaves the mail that was already extended in place, and a timed address always expires on its own schedule. The storage limit below still applies.</li>'
                 . '<li><strong>Any mail, before it would otherwise expire</strong> — a storage quota applies to your account (or to each address, if it is not linked to an account): ' . $f['quota_free_mb'] . ' MB on a free account and ' . $f['quota_pro_mb'] . ' MB on Pro, with the Pro figure also during the trial. When it is full, the oldest mail in that scope is deleted to make room, whichever address it is in. The quota is read when a message arrives, so an account that drops to free (a plan or a trial ending) is trimmed, oldest first, as new mail comes in.</li>'
                 . '<li><strong>Removed sticky addresses</strong> — the address itself (not its mail) is kept on a reserved list for ' . $f['cooldown_months'] . ' months after it is removed, linked to your account number, so nobody else can take it over and receive mail meant for you. This also applies after your account is deleted.</li>'
                 . '<li><strong>Your account</strong> — until you delete it. A free Regular account nobody signs in to for ' . $f['delete_days'] . ' days is deleted, after an email warning.</li>'

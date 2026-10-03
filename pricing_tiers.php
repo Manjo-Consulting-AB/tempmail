@@ -31,9 +31,16 @@
 
 if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 
+// The retention-hold bullet's two numbers come from $config (epic #369), never
+// written into the string. The fallbacks match config.php's defaults and only
+// apply when this file is loaded without config.php.
+$holdDays = max(1, (int) ($config['retention_hold']['days'] ?? 30));
+$holdMax  = max(1, (int) ($config['retention_hold']['max_per_year'] ?? 4));
+
 $proFeatures = [
     'Up to 10 sticky addresses',
     'Timed address lifetime configurable from 1 to 7 days',
+    'Keep mail for ' . $holdDays . ' days, up to ' . $holdMax . ' times a year',
     'RSS, webhooks, Pushover and digest emails',
     'External mailboxes and the Agent',
     'Priority support',
