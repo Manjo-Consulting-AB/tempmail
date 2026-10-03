@@ -12,6 +12,14 @@ if (!defined('TEMPMAIL_APP')) {
 @require_once __DIR__ . '/StorageResult.php';
 @require_once __DIR__ . '/AttachmentStorage.php';
 
+// The retention-hold library (epic #369, step 3/5) lives at the repository root.
+// Loaded when it is there and skipped when it is not, so the service — and a
+// deploy where the file has not shipped — keeps storing mail exactly as before.
+// The hold lookup itself is fail-open too; see activeRetentionHoldDays().
+if (is_file(dirname(__DIR__) . '/retention_hold.php')) {
+    require_once dirname(__DIR__) . '/retention_hold.php';
+}
+
 /**
  * The single internal Email Storage service (epic #169, step 3/10, #191).
  *
@@ -116,6 +124,12 @@ final class EmailStorage
      * hasMessageIdColumn()). `null` means "not asked yet".
      */
     private ?bool $hasMessageIdColumn = null;
+
+    /**
+     * Whether `pro_users.account_type` exists, probed once per instance (see
+     * hasAccountTypeColumn()). `null` means "not asked yet".
+     */
+    private ?bool $hasAccountTypeColumn = null;
 
     public function __construct(PDO $pdo, bool $debug = false)
     {
@@ -502,13 +516,16 @@ final class EmailStorage
     /**
      * The `temp_emails` row for a recipient, or null when there is none.
      *
-     * @return ?array{id: mixed, expires_at: mixed, pro_user_id: mixed}
+     * `is_personal` rides along for the retention-hold extension (#369): only a
+     * Sticky address' mail is extended while its owner holds.
+     *
+     * @return ?array{id: mixed, expires_at: mixed, pro_user_id: mixed, is_personal: mixed}
      * @throws \Throwable when the lookup itself fails, so the caller can tell
      *         "no such address" (a verdict) from "the database is unusable".
      */
     private function resolveOwnership(string $localPart): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT id, expires_at, pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT id, expires_at, pro_user_id, is_personal FROM temp_emails WHERE unique_address = ? LIMIT 1');
         $stmt->execute([$localPart]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -520,13 +537,33 @@ final class EmailStorage
      * computed it: a Pro-owned address gets `pro_users.address_ttl_days` counted
      * from the message's own `received_at`; otherwise the address' own expiry.
      * A failed TTL lookup falls back rather than failing the store, as before.
+     *
+     * Since epic #369 step 3/5 a **Sticky** address whose owner is still Pro and
+     * has an active retention hold is instead retained for
+     * `received_at + max(address_ttl_days, hold days)`. The hold can only
+     * lengthen the window, never shorten it, and every other case — a Timed
+     * address, an anonymous address, a lapsed owner, no hold, no table — keeps
+     * the behaviour above byte for byte.
      */
     private function resolveExpiresAt(IncomingEmail $email, ?array $ownership, ?int $proUserId): ?DateTimeImmutable
     {
         if ($proUserId !== null) {
             $ttlDays = $this->proAddressTtlDays($proUserId);
             if ($ttlDays !== null) {
-                return $email->receivedAt->modify('+' . max(1, min(self::MAX_RETENTION_DAYS, $ttlDays)) . ' days');
+                $retentionDays = max(1, min(self::MAX_RETENTION_DAYS, $ttlDays));
+
+                // Checked in this order so no query is spent when it cannot
+                // matter: the Sticky test is free, the entitlement and the hold
+                // are one lookup each and only for a Sticky address of an owner
+                // who is still Pro.
+                if ($this->isStickyAddress($ownership) && $this->ownerIsPro($proUserId)) {
+                    $holdDays = $this->activeRetentionHoldDays($proUserId);
+                    if ($holdDays !== null) {
+                        $retentionDays = max($retentionDays, min(self::MAX_RETENTION_DAYS, $holdDays));
+                    }
+                }
+
+                return $email->receivedAt->modify('+' . $retentionDays . ' days');
             }
         }
 
@@ -539,6 +576,95 @@ final class EmailStorage
         }
 
         return $email->expiresAt;
+    }
+
+    /** Whether the resolved address row is a Sticky (personal) address. */
+    private function isStickyAddress(?array $ownership): bool
+    {
+        return $ownership !== null && (int)($ownership['is_personal'] ?? 0) === 1;
+    }
+
+    /**
+     * Whether the address' owner is entitled to Pro, by the same rule as
+     * `proUserIsPro()` in config.php: `account_type = 'pro'` **and**
+     * `pro_expires_at` NULL or in the future, falling back to the expiry alone
+     * while `migrate_account_types.php` has not added the column. Decided on
+     * this service's own connection rather than that helper's global, and
+     * fail-closed the same way: an error or a missing row means "not Pro".
+     */
+    private function ownerIsPro(int $proUserId): bool
+    {
+        try {
+            if ($this->hasAccountTypeColumn()) {
+                $stmt = $this->pdo->prepare('SELECT account_type, pro_expires_at FROM pro_users WHERE id = ? LIMIT 1');
+                $stmt->execute([$proUserId]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!is_array($row)) {
+                    return false;
+                }
+
+                return $row['account_type'] === 'pro'
+                    && ($row['pro_expires_at'] === null || strtotime((string)$row['pro_expires_at']) >= time());
+            }
+
+            $stmt = $this->pdo->prepare('SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1');
+            $stmt->execute([$proUserId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($row)) {
+                return false;
+            }
+
+            return $row['pro_expires_at'] === null || strtotime((string)$row['pro_expires_at']) >= time();
+        } catch (\Throwable $e) {
+            $this->log('WARNING', 'EmailStorage could not read the Pro entitlement', ['pro_user_id' => $proUserId, 'error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
+     * Whether `pro_users.account_type` exists yet, probed once per instance the
+     * same way hasMessageIdColumn() probes its own column: a zero-row SELECT
+     * that answers on MySQL and SQLite alike. Only decides which branch of
+     * ownerIsPro() runs.
+     */
+    private function hasAccountTypeColumn(): bool
+    {
+        if ($this->hasAccountTypeColumn !== null) {
+            return $this->hasAccountTypeColumn;
+        }
+
+        try {
+            $this->pdo->query('SELECT account_type FROM pro_users LIMIT 0');
+            $this->hasAccountTypeColumn = true;
+        } catch (\Throwable $e) {
+            $this->hasAccountTypeColumn = false;
+        }
+
+        return $this->hasAccountTypeColumn;
+    }
+
+    /**
+     * The length of the owner's active retention hold, or null when there is
+     * none — and for every reason there might not be one: no hold, the table
+     * missing (`migrate_retention_holds.php` has not run), the library not
+     * loaded, or the lookup itself failing. Fail-open, because this runs on the
+     * mail path: a hold lookup may never fail, delay or reject a store, and at
+     * worst logs a WARNING naming the account.
+     */
+    private function activeRetentionHoldDays(int $proUserId): ?int
+    {
+        if (!function_exists('retentionHoldDaysFor')) {
+            return null;
+        }
+
+        try {
+            $days = retentionHoldDaysFor($this->pdo, $proUserId);
+        } catch (\Throwable $e) {
+            $this->log('WARNING', 'EmailStorage could not read the retention hold', ['pro_user_id' => $proUserId, 'error' => $e->getMessage()]);
+            return null;
+        }
+
+        return is_int($days) && $days > 0 ? $days : null;
     }
 
     /**

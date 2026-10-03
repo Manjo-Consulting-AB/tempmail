@@ -58,6 +58,14 @@ require __DIR__ . '/lib/email_storage_harness.php';
 $msRepoAttachmentsBefore = ms_test_storage_files($msRepoRoot);
 
 $msProbe = ms_test_storage_probe_build($msRepoRoot);
+
+// The retention-hold library (epic #369, step 3/5) sits at the repository root
+// and EmailStorage loads it through dirname(__DIR__). Stage it beside the probe
+// copies — the same way the harness stages the service itself — so both this
+// process and parse.php's subprocess resolve the same file.
+if (!copy($msRepoRoot . '/retention_hold.php', $msProbe . '/retention_hold.php')) {
+    throw new RuntimeException('Could not copy retention_hold.php into the storage probe docroot');
+}
 $msSqlite = ms_test_storage_sqlite($msProbe);
 
 // Global scope on purpose: the stub config.php's $config/$pdo have to land in
@@ -72,6 +80,20 @@ require $msProbe . '/config.php';
 // shipped SQL expects. Assigning it to $pdo is what points the globals above at
 // this connection, as the Pushover suite does.
 $pdo = ms_test_storage_db($msSqlite);
+
+// retention_holds (migrate_retention_holds.php, epic #369), translated to
+// SQLite. The shared harness schema predates the table, so the suite that
+// exercises the hold brings it — created here, in the same database the
+// service and parse.php's subprocess both open.
+$pdo->exec(<<<'SQL'
+CREATE TABLE retention_holds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pro_user_id INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    ended_at TEXT NULL
+);
+SQL);
 
 // The classes under test are the probe docroot's copies: EmailStorage resolves
 // attachments/ from its own __DIR__, so loading the repository's own class would
@@ -931,6 +953,98 @@ $msTierDefaultsAddress = ms_test_seed_address($pdo, $msTierDefaultsLocal, ['pro_
 $msTierDefaultsDeleted = $msTierRun(new MailboxQuota($pdo, $msQuotaAttachments, 0, 0), $msTierDefaultsLocal, $msTierDefaultsAddress, null, $msQuotaReceived);
 
 ms_test_same('7b30. a nonsensical (0-byte) configuration falls back to the shipped limits', 0, $msTierDefaultsDeleted);
+
+// ---------------------------------------------------------------------
+// 7c. Retention hold (#369, step 3/5)
+// ---------------------------------------------------------------------
+
+ms_test_section('7c. Retention hold extends new Sticky mail (#369, step 3/5)');
+
+/**
+ * Store one fixture for $localPart at $receivedAt and return
+ * [StorageResult, stored row]. Every hold case goes through the real store()
+ * path, so what the row receives is what the service decided.
+ *
+ * @return array{0: StorageResult, 1: array<string,mixed>}
+ */
+$msHoldStore = static function (string $localPart, DateTimeImmutable $receivedAt) use ($msStorage, $msAddress, $pdo): array {
+    $result = $msStorage->store(ms_test_incoming([
+        'toAddress' => $msAddress($localPart),
+        'receivedAt' => $receivedAt,
+        'subject' => 'Hold fixture',
+    ]));
+    $row = $result->storedEmailId !== null ? (ms_test_stored_email($pdo, (int) $result->storedEmailId) ?? []) : [];
+
+    return [$result, $row];
+};
+
+/** Whole days between a stored row's received_at and expires_at. */
+$msHoldWindow = static function (array $row): ?int {
+    $from = strtotime((string) ($row['received_at'] ?? ''));
+    $to = strtotime((string) ($row['expires_at'] ?? ''));
+    return ($from === false || $to === false) ? null : (int) round(($to - $from) / 86400);
+};
+
+$msHoldReceived = new DateTimeImmutable('2026-09-25 08:00:00');
+$msHoldNow = new DateTimeImmutable('now');
+$msHoldInsert = $pdo->prepare('INSERT INTO retention_holds (pro_user_id, started_at, ends_at, ended_at) VALUES (?, ?, ?, ?)');
+$msHoldAt = static fn(DateTimeImmutable $when): string => $when->format('Y-m-d H:i:s');
+
+// A Pro account with an active hold and a Sticky address: the hold's 30 days
+// beat the account's 3-day TTL, so the message is retained for the hold window.
+$msHoldProUser = ms_test_seed_user($pdo, 'hold-pro@example.com', 'pro');
+ms_test_set_ttl($pdo, $msHoldProUser, 3);
+ms_test_seed_address($pdo, 'hold0001', ['pro_user_id' => $msHoldProUser, 'is_personal' => 1]);
+$msHoldInsert->execute([$msHoldProUser, $msHoldAt($msHoldNow), $msHoldAt($msHoldNow->modify('+30 days')), null]);
+
+[$msHoldResult, $msHoldStored] = $msHoldStore('hold0001', $msHoldReceived);
+ms_test_check('7c1. the message is stored during a hold', $msHoldResult->isStored() && $msHoldStored !== [], 'status=' . $msHoldResult->status);
+ms_test_same('7c2. an active hold retains new Sticky mail for the hold window', 30, $msHoldWindow($msHoldStored));
+
+// The same shape with no hold row at all: exactly the old behaviour.
+$msHoldPlainUser = ms_test_seed_user($pdo, 'hold-plain@example.com', 'pro');
+ms_test_set_ttl($pdo, $msHoldPlainUser, 3);
+ms_test_seed_address($pdo, 'hold0002', ['pro_user_id' => $msHoldPlainUser, 'is_personal' => 1]);
+
+[, $msHoldStored] = $msHoldStore('hold0002', $msHoldReceived);
+ms_test_same('7c3. without a hold the Pro window is unchanged', 3, $msHoldWindow($msHoldStored));
+
+// A hold that has ended early, and one whose window has passed: neither is
+// active, so both leave the plain TTL in place.
+$msHoldStaleUser = ms_test_seed_user($pdo, 'hold-stale@example.com', 'pro');
+ms_test_set_ttl($pdo, $msHoldStaleUser, 3);
+ms_test_seed_address($pdo, 'hold0003', ['pro_user_id' => $msHoldStaleUser, 'is_personal' => 1]);
+$msHoldInsert->execute([$msHoldStaleUser, $msHoldAt($msHoldNow), $msHoldAt($msHoldNow->modify('+30 days')), $msHoldAt($msHoldNow)]);
+$msHoldInsert->execute([$msHoldStaleUser, $msHoldAt($msHoldNow->modify('-60 days')), $msHoldAt($msHoldNow->modify('-30 days')), null]);
+
+[, $msHoldStored] = $msHoldStore('hold0003', $msHoldReceived);
+ms_test_same('7c4. a hold ended early or expired is no hold at all', 3, $msHoldWindow($msHoldStored));
+
+// A Timed address of a holding account is not extended: the hold covers Sticky
+// mail only.
+ms_test_seed_address($pdo, 'hold0004', ['pro_user_id' => $msHoldProUser, 'is_personal' => 0]);
+
+[, $msHoldStored] = $msHoldStore('hold0004', $msHoldReceived);
+ms_test_same('7c5. a Timed address is untouched by its owner\'s hold', 3, $msHoldWindow($msHoldStored));
+
+// An owner who has dropped to Regular keeps an active hold row, but no longer
+// qualifies: the extension needs a Pro owner.
+$msHoldRegularUser = ms_test_seed_user($pdo, 'hold-regular@example.com', 'regular');
+ms_test_set_ttl($pdo, $msHoldRegularUser, 3);
+ms_test_seed_address($pdo, 'hold0005', ['pro_user_id' => $msHoldRegularUser, 'is_personal' => 1]);
+$msHoldInsert->execute([$msHoldRegularUser, $msHoldAt($msHoldNow), $msHoldAt($msHoldNow->modify('+30 days')), null]);
+
+[, $msHoldStored] = $msHoldStore('hold0005', $msHoldReceived);
+ms_test_same('7c6. a lapsed owner keeps the plain window despite the hold row', 3, $msHoldWindow($msHoldStored));
+
+// The table absent (`migrate_retention_holds.php` has not run): the hold lookup
+// fails open, so the message is stored with the normal TTL exactly as before.
+ms_test_seed_address($pdo, 'hold0006', ['pro_user_id' => $msHoldProUser, 'is_personal' => 1]);
+$pdo->exec('DROP TABLE retention_holds');
+
+[$msHoldResult, $msHoldStored] = $msHoldStore('hold0006', $msHoldReceived);
+ms_test_check('7c7. with the table dropped the message is still stored', $msHoldResult->isStored() && $msHoldStored !== [], 'status=' . $msHoldResult->status);
+ms_test_same('7c8. and it keeps the plain Pro window', 3, $msHoldWindow($msHoldStored));
 
 // ---------------------------------------------------------------------
 // 9. DirectAdmin pipe adapter (parse.php)
