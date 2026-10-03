@@ -20,6 +20,10 @@
  *                                     quota is 10 per account
  *   lifetime 1 to 7 days on Pro       index.php `case 'generate'` clamps
  *                                     address_ttl_days to that range
+ *   keep mail for N days, N times a year  retention_hold.php — a Pro account's
+ *                                     retention hold on its Sticky addresses'
+ *                                     mail (epic #369); both numbers come from
+ *                                     $config['retention_hold'], never the copy
  *   RSS, webhooks, Pushover, digests  pro_feed.php, ImapProcessor::dispatchWebhooks(),
  *                                     the Pushover webhook kind, cron/send-digests.php
  *   the Agent                         the Client Agent subsystem (client/agent/)
@@ -77,6 +81,12 @@ $msPlansQuotaPro  = (int) round(((int) ($config['email']['quota_bytes_pro'] ?? 1
 $msPlansQuotaRatio = ($msPlansQuotaFree > 0 && $msPlansQuotaPro > $msPlansQuotaFree && $msPlansQuotaPro % $msPlansQuotaFree === 0)
     ? (int) ($msPlansQuotaPro / $msPlansQuotaFree) : 0;
 
+// The retention hold (epic #369), read the way legal_facts.php reads it: a Pro
+// account may keep the mail on its sticky addresses for this many days, this
+// many times a year. Both numbers come from $config, never the copy.
+$msPlansHoldDays = max(1, (int) ($config['retention_hold']['days'] ?? 30));
+$msPlansHoldMax  = max(1, (int) ($config['retention_hold']['max_per_year'] ?? 4));
+
 // The MCP bullet names the sign-in only while OAuth discovery is on, like the
 // AI assistants card in automation.php; index.php sets $msMcpSignIn.
 $msPlansMcpText = !empty($msMcpSignIn)
@@ -120,6 +130,7 @@ $msPlansMcpText = !empty($msMcpSignIn)
                 <ul class="ms-plans__list">
                     <li>Up to 10 sticky addresses</li>
                     <li>Timed address lifetime configurable from 1 to 7 days</li>
+                    <li>Keep mail for <?php echo $msPlansHoldDays; ?> days, up to <?php echo $msPlansHoldMax; ?> times a year</li>
                     <li><?php echo $msPlansQuotaPro; ?> MB of mail storage<?php echo $msPlansQuotaRatio > 1 ? ' &mdash; ' . $msPlansQuotaRatio . '&times; Free' : ''; ?></li>
                     <li>Incoming mail is cleaned up automatically according to your retention settings</li>
                     <li><?php echo $msPlansMcpText; ?></li>

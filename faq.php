@@ -88,6 +88,12 @@ $msMcpSignIn = oauthDiscoveryEnabled($pdo);
 // pre-trial wording and the trial question is left out.
 $msT = max(0, (int) ($config['trial']['days'] ?? 0));
 
+// The retention hold (epic #369): a Pro account may keep the mail on its
+// sticky addresses for this many days, this many times a year. Both numbers
+// are read from $config, never written into copy.
+$msHoldDays = max(1, (int) ($config['retention_hold']['days'] ?? 30));
+$msHoldMax  = max(1, (int) ($config['retention_hold']['max_per_year'] ?? 4));
+
 // The AI-assistant answer, in whichever of its two forms matches the switch
 // (#331, step 6). Both are Pro-only, both stop at the tool list brief §9
 // carries, and neither names a price or a date; the sign-in one is shown only
@@ -193,8 +199,16 @@ HTML,
 <li>Choose how long new timed addresses last, from 1 to 7 days.</li>
 <li>Create, review and delete up to 10 sticky addresses.</li>
 <li>Turn two-factor authentication on or off, and manage trusted browsers.</li>
+<li>Keep mail for {$msHoldDays} days, up to {$msHoldMax} times a year.</li>
 <li>Configure automation: RSS, webhooks and digest emails.</li>
 </ul>
+HTML,
+            ],
+            [
+                'q' => 'Can I keep my mail longer?',
+                'a' => <<<HTML
+<p>Yes, on Pro. Up to {$msHoldMax} times a year you can hold back the clean-up: mail on your sticky addresses that would otherwise be deleted is kept for {$msHoldDays} days from the day it arrived, instead of the usual 1 to 7. Start a hold by choosing {$msHoldDays} days under <strong>Profile &rarr; Default lifetime</strong>.</p>
+<p>Ending a hold early leaves the mail that was already extended in place. Timed addresses are not affected — they still expire on schedule and take their messages with them. Your mailbox storage limit still applies, and when it is reached the oldest mail is removed first.</p>
 HTML,
             ],
         ],

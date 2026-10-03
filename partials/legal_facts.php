@@ -5,9 +5,10 @@
  * company, contact address and retention numbers instead of each typing them.
  *
  * Everything that is configured is read from $config, never written into copy:
- * the mail domain, the origin, the Pro trial length and the two mailbox quotas
+ * the mail domain, the origin, the Pro trial length, the two mailbox quotas
  * (Free and Pro, #340 — the trial counts as Pro through proUserIsPro(), so it
- * gets the Pro figure). The
+ * gets the Pro figure) and the retention hold (epic #369: how long one hold
+ * lasts and how many a Pro account may start in a year). The
  * retention numbers that are not configurable are the ones the code enforces:
  * 24 hours for a free temporary address (config app.cleanup_hours), 1–7 days on
  * Pro, a 7-day grace before a lapsed Pro account's personal addresses go
@@ -62,6 +63,10 @@ return [
     'warn_days'    => (int) ($config['cleanup']['regular_inactivity_warn_days'] ?? 335),
     'delete_days'  => (int) ($config['cleanup']['regular_inactivity_days'] ?? 365),
     'cooldown_months' => (int) ($config['address_cooldown']['months'] ?? 6),
+    // The retention hold (epic #369): how long a hold extends a Sticky
+    // address' mail, and how many holds a Pro account may start in a year.
+    'hold_days'    => max(1, (int) ($config['retention_hold']['days'] ?? 30)),
+    'hold_max'     => max(1, (int) ($config['retention_hold']['max_per_year'] ?? 4)),
     // Connected apps (#331): a grant lives while its refresh token does, an
     // authorization code is good for a minute, and an unused registered client
     // is swept after a month. See the note above.
