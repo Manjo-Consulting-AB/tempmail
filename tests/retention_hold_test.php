@@ -253,4 +253,103 @@ $GLOBALS['config'] = ['retention_hold' => ['days' => 7, 'max_per_year' => 2]];
 ms_test_same('F2. settings follow $config', [7, 2], retentionHoldSettings());
 $GLOBALS['config'] = $cfgBackup;
 
+// =====================================================================
+ms_test_section('G. pro_profile.php actions through the probe docroot');
+// =====================================================================
+
+$msProbe = ms_test_probe_build($msRepoRoot);
+$msSqlite = ms_test_probe_sqlite($msProbe);
+$pdo = ms_test_db($msSqlite);
+// The start path extends stored_emails through temp_emails, so both the
+// storage tables and the hold table have to exist for the subprocess.
+$pdo->exec(ms_test_storage_extra_schema());
+
+$msAction = function (string $action, array $fields, int $userId, $origin = '__default') use ($msProbe): array {
+    $request = [
+        'page' => 'pro_profile.php',
+        'method' => 'POST',
+        'user_id' => $userId,
+        'user_email' => 'user' . $userId . '@example.com',
+        'post' => array_merge(['action' => $action], $fields),
+    ];
+    if ($origin !== '__default') {
+        $request['origin'] = $origin;
+    }
+    return ms_test_request($msProbe, $request);
+};
+
+$proUser = ms_test_seed_user($pdo, 'pro@example.com', 'pro');
+$regUser = ms_test_seed_user($pdo, 'reg@example.com', 'regular');
+
+// --- Before the migration: the feature reports itself unavailable ------
+
+$res = $msAction('retention_hold_status', [], $proUser);
+ms_test_no_php_errors('G1. status without the table raises no PHP error', $res);
+$json = ms_test_json('G2. status without the table answers JSON', $res);
+ms_test_same('G3. ... with available false', false, $json['status']['available'] ?? null);
+ms_test_same('G4. ... and the account\'s Pro flag beside it', true, $json['status']['is_pro'] ?? null);
+
+$json = ms_test_json('G5. start without the table answers JSON', $msAction('retention_hold_start', [], $proUser));
+ms_test_same('G6. start without the table is refused cleanly', false, $json['success'] ?? null);
+
+// --- With the table in place -------------------------------------------
+
+$pdo->exec(ms_rh_schema());
+
+$stickyId = ms_test_seed_address($pdo, 'pro.box', ['pro_user_id' => $proUser, 'is_personal' => 1]);
+$receivedAt = date('Y-m-d H:i:s', time() - 86400);
+$expiringId = ms_rh_seed_message($pdo, $stickyId, $receivedAt, date('Y-m-d H:i:s', time() + 86400));
+
+$res = $msAction('retention_hold_start', [], $proUser);
+ms_test_no_php_errors('G7. start as Pro raises no PHP error', $res);
+$json = ms_test_json('G8. start as Pro answers JSON', $res);
+ms_test_same('G9. start as Pro succeeds', true, $json['success'] ?? null);
+ms_test_same('G10. ... reports one hold used', 1, $json['status']['used'] ?? null);
+ms_test_same('G11. ... reports an active hold', true, ($json['status']['active'] ?? null) !== null);
+ms_test_check('G12. ... and an ISO ends_at for the browser',
+    is_string($json['status']['active']['ends_at'] ?? null)
+        && str_contains((string) $json['status']['active']['ends_at'], 'T'));
+ms_test_same('G13. ... extending the message that would expire', 1, $json['extended'] ?? null);
+ms_test_same('G14. ... to received_at + 30 days',
+    (new DateTimeImmutable($receivedAt))->modify('+30 days')->format('Y-m-d H:i:s'),
+    ms_rh_expiry($pdo, $expiringId));
+
+$json = ms_test_json('G15. a second start answers JSON', $msAction('retention_hold_start', [], $proUser));
+ms_test_same('G16. a second start while active is refused', false, $json['success'] ?? null);
+ms_test_same('G17. ... with the library\'s own message', 'A hold is already active', $json['error'] ?? null);
+
+$json = ms_test_json('G18. get_ttl answers JSON', $msAction('get_ttl', [], $proUser));
+ms_test_same('G19. get_ttl carries the same status', true, ($json['retention']['active'] ?? null) !== null);
+ms_test_same('G20. ... and the Pro flag', true, $json['retention']['is_pro'] ?? null);
+
+$json = ms_test_json('G21. status as Pro answers JSON', $msAction('retention_hold_status', [], $proUser));
+ms_test_same('G22. the status action reports the active hold', true, ($json['status']['active'] ?? null) !== null);
+
+// --- Pro gating: start needs it, end does not --------------------------
+
+$json = ms_test_json('G23. start as Regular answers JSON', $msAction('retention_hold_start', [], $regUser));
+ms_test_same('G24. start as Regular is refused', false, $json['success'] ?? null);
+ms_test_same('G25. ... as a Pro-required answer', true, $json['pro_required'] ?? null);
+ms_test_same('G26. ... and wrote no row', 0, (int) $pdo->query('SELECT COUNT(*) FROM retention_holds WHERE pro_user_id = ' . $regUser)->fetchColumn());
+
+ms_rh_insert_hold($pdo, $regUser, date('Y-m-d H:i:s'), 30);
+$json = ms_test_json('G27. end as Regular answers JSON', $msAction('retention_hold_end', [], $regUser));
+ms_test_same('G28. ending a hold is allowed without Pro', true, $json['success'] ?? null);
+ms_test_same('G29. ... and clears the active hold', true,
+    array_key_exists('active', $json['status'] ?? []) && $json['status']['active'] === null);
+ms_test_same('G30. the row is ended, not deleted', 1, (int) $pdo->query('SELECT COUNT(*) FROM retention_holds WHERE pro_user_id = ' . $regUser . ' AND ended_at IS NOT NULL')->fetchColumn());
+
+$json = ms_test_json('G31. ending with no active hold answers JSON', $msAction('retention_hold_end', [], $regUser));
+ms_test_same('G32. ... and is refused with the library\'s message', 'No active hold', $json['error'] ?? null);
+
+// --- Cross-origin writes are refused -----------------------------------
+
+$json = ms_test_json('G33. a cross-origin start answers JSON', $msAction('retention_hold_start', [], $proUser, 'http://evil.example'));
+ms_test_same('G34. a cross-origin start is refused', 'Forbidden', $json['error'] ?? null);
+$json = ms_test_json('G35. a cross-origin end answers JSON', $msAction('retention_hold_end', [], $proUser, 'http://evil.example'));
+ms_test_same('G36. a cross-origin end is refused', 'Forbidden', $json['error'] ?? null);
+ms_test_same('G37. ... and the Pro account\'s hold is untouched', 1, (int) $pdo->query('SELECT COUNT(*) FROM retention_holds WHERE pro_user_id = ' . $proUser . ' AND ended_at IS NULL')->fetchColumn());
+
+ms_test_cleanup($msProbe);
+
 exit(ms_test_summary());

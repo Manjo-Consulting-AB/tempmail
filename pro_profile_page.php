@@ -239,11 +239,18 @@ $mcpDesktopConfig = '{
 
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Default lifetime</h3>
-                                <p class="ms-card__desc">How long a newly generated timed address and its mail stay alive (1-7 days).</p>
-                                <div class="d-flex align-items-center">
-                                    <select id="ttlSelect" class="form-select" style="width:120px;"></select>
+                                <?php $msHoldDays = (int)($config['retention_hold']['days'] ?? 30); $msHoldMax = (int)($config['retention_hold']['max_per_year'] ?? 4); ?>
+                                <p class="ms-card__desc">How long a newly generated timed address and its mail stay alive (1-7 days). Choose <?php echo $msHoldDays; ?> days to keep the mail on your sticky addresses for <?php echo $msHoldDays; ?> days, up to <?php echo $msHoldMax; ?> times a year.</p>
+                                <div class="d-flex align-items-center flex-wrap">
+                                    <select id="ttlSelect" class="form-select w-auto"></select>
                                     <div id="ttlMsg" style="margin-left:10px; color:#9ecbff;"></div>
+                                    <div id="ttlHoldConfirm" class="d-none ms-3">
+                                        <span id="ttlHoldConfirmText" class="text-muted me-2"></span>
+                                        <button type="button" id="ttlHoldStartBtn" class="btn btn-sm btn-primary me-1">Start</button>
+                                        <button type="button" id="ttlHoldCancelBtn" class="btn btn-sm btn-outline-secondary">Cancel</button>
+                                    </div>
                                 </div>
+                                <div id="ttlHoldNote" class="form-text text-muted mt-2 d-none"></div>
                                 <div id="ttlProNote" class="form-text text-muted d-none">Regular accounts use a fixed 24-hour address lifetime. Upgrade to Pro to choose 1-7 days.</div>
                             </div>
                         </section>
@@ -1810,34 +1817,169 @@ $mcpDesktopConfig = '{
                 }, 'json').fail(function(){ alert('Request failed'); }).always(function(){ $btn.prop('disabled', false); });
             });
 
-            // Load TTL (default lifetime) and populate selector
-            $.post('pro_profile.php', { action: 'get_ttl' }, function(res){
-                if (!res || !res.success) return;
-                var ttl = parseInt(res.ttl_days || 1, 10);
-                var $sel = $('#ttlSelect');
-                $sel.empty();
-                for (var i=1;i<=7;i++) {
-                    var opt = $('<option/>').attr('value', i).text(i + (i===1 ? ' day' : ' days'));
-                    if (i === ttl) opt.attr('selected', 'selected');
-                    $sel.append(opt);
+            // Load TTL (default lifetime) and populate selector. The answer
+            // carries the retention-hold status (#369 step 4/5) too, so the
+            // card needs no second request on load.
+            var ttlStoredDays = 1;   // address_ttl_days, as the server has it
+            var ttlSavedValue = '1'; // the value the select shows with nothing pending
+            var ttlHold = null;      // the last retention status the server sent
+            // The three feedback colours this handler has always written; the
+            // #ttlMsg rule in mailshield.css gives them a dark chip to sit on.
+            var TTL_MSG_COLOR = { idle: '#9ecbff', ok: '#fff', err: '#ff6b6b' };
+
+            function ttlSay(text, kind) {
+                var $msg = $('#ttlMsg').text(text).css('color', TTL_MSG_COLOR[kind || 'ok']);
+                if (kind === 'ok') {
+                    setTimeout(function(){ $msg.text('').css('color', TTL_MSG_COLOR.idle); }, 2000);
+                }
+            }
+
+            function ttlHoldDate(iso) {
+                if (!iso) return '';
+                var d = new Date(iso);
+                return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+            }
+
+            // Rebuild the option list: the stored 1-7 days, then the hold as one
+            // option below them. The hold option exists only for a Pro account
+            // on a database where the feature is available; its text and its
+            // two numbers all come from the status, never from literals here.
+            function renderTtlOptions(status) {
+                $('#ttlHoldConfirm').addClass('d-none');
+                var $sel = $('#ttlSelect').empty();
+                for (var i = 1; i <= 7; i++) {
+                    $sel.append($('<option/>').attr('value', i).text(i + (i === 1 ? ' day' : ' days')));
                 }
 
-                $('#ttlSelect').on('change', function(){
-                    var newTtl = parseInt($(this).val()||'1',10);
-                    var $msg = $('#ttlMsg');
-                    $msg.css('color', '#9ecbff').text('Saving...');
-                    var currentAddress = '';
-                    try { currentAddress = window.tempMailApp ? window.tempMailApp.currentAddress : ''; } catch(e) {}
-                    $.post('pro_profile.php', { action: 'update_ttl', ttl: newTtl, address: currentAddress }, function(resp){
-                        if (resp && resp.success) {
-                            $msg.css('color', '#fff').text('Saved');
-                            setTimeout(function(){ $msg.text('').css('color','#9ecbff'); }, 2000);
+                var $note = $('#ttlHoldNote').addClass('d-none').text('');
+                var hasHoldOption = false;
+                if (status && status.is_pro && status.available) {
+                    var used = parseInt(status.used, 10) || 0;
+                    var max = parseInt(status.max, 10) || 0;
+                    var days = parseInt(status.days, 10) || 0;
+                    if (days > 0 && max > 0) {
+                        var n, disabled = false;
+                        if (status.active) {
+                            n = used;
+                        } else if (used >= max) {
+                            n = max;
+                            disabled = true;
                         } else {
-                            $msg.css('color', '#ff6b6b').text(resp && resp.error ? resp.error : 'Error');
+                            n = used + 1;
                         }
-                    }, 'json').fail(function(){ $msg.css('color', '#ff6b6b').text('Request failed'); });
+                        var $hold = $('<option/>').attr('value', 'hold').text(days + ' days (' + n + '/' + max + ')');
+                        if (disabled) $hold.prop('disabled', true);
+                        $sel.append($hold);
+                        hasHoldOption = true;
+
+                        if (status.active && status.active.ends_at) {
+                            $note.text('Mail on your sticky addresses is kept until ' + ttlHoldDate(status.active.ends_at) + '.').removeClass('d-none');
+                        } else if (disabled) {
+                            var line = 'All ' + max + ' holds used this year.';
+                            if (status.next_available_at) line += ' Next one available ' + ttlHoldDate(status.next_available_at) + '.';
+                            $note.text(line).removeClass('d-none');
+                        }
+                    }
+                }
+
+                var showHold = !!(status && status.active && hasHoldOption);
+                $sel.val(showHold ? 'hold' : String(ttlStoredDays));
+                ttlSavedValue = showHold ? 'hold' : String(ttlStoredDays);
+            }
+
+            function saveTtl(newTtl, successNote) {
+                var currentAddress = '';
+                try { currentAddress = window.tempMailApp ? window.tempMailApp.currentAddress : ''; } catch(e) {}
+                $.post('pro_profile.php', { action: 'update_ttl', ttl: newTtl, address: currentAddress }, function(resp){
+                    if (resp && resp.success) {
+                        ttlStoredDays = newTtl;
+                        renderTtlOptions(ttlHold);
+                        ttlSay(successNote || 'Saved', 'ok');
+                    } else {
+                        renderTtlOptions(ttlHold);
+                        ttlSay(resp && resp.error ? resp.error : 'Error', 'err');
+                    }
+                }, 'json').fail(function(){
+                    renderTtlOptions(ttlHold);
+                    ttlSay('Request failed', 'err');
                 });
+            }
+
+            $.post('pro_profile.php', { action: 'get_ttl' }, function(res){
+                if (!res || !res.success) return;
+                ttlStoredDays = parseInt(res.ttl_days || 1, 10);
+                ttlHold = res.retention || null;
+                renderTtlOptions(ttlHold);
             }, 'json');
+
+            $('#ttlSelect').on('change', function(){
+                var value = String($(this).val() || '');
+                $('#ttlHoldConfirm').addClass('d-none');
+
+                if (value === 'hold') {
+                    // Inline confirmation, no browser dialog. The option is only
+                    // offered when the status allows it, so this is a guard, not
+                    // a check the user can normally trip.
+                    var used = ttlHold ? (parseInt(ttlHold.used, 10) || 0) : 0;
+                    var max = ttlHold ? (parseInt(ttlHold.max, 10) || 0) : 0;
+                    if (!ttlHold || !ttlHold.is_pro || !ttlHold.available || (!ttlHold.active && used >= max)) {
+                        $(this).val(ttlSavedValue);
+                        return;
+                    }
+                    $('#ttlHoldConfirmText').text('This uses hold ' + (ttlHold.active ? used : used + 1) + ' of ' + max + '.');
+                    $('#ttlHoldConfirm').removeClass('d-none');
+                    return;
+                }
+
+                var newTtl = parseInt(value, 10);
+                if (!(newTtl >= 1 && newTtl <= 7)) {
+                    $(this).val(ttlSavedValue);
+                    return;
+                }
+
+                if (ttlHold && ttlHold.active) {
+                    ttlSay('Ending hold...', 'idle');
+                    $.post('pro_profile.php', { action: 'retention_hold_end' }, function(res){
+                        if (!res || !res.success) {
+                            ttlSay(res && res.error ? res.error : 'Error', 'err');
+                            $('#ttlSelect').val(ttlSavedValue);
+                            return;
+                        }
+                        ttlHold = res.status || ttlHold;
+                        saveTtl(newTtl, 'Hold ended. Mail already kept keeps its date.');
+                    }, 'json').fail(function(){
+                        ttlSay('Request failed', 'err');
+                        $('#ttlSelect').val(ttlSavedValue);
+                    });
+                    return;
+                }
+
+                saveTtl(newTtl);
+            });
+
+            $('#ttlHoldStartBtn').on('click', function(){
+                $('#ttlHoldConfirm').addClass('d-none');
+                var $btn = $(this).prop('disabled', true);
+                ttlSay('Starting hold...', 'idle');
+                $.post('pro_profile.php', { action: 'retention_hold_start' }, function(res){
+                    if (!res || !res.success) {
+                        ttlSay(res && res.error ? res.error : 'Error', 'err');
+                        $('#ttlSelect').val(ttlSavedValue);
+                        return;
+                    }
+                    ttlHold = res.status || ttlHold;
+                    renderTtlOptions(ttlHold);
+                    ttlSay('Hold started', 'ok');
+                }, 'json').fail(function(){
+                    ttlSay('Request failed', 'err');
+                    $('#ttlSelect').val(ttlSavedValue);
+                }).always(function(){ $btn.prop('disabled', false); });
+            });
+
+            $('#ttlHoldCancelBtn').on('click', function(){
+                $('#ttlHoldConfirm').addClass('d-none');
+                $('#ttlSelect').val(ttlSavedValue);
+            });
 
             // Webhooks: load and manage
             function renderWebhooks(items) {

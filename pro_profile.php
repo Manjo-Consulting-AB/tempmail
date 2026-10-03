@@ -7,6 +7,10 @@ require_once __DIR__ . '/client/backend/bootstrap.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
 require_once __DIR__ . '/php_imap_processor.php';
 require_once __DIR__ . '/feed_token.php';
+// Retention holds (#369 step 4/5): the "30 days (n/4)" option in the Default
+// lifetime card. The library reads no session and echoes nothing, so loading
+// it here is safe.
+require_once __DIR__ . '/retention_hold.php';
 // Pulls in redeemVoucherForEmail() for the upgrade_with_voucher action below.
 // pro_auth.php guards its actual HTTP endpoints behind
 // `if (realpath($_SERVER['SCRIPT_FILENAME']) === realpath(__FILE__)):` — since
@@ -56,6 +60,7 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 // predate this gate and are kept; they are now redundant but harmless.
 $proProfileReadOnlyActions = [
     'get_ttl',
+    'retention_hold_status',
     'get_profile',
     'get_digest_settings',
     'totp_status',
@@ -119,6 +124,40 @@ function require_pro(int $userId): void {
     }
 }
 
+/**
+ * The retention-hold status (#369 step 4/5) as the Default lifetime card's
+ * script consumes it: retentionHoldStatus() itself — one source of truth —
+ * with the two server-local timestamps converted to ISO 8601 so the browser
+ * can format them, plus is_pro, which decides whether the "30 days" option may
+ * be offered at all. Fail-soft: a database error reads as the feature being
+ * unavailable rather than breaking the whole get_ttl answer.
+ */
+function proProfileRetentionStatus(int $userId): array {
+    global $pdo;
+    try {
+        $status = retentionHoldStatus($pdo, $userId);
+    } catch (Throwable $e) {
+        logMessage('WARNING', 'Failed reading retention-hold status', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        [$days, $max] = retentionHoldSettings();
+        $status = ['available' => false, 'active' => null, 'used' => 0, 'max' => $max, 'days' => $days, 'next_available_at' => null];
+    }
+
+    $toIso = static function ($value) {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+        $ts = strtotime($value);
+        return $ts === false ? null : date('c', $ts);
+    };
+    if (is_array($status['active'])) {
+        $status['active']['started_at'] = $toIso($status['active']['started_at'] ?? null);
+        $status['active']['ends_at'] = $toIso($status['active']['ends_at'] ?? null);
+    }
+    $status['next_available_at'] = $toIso($status['next_available_at']);
+    $status['is_pro'] = proUserIsPro($userId);
+    return $status;
+}
+
 // Is the per-hook address routing schema in place? (epic #251)
 //
 // True only when all three objects migrate_webhook_addresses.php adds exist, so
@@ -176,7 +215,9 @@ try {
             $stmt->execute([$userId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             $ttl = $row['ttl_days'] ?? 1;
-            send_json(['success' => true, 'ttl_days' => (int)$ttl]);
+            // The retention-hold state rides along here rather than costing the
+            // page a second request on load.
+            send_json(['success' => true, 'ttl_days' => (int)$ttl, 'retention' => proProfileRetentionStatus($userId)]);
             break;
 
         case 'get_profile':
@@ -1105,6 +1146,36 @@ try {
                 $response['expires_at'] = $updatedExpires;
             }
             echo json_encode($response); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+            break;
+
+        // Retention holds (#369 step 4/5). Status is a pure read and stays
+        // reachable without Pro, so a degraded account can still see the state
+        // of a hold it started while it was Pro. Starting needs Pro; ending is
+        // always allowed, because ending is how the account gets out of a hold
+        // — the same split mcp_access_tokens' revoke keeps.
+        case 'retention_hold_status':
+            send_json(['success' => true, 'status' => proProfileRetentionStatus($userId)]);
+            break;
+
+        case 'retention_hold_start':
+            require_pro($userId);
+            $started = retentionHoldStart($pdo, $userId);
+            if (!$started['ok']) {
+                send_json(['success' => false, 'error' => $started['error']]);
+            }
+            send_json([
+                'success' => true,
+                'status' => proProfileRetentionStatus($userId),
+                'extended' => $started['extended'],
+            ]);
+            break;
+
+        case 'retention_hold_end':
+            $ended = retentionHoldEnd($pdo, $userId);
+            if (!$ended['ok']) {
+                send_json(['success' => false, 'error' => $ended['error']]);
+            }
+            send_json(['success' => true, 'status' => proProfileRetentionStatus($userId)]);
             break;
 
         case 'webhooks_list':
