@@ -1,7 +1,7 @@
 // Simple service worker with basic offline caching for static assets.
 // Bumping CACHE_NAME evicts the previous cache: the activate handler deletes
 // every cache whose key differs, so an old entry can outlive a deploy otherwise.
-const CACHE_NAME = 'mailshield-static-v2';
+const CACHE_NAME = 'mailshield-static-v3';
 const PRECACHE_URLS = [
     '/',
     '/index.php',

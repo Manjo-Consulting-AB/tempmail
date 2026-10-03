@@ -378,9 +378,7 @@ $msFaqJsonLd = [
     <meta name="twitter:description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="twitter:image" content="<?php echo $msEsc($msOgImage); ?>">
 
-    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
-    <link rel="alternate icon" href="/assets/images/favicon.ico">
-    <link rel="manifest" href="/site.webmanifest">
+<?php require __DIR__ . '/partials/favicons.php'; ?>
 
     <!-- FAQPage structured data. Emitted here rather than through
          partials/public_head.php because this page does not use the marketing

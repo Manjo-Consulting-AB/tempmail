@@ -50,9 +50,7 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
     <meta name="theme-color" content="#FAFAF9">
     <meta name="robots" content="noindex, nofollow">
     <title>Your inbox · Mail Shield</title>
-    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
-    <link rel="alternate icon" href="/assets/images/favicon.ico">
-    <link rel="manifest" href="/site.webmanifest">
+<?php require __DIR__ . '/partials/favicons.php'; ?>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">

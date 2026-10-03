@@ -42,6 +42,11 @@ RewriteRule ^\.well-known/openid-configuration/?$ oauth_metadata.php [L]
 # consumers need. Dotfiles themselves are also refused by the FilesMatch below.
 RewriteRule (?:^|/)\.(?!well-known(?:/|$)) - [F,L]
 
+# /favicon.ico är adressen webbläsare, Googles favicon-crawler och RSS-läsare
+# provar när de inte läser sidans <link rel="icon">; filen ligger i
+# assets/images/ (se partials/favicons.php).
+RewriteRule ^favicon\.ico$ assets/images/favicon.ico [L]
+
 # /sitemap.xml serveras av sitemap.php (genererad, se sitemap.php)
 RewriteRule ^sitemap\.xml$ sitemap.php [L]
 
