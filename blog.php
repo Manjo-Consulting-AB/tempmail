@@ -284,9 +284,7 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
     <meta name="twitter:description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="twitter:image" content="<?php echo $msEsc($msOgImage); ?>">
 
-    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
-    <link rel="alternate icon" href="/assets/images/favicon.ico">
-    <link rel="manifest" href="/site.webmanifest">
+<?php require __DIR__ . '/partials/favicons.php'; ?>
 
     <!-- App-layer dependencies, in the brief §11 order: the bridge loads last and
          wins. -->

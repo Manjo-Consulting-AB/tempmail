@@ -101,9 +101,7 @@ $msEsc = function ($value): string {
     <meta name="twitter:description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="twitter:image" content="<?php echo $msEsc($msOgImage); ?>">
 
-    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
-    <link rel="alternate icon" href="/assets/images/favicon.ico">
-    <link rel="manifest" href="/site.webmanifest">
+<?php require __DIR__ . '/favicons.php'; ?>
 <?php if (!empty($msPage['jsonld'])) : ?>
     <!--
       Structured data, if the page supplied any (brief §14). Built with
