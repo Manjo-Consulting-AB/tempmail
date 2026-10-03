@@ -385,6 +385,13 @@ $baseConfig = [
         'months' => max(1, (int)($_ENV['ADDRESS_COOLDOWN_MONTHS'] ?? 6)),
         'max_per_user' => max(1, (int)($_ENV['ADDRESS_COOLDOWN_MAX_PER_USER'] ?? 30)),
     ],
+    // Retention hold (epic #369, migrate_retention_holds.php): a Pro account
+    // may pause the deletion of its own mail for `days` at a time, at most
+    // `max_per_year` times in any 365-day window.
+    'retention_hold' => [
+        'days' => max(1, (int)($_ENV['RETENTION_HOLD_DAYS'] ?? 30)),
+        'max_per_year' => max(1, (int)($_ENV['RETENTION_HOLD_MAX_PER_YEAR'] ?? 4)),
+    ],
     // Abuse guard (abuse_guard.php, documentaion/ABUSE_PROTECTION.md). Only
     // the keys whose env var is set are filled in here; abuseGuardSettings()
     // supplies every default, so the numbers live in one place.
