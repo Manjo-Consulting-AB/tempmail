@@ -748,14 +748,20 @@ function paddleSubscriptionTarget(PDO $pdo, int $userId, bool $hasAdjustments): 
  * approved full refund, an approved chargeback), -1 undoes a chargeback (an
  * approved chargeback_reverse), 0 nothing — partial refunds, credits,
  * chargeback warnings and anything pending, rejected or reversed.
+ *
+ * A refund is full when the adjustment says so (type 'full', as the API
+ * creates it) or when every item it carries is refunded in full: a refund made
+ * in the Paddle dashboard arrives as type 'partial' with its item typed 'full'
+ * even when it returns the whole amount (seen on the first live refund, #280).
+ * Every checkout here has one item, so all items full means the whole payment.
  */
-function paddleAdjustmentEffect(string $action, ?string $type, string $status): int
+function paddleAdjustmentEffect(string $action, ?string $type, string $status, array $items = []): int
 {
     if ($status !== 'approved') {
         return 0;
     }
     if ($action === 'refund') {
-        return $type === 'full' ? 1 : 0;
+        return ($type === 'full' || paddleAdjustmentItemsFull($items)) ? 1 : 0;
     }
     if ($action === 'chargeback') {
         return 1;
@@ -764,6 +770,21 @@ function paddleAdjustmentEffect(string $action, ?string $type, string $status): 
         return -1;
     }
     return 0;
+}
+
+/** True when there is at least one item and every one is refunded in full ('tax' lines Paddle adds alongside do not count against it). */
+function paddleAdjustmentItemsFull(array $items): bool
+{
+    $full = 0;
+    foreach ($items as $item) {
+        $itemType = is_array($item) ? (string) ($item['type'] ?? '') : '';
+        if ($itemType === 'full') {
+            $full++;
+        } elseif ($itemType !== 'tax') {
+            return false;
+        }
+    }
+    return $full > 0;
 }
 
 function paddleSyncAdjustment(PDO $pdo, array $adj, string $order, array $options): string
@@ -784,7 +805,7 @@ function paddleSyncAdjustment(PDO $pdo, array $adj, string $order, array $option
     $type = isset($adj['type']) ? (string) $adj['type'] : null;
     $status = (string) ($adj['status'] ?? '');
     $subscriptionId = !empty($adj['subscription_id']) ? (string) $adj['subscription_id'] : null;
-    $effect = paddleAdjustmentEffect($action, $type, $status);
+    $effect = paddleAdjustmentEffect($action, $type, $status, is_array($adj['items'] ?? null) ? $adj['items'] : []);
 
     $pdo->beginTransaction();
     try {
