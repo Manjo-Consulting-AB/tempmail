@@ -564,6 +564,15 @@ check('effect: partial refund changes nothing', paddleAdjustmentEffect('refund',
 check('effect: pending refund changes nothing', paddleAdjustmentEffect('refund', 'full', 'pending_approval') === 0);
 check('effect: rejected / reversed refund changes nothing', paddleAdjustmentEffect('refund', 'full', 'rejected') === 0 && paddleAdjustmentEffect('refund', 'full', 'reversed') === 0);
 check('effect: chargeback revokes, chargeback_reverse undoes', paddleAdjustmentEffect('chargeback', 'full', 'approved') === 1 && paddleAdjustmentEffect('chargeback_reverse', 'full', 'approved') === -1);
+// The shape of the first live refund (#280): made in the dashboard, the whole
+// amount returned, yet the adjustment is 'partial' and its one item 'full'.
+$dashboardItems = [['item_id' => 'txnitm_1', 'type' => 'full', 'amount' => '3379']];
+check('effect: dashboard full refund (type partial, item full) revokes', paddleAdjustmentEffect('refund', 'partial', 'approved', $dashboardItems) === 1);
+check('effect: item full plus a tax line still revokes', paddleAdjustmentEffect('refund', 'partial', 'approved', [['type' => 'full'], ['type' => 'tax']]) === 1);
+check('effect: an item refunded in part changes nothing', paddleAdjustmentEffect('refund', 'partial', 'approved', [['type' => 'partial', 'amount' => '1000']]) === 0);
+check('effect: one item full and one partial changes nothing', paddleAdjustmentEffect('refund', 'partial', 'approved', [['type' => 'full'], ['type' => 'partial']]) === 0);
+check('effect: only a tax line changes nothing', paddleAdjustmentEffect('refund', 'partial', 'approved', [['type' => 'tax']]) === 0);
+check('effect: a dashboard full refund still waits for approval', paddleAdjustmentEffect('refund', 'partial', 'pending_approval', $dashboardItems) === 0);
 check('effect: credit and chargeback_warning change nothing', paddleAdjustmentEffect('credit', 'full', 'approved') === 0 && paddleAdjustmentEffect('chargeback_warning', 'full', 'approved') === 0);
 
 // Lifetime bought on a trial with 30 days left, then refunded: back to the trial.
@@ -601,6 +610,23 @@ check('partial refund keeps lifetime', user($pdo, 42)['pro_expires_at'] === null
 // A refund of another transaction leaves the lifetime purchase alone.
 run($pdo, adjEvent('adj_o', 'refund', 'approved', ['transaction_id' => 'txn_other']), $prices);
 check("another transaction's refund keeps lifetime", user($pdo, 42)['pro_expires_at'] === null);
+
+// The live test purchase end to end: a monthly subscription on a trial account,
+// refunded in the dashboard (type partial, item full), pending then approved.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com', 'pro', $trialEnd);
+$monthEnd = NOW + 31 * 86400;
+run($pdo, subEvent('active', ['current_billing_period' => ['starts_at' => iso(NOW), 'ends_at' => iso($monthEnd)],
+    'items' => [['price' => ['id' => PRICE_MONTH]]]]), $prices);
+check('live shape: month stacked on the trial', user($pdo, 42)['pro_expires_at'] === local($monthEnd + 30 * 86400), (string) user($pdo, 42)['pro_expires_at']);
+$liveRefund = ['type' => 'partial', 'transaction_id' => 'txn_live', 'subscription_id' => 'sub_1', 'items' => $dashboardItems];
+run($pdo, adjEvent('adj_live', 'refund', 'pending_approval', $liveRefund, NOW + 600), $prices, NOW + 600);
+check('live shape: pending dashboard refund keeps the paid month', user($pdo, 42)['pro_expires_at'] === local($monthEnd + 30 * 86400));
+run($pdo, adjEvent('adj_live', 'refund', 'approved', $liveRefund, NOW + 3600, 'adjustment.updated'), $prices, NOW + 3600);
+// Paid time ends at the refund, and the trial time left at takeover runs from
+// there — the same rule as a cancellation — so the trial end plus the hour
+// between purchase and refund.
+check('live shape: approved dashboard refund leaves the trial time, run from the refund', user($pdo, 42)['pro_expires_at'] === local(NOW + 3600 + 30 * 86400), (string) user($pdo, 42)['pro_expires_at']);
 
 // Subscription payment refunded: the grant ends at the refund, for that period only.
 $pdo = freshDb();
