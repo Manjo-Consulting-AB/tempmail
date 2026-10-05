@@ -293,7 +293,11 @@ Uppgradering från Regular till Pro sker på två sätt, båda för ett inloggat
   Pro-tid kontot redan hade (provperiod, voucher). Kassan kräver inloggning, så
   varje betalning bär `custom_data.pro_user_id`; synken skapar aldrig konton.
   Kunden avslutar eller byter kort via "Manage billing" (Paddles kundportal).
-  Återbetalningar synkas inte än (`adjustment.*`) — Pro dras in för hand.
+  En godkänd full återbetalning eller chargeback (`adjustment.*`, tabellen
+  `paddle_adjustments`) drar in det köpet gav: ett livstidsköp faller tillbaka
+  till kontots slutdatum före köpet, och en prenumeration slutar vid
+  återbetalningen för den period som gällde då. Delåterbetalningar ändrar
+  inget, och en `chargeback_reverse` återställer.
 - **Voucher**, från profilsidan, via samma `redeemVoucherForEmail()` som
   registreringen använder.
 

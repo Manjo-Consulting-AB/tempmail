@@ -116,7 +116,7 @@ function lifetimeEvent(array $over = []): array
 
 function run(PDO $pdo, array $event, array $prices, int $now = NOW): string
 {
-    return paddleHandleEvent($pdo, $event, ['prices' => $prices, 'has_account_type' => true, 'now' => $now, 'customer_email_pii' => true]);
+    return paddleHandleEvent($pdo, $event, ['prices' => $prices, 'has_account_type' => true, 'has_adjustments' => true, 'now' => $now, 'customer_email_pii' => true]);
 }
 
 $periodEnd = local(NOW + 365 * 86400);
@@ -546,6 +546,104 @@ try {
     $threw = true;
 }
 check('an empty price list for the environment throws', $threw);
+
+// ---------------------------------------------------------------------
+echo "\n29. Refunds and chargebacks (adjustment.*) revoke what they take back (#280 §7)\n";
+
+function adjEvent(string $id, string $action, string $status, array $over = [], int $occurred = NOW, string $eventType = 'adjustment.created'): array
+{
+    return ['event_id' => 'evt_' . md5($id . $action . $status . $occurred), 'event_type' => $eventType, 'occurred_at' => iso($occurred), 'data' => array_replace([
+        'id' => $id, 'action' => $action, 'type' => 'full', 'status' => $status,
+        'transaction_id' => 'txn_1', 'subscription_id' => null, 'customer_id' => 'ctm_1',
+        'created_at' => iso($occurred),
+    ], $over)];
+}
+
+check('effect: approved full refund revokes', paddleAdjustmentEffect('refund', 'full', 'approved') === 1);
+check('effect: partial refund changes nothing', paddleAdjustmentEffect('refund', 'partial', 'approved') === 0);
+check('effect: pending refund changes nothing', paddleAdjustmentEffect('refund', 'full', 'pending_approval') === 0);
+check('effect: rejected / reversed refund changes nothing', paddleAdjustmentEffect('refund', 'full', 'rejected') === 0 && paddleAdjustmentEffect('refund', 'full', 'reversed') === 0);
+check('effect: chargeback revokes, chargeback_reverse undoes', paddleAdjustmentEffect('chargeback', 'full', 'approved') === 1 && paddleAdjustmentEffect('chargeback_reverse', 'full', 'approved') === -1);
+check('effect: credit and chargeback_warning change nothing', paddleAdjustmentEffect('credit', 'full', 'approved') === 0 && paddleAdjustmentEffect('chargeback_warning', 'full', 'approved') === 0);
+
+// Lifetime bought on a trial with 30 days left, then refunded: back to the trial.
+$pdo = freshDb();
+$trialEnd = local(NOW + 30 * 86400);
+addUser($pdo, 42, 'buyer@example.com', 'pro', $trialEnd);
+run($pdo, lifetimeEvent(), $prices);
+check('lifetime applied', user($pdo, 42)['pro_expires_at'] === null);
+run($pdo, adjEvent('adj_1', 'refund', 'pending_approval'), $prices, NOW + 3600);
+check('a pending refund leaves lifetime in place', user($pdo, 42)['pro_expires_at'] === null);
+$out = run($pdo, adjEvent('adj_1', 'refund', 'approved', [], NOW + 7200, 'adjustment.updated'), $prices, NOW + 7200);
+check('approved full refund revokes lifetime', strpos($out, 'lifetime revoked') !== false, $out);
+check('…back to the trial it had before the purchase', user($pdo, 42) === ['account_type' => 'pro', 'pro_expires_at' => $trialEnd], json_encode(user($pdo, 42)));
+run($pdo, adjEvent('adj_1', 'refund', 'approved', [], NOW + 7200, 'adjustment.updated'), $prices, NOW + 7300);
+check('a redelivered refund changes nothing more', user($pdo, 42)['pro_expires_at'] === $trialEnd);
+run($pdo, adjEvent('adj_1', 'refund', 'pending_approval'), $prices, NOW + 7400);
+check('a stale pending event does not undo the refund', user($pdo, 42)['pro_expires_at'] === $trialEnd);
+
+// Lifetime on an expired Regular account, charged back: ends now; reversed: lifetime again.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, lifetimeEvent(), $prices);
+run($pdo, adjEvent('adj_cb', 'chargeback', 'approved'), $prices, NOW + 60);
+check('chargeback with nothing to fall back on ends Pro now', user($pdo, 42)['pro_expires_at'] === local(NOW + 60), (string) user($pdo, 42)['pro_expires_at']);
+run($pdo, adjEvent('adj_cbr', 'chargeback_reverse', 'approved', [], NOW + 120), $prices, NOW + 120);
+check('chargeback_reverse restores lifetime', user($pdo, 42)['pro_expires_at'] === null);
+
+// A partial refund of a lifetime purchase keeps it.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, lifetimeEvent(), $prices);
+run($pdo, adjEvent('adj_p', 'refund', 'approved', ['type' => 'partial']), $prices);
+check('partial refund keeps lifetime', user($pdo, 42)['pro_expires_at'] === null);
+
+// A refund of another transaction leaves the lifetime purchase alone.
+run($pdo, adjEvent('adj_o', 'refund', 'approved', ['transaction_id' => 'txn_other']), $prices);
+check("another transaction's refund keeps lifetime", user($pdo, 42)['pro_expires_at'] === null);
+
+// Subscription payment refunded: the grant ends at the refund, for that period only.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active'), $prices);
+check('subscription grants the period', user($pdo, 42)['pro_expires_at'] === $periodEnd);
+run($pdo, adjEvent('adj_s', 'refund', 'approved', ['transaction_id' => 'txn_sub1', 'subscription_id' => 'sub_1'], NOW + 86400), $prices, NOW + 86400);
+check('refunded subscription payment ends Pro at the refund', user($pdo, 42)['pro_expires_at'] === local(NOW + 86400), (string) user($pdo, 42)['pro_expires_at']);
+run($pdo, subEvent('active', [], NOW + 2 * 86400), $prices, NOW + 2 * 86400);
+check('a later event for the same period stays clamped', user($pdo, 42)['pro_expires_at'] === local(NOW + 86400), (string) user($pdo, 42)['pro_expires_at']);
+$nextEnd = NOW + 730 * 86400;
+run($pdo, subEvent('active', ['current_billing_period' => ['starts_at' => iso(NOW + 365 * 86400), 'ends_at' => iso($nextEnd)]], NOW + 365 * 86400), $prices, NOW + 365 * 86400);
+check('a renewal the customer pays for grants again', user($pdo, 42)['pro_expires_at'] === local($nextEnd), (string) user($pdo, 42)['pro_expires_at']);
+
+// Refunded subscription on a trial account keeps the trial time it had.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com', 'pro', $trialEnd);
+run($pdo, subEvent('active'), $prices);
+run($pdo, adjEvent('adj_t', 'refund', 'approved', ['transaction_id' => 'txn_sub1', 'subscription_id' => 'sub_1']), $prices);
+check('refunded subscription falls back to the trial end', user($pdo, 42)['pro_expires_at'] === $trialEnd, (string) user($pdo, 42)['pro_expires_at']);
+
+// A refund that arrives before its account is known, linked by a later customer event.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, lifetimeEvent(['customer_id' => 'ctm_9', 'custom_data' => null]), $prices);
+$out = run($pdo, adjEvent('adj_u', 'refund', 'approved', ['customer_id' => 'ctm_9']), $prices);
+check('unlinked refund is stored unlinked', strpos($out, '(unlinked)') !== false, $out);
+run($pdo, ['event_id' => 'evt_c9', 'event_type' => 'customer.created', 'occurred_at' => iso(NOW + 10), 'data' => ['id' => 'ctm_9', 'email' => 'buyer@example.com']], $prices);
+check('linking the customer applies the refund: no lifetime granted', user($pdo, 42)['pro_expires_at'] === '2020-01-01 00:00:00', json_encode(user($pdo, 42)));
+check('…and the adjustment is linked', paddleFetch($pdo, 'SELECT pro_user_id FROM paddle_adjustments WHERE adjustment_id = ?', ['adj_u'])['pro_user_id'] == 42);
+
+// Before the migration: an adjustment throws (non-2xx, Paddle retries), lifetime still counts.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+$threw = false;
+try {
+    paddleHandleEvent($pdo, adjEvent('adj_m', 'refund', 'approved'), ['prices' => $prices, 'has_account_type' => true, 'now' => NOW]);
+} catch (RuntimeException $e) {
+    $threw = true;
+}
+check('without paddle_adjustments an adjustment event throws so Paddle retries', $threw);
+paddleHandleEvent($pdo, lifetimeEvent(), ['prices' => $prices, 'has_account_type' => true, 'now' => NOW]);
+check('without paddle_adjustments lifetime is granted as before', user($pdo, 42)['pro_expires_at'] === null);
 
 echo "\n" . ($failures === 0 ? "All checks passed.\n" : "{$failures} check(s) FAILED.\n");
 exit($failures === 0 ? 0 : 1);
