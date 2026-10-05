@@ -2,9 +2,9 @@
 /**
  * Mail Shield public navigation. Spec: documentaion/REDESIGN_BRIEF.md §8.
  *
- * Approved items only: online payment does not exist yet, so there is no
- * paid-plan link here and nothing may imply one. Icons are inline SVG; the
- * behaviour is vanilla JS with no library dependency.
+ * Approved items only. Pricing links to pricing.php (#280 §6); the nav itself
+ * shows no amount. Icons are inline SVG; the behaviour is vanilla JS with no
+ * library dependency.
  *
  * The including page may set $msNavAnchors = false before the require (as
  * temporary-email.php does) when the "Features"/"How it works" anchors are not
@@ -53,6 +53,7 @@ $msNavEsc = function ($value): string {
             <ul class="ms-nav__links">
                 <li><a href="<?php echo $msNavEsc($msNavFeatures); ?>">Features</a></li>
                 <li><a href="<?php echo $msNavEsc($msNavHow); ?>">How it works</a></li>
+                <li><a href="/pricing.php">Pricing</a></li>
                 <li><a href="/faq.php">FAQ</a></li>
             </ul>
 

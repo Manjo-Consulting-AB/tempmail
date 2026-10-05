@@ -30,8 +30,8 @@
  *
  * Indexing follows the Paddle environment: a sandbox page is noindex, so the
  * test catalog never ends up in search results. The page is linked from the
- * footer and the landing plans card, but deliberately not from the nav or
- * sitemap.php yet (#347) — those come with the switch to production (#280 §6).
+ * footer, the landing plans card (#347) and the public nav, and sitemap.php
+ * lists it on production only (#280 §6).
  *
  * Checkout is open only where it is real: on production, or for a sandbox
  * account named in PADDLE_SANDBOX_USER_IDS so the live site can still be tested

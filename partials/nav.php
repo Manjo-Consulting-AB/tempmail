@@ -84,7 +84,7 @@ $msNavEsc = function ($value): string {
         <div class="ms-appnav__panel" id="navbarMenu">
             <div class="ms-appnav__links">
                 <?php if ($msNavSignedIn) : ?>
-                <a href="pro.php" class="<?php echo tm_nav_active('pro.php', $current); ?>">Home</a>
+                <a href="pro.php" class="<?php echo tm_nav_active('pro.php', $current); ?>">Inbox</a>
                 <?php else: ?>
                 <a href="index.php" class="<?php echo tm_nav_active('index.php', $current); ?>">Home</a>
                 <?php endif; ?>

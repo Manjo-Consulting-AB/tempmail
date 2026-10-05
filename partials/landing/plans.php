@@ -143,9 +143,9 @@ $msPlansMcpText = !empty($msMcpSignIn)
         </div>
 
         <?php if ($msPlansTrialDays > 0) : ?>
-            <p class="ms-plans__note">No card needed, and nothing to cancel. One trial per email address. After the trial, Pro continues with a voucher code &mdash; see <a href="/pricing.php">plans and prices</a>; online checkout opens shortly.</p>
+            <p class="ms-plans__note">No card needed, and nothing to cancel. One trial per email address. After the trial, stay on Pro with a <a href="/pricing.php">monthly, yearly or one-time plan</a>, or a voucher code.</p>
         <?php else : ?>
-            <p class="ms-plans__note">Pro currently requires a voucher code &mdash; see <a href="/pricing.php">plans and prices</a>; online checkout opens shortly.</p>
+            <p class="ms-plans__note">Pro is a <a href="/pricing.php">monthly, yearly or one-time plan</a>, or a voucher code.</p>
         <?php endif; ?>
 
         <div class="ms-plans__actions">

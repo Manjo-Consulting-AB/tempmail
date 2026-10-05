@@ -113,7 +113,7 @@ $msDesc     = $msTrialDays > 0
                 <?php else : ?>
                     <p class="ms-auth__hint" id="regHintFree">One timed address at a time. The address and its messages are deleted after 24 hours.</p>
                 <?php endif; ?>
-                <p class="ms-auth__hint" id="regHintPro" style="display:none;">Sticky addresses and automation. Incoming mail is still temporary and is cleaned up according to your retention settings. Requires a voucher code &mdash; see <a href="/pricing.php">plans and prices</a>; online checkout opens shortly.</p>
+                <p class="ms-auth__hint" id="regHintPro" style="display:none;">Sticky addresses and automation. Incoming mail is still temporary and is cleaned up according to your retention settings. Requires a voucher code &mdash; without one, create a free account and choose a <a href="/pricing.php">plan</a> once you are signed in.</p>
 
                 <div id="registerBlock">
                     <form id="registerForm">
