@@ -279,6 +279,34 @@ function paddleHandleEvent(PDO $pdo, array $event, array $options): string
         throw new InvalidArgumentException('Event without data or occurred_at');
     }
 
+    // Paddle delivers related events concurrently (subscription.created and
+    // subscription.activated in the same second): both find no row, both
+    // INSERT, and the loser hits the primary key. Its transaction has been
+    // rolled back, so it is run once more and now finds the row and updates
+    // it — the handlers are idempotent. Any other error, or a second
+    // collision, is thrown as before and Paddle retries.
+    try {
+        return paddleDispatchEvent($pdo, $type, $data, $order, $event, $options);
+    } catch (PDOException $e) {
+        if (!paddleIsDuplicateKey($e)) {
+            throw $e;
+        }
+        paddleLog($options, 'INFO', 'Paddle event collided with a concurrent one; retrying once', [
+            'event_id' => $event['event_id'] ?? null, 'event_type' => $type,
+        ]);
+        return paddleDispatchEvent($pdo, $type, $data, $order, $event, $options);
+    }
+}
+
+/** True for an integrity-constraint violation (SQLSTATE 23000 on MySQL and SQLite). */
+function paddleIsDuplicateKey(PDOException $e): bool
+{
+    $state = is_array($e->errorInfo ?? null) ? (string) ($e->errorInfo[0] ?? '') : '';
+    return $state === '23000' || (string) $e->getCode() === '23000';
+}
+
+function paddleDispatchEvent(PDO $pdo, string $type, array $data, string $order, array $event, array $options): string
+{
     if (strpos($type, 'subscription.') === 0) {
         return paddleSyncSubscription($pdo, $data, $order, (string) $event['occurred_at'], $options);
     }

@@ -645,5 +645,93 @@ check('without paddle_adjustments an adjustment event throws so Paddle retries',
 paddleHandleEvent($pdo, lifetimeEvent(), ['prices' => $prices, 'has_account_type' => true, 'now' => NOW]);
 check('without paddle_adjustments lifetime is granted as before', user($pdo, 42)['pro_expires_at'] === null);
 
+// ---------------------------------------------------------------------
+echo "\n30. Concurrent deliveries: a primary-key collision is retried once (#280)\n";
+
+// Stands in for losing the race: the first $collide INSERTs into the watched
+// table fail like MySQL's 1062 (SQLSTATE 23000), which rolls the handler's
+// transaction back. On MySQL the loser's INSERT waits for the winner's commit
+// before failing, so the retry's fresh transaction sees the winner's row and
+// updates it; here the retry simply inserts, which exercises the same path.
+class CollidingPdo extends PDO
+{
+    public $collide = 0;
+    public $error = '23000';
+    public $table = 'paddle_subscriptions';
+
+    #[\ReturnTypeWillChange]
+    public function prepare($query, $options = [])
+    {
+        if ($this->collide > 0 && stripos($query, 'INSERT INTO ' . $this->table) === 0) {
+            $this->collide--;
+            $e = new PDOException('SQLSTATE[' . $this->error . ']: simulated', 0);
+            $e->errorInfo = [$this->error, 1062, 'simulated'];
+            throw $e;
+        }
+        return parent::prepare($query, $options);
+    }
+}
+
+function collidingDb(): CollidingPdo
+{
+    $pdo = new CollidingPdo('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo->exec("CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT NOT NULL, email_enc TEXT NULL, email_hash TEXT NULL UNIQUE, account_type TEXT NOT NULL DEFAULT 'regular', pro_expires_at TEXT NULL)");
+    foreach (paddleSchemaStatements('sqlite') as $sql) {
+        $pdo->exec($sql);
+    }
+    $pdo->exec('ALTER TABLE paddle_customers ADD COLUMN email_enc TEXT NULL');
+    $pdo->exec('ALTER TABLE paddle_customers ADD COLUMN email_hash TEXT NULL');
+    return $pdo;
+}
+
+check('duplicate key detected from errorInfo', paddleIsDuplicateKey((function () { $e = new PDOException('x'); $e->errorInfo = ['23000', 1062, 'dup']; return $e; })()));
+check('another SQLSTATE is not a duplicate key', !paddleIsDuplicateKey((function () { $e = new PDOException('x'); $e->errorInfo = ['HY000', 2006, 'gone away']; return $e; })()));
+
+$pdo = collidingDb();
+addUser($pdo, 42, 'buyer@example.com');
+$pdo->collide = 1;
+$log = [];
+$out = paddleHandleEvent($pdo, subEvent('active'), ['prices' => $prices, 'has_account_type' => true, 'has_adjustments' => true, 'now' => NOW, 'customer_email_pii' => true,
+    'log' => function ($level, $message, $context) use (&$log) { $log[] = [$level, $message]; }]);
+check('one collision is retried and the event applies', user($pdo, 42) === ['account_type' => 'pro', 'pro_expires_at' => $periodEnd], json_encode(user($pdo, 42)) . ' ' . $out);
+check('…with one INFO line, no ERROR', count(array_filter($log, function ($l) { return $l[1] === 'Paddle event collided with a concurrent one; retrying once'; })) === 1
+    && !array_filter($log, function ($l) { return $l[0] === 'ERROR'; }));
+check('…and exactly one subscription row', (int) $pdo->query('SELECT COUNT(*) FROM paddle_subscriptions')->fetchColumn() === 1);
+
+$pdo = collidingDb();
+addUser($pdo, 42, 'buyer@example.com');
+$pdo->collide = 2;
+$threw = false;
+try {
+    run($pdo, subEvent('active'), $prices);
+} catch (PDOException $e) {
+    $threw = true;
+}
+check('a second collision is thrown, so Paddle retries', $threw);
+check('…and nothing was half-written', user($pdo, 42)['pro_expires_at'] === '2020-01-01 00:00:00' && (int) $pdo->query('SELECT COUNT(*) FROM paddle_subscriptions')->fetchColumn() === 0);
+
+$pdo = collidingDb();
+addUser($pdo, 42, 'buyer@example.com');
+$pdo->collide = 1;
+$pdo->error = 'HY000';
+$threw = false;
+try {
+    run($pdo, subEvent('active'), $prices);
+} catch (PDOException $e) {
+    $threw = true;
+}
+check('any other database error is not retried', $threw && $pdo->collide === 0 && (int) $pdo->query('SELECT COUNT(*) FROM paddle_subscriptions')->fetchColumn() === 0);
+
+foreach (['paddle_customers' => ['event_id' => 'evt_c', 'event_type' => 'customer.created', 'occurred_at' => iso(NOW), 'data' => ['id' => 'ctm_1', 'email' => 'buyer@example.com']],
+          'paddle_transactions' => lifetimeEvent(),
+          'paddle_adjustments' => adjEvent('adj_r', 'refund', 'pending_approval')] as $table => $event) {
+    $pdo = collidingDb();
+    addUser($pdo, 42, 'buyer@example.com');
+    $pdo->table = $table;
+    $pdo->collide = 1;
+    run($pdo, $event, $prices);
+    check("a collision on {$table} is retried too", (int) $pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn() === 1);
+}
+
 echo "\n" . ($failures === 0 ? "All checks passed.\n" : "{$failures} check(s) FAILED.\n");
 exit($failures === 0 ? 0 : 1);
