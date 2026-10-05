@@ -184,9 +184,9 @@ $mcpDesktopConfig = '{
                                 <?php endif; ?>
                                 <div id="upgradeToProSection" class="d-none">
                                     <?php if ($accountProExpiresAt !== null) : ?>
-                                    <p class="form-text">Stay on Pro: redeem a voucher code and its time is added after your current end date. Online checkout opens shortly &mdash; see <a href="/pricing.php">plans and prices</a>.</p>
+                                    <p class="form-text">Stay on Pro: choose a <a href="/pricing.php">plan</a>, or redeem a voucher code. Either way, the time is added after your current end date.</p>
                                     <?php else : ?>
-                                    <p class="form-text">Redeem a voucher code to switch to Pro. Online checkout opens shortly &mdash; see <a href="/pricing.php">plans and prices</a>.</p>
+                                    <p class="form-text">Switch to Pro: choose a <a href="/pricing.php">plan</a>, or redeem a voucher code.</p>
                                     <?php endif; ?>
                                     <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
                                         <input type="text" id="voucherCodeInput" class="form-control" placeholder="Voucher code" style="max-width:220px;" />

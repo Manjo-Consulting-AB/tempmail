@@ -285,17 +285,26 @@ Trösklarna är konfigurerbara via `REGULAR_INACTIVITY_DAYS` och
 
 ## 8. Uppgradering och betallösning
 
-Uppgradering från Regular till Pro sker med voucher, från profilsidan, via samma
-`redeemVoucherForEmail()` som registreringen använder.
+Uppgradering från Regular till Pro sker på två sätt, båda för ett inloggat konto:
+
+- **Betalning** på `pricing.php` (Paddle, skarpt sedan 2026-10-05, #280):
+  månad, år eller engångsköp. `paddle_webhook.php` → `paddle_sync.php` sätter
+  `pro_expires_at` (+ `account_type = 'pro'`), och betald tid läggs ovanpå den
+  Pro-tid kontot redan hade (provperiod, voucher). Kassan kräver inloggning, så
+  varje betalning bär `custom_data.pro_user_id`; synken skapar aldrig konton.
+  Kunden avslutar eller byter kort via "Manage billing" (Paddles kundportal).
+  Återbetalningar synkas inte än (`adjustment.*`) — Pro dras in för hand.
+- **Voucher**, från profilsidan, via samma `redeemVoucherForEmail()` som
+  registreringen använder.
 
 Vouchers skapas av en administratör på `voucher_admin.php` — enstaka koder eller
 ett parti om upp till 500 engångskoder, med CSV-export — se
 `documentaion/VOUCHERS.md`.
 
-Påslaget av betallösningen ska vara en env-ändring, inte en kodändring. Därför
-styrs kravet på voucherkod i `register.php?plan=pro` av en enda flagga,
-`PRO_SELF_SIGNUP_ENABLED` (default av). När den slås på öppnas publik
-Pro-registrering och betalflödet tar vid.
+Kravet på voucherkod i `register.php?plan=pro` styrs av en enda flagga,
+`PRO_SELF_SIGNUP_ENABLED` (default av), och den är fortfarande av: Pro-valet vid
+registrering kräver en kod, och den som saknar kod skapar ett gratiskonto och
+betalar inloggad. Flaggan behövs först om kassan öppnas för gäster.
 
 Buy Me a Coffee-integrationen (`bmac_handler.php`) är borttagen: den
 anropades aldrig i produktion och webhook-hemligheten var aldrig satt.

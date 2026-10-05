@@ -39,6 +39,12 @@ $pages = [
     '/refund-policy.php' => ['0.2', 'yearly',  __DIR__ . '/refund-policy.php'],
 ];
 
+// pricing.php is noindex while it shows the sandbox catalog, so it is listed
+// only on production (#280 §6).
+if (strtolower(trim((string) ($config['paddle']['environment'] ?? ''))) === 'production') {
+    $pages['/pricing.php'] = ['0.6', 'monthly', __DIR__ . '/pricing.php'];
+}
+
 // Every value is escaped for XML — ENT_XML1 rather than ENT_QUOTES, so an
 // ampersand in a configured base URL can never break the document.
 $xmlUrl = function (string $value): string {

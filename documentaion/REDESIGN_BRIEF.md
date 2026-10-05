@@ -269,11 +269,11 @@ Use these strings verbatim unless an issue says otherwise.
 
 ### Navigation (public pages)
 
-Keep it very simple. There is **no Pricing link** — online payment does not
-exist yet.
+Keep it very simple. The Pricing link (#280 §6) goes to `pricing.php`; the nav
+itself shows no amount.
 
 ```
-[shield] Mail Shield      Features    How it works    FAQ    Log in    [ Create your inbox ]
+[shield] Mail Shield      Features    How it works    Pricing    FAQ    Log in    [ Create your inbox ]
 ```
 
 - `Features` → `#features`
@@ -398,7 +398,7 @@ or syncs them — never "when a message arrives".
 - H2: `Free and Pro`
 - Body: `Every new account starts with <N> days of Pro, free — sticky addresses and automation included. When the trial ends, you keep a free account, or stay on Pro.`
 - Pro card chip: `First <N> days free`
-- Note: `No card needed, and nothing to cancel. One trial per email address. After the trial, Pro continues with a voucher code — online payment is on the way.`
+- Note: `No card needed, and nothing to cancel. One trial per email address. After the trial, stay on Pro with a monthly, yearly or one-time plan, or a voucher code.`
 - CTAs: `Start with <N> days of Pro` → `/register.php?plan=regular`,
   `Get Pro with a code` → `/register.php?plan=pro`
 
@@ -432,8 +432,8 @@ Copy may only promise what this table says exists.
 | Public REST API | **does not exist** | never mention |
 | Browser/web push | **does not exist** (no VAPID) | never mention |
 | Pro trial | Every new account, `<N>` days (default 60) from first email verification, once per email address (`pro_trial.php`, epic #267); afterwards the account is Free and sticky addresses go 7 days later | "`<N>` days of Pro, free" — never "free forever", never a trial for signed-in users |
-| Online payment for Pro | **does not exist**; voucher code only | "after the trial, Pro continues with a voucher code" |
-| Pricing | no prices defined | no Pricing page, no price claims |
+| Online payment for Pro | Paddle checkout on `pricing.php`, signed-in accounts only (#280); a voucher code still works | "a monthly, yearly or one-time plan, or a voucher code" — never promise instant activation |
+| Pricing | amounts live in Paddle, shown only as its `formattedTotals` on `pricing.php` and the landing card's "From €x" | never write an amount into copy |
 
 ---
 
