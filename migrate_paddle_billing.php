@@ -12,6 +12,9 @@ declare(strict_types=1);
  *   paddle_transactions   one-time purchases (the lifetime price)
  *   paddle_entitlements   per user: the pro_expires_at Paddle last wrote, and
  *                         the voucher baseline it may never go below
+ *   paddle_adjustments    refunds and chargebacks (#280 §7); created by the
+ *                         CREATE TABLE IF NOT EXISTS loop below, so re-running
+ *                         this script on an existing install adds it
  *
  * No pro_users columns are added — entitlement stays pro_expires_at +
  * account_type, decided by proUserIsPro() as before.

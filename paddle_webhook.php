@@ -7,7 +7,8 @@
  *   subscription.created, subscription.updated, subscription.canceled,
  *   subscription.past_due, subscription.paused, subscription.resumed,
  *   subscription.activated, transaction.completed,
- *   customer.created, customer.updated
+ *   customer.created, customer.updated,
+ *   adjustment.created, adjustment.updated (refunds and chargebacks, #280 §7)
  *
  * All the logic is in paddle_sync.php; this file is the HTTP contract:
  *
@@ -89,6 +90,9 @@ try {
     $outcome = paddleHandleEvent($pdo, $event, [
         'prices' => paddlePlanPriceIds($tiers),
         'has_account_type' => tableHasColumn('pro_users', 'account_type'),
+        // Refunds and chargebacks (#280 §7); until the table exists an
+        // adjustment event is answered non-2xx so Paddle retries it.
+        'has_adjustments' => tableHasColumn('paddle_adjustments', 'effect'),
         'customer_email_pii' => piiEmailColumnsExist('paddle_customers'),
         // While this is sandbox only PADDLE_SANDBOX_USER_IDS may be granted Pro
         // (#346) — the sandbox destination points at this live endpoint.

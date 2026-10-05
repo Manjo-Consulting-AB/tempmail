@@ -42,6 +42,20 @@
  * NULL (unlimited) is never touched unless a Paddle lifetime purchase is what
  * makes it NULL. State per user lives in paddle_entitlements.
  *
+ * Refunds and chargebacks (adjustment.created / adjustment.updated, #280 §7):
+ * an adjustment that takes the money back — an approved full refund, or an
+ * approved chargeback not undone by a chargeback_reverse — revokes what its
+ * transaction granted. A revoked lifetime purchase no longer counts, and the
+ * account falls back to the expiry it had before the purchase (a trial or a
+ * voucher it already held) or its subscriptions, else to now, so
+ * cron/cleanup.php degrades it. A revoked subscription payment clamps that
+ * subscription's grant to the moment of the refund for the billing period
+ * that was current then (period_snapshot); a later renewal the customer pays
+ * for grants again. Partial refunds, credits and chargeback warnings change
+ * nothing. Paddle does not say which period an older subscription payment
+ * covered, so refunding one that is not the latest also clamps the current
+ * period — the WARNING carries the ids to check by hand.
+ *
  * Linking a payment to an account: custom_data.pro_user_id (set by
  * assets/js/pricing.js for a signed-in buyer) when it names an existing row,
  * else the Paddle customer's email matched against pro_users by the email_hash
@@ -204,6 +218,21 @@ function paddleSchemaStatements(string $driver): array
             applied_lifetime {$bool} NOT NULL DEFAULT 0,
             updated_at {$dt} NOT NULL
         ){$suffix}",
+        "CREATE TABLE IF NOT EXISTS paddle_adjustments (
+            adjustment_id {$id} NOT NULL PRIMARY KEY,
+            transaction_id {$id} NOT NULL,
+            subscription_id {$id} NULL,
+            customer_id {$id} NOT NULL,
+            pro_user_id {$int} NULL,
+            action {$id} NOT NULL,
+            type {$id} NULL,
+            status {$id} NOT NULL,
+            effect {$int} NOT NULL DEFAULT 0,
+            revoked_at {$dt} NULL,
+            period_snapshot {$dt} NULL,
+            occurred_at {$id} NOT NULL,
+            updated_at {$dt} NOT NULL
+        ){$suffix}",
     ];
 }
 
@@ -233,7 +262,8 @@ function paddleEventOrderKey(string $occurredAt): string
  * Throws on database errors so the endpoint answers non-2xx and Paddle retries.
  *
  * $options: 'prices' (paddlePlanPriceIds()), 'log' (callable level, msg, ctx),
- * 'has_account_type' (bool, whether pro_users.account_type exists), 'now' (int),
+ * 'has_account_type' (bool, whether pro_users.account_type exists),
+ * 'has_adjustments' (bool, whether paddle_adjustments exists), 'now' (int),
  * 'customer_email_pii' (bool, whether paddle_customers has email_enc and
  * email_hash — see paddleCustomerEmailFields()), 'environment' ('sandbox' or
  * 'production') with 'sandbox_user_ids' (int[]), and optionally
@@ -257,6 +287,9 @@ function paddleHandleEvent(PDO $pdo, array $event, array $options): string
     }
     if ($type === 'customer.created' || $type === 'customer.updated') {
         return paddleSyncCustomer($pdo, $data, $order, $options);
+    }
+    if ($type === 'adjustment.created' || $type === 'adjustment.updated') {
+        return paddleSyncAdjustment($pdo, $data, $order, $options);
     }
     return 'ignored: ' . $type;
 }
@@ -433,7 +466,11 @@ function paddleSyncCustomer(PDO $pdo, array $customer, string $order, array $opt
         $userId = paddleResolveUser($pdo, null, $id);
         if ($userId !== null) {
             $linked = 0;
-            foreach (['paddle_subscriptions', 'paddle_transactions'] as $table) {
+            $tables = ['paddle_subscriptions', 'paddle_transactions'];
+            if (!empty($options['has_adjustments'])) {
+                $tables[] = 'paddle_adjustments';
+            }
+            foreach ($tables as $table) {
                 $stmt = $pdo->prepare("UPDATE {$table} SET pro_user_id = ? WHERE customer_id = ? AND pro_user_id IS NULL");
                 $stmt->execute([$userId, $id]);
                 $linked += $stmt->rowCount();
@@ -532,25 +569,46 @@ function paddleApplyEntitlement(PDO $pdo, int $userId, array $options): string
         return 'user gone';
     }
 
-    $lifetime = (bool) paddleFetch($pdo, 'SELECT 1 FROM paddle_transactions WHERE pro_user_id = ? AND grants_lifetime = 1', [$userId]);
-    $target = null;
-    if (!$lifetime) {
-        $max = paddleFetch($pdo, 'SELECT MAX(granted_until) AS m FROM paddle_subscriptions WHERE pro_user_id = ? AND granted_until IS NOT NULL', [$userId]);
-        $target = $max['m'] ?? null;
-        if ($target === null) {
-            return 'no Paddle entitlement';
-        }
-    }
+    $hasAdjustments = !empty($options['has_adjustments']);
+    $lifetime = paddleUserHasLifetime($pdo, $userId, $hasAdjustments);
+    $target = $lifetime ? null : paddleSubscriptionTarget($pdo, $userId, $hasAdjustments);
 
     $current = $user['pro_expires_at'];
     $applied = paddleFetch($pdo, 'SELECT applied_expires_at, baseline_expires_at, bonus_seconds, last_target, coverage_ended, applied_lifetime FROM paddle_entitlements WHERE pro_user_id = ?', [$userId]);
     // Paid coverage is running while any subscription is still billing.
     $running = (bool) paddleFetch($pdo, "SELECT 1 FROM paddle_subscriptions WHERE pro_user_id = ? AND status IN ('active', 'trialing', 'past_due')", [$userId]);
 
+    // A lifetime purchase Paddle applied has been refunded or charged back: the
+    // NULL it wrote goes. The account keeps the expiry it had before the
+    // purchase (baseline) or what its subscriptions grant, whichever is later,
+    // and otherwise ends now for cron/cleanup.php to degrade.
+    if (!$lifetime && $applied && !empty($applied['applied_lifetime']) && $current === null) {
+        $nowLocal = date('Y-m-d H:i:s', $now);
+        $new = max(array_filter([$nowLocal, $applied['baseline_expires_at'], $target], function ($v) { return $v !== null; }));
+        $pdo->prepare('UPDATE pro_users SET pro_expires_at = ? WHERE id = ?')->execute([$new, $userId]);
+        paddleUpsert($pdo, 'paddle_entitlements', 'pro_user_id', $userId, [
+            'applied_expires_at' => $new,
+            'baseline_expires_at' => $applied['baseline_expires_at'],
+            'bonus_seconds' => 0,
+            'last_target' => $target,
+            'coverage_ended' => $running ? 0 : 1,
+            'applied_lifetime' => 0,
+            'updated_at' => $nowLocal,
+        ], true);
+        paddleLog($options, 'WARNING', 'Paddle lifetime purchase revoked by a refund or chargeback', [
+            'user_id' => $userId, 'new_expires' => $new,
+        ]);
+        return 'lifetime revoked; pro_expires_at NULL -> ' . $new;
+    }
+    if (!$lifetime && $target === null) {
+        return 'no Paddle entitlement';
+    }
+
     $bonus = 0;
     if ($lifetime) {
         $new = null;
-        $baseline = null;
+        // What the account had before the purchase, restored if it is refunded.
+        $baseline = ($applied && !empty($applied['applied_lifetime'])) ? $applied['baseline_expires_at'] : $current;
     } elseif ($current === null) {
         // Unlimited already. Only a Paddle lifetime could have set it, and a
         // lifetime purchase is not revoked here, so nothing to do either way.
@@ -605,6 +663,161 @@ function paddleApplyEntitlement(PDO $pdo, int $userId, array $options): string
         'user_id' => $userId, 'old_expires' => $current, 'new_expires' => $new, 'lifetime' => $lifetime, 'bonus_seconds' => $bonus,
     ]);
     return 'pro_expires_at ' . ($current ?? 'NULL') . ' -> ' . ($new ?? 'NULL');
+}
+
+/**
+ * Whether a user holds a lifetime purchase that has not been taken back. With
+ * $hasAdjustments false (paddle_adjustments not migrated yet) every completed
+ * lifetime purchase counts, as before #280 §7.
+ */
+function paddleUserHasLifetime(PDO $pdo, int $userId, bool $hasAdjustments): bool
+{
+    $sql = 'SELECT 1 FROM paddle_transactions t WHERE t.pro_user_id = ? AND t.grants_lifetime = 1';
+    if ($hasAdjustments) {
+        $sql .= ' AND COALESCE((SELECT SUM(a.effect) FROM paddle_adjustments a WHERE a.transaction_id = t.transaction_id), 0) <= 0';
+    }
+    return (bool) paddleFetch($pdo, $sql, [$userId]);
+}
+
+/**
+ * The latest granted_until over the user's subscriptions, each clamped by any
+ * refunded or charged-back payment of that subscription: down to the refund
+ * moment, for as long as the subscription is still in the billing period that
+ * was current when the money was taken back. Null when none grants anything.
+ */
+function paddleSubscriptionTarget(PDO $pdo, int $userId, bool $hasAdjustments): ?string
+{
+    $stmt = $pdo->prepare('SELECT subscription_id, period_ends_at, granted_until FROM paddle_subscriptions WHERE pro_user_id = ? AND granted_until IS NOT NULL');
+    $stmt->execute([$userId]);
+    $revoked = $hasAdjustments
+        ? $pdo->prepare('SELECT MIN(revoked_at) AS revoked_at, MAX(period_snapshot) AS period_snapshot
+              FROM paddle_adjustments WHERE subscription_id = ? GROUP BY transaction_id HAVING SUM(effect) > 0')
+        : null;
+    $target = null;
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $sub) {
+        $granted = (string) $sub['granted_until'];
+        if ($revoked !== null) {
+            // One row per taken-back payment. Without a snapshot (the refund
+            // arrived before the subscription did) it clamps whatever period.
+            $revoked->execute([$sub['subscription_id']]);
+            foreach ($revoked->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $inPeriod = $r['period_snapshot'] === null || $sub['period_ends_at'] === null
+                    || (string) $sub['period_ends_at'] <= (string) $r['period_snapshot'];
+                if ($inPeriod && $r['revoked_at'] !== null && (string) $r['revoked_at'] < $granted) {
+                    $granted = (string) $r['revoked_at'];
+                }
+            }
+        }
+        if ($target === null || $granted > $target) {
+            $target = $granted;
+        }
+    }
+    return $target;
+}
+
+/**
+ * What an adjustment does to the payment it belongs to: 1 takes it back (an
+ * approved full refund, an approved chargeback), -1 undoes a chargeback (an
+ * approved chargeback_reverse), 0 nothing — partial refunds, credits,
+ * chargeback warnings and anything pending, rejected or reversed.
+ */
+function paddleAdjustmentEffect(string $action, ?string $type, string $status): int
+{
+    if ($status !== 'approved') {
+        return 0;
+    }
+    if ($action === 'refund') {
+        return $type === 'full' ? 1 : 0;
+    }
+    if ($action === 'chargeback') {
+        return 1;
+    }
+    if ($action === 'chargeback_reverse') {
+        return -1;
+    }
+    return 0;
+}
+
+function paddleSyncAdjustment(PDO $pdo, array $adj, string $order, array $options): string
+{
+    if (empty($options['has_adjustments'])) {
+        // Answered non-2xx so Paddle retries until the migration has run,
+        // rather than a refund being dropped.
+        throw new RuntimeException('paddle_adjustments is missing: run migrate_paddle_billing.php');
+    }
+    $id = (string) ($adj['id'] ?? '');
+    $transactionId = (string) ($adj['transaction_id'] ?? '');
+    $customerId = (string) ($adj['customer_id'] ?? '');
+    if ($id === '' || $transactionId === '' || $customerId === '') {
+        throw new InvalidArgumentException('Adjustment event without id/transaction_id/customer_id');
+    }
+    $now = $options['now'] ?? time();
+    $action = (string) ($adj['action'] ?? '');
+    $type = isset($adj['type']) ? (string) $adj['type'] : null;
+    $status = (string) ($adj['status'] ?? '');
+    $subscriptionId = !empty($adj['subscription_id']) ? (string) $adj['subscription_id'] : null;
+    $effect = paddleAdjustmentEffect($action, $type, $status);
+
+    $pdo->beginTransaction();
+    try {
+        $existing = paddleFetch($pdo, 'SELECT occurred_at, pro_user_id, period_snapshot FROM paddle_adjustments WHERE adjustment_id = ?', [$id]);
+        if ($existing && strcmp((string) $existing['occurred_at'], $order) > 0) {
+            $pdo->commit();
+            return 'stale adjustment event ignored';
+        }
+
+        // The account is the one the adjusted payment is linked to.
+        $paid = $subscriptionId !== null
+            ? paddleFetch($pdo, 'SELECT pro_user_id, period_ends_at FROM paddle_subscriptions WHERE subscription_id = ?', [$subscriptionId])
+            : paddleFetch($pdo, 'SELECT pro_user_id FROM paddle_transactions WHERE transaction_id = ?', [$transactionId]);
+        $userId = ($paid && $paid['pro_user_id'] !== null) ? (int) $paid['pro_user_id'] : null;
+        if ($userId === null && $existing && $existing['pro_user_id'] !== null) {
+            $userId = (int) $existing['pro_user_id'];
+        }
+        if ($userId === null) {
+            $userId = paddleResolveUser($pdo, null, $customerId);
+        }
+
+        // The billing period current when the money was taken back, fixed by
+        // the first event so a later renewal is not swallowed by it.
+        $snapshot = $existing['period_snapshot'] ?? (($subscriptionId !== null && $paid) ? $paid['period_ends_at'] : null);
+
+        paddleUpsert($pdo, 'paddle_adjustments', 'adjustment_id', $id, [
+            'transaction_id' => $transactionId,
+            'subscription_id' => $subscriptionId,
+            'customer_id' => $customerId,
+            'pro_user_id' => $userId,
+            'action' => $action,
+            'type' => $type,
+            'status' => $status,
+            'effect' => $effect,
+            'revoked_at' => paddleLocalTime($adj['created_at'] ?? null) ?? date('Y-m-d H:i:s', $now),
+            'period_snapshot' => $snapshot,
+            'occurred_at' => $order,
+            'updated_at' => date('Y-m-d H:i:s', $now),
+        ], (bool) $existing);
+
+        $outcome = "adjustment {$id} {$action} {$status}" . ($effect === 1 ? ' (revokes)' : ($effect === -1 ? ' (reverses a chargeback)' : ''));
+        if ($effect !== 0) {
+            paddleLog($options, 'WARNING', $effect === 1 ? 'Paddle refund or chargeback revokes Pro' : 'Paddle chargeback reversed', [
+                'user_id' => $userId, 'adjustment_id' => $id, 'transaction_id' => $transactionId, 'subscription_id' => $subscriptionId, 'action' => $action,
+            ]);
+        }
+        if ($userId === null) {
+            paddleLog($options, 'WARNING', 'Paddle adjustment not linked to an account yet', ['adjustment_id' => $id, 'customer_id' => $customerId]);
+            $outcome .= ' (unlinked)';
+        } else {
+            $outcome .= '; ' . paddleApplyEntitlement($pdo, $userId, $options);
+        }
+
+        $pdo->commit();
+        return $outcome;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
 }
 
 function paddleFetch(PDO $pdo, string $sql, array $params): ?array
