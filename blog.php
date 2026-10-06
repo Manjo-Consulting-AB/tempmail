@@ -13,8 +13,10 @@
  *      stops a post's content from injecting markup, so it is not restructured
  *      and no markdown library is swapped in. The single change made here is a
  *      literal space in the link callback becoming a non-breaking one, so the
- *      external-link icon cannot be orphaned onto a line of its own. No
- *      escaping step was touched.
+ *      external-link icon cannot be orphaned onto a line of its own. Since
+ *      then a paragraph line ending in two spaces or a backslash also emits a
+ *      generated <br /> (a markdown hard line break). No escaping step was
+ *      touched.
  *   2. The files under blog/ are dated historical records. They are read as
  *      content and nothing else — no rewriting, retitling or rebranding, which
  *      is exactly why the brand rename skipped them.
@@ -60,6 +62,7 @@ function markdown_to_html(string $text): string
     $in_paragraph = false;
     $in_ul = false;
     $in_ol = false;
+    $hard_break = false;
 
     $inline = function ($s) {
         // images: allow optional width suffix like ![alt](path/to/img.jpg|200)
@@ -130,8 +133,15 @@ function markdown_to_html(string $text): string
         }
 
         // regular paragraph line
-        if (!$in_paragraph) { $out .= "<p>"; $in_paragraph = true; }
-        else { $out .= "\n"; }
+        if (!$in_paragraph) { $out .= "<p>"; $in_paragraph = true; $hard_break = false; }
+        else { $out .= $hard_break ? "<br />\n" : "\n"; }
+        // A line ending in two spaces or a backslash breaks the line without
+        // starting a new paragraph (standard markdown hard line break). The
+        // <br /> is ours, never taken from the post, so escaping is unaffected.
+        $hard_break = (bool) preg_match('/(?: {2,}|\\\\)$/', $line);
+        if ($hard_break) {
+            $line = preg_replace('/(?:\s+|\\\\)$/', '', $line);
+        }
         $out .= $inline($line);
     }
 
