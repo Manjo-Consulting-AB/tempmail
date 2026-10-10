@@ -697,13 +697,16 @@ if (!function_exists('referralRunRewards')) {
                     if ((int)$row['attempts'] > 0) {
                         $counts['retried']++;
                     }
-                    $cur = $pdo->prepare('SELECT pro_expires_at FROM pro_users WHERE id = ?');
+                    $cur = $pdo->prepare('SELECT * FROM pro_users WHERE id = ?');
                     $cur->execute([$referrerId]);
-                    $expires = $cur->fetchColumn();
-                    if ($expires === false) {
+                    $referrer = $cur->fetch(PDO::FETCH_ASSOC);
+                    if ($referrer === false) {
                         throw new RuntimeException('Referrer not found');
                     }
-                    $expires = is_string($expires) && $expires !== '' ? $expires : null;
+                    $expires = is_string($referrer['pro_expires_at'] ?? null) && $referrer['pro_expires_at'] !== '' ? (string)$referrer['pro_expires_at'] : null;
+                    // A Regular account with no expiry is not Lifetime: it gets months
+                    // (decision 7), so it must not reach referralRewardKind() as null.
+                    $isRegular = ($referrer['account_type'] ?? null) === 'regular';
 
                     $billing = $pdo->prepare(
                         "SELECT subscription_id FROM paddle_subscriptions WHERE pro_user_id = ? AND status IN ('active','trialing') AND scheduled_change_action IS NULL
@@ -714,7 +717,7 @@ if (!function_exists('referralRunRewards')) {
                     $billingSub = $billingSub === false ? null : (string)$billingSub;
                     $subForLog = $billingSub;
 
-                    $kind = referralRewardKind(['pro_expires_at' => $expires, 'has_billing_subscription' => $billingSub !== null]);
+                    $kind = referralRewardKind(['pro_expires_at' => ($expires === null && $isRegular) ? $nowStr : $expires, 'has_billing_subscription' => $billingSub !== null]);
                     if ($row['referrer_target_billed_at'] !== null) {
                         // A target is already stored: the billing push was started, finish it.
                         $kind = 'billing';

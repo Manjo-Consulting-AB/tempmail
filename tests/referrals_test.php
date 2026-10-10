@@ -521,6 +521,15 @@ rrAddRow($pdo, ['refereeDone' => '2026-12-15 00:00:00']);
 rrRun($pdo, new FakePaddle());
 same('months, lapsed: now plus 3 months', '2027-04-14 12:00:00', $pdo->query('SELECT pro_expires_at FROM pro_users WHERE id = 1')->fetchColumn());
 same('months, lapsed: account_type pro', 'pro', $pdo->query('SELECT account_type FROM pro_users WHERE id = 1')->fetchColumn());
+// A Regular account with no expiry at all is not Lifetime: months, never sticky (decision 7).
+$pdo = rrFresh();
+$pdo->exec("UPDATE pro_users SET pro_expires_at = NULL, account_type = 'regular' WHERE id = 1");
+rrAddRow($pdo, ['refereeDone' => '2026-12-15 00:00:00']);
+rrRun($pdo, new FakePaddle());
+same('regular, no expiry: kind months', 'months', rrRow($pdo)['referrer_reward_kind']);
+same('regular, no expiry: now plus 3 months', '2027-04-14 12:00:00', $pdo->query('SELECT pro_expires_at FROM pro_users WHERE id = 1')->fetchColumn());
+same('regular, no expiry: account_type pro', 'pro', $pdo->query('SELECT account_type FROM pro_users WHERE id = 1')->fetchColumn());
+same('regular, no expiry: no sticky slots', 0, (int)$pdo->query('SELECT bonus_sticky_slots FROM pro_users WHERE id = 1')->fetchColumn());
 
 // 11.7 Lifetime referee
 $pdo = rrFresh();
