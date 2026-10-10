@@ -568,6 +568,34 @@ function tableHasColumn($table, $column) {
     }
 }
 
+/** Mirrors config.php's isAdminUser(): ids in $config['admin']['user_ids']. */
+if (!function_exists('isAdminUser')) {
+    function isAdminUser(int $userId): bool {
+        global $config;
+        return $userId > 0 && in_array($userId, $config['admin']['user_ids'] ?? [], true);
+    }
+}
+
+/** Mirrors config.php's stickyLimitFor() (epic #387): 10 plus bonus slots, null for an admin. */
+function stickyLimitFor(int $userId): ?int {
+    if (isAdminUser($userId)) {
+        return null;
+    }
+    try {
+        if (!tableHasColumn('pro_users', 'bonus_sticky_slots')) {
+            return 10;
+        }
+        global $pdo;
+        $stmt = $pdo->prepare("SELECT bonus_sticky_slots FROM pro_users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $value = $stmt->fetchColumn();
+        return 10 + max(0, (int) $value);
+    } catch (Exception $e) {
+        logMessage('WARNING', 'stickyLimitFor lookup failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        return 10;
+    }
+}
+
 function sanitizeString($input, int $maxLength = 0, bool $stripHtml = false): ?string {
     if ($input === null || $input === '') return null;
     $s = str_replace("\0", '', (string) $input);

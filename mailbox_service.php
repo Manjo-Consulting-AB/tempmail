@@ -224,16 +224,17 @@ function mailboxCreateSticky(PDO $pdo, int $userId, string $rawLocal, string $ip
         }
     }
 
-    // Enforce max 10 personal addresses per pro user. Admin accounts
-    // (ADMIN_USER_IDS) have no cap.
-    if (!(function_exists('isAdminUser') && isAdminUser($userId))) {
+    // Enforce the personal-address cap: 10 plus referral bonus slots, no cap
+    // for admins (ADMIN_USER_IDS).
+    $cap = stickyLimitFor($userId);
+    if ($cap !== null) {
         try {
             $cntStmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM temp_emails WHERE pro_user_id = ? AND is_personal = 1");
             $cntStmt->execute([$userId]);
             $cntRow = $cntStmt->fetch(PDO::FETCH_ASSOC);
             $existingCount = (int)($cntRow['cnt'] ?? 0);
-            if ($existingCount >= 10) {
-                return ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'];
+            if ($existingCount >= $cap) {
+                return ['ok' => false, 'error' => 'Maximum of ' . $cap . ' sticky addresses allowed'];
             }
         } catch (Exception $e) {
             logMessage('WARNING', 'Could not verify personal address count', ['error' => $e->getMessage()]);

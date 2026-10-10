@@ -18,6 +18,9 @@ $userEmail = $_SESSION['pro_user_email'] ?? '';
 // lookup error states the free plan rather than claiming Pro.
 $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
 
+// Sticky-address cap for this account (null = no cap, an admin); epic #387.
+$stickyLimit = stickyLimitFor((int) $_SESSION['pro_user_id']);
+
 // When a Pro account's time runs out (the 60-day trial of epic #267, or a
 // voucher), for display only: entitlement is still decided by proUserIsPro()
 // above. A time-limited Pro account keeps the voucher field, because
@@ -1425,7 +1428,7 @@ $mcpDesktopConfig = '{
             }, 'json');
 
             // Personal addresses handlers (moved from main page)
-            var MAX_PERSONAL_ADDRESSES = 10;
+            var MAX_PERSONAL_ADDRESSES = <?php echo $stickyLimit === null ? 'Infinity' : (int) $stickyLimit; ?>;
             function renderPersonalList(items) {
                 personalAddresses = items || [];
                 // The hook list embeds these addresses, so it is re-rendered
@@ -1436,7 +1439,7 @@ $mcpDesktopConfig = '{
                 var $container = $('#personalList');
                 if (!items || items.length === 0) {
                     $container.html('<p class="text-muted">No sticky addresses yet.</p>');
-                    $('#personalCounterBadge').text('0/' + MAX_PERSONAL_ADDRESSES);
+                    $('#personalCounterBadge').text(isFinite(MAX_PERSONAL_ADDRESSES) ? '0/' + MAX_PERSONAL_ADDRESSES : '0');
                     return;
                 }
                 var html = '<div class="list-group">';
@@ -1484,7 +1487,7 @@ $mcpDesktopConfig = '{
                 html += '\n</div>';
                 $container.html(html);
                 var count = items.length || 0;
-                $('#personalCounterBadge').text(count + '/' + MAX_PERSONAL_ADDRESSES);
+                $('#personalCounterBadge').text(isFinite(MAX_PERSONAL_ADDRESSES) ? count + '/' + MAX_PERSONAL_ADDRESSES : String(count));
                 if (count >= MAX_PERSONAL_ADDRESSES) {
                     $('#createPersonalBtn').prop('disabled', true);
                     $('#personalMsg').css('color', '#ff6b6b').text('Max ' + MAX_PERSONAL_ADDRESSES + ' sticky addresses reached');

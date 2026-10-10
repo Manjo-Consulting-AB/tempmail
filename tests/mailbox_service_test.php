@@ -71,6 +71,19 @@ function tableHasColumn($table, $column) {
     }
 }
 
+/** Mirrors config.php's isAdminUser(): no admin account is configured here. */
+function isAdminUser(int $userId): bool {
+    return false;
+}
+
+// The real stickyLimitFor() from config.php (which cannot be required here),
+// so the cap the service enforces is the shipped one, not a copy of it.
+if (!preg_match('/^function stickyLimitFor\(.*?^}$/ms', (string) file_get_contents($msRepoRoot . '/config.php'), $msStickyFn)) {
+    fwrite(STDERR, "Could not find stickyLimitFor() in config.php\n");
+    exit(1);
+}
+eval($msStickyFn[0]); // nosemgrep: php.lang.security.eval-use.eval-use -- the repository's own function body, test only
+
 function logMessage($level, $message, $context = null) {
     $GLOBALS['ms_test_logs'][] = ['level' => (string) $level, 'message' => (string) $message, 'context' => $context];
     return true;
@@ -274,6 +287,23 @@ for ($i = 1; $i <= 9; $i++) {
 $r = mailboxCreateSticky($pdo, $alice, 'alice.cap10');
 ms_test_same('A13. create: the 11th sticky address is refused', ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'], $r);
 ms_test_same('A14. create: and creates no row', null, ms_mbx_address_row($pdo, 'alice.cap10'));
+
+// Referral bonus slots (epic #387): the cap is 10 plus pro_users.bonus_sticky_slots.
+// Before the column exists (A13 above) the cap is 10; with it, an account
+// with 3 slots reaches 13 and an account with 0 is still refused at its 11th.
+$pdo->exec('ALTER TABLE pro_users ADD COLUMN bonus_sticky_slots INTEGER NOT NULL DEFAULT 0');
+$carol = ms_test_seed_user($pdo, 'carol@example.com', 'pro');
+$pdo->prepare('UPDATE pro_users SET bonus_sticky_slots = 3 WHERE id = ?')->execute([$carol]);
+ms_test_same('A14a. stickyLimitFor: 10 plus 3 bonus slots', 13, stickyLimitFor($carol));
+ms_test_same('A14b. stickyLimitFor: 10 with no bonus slots', 10, stickyLimitFor($alice));
+for ($i = 1; $i <= 13; $i++) {
+    $r = mailboxCreateSticky($pdo, $carol, 'carol.cap' . $i);
+    ms_test_check("A14c.$i. create: address $i of 13 succeeds with 3 bonus slots", $r['ok'] ?? false);
+}
+$r = mailboxCreateSticky($pdo, $carol, 'carol.cap14');
+ms_test_same('A14d. create: the 14th is refused', ['ok' => false, 'error' => 'Maximum of 13 sticky addresses allowed'], $r);
+$r = mailboxCreateSticky($pdo, $alice, 'alice.cap10');
+ms_test_same('A14e. create: an account with 0 bonus slots is still refused at its 11th', ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'], $r);
 
 // A failed forwarder rolls the creation back.
 $GLOBALS['ms_mbx_forwarder_fails'] = true;

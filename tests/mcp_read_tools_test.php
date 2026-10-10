@@ -424,6 +424,14 @@ ms_test_check('1j. the Timed address expires in ISO 8601', ms_mrt_is_iso_near($b
 ms_test_same('1k. the Sticky count is reported', 1, $data['sticky_count'] ?? null);
 ms_test_same('1l. ... with the cap of 10', 10, $data['sticky_limit'] ?? null);
 
+// Referral bonus slots (epic #387): the cap is 10 plus the account's slots.
+$pdo->exec('ALTER TABLE pro_users ADD COLUMN bonus_sticky_slots INTEGER NOT NULL DEFAULT 0');
+$pdo->prepare('UPDATE pro_users SET bonus_sticky_slots = 3 WHERE id = ?')->execute([$alice]);
+$result = ms_mrt_call_tool($port, $tokenAlice, 'list_addresses');
+$data = ms_mrt_data($result, '1m');
+ms_test_same('1m. an account with 3 bonus slots has the cap of 13', 13, $data['sticky_limit'] ?? null);
+$pdo->prepare('UPDATE pro_users SET bonus_sticky_slots = 0 WHERE id = ?')->execute([$alice]);
+
 // ---------------------------------------------------------------------
 // 2. list_addresses — the kind filter
 // ---------------------------------------------------------------------

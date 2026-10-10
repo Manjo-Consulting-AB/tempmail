@@ -1301,6 +1301,30 @@ function isAdminUser(int $userId): bool {
 }
 
 /**
+ * Sticky-address cap for one account (epic #387): 10 plus the referral bonus
+ * slots, or null (no cap) for an admin. Fail-safe: when the column is missing
+ * or the lookup fails, the cap is 10.
+ */
+function stickyLimitFor(int $userId): ?int {
+    if (isAdminUser($userId)) {
+        return null;
+    }
+    try {
+        if (!tableHasColumn('pro_users', 'bonus_sticky_slots')) {
+            return 10;
+        }
+        global $pdo;
+        $stmt = $pdo->prepare("SELECT bonus_sticky_slots FROM pro_users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $value = $stmt->fetchColumn();
+        return 10 + max(0, (int) $value);
+    } catch (Exception $e) {
+        logMessage('WARNING', 'stickyLimitFor lookup failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        return 10;
+    }
+}
+
+/**
  * Generera en unik adressträng
  */
 function generateUniqueString($length = null) {

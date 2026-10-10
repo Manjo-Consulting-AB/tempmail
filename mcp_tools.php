@@ -149,7 +149,7 @@ if (!function_exists('mcpToolRegistry')) {
                 'description' => 'Create a Sticky address that does not expire, under the same rules the '
                     . 'website applies: the local part is validated, reserved names are refused, an address '
                     . 'someone else holds (or recently released) is refused, and an account may hold at most '
-                    . '10. The account must be Pro. Nothing is deleted by this tool.',
+                    . 'the account\'s cap (`sticky_limit`). The account must be Pro. Nothing is deleted by this tool.',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
@@ -422,7 +422,7 @@ if (!function_exists('mcpToolListAddresses')) {
             // The count and the cap describe the Sticky addresses whatever
             // the filter, so a client can tell whether one more fits.
             'sticky_count' => count($personal),
-            'sticky_limit' => (function_exists('isAdminUser') && isAdminUser((int) $tokenRow['user_id'])) ? null : 10,
+            'sticky_limit' => stickyLimitFor((int) $tokenRow['user_id']),
         ]];
     }
 }
