@@ -104,6 +104,24 @@ require 'partials/public_nav.php';
 $esc = function ($value): string {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 };
+
+// Referred account inside its window (epic #387 step 8). Fail-open: any
+// problem, the flag being off or the migration missing shows nothing.
+$referralNote = null;
+if ($signedIn) {
+    try {
+        require_once __DIR__ . '/referrals.php';
+        $referralCfg = referralSettings($config['referral'] ?? []);
+        if ($referralCfg['enabled'] && tableHasColumn('referrals', 'status')) {
+            $own = referralSummaryFor($pdo, (int) $_SESSION['pro_user_id'], time())['own'];
+            if ($own !== null) {
+                $referralNote = 'Invited by a friend: buy a 12-month plan before ' . date('j F Y', strtotime($own['window_ends_at'])) . ' and get ' . (12 + $referralCfg['bonus_months']) . ' months.';
+            }
+        }
+    } catch (Throwable $e) {
+        $referralNote = null;
+    }
+}
 ?>
 <main id="main">
     <section class="ms-section ms-pricing">
@@ -116,6 +134,7 @@ $esc = function ($value): string {
                 <button type="button" class="ms-pricing__period" data-period="year" aria-pressed="false">Yearly</button>
             </div>
 
+<?php if ($referralNote !== null) { echo '<p class="ms-plans__note">' . $esc($referralNote) . '</p>'; } ?>
             <p class="ms-pricing__error" id="ms-pricing-error" role="alert" hidden>Prices could not be loaded right now. Please reload the page to try again.</p>
 
             <div class="ms-pricing__grid">
