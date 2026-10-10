@@ -76,13 +76,25 @@ function isAdminUser(int $userId): bool {
     return false;
 }
 
-// The real stickyLimitFor() from config.php (which cannot be required here),
-// so the cap the service enforces is the shipped one, not a copy of it.
-if (!preg_match('/^function stickyLimitFor\(.*?^}$/ms', (string) file_get_contents($msRepoRoot . '/config.php'), $msStickyFn)) {
-    fwrite(STDERR, "Could not find stickyLimitFor() in config.php\n");
-    exit(1);
+/** Mirrors config.php's stickyLimitFor() (epic #387); the scan in A14f keeps them in step. */
+function stickyLimitFor(int $userId): ?int {
+    if (isAdminUser($userId)) {
+        return null;
+    }
+    try {
+        if (!tableHasColumn('pro_users', 'bonus_sticky_slots')) {
+            return 10;
+        }
+        global $pdo;
+        $stmt = $pdo->prepare("SELECT bonus_sticky_slots FROM pro_users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $value = $stmt->fetchColumn();
+        return 10 + max(0, (int) $value);
+    } catch (Exception $e) {
+        logMessage('WARNING', 'stickyLimitFor lookup failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        return 10;
+    }
 }
-eval($msStickyFn[0]); // nosemgrep: php.lang.security.eval-use.eval-use -- the repository's own function body, test only
 
 function logMessage($level, $message, $context = null) {
     $GLOBALS['ms_test_logs'][] = ['level' => (string) $level, 'message' => (string) $message, 'context' => $context];
@@ -304,6 +316,17 @@ $r = mailboxCreateSticky($pdo, $carol, 'carol.cap14');
 ms_test_same('A14d. create: the 14th is refused', ['ok' => false, 'error' => 'Maximum of 13 sticky addresses allowed'], $r);
 $r = mailboxCreateSticky($pdo, $alice, 'alice.cap10');
 ms_test_same('A14e. create: an account with 0 bonus slots is still refused at its 11th', ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'], $r);
+
+// The mirror above must match the shipped function body in config.php.
+$msNorm = static function (string $src): ?string {
+    if (!preg_match('/^function stickyLimitFor\(.*?^}$/ms', $src, $m)) {
+        return null;
+    }
+    return preg_replace('/\s+/', ' ', $m[0]);
+};
+$msShipped = $msNorm((string) file_get_contents($msRepoRoot . '/config.php'));
+ms_test_check('A14f. config.php defines stickyLimitFor() identically to the mirror',
+    $msShipped !== null && $msShipped === $msNorm((string) file_get_contents(__FILE__)));
 
 // A failed forwarder rolls the creation back.
 $GLOBALS['ms_mbx_forwarder_fails'] = true;
