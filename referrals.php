@@ -466,3 +466,308 @@ if (!function_exists('referralVoidOnRefund')) {
         }
     }
 }
+
+if (!function_exists('referralRunTx')) {
+    /** Runs $fn in one transaction on $pdo; rolls back and rethrows on any error. */
+    function referralRunTx(PDO $pdo, callable $fn)
+    {
+        $pdo->beginTransaction();
+        try {
+            $result = $fn();
+            $pdo->commit();
+            return $result;
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+}
+
+if (!function_exists('referralRunPush')) {
+    /**
+     * The idempotent next_billed_at push shared by both sides (epic #387
+     * decision 9). $storedTarget is the row's *_target_billed_at. Returns
+     * 'pushed', 'already' (Paddle already shows the target) or
+     * 'no_next_billed_at' (nothing to push, only possible before a target is
+     * stored). Throws on any Paddle or data error. Never inside a DB
+     * transaction. With $dryRun nothing is stored and nothing is PATCHed.
+     */
+    function referralRunPush(PDO $pdo, int $referralId, string $side, ?string $storedTarget, string $subscriptionId, array $settings, array $paddle, int $now, bool $dryRun): string
+    {
+        $target = $storedTarget;
+        if ($target === null) {
+            $sub = $paddle['get']($subscriptionId);
+            $nextBilled = $sub['next_billed_at'] ?? null;
+            if (!is_string($nextBilled) || $nextBilled === '') {
+                return 'no_next_billed_at';
+            }
+            $target = referralAddMonths(paddleUtcToLocal($nextBilled), (int)$settings['bonus_months']);
+            if (!$dryRun) {
+                // Stored before the PATCH, so a retry can tell whether it already happened.
+                $stamp = date('Y-m-d H:i:s', $now);
+                if ($side === 'referee') {
+                    $pdo->prepare('UPDATE referrals SET referee_target_billed_at = ?, updated_at = ? WHERE id = ?')->execute([$target, $stamp, $referralId]);
+                } else {
+                    $pdo->prepare('UPDATE referrals SET referrer_target_billed_at = ?, updated_at = ? WHERE id = ?')->execute([$target, $stamp, $referralId]);
+                }
+            }
+        }
+
+        $sub = $paddle['get']($subscriptionId);
+        $nextBilled = $sub['next_billed_at'] ?? null;
+        if (!is_string($nextBilled) || $nextBilled === '') {
+            throw new RuntimeException('Subscription has no next_billed_at, cannot confirm the push');
+        }
+        if (paddleUtcToLocal($nextBilled) >= $target) {
+            return 'already';
+        }
+        if (!$dryRun) {
+            $paddle['patch']($subscriptionId, paddleRfc3339ToUtc($target));
+        }
+        return 'pushed';
+    }
+}
+
+if (!function_exists('referralRunFailure')) {
+    /**
+     * Counts a failed attempt on one row and marks it 'stuck' at 5. Never
+     * throws; does nothing on a dry run.
+     */
+    function referralRunFailure(PDO $pdo, int $referralId, string $side, ?string $subscriptionId, Throwable $e, int $now, bool $dryRun, array &$counts): void
+    {
+        if ($dryRun) {
+            return;
+        }
+        try {
+            $stamp = date('Y-m-d H:i:s', $now);
+            $pdo->prepare('UPDATE referrals SET attempts = attempts + 1, updated_at = ? WHERE id = ?')->execute([$stamp, $referralId]);
+            $stmt = $pdo->prepare('SELECT attempts FROM referrals WHERE id = ?');
+            $stmt->execute([$referralId]);
+            $attempts = (int)$stmt->fetchColumn();
+            logMessage('WARNING', 'Referral reward attempt failed', [
+                'referral_id' => $referralId, 'side' => $side, 'attempts' => $attempts, 'error' => $e->getMessage(),
+            ]);
+            if ($attempts >= 5) {
+                $pdo->prepare("UPDATE referrals SET status = 'stuck', updated_at = ? WHERE id = ? AND status = 'qualified'")->execute([$stamp, $referralId]);
+                $counts['stuck']++;
+                logMessage('ERROR', 'Referral reward stuck, grant by hand', [
+                    'referral_id' => $referralId, 'side' => $side, 'subscription_id' => $subscriptionId,
+                ]);
+            }
+        } catch (Throwable $inner) {
+            // Nothing more can be done here; the row is picked up again next run.
+        }
+    }
+}
+
+if (!function_exists('referralRunRewards')) {
+    /**
+     * One reward run (epic #387). $paddle = ['get' => callable(string $subId): array,
+     * 'patch' => callable(string $subId, string $nextBilledAtUtc): array], each
+     * returning Paddle's subscription `data`. Never throws; returns counters.
+     * $settings is referralSettings(); $now a Unix timestamp.
+     */
+    function referralRunRewards(PDO $pdo, array $settings, array $paddle, int $now, bool $dryRun = false): array
+    {
+        $counts = ['referee_rewarded' => 0, 'referrer_rewarded' => 0, 'expired' => 0, 'voided' => 0, 'retried' => 0, 'stuck' => 0];
+        $log = static function (string $level, string $message, array $context = []) use ($dryRun): void {
+            if (!$dryRun && function_exists('logMessage')) {
+                logMessage($level, $message, $context);
+            }
+        };
+
+        try {
+            if (empty($settings['enabled'])) {
+                return $counts;
+            }
+            try {
+                $pdo->query('SELECT 1 FROM referrals WHERE 1 = 0');
+            } catch (Throwable $e) {
+                return $counts;
+            }
+
+            $nowStr = date('Y-m-d H:i:s', $now);
+            $months = (int)$settings['bonus_months'];
+
+            // Housekeeping: joined rows past their window.
+            $stmt = $pdo->prepare("SELECT id FROM referrals WHERE status = 'joined' AND window_ends_at < ? ORDER BY id LIMIT 100");
+            $stmt->execute([$nowStr]);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                try {
+                    if (!$dryRun) {
+                        $upd = $pdo->prepare("UPDATE referrals SET status = 'expired', updated_at = ? WHERE id = ? AND status = 'joined'");
+                        $upd->execute([$nowStr, (int)$id]);
+                        if ($upd->rowCount() < 1) {
+                            continue;
+                        }
+                    }
+                    $counts['expired']++;
+                } catch (Throwable $e) {
+                    $log('WARNING', 'Referral expiry failed', ['referral_id' => (int)$id]);
+                }
+            }
+
+            // Housekeeping: qualified rows whose referrer is gone.
+            $stmt = $pdo->query("SELECT id FROM referrals WHERE status = 'qualified' AND NOT EXISTS (SELECT 1 FROM pro_users WHERE pro_users.id = referrals.referrer_id) ORDER BY id LIMIT 100");
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                try {
+                    if (!$dryRun) {
+                        $upd = $pdo->prepare("UPDATE referrals SET status = 'void', void_reason = 'referrer_deleted', updated_at = ? WHERE id = ? AND status = 'qualified'");
+                        $upd->execute([$nowStr, (int)$id]);
+                        if ($upd->rowCount() < 1) {
+                            continue;
+                        }
+                    }
+                    $counts['voided']++;
+                } catch (Throwable $e) {
+                    $log('WARNING', 'Referral void failed', ['referral_id' => (int)$id]);
+                }
+            }
+
+            // Referee reward: year plans, due at once.
+            $stmt = $pdo->query("SELECT * FROM referrals WHERE status = 'qualified' AND referee_reward_at IS NULL ORDER BY id LIMIT 100");
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $referralId = (int)$row['id'];
+                $subForLog = $row['subscription_id'] !== null ? (string)$row['subscription_id'] : null;
+                try {
+                    if ((int)$row['attempts'] > 0) {
+                        $counts['retried']++;
+                    }
+                    $markDone = static function () use ($pdo, $referralId, $nowStr, $dryRun): void {
+                        if ($dryRun) {
+                            return;
+                        }
+                        referralRunTx($pdo, static function () use ($pdo, $referralId, $nowStr): void {
+                            $pdo->prepare("UPDATE referrals SET referee_reward_at = ?, updated_at = ? WHERE id = ? AND status = 'qualified' AND referee_reward_at IS NULL")
+                                ->execute([$nowStr, $nowStr, $referralId]);
+                        });
+                    };
+                    if ($row['plan'] !== 'year') {
+                        // Lifetime: nothing can be extended, the row just moves on.
+                        $markDone();
+                        $counts['referee_rewarded']++;
+                        continue;
+                    }
+                    if ($subForLog === null || $subForLog === '') {
+                        throw new RuntimeException('Year referral has no subscription id');
+                    }
+                    $outcome = referralRunPush($pdo, $referralId, 'referee', $row['referee_target_billed_at'] !== null ? (string)$row['referee_target_billed_at'] : null, $subForLog, $settings, $paddle, $now, $dryRun);
+                    if ($outcome === 'no_next_billed_at') {
+                        // A cancel is scheduled: grant the months on the account instead.
+                        if (!$dryRun) {
+                            referralRunTx($pdo, static function () use ($pdo, $row, $referralId, $nowStr, $months): void {
+                                $mark = $pdo->prepare("UPDATE referrals SET referee_reward_at = ?, updated_at = ? WHERE id = ? AND status = 'qualified' AND referee_reward_at IS NULL");
+                                $mark->execute([$nowStr, $nowStr, $referralId]);
+                                if ($mark->rowCount() < 1) {
+                                    return;
+                                }
+                                $cur = $pdo->prepare('SELECT pro_expires_at FROM pro_users WHERE id = ?');
+                                $cur->execute([(int)$row['referee_id']]);
+                                $expires = $cur->fetchColumn();
+                                if (is_string($expires) && $expires !== '') {
+                                    $base = max($nowStr, $expires);
+                                    $pdo->prepare('UPDATE pro_users SET pro_expires_at = ? WHERE id = ?')
+                                        ->execute([referralAddMonths($base, $months), (int)$row['referee_id']]);
+                                }
+                            });
+                        }
+                    } else {
+                        $markDone();
+                    }
+                    $counts['referee_rewarded']++;
+                    $log('INFO', 'Referee reward granted', ['referral_id' => $referralId]);
+                } catch (Throwable $e) {
+                    referralRunFailure($pdo, $referralId, 'referee', $subForLog, $e, $now, $dryRun, $counts);
+                }
+            }
+
+            // Referrer reward: due, and for a year plan only after the referee side is done.
+            $stmt = $pdo->prepare(
+                "SELECT * FROM referrals WHERE status = 'qualified' AND referrer_reward_due_at IS NOT NULL AND referrer_reward_due_at <= ?
+                   AND (plan = 'lifetime' OR referee_reward_at IS NOT NULL) ORDER BY id LIMIT 100"
+            );
+            $stmt->execute([$nowStr]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $referralId = (int)$row['id'];
+                $referrerId = (int)$row['referrer_id'];
+                $subForLog = null;
+                try {
+                    if ((int)$row['attempts'] > 0) {
+                        $counts['retried']++;
+                    }
+                    $cur = $pdo->prepare('SELECT pro_expires_at FROM pro_users WHERE id = ?');
+                    $cur->execute([$referrerId]);
+                    $expires = $cur->fetchColumn();
+                    if ($expires === false) {
+                        throw new RuntimeException('Referrer not found');
+                    }
+                    $expires = is_string($expires) && $expires !== '' ? $expires : null;
+
+                    $billing = $pdo->prepare(
+                        "SELECT subscription_id FROM paddle_subscriptions WHERE pro_user_id = ? AND status IN ('active','trialing') AND scheduled_change_action IS NULL
+                         ORDER BY updated_at DESC, subscription_id DESC LIMIT 1"
+                    );
+                    $billing->execute([$referrerId]);
+                    $billingSub = $billing->fetchColumn();
+                    $billingSub = $billingSub === false ? null : (string)$billingSub;
+                    $subForLog = $billingSub;
+
+                    $kind = referralRewardKind(['pro_expires_at' => $expires, 'has_billing_subscription' => $billingSub !== null]);
+                    if ($row['referrer_target_billed_at'] !== null) {
+                        // A target is already stored: the billing push was started, finish it.
+                        $kind = 'billing';
+                    }
+
+                    if ($kind === 'billing') {
+                        if ($billingSub === null) {
+                            throw new RuntimeException('Referrer has no billing subscription to finish the push');
+                        }
+                        $outcome = referralRunPush($pdo, $referralId, 'referrer', $row['referrer_target_billed_at'] !== null ? (string)$row['referrer_target_billed_at'] : null, $billingSub, $settings, $paddle, $now, $dryRun);
+                        if ($outcome === 'no_next_billed_at') {
+                            throw new RuntimeException('Billing subscription has no next_billed_at');
+                        }
+                    }
+
+                    if (!$dryRun) {
+                        referralRunTx($pdo, static function () use ($pdo, $row, $referralId, $referrerId, $kind, $expires, $nowStr, $months, $settings): void {
+                            $mark = $pdo->prepare("UPDATE referrals SET status = 'rewarded', referrer_reward_kind = ?, referrer_reward_at = ?, updated_at = ? WHERE id = ? AND status = 'qualified'");
+                            $mark->execute([$kind, $nowStr, $nowStr, $referralId]);
+                            if ($mark->rowCount() < 1) {
+                                return;
+                            }
+                            if ($kind === 'sticky') {
+                                $pdo->prepare('UPDATE pro_users SET bonus_sticky_slots = bonus_sticky_slots + ? WHERE id = ?')
+                                    ->execute([(int)$settings['sticky_bonus'], $referrerId]);
+                            } elseif ($kind === 'months') {
+                                $base = $expires !== null ? max($nowStr, $expires) : $nowStr;
+                                $pdo->prepare("UPDATE pro_users SET pro_expires_at = ?, account_type = 'pro' WHERE id = ?")
+                                    ->execute([referralAddMonths($base, $months), $referrerId]);
+                            }
+                        });
+                        $log('INFO', 'Referrer reward granted', ['referral_id' => $referralId, 'kind' => $kind]);
+                    }
+                    $counts['referrer_rewarded']++;
+                } catch (Throwable $e) {
+                    referralRunFailure($pdo, $referralId, 'referrer', $subForLog, $e, $now, $dryRun, $counts);
+                }
+            }
+
+            // Logging only, no cap (decision 10).
+            try {
+                $since = date('Y-m-d H:i:s', $now - 30 * 86400);
+                $stmt = $pdo->prepare("SELECT referrer_id, COUNT(*) AS n FROM referrals WHERE status = 'rewarded' AND referrer_reward_at >= ? GROUP BY referrer_id HAVING COUNT(*) > 5");
+                $stmt->execute([$since]);
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $log('WARNING', 'Referral volume high', ['referrer_id' => (int)$r['referrer_id'], 'count' => (int)$r['n']]);
+                }
+            } catch (Throwable $e) {
+                // Logging only.
+            }
+        } catch (Throwable $e) {
+            $log('ERROR', 'Referral reward run failed', ['error' => $e->getMessage()]);
+        }
+        return $counts;
+    }
+}
