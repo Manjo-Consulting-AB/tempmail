@@ -55,7 +55,7 @@ if (!function_exists('reservedLocalParts')) {
             // Brand names
             'manjo', 'mailshield', 'mail-shield', 'tempmail', 'temp-mail',
             // Names reserved before this list existed
-            'jj', 'roland', 'investering',
+            'jj', 'roland', 'investering', 'titti',
         ];
         $set = [];
         foreach ($names as $name) {
