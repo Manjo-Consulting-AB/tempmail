@@ -443,3 +443,171 @@ medvetet ingen främmande nyckel till `pro_users` (som `address_cooldowns`), så
 en spärr går att räkna även efter att kontot raderats; `check_retention_holds.php`
 rapporterar en sådan föräldralös rad i stället för att kaskadradera den.
 `tests/retention_hold_test.php` är regressionssviten.
+
+## 12. Värvning (referrals, #387)
+
+Epic: [#387](https://github.com/Manjo-Consulting-AB/tempmail/issues/387).
+Varje konto har en personlig inbjudningslänk, `<base_url>/invite/<kod>`. En
+vän som skapar ett konto via den och köper **12 månader Pro** inom
+`REFERRAL_WINDOW_DAYS` (default 120) dagar får `REFERRAL_BONUS_MONTHS`
+(default 3) extra månader — vännens nästa betalning flyttas så många månader
+framåt. Den som bjöd in får lika många månader Pro
+`REFERRAL_HOLD_DAYS` (default 30) dagar efter vännens betalning, eller
+`REFERRAL_STICKY_BONUS` (default 3) fler Sticky-adresser om kontot har
+Lifetime. Antalet värvningar är obegränsat och belöningarna staplas. Alla
+siffror kommer från `referralSettings($config['referral'] ?? [])` — funktionen
+tar `referral`-blocket, aldrig hela `$config` — och aldrig från text i koden.
+Programmet är avstängt tills `REFERRAL_ENABLED=1`.
+
+### 12.1 Regler
+
+- **Länken.** Koden är 8 tecken ur alfabetet `23456789abcdefghjkmnpqrstuvwxyz`,
+  skapas första gången den behövs (`referralEnsureCode()`) och lagras i
+  `pro_users.referral_code` (UNIQUE). Den visar aldrig användarnamn eller
+  e-post. Alla kontotyper har en, även Regular.
+- **Klicket.** `invite.php` svarar alltid med samma 302 till `/`. Bara när
+  programmet är på och koden finns sätts cookien `ms_ref` (`HttpOnly`,
+  `SameSite=Lax`, `REFERRAL_COOKIE_DAYS` dagar). Inget skrivs i databasen vid
+  ett klick.
+- **Bindningen.** Vid registreringen läggs cookiens kod i
+  `pro_users.referral_pending_code`, eftersom verifieringslänken ofta öppnas i
+  en webbläsare utan cookien. En `referrals`-rad skapas **bara vid kontots
+  första verifiering** (`pro_login.php`, samma ögonblick som provperioden i §10)
+  och bara om adressen aldrig tidigare setts: `referralAddressIsNew()` läser
+  `pro_trial_claims` **innan** `proTrialGrantOnVerification()` registrerar
+  claimen. Ett raderat konto som registreras om skapar därför aldrig en
+  värvning. Bindningen ändras aldrig, ett befintligt konto kan aldrig bli
+  värvat, och `referee_id` är UNIQUE. Ingen rad skapas (INFO-logg) om
+  värvaren är samma konto, om adresserna har samma kanoniska form
+  (`proTrialNormalizeEmail()`) eller om värvarens konto inte finns.
+- **Fönstret.** `window_ends_at = created_at + REFERRAL_WINDOW_DAYS`. Bara
+  vännens **första kvalificerande köp** inom fönstret räknas. En `joined`-rad
+  vars fönster gått ut blir `expired`.
+- **Kvalificerande köp.** En prenumeration på **årspriset** som blir `active`
+  (inklusive byte från månad till år inom fönstret), eller ett Lifetime-köp
+  (`transaction.completed` på `once`-priset). Ett månadsabonnemang kvalificerar
+  inte. Är den betalande Paddle-kunden redan kopplad till värvarens konto
+  ogiltigförklaras raden (`void_reason = 'same_customer'`).
+- **Vännens belöning**, direkt: årsabonnemangets `next_billed_at` flyttas
+  `REFERRAL_BONUS_MONTHS` kalendermånader framåt (31 jan + 1 månad = sista
+  februari) genom Paddles API (`PATCH /subscriptions/{id}`,
+  `proration_billing_mode: do_not_bill`) — nästa debitering skjuts upp, så
+  "betala 12, få 15" stämmer bokstavligt. Saknar prenumerationen
+  `next_billed_at` (en uppsägning är schemalagd) läggs månaderna i stället på
+  `pro_expires_at`. Ett Lifetime-köp ger vännen inget extra, men värvaren
+  belönas ändå. Återstående provdagar följer med som vanligt via
+  `bonus_seconds`.
+- **Värvarens belöning**, `referrer_reward_due_at = qualified_at +
+  REFERRAL_HOLD_DAYS`, och för ett årsköp först när vännens egen belöning är
+  klar. Slaget bestäms **när belöningen ges**, ur värvarens tillstånd då:
+  `sticky` (`bonus_sticky_slots += REFERRAL_STICKY_BONUS`) **bara för ett
+  Pro-konto utan utgångsdatum (Lifetime)**; `billing` (samma uppskjutning av
+  `next_billed_at`) om kontot har en `active`/`trialing`-prenumeration utan
+  schemalagd ändring; annars `months` (`pro_expires_at = max(nu,
+  pro_expires_at) + REFERRAL_BONUS_MONTHS`, `account_type = 'pro'`). Ett
+  **Regular-konto utan utgångsdatum** är inte Lifetime och får `months`
+  (epikens beslut 7; Sticky-platser vore värdelösa för det). Redan givna
+  belöningar konverteras aldrig. Kortet Invite friends på profilsidan visar
+  Lifetime-texten efter samma regel.
+- **Återbetalning.** En justering som återkallar den kvalificerande betalningen
+  (samma regel som `paddle_adjustments.revoked_at`) innan värvaren belönats
+  ogiltigförklarar värvningen (`void_reason = 'refunded'`); vännens egen bonus
+  försvinner med den återbetalda prenumerationen via den befintliga
+  återbetalningshanteringen. **Ingen återtagning efter att värvaren belönats**:
+  en senare återbetalning eller chargeback loggar bara en WARNING med
+  värvningens id.
+- **Sticky-taket.** `stickyLimitFor()` i `config.php` är den enda källan:
+  `null` för admin, annars `10 + bonus_sticky_slots`. Bonusplatserna räknas
+  bara medan kontot är Pro. Marknadsförings- och juridisk text säger fortsatt
+  "up to 10"; bara profilen visar "10 + N bonus".
+- **Integritet.** Värvaren ser aldrig mer än antal (`joined`, `pending`,
+  `rewarded`, ur `referralSummaryFor()`): ingen väns adress, namn eller datum.
+  `referrals` innehåller bara konto-id, utan främmande nycklar (som resten av
+  schemat), så `referee_id` blir kvar som ett naket heltal när kontot raderas;
+  ingen rensning tar bort `referrals`-rader. Ingen logg innehåller en adress
+  eller en kod. Reglerna publiceras i `terms.php`, `refund-policy.php` och
+  `privacy.php` (kakan `ms_ref`).
+- **Ingen gräns, men bevakning.** Cron loggar en WARNING när en värvare fått mer
+  än 5 belöningar på 30 dagar. Det finns inget tak: "obegränsat" är en del av
+  löftet och varje belöning kräver en riktig årsbetalning.
+
+### 12.2 Datamodell
+
+`migrate_referrals.php` (idempotent, CLI) lägger till
+`pro_users.referral_code` (VARCHAR(16), UNIQUE `uq_pu_referral_code`),
+`pro_users.referral_pending_code` och `pro_users.bonus_sticky_slots` (INT,
+default 0) samt skapar `referrals`, huvudboken med en rad per värvad
+(`UNIQUE referee_id`; index `idx_ref_referrer`, `idx_ref_due`,
+`idx_ref_window`). Kolumnerna: `referrer_id`, `referee_id`, `status`,
+`created_at`, `window_ends_at`, `plan` (`year`/`lifetime`), `subscription_id`,
+`transaction_id`, `qualified_at`, `referee_reward_at`,
+`referee_target_billed_at`, `referrer_reward_due_at`, `referrer_reward_kind`
+(`billing`/`months`/`sticky`), `referrer_target_billed_at`,
+`referrer_reward_at`, `void_reason`, `attempts` och `updated_at`. **Alla
+datum i `referrals` är lokal tid** (`Y-m-d H:i:s`); Paddles UTC-tider
+omvandlas med `paddleUtcToLocal()` och `paddleRfc3339ToUtc()`. Vouchersystemet
+används inte för belöningar. `check_referrals.php` granskar schemat och de
+tillstånd som aldrig är legitima.
+
+### 12.3 Statusar
+
+| Status | Betydelse |
+|---|---|
+| `joined` | Bunden vid första verifieringen, inget köpt än. Blir `expired` när fönstret gått ut. |
+| `qualified` | Ett kvalificerande köp är sett. Vännens belöning ges direkt, värvarens vid `referrer_reward_due_at`. |
+| `rewarded` | Värvarens belöning given. Slutstatus; ingen återtagning. |
+| `void` | Ogiltig. `void_reason`: `same_customer`, `refunded` eller `referrer_deleted` (en `qualified`-rad vars värvare raderats). |
+| `expired` | Fönstret gick ut utan köp. |
+| `stuck` | Fem misslyckade försök. Provas aldrig om automatiskt; belöningen ges för hand. |
+
+Flödet: klick → cookie `ms_ref` → `referral_pending_code` → bindning vid
+första verifieringen mot `pro_trial_claims` → kvalificering i
+`paddle_sync.php` (`referralQualify()`, i webhookens egen transaktion, utan
+Paddle-anrop) → belöningar i `cron/referrals.php` (`referralRunRewards()`).
+
+### 12.4 Idempotent flytt och `stuck`
+
+Cron flyttar `next_billed_at` så här, för båda sidor: (1) saknas
+`*_target_billed_at` på raden hämtas prenumerationen, målet
+(`next_billed_at` + `REFERRAL_BONUS_MONTHS`) beräknas och **lagras på raden
+före PATCH**; (2) prenumerationen hämtas, och visar den redan målet är flytten
+klar; (3) annars PATCH:as målet. Ett PATCH som lyckades i Paddle men vars
+DB-skrivning föll tas därför aldrig om. Varje fel räknar upp `attempts` och
+loggar en WARNING; vid fem blir raden `stuck` och en ERROR
+(`Referral reward stuck, grant by hand`) loggas med `referral_id`, sidan och
+`subscription_id`. Ett Paddle-anrop görs aldrig inne i en DB-transaktion, och
+en misslyckad belöning blockerar aldrig en webhook.
+
+`paddleSyncSubscription()` ger en `active`/`trialing`-prenumeration åtkomst
+till `max(current_billing_period.ends_at, next_billed_at)` (#402). Det ersatte
+sandlådekontrollen #393: sajten körs på Paddle production, så kontrollen av om
+perioden följer `next_billed_at` kunde inte göras, och koden beror inte längre
+på svaret. `period_ends_at` är oförändrad (återbetalningsklämman jämför den med
+`period_snapshot`). Det som återstår att verifiera är att Paddle accepterar
+PATCH över huvud taget; det faller i `stuck`-vägen och bekräftas vid den första
+riktiga belöningen. `check_paddle_reschedule.php` kör bara mot sandbox.
+
+### 12.5 Fail-open och fail-closed
+
+**Fail-closed på belöningar, fail-open på allt annat.** En saknad tabell
+(`migrate_referrals.php` har inte körts), ett databasfel eller ett Paddle-fel
+ger ingen belöning och loggas, men blockerar aldrig registrering,
+inloggning, verifiering, kassa eller en webhook. `referralBindOnVerification()`,
+`referralQualify()` och `referralVoidOnRefund()` fångar allt och kastar aldrig;
+`referralRunRewards()` kastar aldrig och returnerar räknare. Utan
+`REFERRAL_ENABLED=1` sätter invitationsvägen ingen cookie, ingenting binds och
+ingen belöning körs; befintliga rader behålls. `stickyLimitFor()` faller
+tillbaka på 10 om kolumnen saknas eller uppslaget misslyckas.
+
+### 12.6 Utrullningsordning
+
+1. Kör `migrate_referrals.php` i produktion. Koden i övrigt är säker utan den
+   (varje anropare hittar ingen tabell, loggar en WARNING och gör ingenting).
+2. Håll `REFERRAL_ENABLED=0` medan stegen driftsätts. `PADDLE_API_KEY` behöver
+   då behörigheterna "Subscriptions: read" och "Subscriptions: write".
+3. Driftsätt sidorna (profilkortet, prisnoten) och de publicerade reglerna i
+   `terms.php`, `refund-policy.php` och `privacy.php`. Programmet får inte slås
+   på innan reglerna är publicerade.
+4. Driftsättaren lägger in crontab-raden som kör `php cron/referrals.php` var
+   15:e minut (den finns avsiktligt inte i repot).
+5. Sätt `REFERRAL_ENABLED=1`.
