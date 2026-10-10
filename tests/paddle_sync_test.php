@@ -27,6 +27,7 @@ if (!extension_loaded('pdo_sqlite')) {
 define('TEMPMAIL_APP', true);
 date_default_timezone_set('Europe/Stockholm');   // as config.php
 require dirname(__DIR__) . '/paddle_sync.php';
+require dirname(__DIR__) . '/referrals.php';
 
 // Both tables carry the blind index that linking by email matches on
 // (pii_crypto.php): fixed test keys, overridden per case in section 26.
@@ -757,6 +758,148 @@ foreach (['paddle_customers' => ['event_id' => 'evt_c', 'event_type' => 'custome
     $pdo->collide = 1;
     run($pdo, $event, $prices);
     check("a collision on {$table} is retried too", (int) $pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn() === 1);
+}
+
+// ---------------------------------------------------------------------
+echo "\n31. Referrals: qualifying payments and refunds are marked (epic #387 step 4)\n";
+
+$refLog = [];
+$refOptions = function (bool $on = true) use ($prices, &$refLog): array {
+    return ['prices' => $prices, 'has_account_type' => true, 'has_adjustments' => true, 'now' => NOW, 'customer_email_pii' => true,
+        'referrals' => $on, 'referral_settings' => referralSettings(['enabled' => true, 'hold_days' => 30]),
+        'log' => function ($level, $message, $context) use (&$refLog) { $refLog[] = [$level, $message]; }];
+};
+$refDb = function (?int $windowEnd = null): PDO {
+    $pdo = freshDb();
+    foreach (referralSchemaStatements('sqlite') as $sql) {
+        $pdo->exec($sql);
+    }
+    addUser($pdo, 7, 'referrer@example.com');
+    addUser($pdo, 42, 'buyer@example.com');
+    $pdo->prepare("INSERT INTO referrals (referrer_id, referee_id, status, created_at, window_ends_at, attempts, updated_at) VALUES (7, 42, 'joined', ?, ?, 0, ?)")
+        ->execute([local(NOW - 86400), local($windowEnd ?? NOW + 100 * 86400), local(NOW - 86400)]);
+    return $pdo;
+};
+$refRow = function (PDO $pdo): array {
+    return paddleFetch($pdo, 'SELECT * FROM referrals WHERE referee_id = 42', []);
+};
+$logged = function (string $level, string $needle) use (&$refLog): bool {
+    foreach ($refLog as [$l, $m]) {
+        if ($l === $level && strpos($m, $needle) !== false) {
+            return true;
+        }
+    }
+    return false;
+};
+
+check('paddlePlanPriceIds: year id is in year and subscription',
+    $prices['year'] === [PRICE_YEAR] && in_array(PRICE_YEAR, $prices['subscription'], true) && $prices['subscription'] === [PRICE_MONTH, PRICE_YEAR] && $prices['lifetime'] === [PRICE_LIFETIME]);
+
+// 1. Year subscription reaching active qualifies.
+$pdo = $refDb();
+$out = paddleHandleEvent($pdo, subEvent('active'), $refOptions());
+$r = $refRow($pdo);
+check('year subscription qualifies the referral', $r['status'] === 'qualified' && $r['plan'] === 'year' && $r['subscription_id'] === 'sub_1' && $r['transaction_id'] === null, json_encode($r));
+check('reward due is qualified_at + 30 days', $r['qualified_at'] === local(NOW) && $r['referrer_reward_due_at'] === local(NOW + 30 * 86400));
+check('outcome names the referral', strpos($out, '; referral ' . $r['id'] . ' qualified') !== false, $out);
+check('entitlement is still granted', user($pdo, 42)['account_type'] === 'pro');
+
+// 2. Month price does not qualify; a later switch to year does.
+$pdo = $refDb();
+paddleHandleEvent($pdo, subEvent('active', ['items' => [['price' => ['id' => PRICE_MONTH]]]]), $refOptions());
+check('month subscription leaves the row joined', $refRow($pdo)['status'] === 'joined');
+paddleHandleEvent($pdo, subEvent('active', [], NOW + 60), $refOptions());
+check('a later year update qualifies it', $refRow($pdo)['status'] === 'qualified' && $refRow($pdo)['plan'] === 'year');
+$pdo = $refDb();
+paddleHandleEvent($pdo, subEvent('trialing'), $refOptions());
+check('a year subscription that is not active does not qualify', $refRow($pdo)['status'] === 'joined');
+
+// 3. Window over.
+$pdo = $refDb(NOW - 10);
+paddleHandleEvent($pdo, subEvent('active'), $refOptions());
+check('outside the window the row stays joined', $refRow($pdo)['status'] === 'joined');
+
+// 4. Lifetime.
+$pdo = $refDb();
+paddleHandleEvent($pdo, lifetimeEvent(), $refOptions());
+$r = $refRow($pdo);
+check('lifetime purchase qualifies', $r['status'] === 'qualified' && $r['plan'] === 'lifetime' && $r['transaction_id'] === 'txn_1' && $r['subscription_id'] === null, json_encode($r));
+
+// 5. Same customer as the referrer.
+$pdo = $refDb();
+$pdo->exec("INSERT INTO paddle_subscriptions (subscription_id, customer_id, pro_user_id, status, occurred_at, updated_at) VALUES ('sub_ref', 'ctm_1', 7, 'canceled', 'a', 'a')");
+$refLog = [];
+paddleHandleEvent($pdo, subEvent('active'), $refOptions());
+$r = $refRow($pdo);
+check('customer linked to the referrer voids the referral', $r['status'] === 'void' && $r['void_reason'] === 'same_customer', json_encode($r));
+check('…and logs a WARNING', $logged('WARNING', 'same Paddle customer'));
+$pdo = $refDb();
+$pdo->exec("INSERT INTO paddle_transactions (transaction_id, customer_id, pro_user_id, grants_lifetime, occurred_at, updated_at) VALUES ('txn_ref', 'ctm_1', 7, 1, 'a', 'a')");
+paddleHandleEvent($pdo, lifetimeEvent(), $refOptions());
+check('same customer via a transaction voids a lifetime purchase too', $refRow($pdo)['void_reason'] === 'same_customer');
+
+// 6. Refunds.
+$pdo = $refDb();
+paddleHandleEvent($pdo, subEvent('active'), $refOptions());
+$out = paddleHandleEvent($pdo, adjEvent('adj_ref', 'refund', 'approved', ['subscription_id' => 'sub_1'], NOW + 3600), $refOptions());
+$r = $refRow($pdo);
+check('a full refund of the qualifying year subscription voids the referral', $r['status'] === 'void' && $r['void_reason'] === 'refunded', json_encode($r));
+check('…and the outcome says so', strpos($out, '1 referral(s) voided') !== false, $out);
+$pdo = $refDb();
+paddleHandleEvent($pdo, lifetimeEvent(), $refOptions());
+paddleHandleEvent($pdo, adjEvent('adj_life', 'refund', 'approved', [], NOW + 3600), $refOptions());
+check('a refund of the lifetime transaction voids the referral', $refRow($pdo)['void_reason'] === 'refunded');
+$pdo = $refDb();
+paddleHandleEvent($pdo, subEvent('active'), $refOptions());
+paddleHandleEvent($pdo, adjEvent('adj_part', 'refund', 'pending_approval', ['subscription_id' => 'sub_1'], NOW + 3600), $refOptions());
+check('a pending refund does not void', $refRow($pdo)['status'] === 'qualified');
+$pdo = $refDb();
+paddleHandleEvent($pdo, subEvent('active'), $refOptions());
+$pdo->exec("UPDATE referrals SET status = 'rewarded', referrer_reward_at = '" . local(NOW) . "'");
+$refLog = [];
+paddleHandleEvent($pdo, adjEvent('adj_late', 'refund', 'approved', ['subscription_id' => 'sub_1'], NOW + 3600), $refOptions());
+check('a rewarded row is unchanged by a refund', $refRow($pdo)['status'] === 'rewarded' && $refRow($pdo)['void_reason'] === null);
+check('…and the missing clawback is logged', $logged('WARNING', 'no clawback'));
+$pdo = $refDb();
+paddleHandleEvent($pdo, lifetimeEvent(), $refOptions());
+paddleHandleEvent($pdo, adjEvent('adj_other', 'refund', 'approved', ['transaction_id' => 'txn_other'], NOW + 3600), $refOptions());
+check('a refund of another transaction leaves the referral alone', $refRow($pdo)['status'] === 'qualified');
+
+// 7. Switched off.
+$pdo = $refDb();
+$off = paddleHandleEvent($pdo, subEvent('active'), $refOptions(false));
+$plain = paddleHandleEvent(freshDbWithUser42(), subEvent('active'), ['prices' => $prices, 'has_account_type' => true, 'has_adjustments' => true, 'now' => NOW, 'customer_email_pii' => true]);
+check('referrals off: the row is untouched', $refRow($pdo)['status'] === 'joined' && $refRow($pdo)['plan'] === null);
+check('referrals off: the outcome is exactly the old one', $off === $plain && strpos($off, 'referral') === false, $off . ' | ' . $plain);
+
+// 8. Table gone while switched on.
+$pdo = $refDb();
+$pdo->exec('DROP TABLE referrals');
+$refLog = [];
+$threw = false;
+try {
+    $out = paddleHandleEvent($pdo, subEvent('active'), $refOptions());
+} catch (Throwable $e) {
+    $threw = true;
+    $out = '';
+}
+check('missing referrals table: the sync still succeeds', !$threw && user($pdo, 42)['account_type'] === 'pro' && user($pdo, 42)['pro_expires_at'] === local(NOW + 365 * 86400), $out);
+check('…and logs a WARNING', $logged('WARNING', 'Referral'));
+check('…and the subscription row was stored', (int) $pdo->query('SELECT COUNT(*) FROM paddle_subscriptions')->fetchColumn() === 1);
+$threw = false;
+try {
+    paddleHandleEvent($pdo, adjEvent('adj_nt', 'refund', 'approved', ['subscription_id' => 'sub_1'], NOW + 3600), $refOptions());
+} catch (Throwable $e) {
+    $threw = true;
+}
+check('missing referrals table: a refund still syncs', !$threw);
+
+function freshDbWithUser42(): PDO
+{
+    $pdo = freshDb();
+    addUser($pdo, 7, 'referrer@example.com');
+    addUser($pdo, 42, 'buyer@example.com');
+    return $pdo;
 }
 
 echo "\n" . ($failures === 0 ? "All checks passed.\n" : "{$failures} check(s) FAILED.\n");
