@@ -19,6 +19,8 @@ if (PHP_SAPI !== 'cli') {
 define('TEMPMAIL_APP', true);
 require __DIR__ . '/../pro_trial.php';
 require __DIR__ . '/../referrals.php';
+require __DIR__ . '/../paddle_api.php';
+date_default_timezone_set('Europe/Stockholm');
 
 // Stubs for the globals the DB-backed functions call (config.php / pii_crypto.php).
 $GLOBALS['testLogs'] = [];
@@ -349,6 +351,276 @@ try {
     $threw = true;
 }
 check('refund: missing table does not throw', !$threw);
+
+// 11. referralRunRewards() (epic #387 step 7)
+$rrSettings = referralSettings(['enabled' => true]);
+$rrNow = strtotime('2027-01-14 12:00:00');
+
+/** One in-memory Paddle: subscriptions by id, and every call recorded. */
+final class FakePaddle
+{
+    public array $subs = [];
+    public array $calls = [];
+    public int $patchFailures = 0;      // PATCH throws this many times before working
+    public bool $throwAfterApply = false; // PATCH is applied, then throws once
+
+    public function callables(): array
+    {
+        return [
+            'get' => function (string $id): array {
+                $this->calls[] = ['GET', $id];
+                if (!isset($this->subs[$id])) {
+                    throw new RuntimeException('no such subscription');
+                }
+                return $this->subs[$id];
+            },
+            'patch' => function (string $id, string $utc): array {
+                $this->calls[] = ['PATCH', $id, $utc];
+                if ($this->patchFailures > 0) {
+                    $this->patchFailures--;
+                    throw new RuntimeException('Paddle is down');
+                }
+                $this->subs[$id]['next_billed_at'] = $utc;
+                if ($this->throwAfterApply) {
+                    $this->throwAfterApply = false;
+                    throw new RuntimeException('connection lost after the PATCH');
+                }
+                return $this->subs[$id];
+            },
+        ];
+    }
+
+    public function patches(): int
+    {
+        return count(array_filter($this->calls, static function ($c) { return $c[0] === 'PATCH'; }));
+    }
+}
+
+function rrFresh(): PDO
+{
+    global $pdo;
+    $GLOBALS['testLogs'] = [];
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    foreach (paddleSchemaStatements('sqlite') as $sql) {
+        $pdo->exec($sql);
+    }
+    foreach (referralSchemaStatements('sqlite') as $sql) {
+        $pdo->exec($sql);
+    }
+    $pdo->exec("CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT, account_type TEXT NOT NULL DEFAULT 'regular', pro_expires_at TEXT NULL, bonus_sticky_slots INTEGER NOT NULL DEFAULT 0)");
+    $pdo->exec("INSERT INTO pro_users (id, email, account_type, pro_expires_at) VALUES (1, 'r@x.com', 'pro', '2027-06-01 00:00:00'), (2, 'f@y.com', 'pro', '2027-12-01 00:00:00')");
+    return $pdo;
+}
+/** A qualified referral 1 (referrer 1, referee 2). */
+function rrAddRow(PDO $pdo, array $o = []): void
+{
+    $o += ['plan' => 'year', 'sub' => 'sub_ref', 'due' => '2027-01-10 00:00:00', 'refereeDone' => null, 'status' => 'qualified', 'window' => '2027-03-01 00:00:00'];
+    $pdo->prepare("INSERT INTO referrals (id, referrer_id, referee_id, status, created_at, window_ends_at, plan, subscription_id, qualified_at, referee_reward_at, referrer_reward_due_at, attempts, updated_at)
+        VALUES (?, 1, ?, ?, '2026-12-01 00:00:00', ?, ?, ?, '2026-12-15 00:00:00', ?, ?, 0, '2026-12-15 00:00:00')")
+        ->execute([$o['id'] ?? 1, $o['referee'] ?? 2, $o['status'], $o['window'], $o['plan'], $o['plan'] === 'year' ? $o['sub'] : null, $o['refereeDone'], $o['due']]);
+}
+function rrAddBilling(PDO $pdo, string $subId, int $userId, string $status = 'active', ?string $action = null): void
+{
+    $pdo->prepare("INSERT INTO paddle_subscriptions (subscription_id, customer_id, pro_user_id, status, scheduled_change_action, occurred_at, updated_at) VALUES (?, 'ctm_x', ?, ?, ?, '2026-12-01T00:00:00Z', '2026-12-01 00:00:00')")
+        ->execute([$subId, $userId, $status, $action]);
+}
+function rrRow(PDO $pdo, int $id = 1): array
+{
+    $stmt = $pdo->prepare('SELECT * FROM referrals WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+function rrRun(PDO $pdo, FakePaddle $fake, bool $dry = false, ?array $settings = null, ?int $now = null): array
+{
+    global $rrSettings, $rrNow;
+    return referralRunRewards($pdo, $settings ?? $rrSettings, $fake->callables(), $now ?? $rrNow, $dry);
+}
+function rrLogCount(string $level, string $message): int
+{
+    return count(array_filter($GLOBALS['testLogs'], static function ($l) use ($level, $message) { return $l[0] === $level && $l[1] === $message; }));
+}
+
+// 11.1 Referee year push, not yet due for the referrer
+$pdo = rrFresh();
+rrAddRow($pdo, ['due' => '2027-02-10 00:00:00']);
+$fake = new FakePaddle();
+$fake->subs['sub_ref'] = ['next_billed_at' => '2027-12-15T10:00:00Z'];
+$c = rrRun($pdo, $fake);
+same('referee push: next_billed_at moved 3 months', '2028-03-15T10:00:00.000000Z', $fake->subs['sub_ref']['next_billed_at']);
+same('referee push: one PATCH', 1, $fake->patches());
+check('referee push: referee_reward_at set', rrRow($pdo)['referee_reward_at'] === '2027-01-14 12:00:00');
+same('referee push: target stored in local time', '2028-03-15 11:00:00', rrRow($pdo)['referee_target_billed_at']);
+same('referee push: counters', 1, $c['referee_rewarded']);
+same('referee push: referrer not yet due', 'qualified', rrRow($pdo)['status']);
+
+// 11.2 Second run: no PATCH
+$before = count($fake->calls);
+rrRun($pdo, $fake);
+same('second run: no further calls at all', $before, count($fake->calls));
+
+// 11.3 PATCH applied in Paddle but the run fails afterwards
+$pdo = rrFresh();
+rrAddRow($pdo, ['due' => '2027-02-10 00:00:00']);
+$fake = new FakePaddle();
+$fake->subs['sub_ref'] = ['next_billed_at' => '2027-12-15T10:00:00Z'];
+$fake->throwAfterApply = true;
+rrRun($pdo, $fake);
+same('lost PATCH answer: one PATCH', 1, $fake->patches());
+same('lost PATCH answer: attempt counted', 1, (int)rrRow($pdo)['attempts']);
+check('lost PATCH answer: referee not marked done', rrRow($pdo)['referee_reward_at'] === null);
+$c = rrRun($pdo, $fake);
+same('retry: still only one PATCH', 1, $fake->patches());
+check('retry: marked done', rrRow($pdo)['referee_reward_at'] !== null);
+same('retry: counted as retried', 1, $c['retried']);
+
+// 11.4 Referrer due with a billing subscription
+$pdo = rrFresh();
+rrAddRow($pdo, ['refereeDone' => '2026-12-15 00:00:00']);
+rrAddBilling($pdo, 'sub_anna', 1);
+$fake = new FakePaddle();
+$fake->subs['sub_anna'] = ['next_billed_at' => '2027-04-12T08:00:00Z'];
+$c = rrRun($pdo, $fake);
+same('referrer billing: moved 3 months', '2027-07-12T08:00:00.000000Z', $fake->subs['sub_anna']['next_billed_at']);
+$row = rrRow($pdo);
+same('referrer billing: rewarded', 'rewarded', $row['status']);
+same('referrer billing: kind', 'billing', $row['referrer_reward_kind']);
+same('referrer billing: counter', 1, $c['referrer_rewarded']);
+same('referrer billing: pro_expires_at untouched', '2027-06-01 00:00:00', $pdo->query('SELECT pro_expires_at FROM pro_users WHERE id = 1')->fetchColumn());
+
+// 11.4b A subscription scheduled to cancel or past_due is not a billing subscription
+$pdo = rrFresh();
+rrAddRow($pdo, ['refereeDone' => '2026-12-15 00:00:00']);
+rrAddBilling($pdo, 'sub_a', 1, 'active', 'cancel');
+rrAddBilling($pdo, 'sub_b', 1, 'past_due');
+$fake = new FakePaddle();
+rrRun($pdo, $fake);
+same('no eligible billing subscription: months', 'months', rrRow($pdo)['referrer_reward_kind']);
+same('no eligible billing subscription: no Paddle call', 0, count($fake->calls));
+
+// 11.5 Lifetime referrer: sticky slots
+$pdo = rrFresh();
+$pdo->exec('UPDATE pro_users SET pro_expires_at = NULL WHERE id = 1');
+rrAddRow($pdo, ['refereeDone' => '2026-12-15 00:00:00']);
+$fake = new FakePaddle();
+rrRun($pdo, $fake);
+same('sticky: slots 0 to 3', 3, (int)$pdo->query('SELECT bonus_sticky_slots FROM pro_users WHERE id = 1')->fetchColumn());
+same('sticky: kind', 'sticky', rrRow($pdo)['referrer_reward_kind']);
+same('sticky: no Paddle call', 0, count($fake->calls));
+
+// 11.6 Months: trial still running, then lapsed
+$pdo = rrFresh();
+$pdo->exec("UPDATE pro_users SET pro_expires_at = '2027-01-20 00:00:00' WHERE id = 1");
+rrAddRow($pdo, ['refereeDone' => '2026-12-15 00:00:00']);
+rrRun($pdo, new FakePaddle());
+same('months: trial end plus 3 months', '2027-04-20 00:00:00', $pdo->query('SELECT pro_expires_at FROM pro_users WHERE id = 1')->fetchColumn());
+same('months: kind', 'months', rrRow($pdo)['referrer_reward_kind']);
+$pdo = rrFresh();
+$pdo->exec("UPDATE pro_users SET pro_expires_at = '2026-10-01 00:00:00', account_type = 'regular' WHERE id = 1");
+rrAddRow($pdo, ['refereeDone' => '2026-12-15 00:00:00']);
+rrRun($pdo, new FakePaddle());
+same('months, lapsed: now plus 3 months', '2027-04-14 12:00:00', $pdo->query('SELECT pro_expires_at FROM pro_users WHERE id = 1')->fetchColumn());
+same('months, lapsed: account_type pro', 'pro', $pdo->query('SELECT account_type FROM pro_users WHERE id = 1')->fetchColumn());
+// A Regular account with no expiry at all is not Lifetime: months, never sticky (decision 7).
+$pdo = rrFresh();
+$pdo->exec("UPDATE pro_users SET pro_expires_at = NULL, account_type = 'regular' WHERE id = 1");
+rrAddRow($pdo, ['refereeDone' => '2026-12-15 00:00:00']);
+rrRun($pdo, new FakePaddle());
+same('regular, no expiry: kind months', 'months', rrRow($pdo)['referrer_reward_kind']);
+same('regular, no expiry: now plus 3 months', '2027-04-14 12:00:00', $pdo->query('SELECT pro_expires_at FROM pro_users WHERE id = 1')->fetchColumn());
+same('regular, no expiry: account_type pro', 'pro', $pdo->query('SELECT account_type FROM pro_users WHERE id = 1')->fetchColumn());
+same('regular, no expiry: no sticky slots', 0, (int)$pdo->query('SELECT bonus_sticky_slots FROM pro_users WHERE id = 1')->fetchColumn());
+
+// 11.7 Lifetime referee
+$pdo = rrFresh();
+rrAddRow($pdo, ['plan' => 'lifetime']);
+$pdo->exec("UPDATE pro_users SET pro_expires_at = NULL WHERE id = 1");
+$fake = new FakePaddle();
+$c = rrRun($pdo, $fake);
+same('lifetime referee: no Paddle call', 0, count($fake->calls));
+same('lifetime referee: counted', 1, $c['referee_rewarded']);
+same('lifetime referee: referrer rewarded when due', 'rewarded', rrRow($pdo)['status']);
+
+// 11.8 Referee subscription with no next_billed_at
+$pdo = rrFresh();
+rrAddRow($pdo, ['due' => '2027-02-10 00:00:00']);
+$fake = new FakePaddle();
+$fake->subs['sub_ref'] = ['next_billed_at' => null];
+rrRun($pdo, $fake);
+same('referee cancel scheduled: months granted', '2028-03-01 00:00:00', $pdo->query('SELECT pro_expires_at FROM pro_users WHERE id = 2')->fetchColumn());
+same('referee cancel scheduled: no PATCH', 0, $fake->patches());
+check('referee cancel scheduled: row moves on', rrRow($pdo)['referee_reward_at'] !== null);
+
+// 11.9 Five failed runs
+$pdo = rrFresh();
+rrAddRow($pdo, ['due' => '2027-02-10 00:00:00']);
+$fake = new FakePaddle();
+$fake->subs['sub_ref'] = ['next_billed_at' => '2027-12-15T10:00:00Z'];
+$fake->patchFailures = 100;
+$stuck = 0;
+for ($i = 0; $i < 5; $i++) {
+    $stuck += rrRun($pdo, $fake)['stuck'];
+}
+same('five failures: status stuck', 'stuck', rrRow($pdo)['status']);
+same('five failures: stuck counted once', 1, $stuck);
+same('five failures: ERROR logged', 1, rrLogCount('ERROR', 'Referral reward stuck, grant by hand'));
+$patches = $fake->patches();
+rrRun($pdo, $fake);
+same('sixth run: no further PATCH', $patches, $fake->patches());
+$logged = json_encode($GLOBALS['testLogs']);
+check('logs carry no address', strpos($logged, '@') === false);
+
+// 11.10 Housekeeping
+$pdo = rrFresh();
+rrAddRow($pdo, ['id' => 1, 'referee' => 2, 'status' => 'joined', 'plan' => 'year', 'window' => '2027-01-01 00:00:00']);
+rrAddRow($pdo, ['id' => 2, 'referee' => 3, 'status' => 'joined', 'plan' => 'year', 'window' => '2027-03-01 00:00:00']);
+$pdo->exec("INSERT INTO referrals (id, referrer_id, referee_id, status, created_at, window_ends_at, plan, subscription_id, referrer_reward_due_at, attempts, updated_at) VALUES (3, 99, 4, 'qualified', '2026-12-01 00:00:00', '2027-03-01 00:00:00', 'year', 'sub_z', '2027-03-01 00:00:00', 0, '2026-12-01 00:00:00')");
+$c = rrRun($pdo, new FakePaddle());
+same('housekeeping: window over is expired', 'expired', rrRow($pdo, 1)['status']);
+same('housekeeping: window open stays joined', 'joined', rrRow($pdo, 2)['status']);
+same('housekeeping: deleted referrer voided', 'void', rrRow($pdo, 3)['status']);
+same('housekeeping: void reason', 'referrer_deleted', rrRow($pdo, 3)['void_reason']);
+same('housekeeping: counters', [1, 1], [$c['expired'], $c['voided']]);
+
+// 11.11 Volume warning
+$pdo = rrFresh();
+for ($i = 1; $i <= 6; $i++) {
+    rrAddRow($pdo, ['id' => $i, 'referee' => 10 + $i, 'status' => 'rewarded']);
+    $pdo->exec("UPDATE referrals SET referrer_reward_at = '2027-01-05 00:00:00' WHERE id = {$i}");
+}
+rrRun($pdo, new FakePaddle());
+same('volume: exactly one WARNING for 6 rewards', 1, rrLogCount('WARNING', 'Referral volume high'));
+$pdo->exec("UPDATE referrals SET referrer_reward_at = '2026-10-01 00:00:00' WHERE id = 1");
+$GLOBALS['testLogs'] = [];
+rrRun($pdo, new FakePaddle());
+same('volume: 5 within 30 days is quiet', 0, rrLogCount('WARNING', 'Referral volume high'));
+
+// 11.12 Dry run and disabled
+$pdo = rrFresh();
+rrAddRow($pdo, ['id' => 1, 'referee' => 2]);
+rrAddRow($pdo, ['id' => 2, 'referee' => 3, 'status' => 'joined', 'window' => '2027-01-01 00:00:00']);
+rrAddRow($pdo, ['id' => 3, 'referee' => 4, 'plan' => 'lifetime']);
+$dump = static function (PDO $p): string {
+    return json_encode([$p->query('SELECT * FROM referrals ORDER BY id')->fetchAll(PDO::FETCH_ASSOC), $p->query('SELECT * FROM pro_users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)]);
+};
+$fake = new FakePaddle();
+$fake->subs['sub_ref'] = ['next_billed_at' => '2027-12-15T10:00:00Z'];
+$before = $dump($pdo);
+$c = rrRun($pdo, $fake, true);
+check('dry run: counters non-zero', $c['referee_rewarded'] > 0 && $c['expired'] > 0);
+same('dry run: tables unchanged', $before, $dump($pdo));
+same('dry run: no PATCH', 0, $fake->patches());
+$c = rrRun($pdo, $fake, false, referralSettings(['enabled' => false]));
+same('disabled: all zeros', array_fill_keys(array_keys($c), 0), $c);
+same('disabled: tables unchanged', $before, $dump($pdo));
+$pdo->exec('DROP TABLE referrals');
+$threw = false;
+try {
+    $c = rrRun($pdo, $fake);
+} catch (Throwable $e) {
+    $threw = true;
+}
+check('missing table: no throw, zeros', !$threw && array_sum($c) === 0);
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);
