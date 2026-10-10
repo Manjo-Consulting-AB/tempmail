@@ -51,15 +51,27 @@ $xmlUrl = function (string $value): string {
     return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
 };
 
+// Every language a page is offered in gets its own <url> (i18n.php), each
+// listing all versions as xhtml:link alternates — Google's sitemap form of
+// hreflang. A page in one language only has no alternates, so a monolingual
+// site produces the same sitemap as before.
+$enabledLocales = $config['i18n']['enabled'] ?? ['en'];
+
 echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
 ?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
 <?php foreach ($pages as $path => [$priority, $changefreq, $file]) : ?>
+<?php $alternates = i18nAlternates($path, $enabledLocales, $base); ?>
+<?php foreach (i18nPageLocales($path, $enabledLocales) as $locale) : ?>
     <url>
-        <loc><?php echo $xmlUrl($base . $path); ?></loc>
+        <loc><?php echo $xmlUrl($base . i18nUrl($path, $locale, $enabledLocales)); ?></loc>
         <lastmod><?php echo $xmlUrl(gmdate('c', @filemtime($file) ?: time())); ?></lastmod>
         <changefreq><?php echo $xmlUrl($changefreq); ?></changefreq>
         <priority><?php echo $xmlUrl($priority); ?></priority>
+<?php foreach ($alternates as $alt) : ?>
+        <xhtml:link rel="alternate" hreflang="<?php echo $xmlUrl($alt['hreflang']); ?>" href="<?php echo $xmlUrl($alt['href']); ?>"/>
+<?php endforeach; ?>
     </url>
+<?php endforeach; ?>
 <?php endforeach; ?>
 </urlset>

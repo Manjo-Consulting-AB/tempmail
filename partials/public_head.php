@@ -62,7 +62,15 @@ if ($msPath === '') {
     $msPath = '/' . $msPath;
 }
 
-$msUrl = $msOrigin . $msPath;
+// The page in this request's language (i18n.php): /sv/terms.php once terms.php
+// is translated and Swedish is switched on, otherwise the plain path. The
+// alternates are empty while the page exists in one language only, so a
+// monolingual site emits no hreflang at all.
+$msLocale     = function_exists('i18nLocale') ? i18nLocale() : 'en';
+$msI18nOn     = $config['i18n']['enabled'] ?? ['en'];
+$msUrl        = $msOrigin . (function_exists('i18nUrl') ? i18nUrl($msPath, $msLocale, $msI18nOn) : $msPath);
+$msAlternates = function_exists('i18nAlternates') ? i18nAlternates($msPath, $msI18nOn, $msOrigin) : [];
+$msOgLocales  = ['en' => 'en_GB', 'sv' => 'sv_SE'];
 
 $msTitle       = (string) $msPage['title'];
 $msDescription = (string) $msPage['description'];
@@ -73,7 +81,7 @@ $msEsc = function ($value): string {
 };
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?php echo $msEsc($msLocale); ?>">
 <head>
 <?php if ($msPage['analytics'] !== false) : ?>
     <?php require __DIR__ . '/analytics.php'; ?>
@@ -86,9 +94,15 @@ $msEsc = function ($value): string {
     <meta name="description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="robots" content="<?php echo $msEsc($msPage['robots']); ?>">
     <link rel="canonical" href="<?php echo $msEsc($msUrl); ?>">
+<?php foreach ($msAlternates as $msAlt) : ?>
+    <link rel="alternate" hreflang="<?php echo $msEsc($msAlt['hreflang']); ?>" href="<?php echo $msEsc($msAlt['href']); ?>">
+<?php endforeach; ?>
 
     <meta property="og:type" content="<?php echo $msEsc($msPage['og_type']); ?>">
     <meta property="og:site_name" content="Mail Shield">
+<?php if (count($msAlternates) > 0) : ?>
+    <meta property="og:locale" content="<?php echo $msEsc($msOgLocales[$msLocale] ?? $msLocale); ?>">
+<?php endif; ?>
     <meta property="og:title" content="<?php echo $msEsc($msTitle); ?>">
     <meta property="og:description" content="<?php echo $msEsc($msDescription); ?>">
     <meta property="og:url" content="<?php echo $msEsc($msUrl); ?>">
