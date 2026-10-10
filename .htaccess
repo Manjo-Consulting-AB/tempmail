@@ -54,6 +54,9 @@ RewriteRule ^sitemap\.xml$ sitemap.php [L]
 # klienternas konfiguration; mcp.php är filen som svarar.
 RewriteRule ^mcp/?$ mcp.php [L]
 
+# Inbjudningslänken /invite/<kod> serveras av invite.php (referrals, epic #387).
+RewriteRule ^invite/([^/]+)/?$ invite.php?code=$1 [L,QSA]
+
 # OAuth-klientregistrering (#331). En OAuth-klient (Claude.ai, Claude Code)
 # registrerar sig själv här innan den skickar användaren till samtyckessidan;
 # oauth_register.php svarar. Se oauth_server.php.

@@ -13,8 +13,10 @@ if (!defined('TEMPMAIL_APP')) {
  * and the shared DDL for the referrals ledger. This file only defines
  * functions, each guarded with function_exists() like pro_trial.php, and
  * does not require config.php, so tests/referrals_test.php can load it with
- * no database. No runtime file calls these functions yet (epic #387 step 1)
- * — this file changes no behaviour by itself.
+ * no database. The DB-backed functions (referralCodeExists() and the ones
+ * after it, epic #387 step 3) take a PDO explicitly and call the globals
+ * tableHasColumn(), logMessage() and proUserEmail() at runtime, the same way
+ * proTrialRecordClaim() does; the pure helpers above them need none of that.
  *
  * Summary of the epic:
  *   - Every account has an invite code (8 characters from an unambiguous
@@ -196,5 +198,157 @@ if (!function_exists('referralSchemaStatements')) {
             "CREATE INDEX IF NOT EXISTS idx_ref_due ON referrals (status, referrer_reward_due_at)",
             "CREATE INDEX IF NOT EXISTS idx_ref_window ON referrals (status, window_ends_at)",
         ];
+    }
+}
+
+if (!function_exists('referralCodeExists')) {
+    /** True when some account owns this invite code. Any error is false. */
+    function referralCodeExists(PDO $pdo, string $code): bool
+    {
+        if (!tableHasColumn('pro_users', 'referral_code')) {
+            return false;
+        }
+        try {
+            $stmt = $pdo->prepare('SELECT 1 FROM pro_users WHERE referral_code = ? LIMIT 1');
+            $stmt->execute([$code]);
+            return $stmt->fetchColumn() !== false;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('referralCookieCode')) {
+    /** The invite code in the ms_ref cookie, lowercased, or null when absent or malformed. */
+    function referralCookieCode(): ?string
+    {
+        $raw = $_COOKIE['ms_ref'] ?? null;
+        if (!is_string($raw)) {
+            return null;
+        }
+        $code = strtolower($raw);
+        return referralIsValidCode($code) ? $code : null;
+    }
+}
+
+if (!function_exists('referralStorePendingCode')) {
+    /**
+     * Remembers the invite code on the account at registration (the
+     * verification link is often opened on another device, where the cookie
+     * is missing). A null code is written too, so an overwritten stale
+     * unverified account loses an old code. Never throws.
+     */
+    function referralStorePendingCode(PDO $pdo, int $userId, ?string $code, array $settings): void
+    {
+        if (empty($settings['enabled']) || !tableHasColumn('pro_users', 'referral_pending_code')) {
+            return;
+        }
+        try {
+            $stmt = $pdo->prepare('UPDATE pro_users SET referral_pending_code = ? WHERE id = ?');
+            $stmt->execute([$code, $userId]);
+        } catch (Throwable $e) {
+            logMessage('WARNING', 'Referral: could not store pending code', ['user_id' => $userId]);
+        }
+    }
+}
+
+if (!function_exists('referralAddressIsNew')) {
+    /**
+     * True only when the address has never been proven before: no row in
+     * pro_trial_claims for its canonical hash. Must run before
+     * proTrialGrantOnVerification() records the claim. Fail-closed: a short
+     * key, an unusable address, a missing table or an error all answer false.
+     */
+    function referralAddressIsNew(PDO $pdo, string $email, string $trialHashKey): bool
+    {
+        try {
+            $hash = proTrialEmailHash($email, $trialHashKey);
+            if ($hash === null || !tableHasColumn('pro_trial_claims', 'email_hash')) {
+                return false;
+            }
+            $stmt = $pdo->prepare('SELECT 1 FROM pro_trial_claims WHERE email_hash = ?');
+            $stmt->execute([$hash]);
+            return $stmt->fetchColumn() === false;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('referralBindOnVerification')) {
+    /**
+     * Creates the referrals row at an account's first verification (epic
+     * #387 decision 3) and returns its id, or null when nothing was bound.
+     * Never throws and never logs an address or a code.
+     */
+    function referralBindOnVerification(PDO $pdo, int $userId, string $email, bool $addressIsNew, array $settings, int $now): ?int
+    {
+        try {
+            if (empty($settings['enabled'])
+                || !tableHasColumn('referrals', 'status')
+                || !tableHasColumn('pro_users', 'referral_pending_code')) {
+                return null;
+            }
+
+            $stmt = $pdo->prepare('SELECT referral_pending_code FROM pro_users WHERE id = ?');
+            $stmt->execute([$userId]);
+            $pending = $stmt->fetchColumn();
+            $code = is_string($pending) && referralIsValidCode(strtolower($pending)) ? strtolower($pending) : referralCookieCode();
+
+            // Whatever happens next, the code has been used up.
+            $pdo->prepare('UPDATE pro_users SET referral_pending_code = NULL WHERE id = ?')->execute([$userId]);
+            if (isset($_COOKIE['ms_ref'])) {
+                unset($_COOKIE['ms_ref']);
+                if (PHP_SAPI !== 'cli' && !headers_sent()) {
+                    setcookie('ms_ref', '', ['expires' => time() - 86400, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
+                }
+            }
+
+            if ($code === null) {
+                return null;
+            }
+            if (!$addressIsNew) {
+                logMessage('INFO', 'Referral not bound: address seen before', ['user_id' => $userId]);
+                return null;
+            }
+
+            $stmt = $pdo->prepare('SELECT id FROM pro_users WHERE referral_code = ?');
+            $stmt->execute([$code]);
+            $referrerId = $stmt->fetchColumn();
+            if ($referrerId === false) {
+                return null;
+            }
+            $referrerId = (int)$referrerId;
+
+            if ($referrerId === $userId) {
+                logMessage('INFO', 'Referral not bound: self-referral', ['user_id' => $userId, 'referrer_id' => $referrerId]);
+                return null;
+            }
+            $own = proTrialNormalizeEmail($email);
+            $theirs = proTrialNormalizeEmail(proUserEmail($pdo, $referrerId) ?? '');
+            if ($own !== null && $own === $theirs) {
+                logMessage('INFO', 'Referral not bound: same canonical address', ['user_id' => $userId, 'referrer_id' => $referrerId]);
+                return null;
+            }
+
+            $createdAt = date('Y-m-d H:i:s', $now);
+            $windowEnd = referralWindowEnd($createdAt, (int)($settings['window_days'] ?? 120));
+            try {
+                $ins = $pdo->prepare("INSERT INTO referrals (referrer_id, referee_id, status, created_at, window_ends_at, attempts, updated_at) VALUES (?, ?, 'joined', ?, ?, 0, ?)");
+                $ins->execute([$referrerId, $userId, $createdAt, $windowEnd, $createdAt]);
+            } catch (PDOException $e) {
+                // Unique key on referee_id: already bound, nothing more to do.
+                if ((int)($e->errorInfo[1] ?? 0) === 1062 || stripos($e->getMessage(), 'UNIQUE') !== false) {
+                    return null;
+                }
+                throw $e;
+            }
+            $referralId = (int)$pdo->lastInsertId();
+            logMessage('INFO', 'Referral bound', ['referral_id' => $referralId, 'referrer_id' => $referrerId, 'referee_id' => $userId]);
+            return $referralId;
+        } catch (Throwable $e) {
+            logMessage('WARNING', 'Referral: binding failed', ['user_id' => $userId]);
+            return null;
+        }
     }
 }

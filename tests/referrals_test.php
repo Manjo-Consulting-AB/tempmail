@@ -17,7 +17,32 @@ if (PHP_SAPI !== 'cli') {
 }
 
 define('TEMPMAIL_APP', true);
+require __DIR__ . '/../pro_trial.php';
 require __DIR__ . '/../referrals.php';
+
+// Stubs for the globals the DB-backed functions call (config.php / pii_crypto.php).
+$GLOBALS['testLogs'] = [];
+function logMessage($level, $message, $context = []) { $GLOBALS['testLogs'][] = [$level, $message, $context]; }
+function tableHasColumn($table, $column)
+{
+    global $pdo;
+    try {
+        foreach ($pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            if ($c['name'] === $column) {
+                return true;
+            }
+        }
+    } catch (Throwable $e) {
+    }
+    return false;
+}
+function proUserEmail(PDO $pdo, int $userId): ?string
+{
+    $stmt = $pdo->prepare('SELECT email FROM pro_users WHERE id = ?');
+    $stmt->execute([$userId]);
+    $v = $stmt->fetchColumn();
+    return $v === false ? null : (string)$v;
+}
 
 $passed = 0;
 $failed = 0;
@@ -106,6 +131,149 @@ try {
 }
 check('second row for the same referee_id fails', $dup);
 check('mysql statements mention the unique key', strpos(implode(' ', referralSchemaStatements('mysql')), 'uq_ref_referee') !== false);
+
+// 7. DB-backed binding (epic #387 step 3) on SQLite
+$key = str_repeat('k', 32);
+$on = referralSettings(['enabled' => true]);
+$off = referralSettings(['enabled' => false]);
+$now = strtotime('2026-11-01 12:00:00 UTC');
+
+function bindFresh(): PDO
+{
+    global $pdo;
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT, referral_code TEXT, referral_pending_code TEXT, bonus_sticky_slots INTEGER NOT NULL DEFAULT 0)');
+    $pdo->exec('CREATE TABLE pro_trial_claims (email_hash TEXT PRIMARY KEY, first_seen_at TEXT)');
+    foreach (referralSchemaStatements('sqlite') as $sql) {
+        $pdo->exec($sql);
+    }
+    $pdo->exec("INSERT INTO pro_users (id, email, referral_code) VALUES (1, 'ref@x.com', 'abcdefgh')");
+    return $pdo;
+}
+function addReferee(PDO $pdo, string $email, ?string $pending): void
+{
+    $pdo->prepare('INSERT INTO pro_users (id, email, referral_pending_code) VALUES (2, ?, ?)')->execute([$email, $pending]);
+}
+function pendingOf(PDO $pdo): ?string
+{
+    $v = $pdo->query('SELECT referral_pending_code FROM pro_users WHERE id = 2')->fetchColumn();
+    return $v === false || $v === null ? null : (string)$v;
+}
+function refCount(PDO $pdo): int
+{
+    return (int)$pdo->query('SELECT COUNT(*) FROM referrals')->fetchColumn();
+}
+
+// referralCodeExists / referralCookieCode
+$pdo = bindFresh();
+same('code exists', true, referralCodeExists($pdo, 'abcdefgh'));
+same('code does not exist', false, referralCodeExists($pdo, 'zzzzzzzz'));
+$_COOKIE['ms_ref'] = 'ABCDEFGH';
+same('cookie code lowercased', 'abcdefgh', referralCookieCode());
+$_COOKIE['ms_ref'] = 'nope';
+same('malformed cookie code is null', null, referralCookieCode());
+unset($_COOKIE['ms_ref']);
+same('no cookie is null', null, referralCookieCode());
+
+// referralStorePendingCode
+referralStorePendingCode($pdo, 1, 'abcdefgh', $off);
+same('pending code not stored while disabled', null, $pdo->query('SELECT referral_pending_code FROM pro_users WHERE id = 1')->fetchColumn() ?: null);
+referralStorePendingCode($pdo, 1, 'abcdefgh', $on);
+same('pending code stored', 'abcdefgh', $pdo->query('SELECT referral_pending_code FROM pro_users WHERE id = 1')->fetchColumn());
+referralStorePendingCode($pdo, 1, null, $on);
+same('null pending code overwrites', null, $pdo->query('SELECT referral_pending_code FROM pro_users WHERE id = 1')->fetchColumn() ?: null);
+
+// 1. Happy path
+$pdo = bindFresh();
+addReferee($pdo, 'friend@y.com', 'abcdefgh');
+$id = referralBindOnVerification($pdo, 2, 'friend@y.com', true, $on, $now);
+check('happy path returns an id', is_int($id) && $id > 0);
+same('one row', 1, refCount($pdo));
+$row = $pdo->query('SELECT * FROM referrals')->fetch(PDO::FETCH_ASSOC);
+same('status joined', 'joined', $row['status']);
+same('referrer id', 1, (int)$row['referrer_id']);
+same('window is 120 days after created_at', referralWindowEnd($row['created_at'], 120), $row['window_ends_at']);
+same('pending code cleared', null, pendingOf($pdo));
+$logged = json_encode($GLOBALS['testLogs']);
+check('bind log carries no address or code', strpos($logged, 'friend@') === false && strpos($logged, 'abcdefgh') === false);
+
+// 2. Address seen before
+$pdo = bindFresh();
+addReferee($pdo, 'a.b+x@x.com', 'abcdefgh');
+$pdo->prepare('INSERT INTO pro_trial_claims (email_hash, first_seen_at) VALUES (?, ?)')->execute([proTrialEmailHash('ab@x.com', $key), '2026-01-01 00:00:00']);
+$isNew = referralAddressIsNew($pdo, 'a.b+x@x.com', $key);
+same('canonical claim makes the address not new', false, $isNew);
+same('unclaimed address is new', true, referralAddressIsNew($pdo, 'other@x.com', $key));
+same('not new: no bind', null, referralBindOnVerification($pdo, 2, 'a.b+x@x.com', $isNew, $on, $now));
+same('not new: no row', 0, refCount($pdo));
+same('not new: pending still cleared', null, pendingOf($pdo));
+
+// 3. Self-referral
+$pdo = bindFresh();
+$pdo->exec("INSERT INTO pro_users (id, email, referral_code, referral_pending_code) VALUES (2, 'me@y.com', 'mmmmmmmm', 'mmmmmmmm')");
+same('self-referral: no bind', null, referralBindOnVerification($pdo, 2, 'me@y.com', true, $on, $now));
+same('self-referral: no row', 0, refCount($pdo));
+
+// 4. Canonical duplicate
+$pdo = bindFresh();
+$pdo->exec("UPDATE pro_users SET email = 'ab@x.com' WHERE id = 1");
+addReferee($pdo, 'a.b+1@X.com', 'abcdefgh');
+same('canonical duplicate: no bind', null, referralBindOnVerification($pdo, 2, 'a.b+1@X.com', true, $on, $now));
+same('canonical duplicate: no row', 0, refCount($pdo));
+
+// 5. Unknown code
+$pdo = bindFresh();
+addReferee($pdo, 'friend@y.com', 'qqqqqqqq');
+same('unknown code: no bind', null, referralBindOnVerification($pdo, 2, 'friend@y.com', true, $on, $now));
+same('unknown code: no row', 0, refCount($pdo));
+
+// 6. Disabled
+$pdo = bindFresh();
+addReferee($pdo, 'friend@y.com', 'abcdefgh');
+same('disabled: no bind', null, referralBindOnVerification($pdo, 2, 'friend@y.com', true, $off, $now));
+same('disabled: no row', 0, refCount($pdo));
+same('disabled: pending not cleared', 'abcdefgh', pendingOf($pdo));
+
+// 7. Twice
+$pdo = bindFresh();
+addReferee($pdo, 'friend@y.com', 'abcdefgh');
+referralBindOnVerification($pdo, 2, 'friend@y.com', true, $on, $now);
+$pdo->exec("UPDATE pro_users SET referral_pending_code = 'abcdefgh' WHERE id = 2");
+$threw = false;
+$second = 'unset';
+try {
+    $second = referralBindOnVerification($pdo, 2, 'friend@y.com', true, $on, $now);
+} catch (Throwable $e) {
+    $threw = true;
+}
+check('second bind does not throw', !$threw);
+same('second bind returns null', null, $second);
+same('still one row', 1, refCount($pdo));
+
+// 7b. Cookie fallback when the account has no pending code
+$pdo = bindFresh();
+addReferee($pdo, 'friend@y.com', null);
+$_COOKIE['ms_ref'] = 'abcdefgh';
+check('cookie fallback binds', referralBindOnVerification($pdo, 2, 'friend@y.com', true, $on, $now) !== null);
+check('cookie unset after use', !isset($_COOKIE['ms_ref']));
+
+// 8. Table dropped
+$pdo = bindFresh();
+addReferee($pdo, 'friend@y.com', 'abcdefgh');
+$pdo->exec('DROP TABLE referrals');
+$threw = false;
+$res = 'unset';
+try {
+    $res = referralBindOnVerification($pdo, 2, 'friend@y.com', true, $on, $now);
+} catch (Throwable $e) {
+    $threw = true;
+}
+check('missing referrals table: no throw', !$threw);
+same('missing referrals table: null', null, $res);
+
+// 9. Short key
+same('10-character key is never new', false, referralAddressIsNew($pdo, 'friend@y.com', str_repeat('k', 10)));
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);

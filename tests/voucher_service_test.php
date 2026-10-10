@@ -235,7 +235,7 @@ function voucherTestProbeBuild(string $repoRoot, string $probe): void
         throw new RuntimeException("Could not create the probe docroot at {$probe}");
     }
     foreach ([
-        'pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'login_tokens.php',
+        'pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php',
         'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php',
         'after_login.php',
     ] as $file) {

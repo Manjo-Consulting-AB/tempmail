@@ -15,6 +15,7 @@
 require_once 'config.php';
 require_once __DIR__ . '/pro_auth.php';
 require_once __DIR__ . '/pro_trial.php';
+require_once __DIR__ . '/referrals.php';
 require_once __DIR__ . '/after_login.php';
 require_once __DIR__ . '/partials/brand.php';
 
@@ -69,7 +70,10 @@ if ($token) {
                 // above only matches when email_verified_at was still NULL) -
                 // never on a plain magic-link login by an already-verified user.
                 // Grant the 60-day Pro trial on first verification (epic #267).
+                // Must run before the trial records the claim (epic #387 decision 3).
+                $referralAddressIsNew = referralAddressIsNew($pdo, (string) $result['email'], (string) ($config['trial']['hash_key'] ?? ''));
                 proTrialGrantOnVerification($pdo, (int) $result['user_id'], (string) $result['email'], $config['trial'] ?? []);
+                referralBindOnVerification($pdo, (int) $result['user_id'], (string) $result['email'], $referralAddressIsNew, referralSettings($config['referral'] ?? []), time());
                 sendAdminRegistrationNotification((string) $result['email'], (int) $result['user_id']);
             }
         }
