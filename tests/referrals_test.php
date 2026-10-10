@@ -622,5 +622,82 @@ try {
 }
 check('missing table: no throw, zeros', !$threw && array_sum($c) === 0);
 
+// 11. referralEnsureCode / referralSummaryFor (epic #387 step 8)
+function ensureFresh(): PDO
+{
+    global $pdo;
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY, email TEXT, referral_code TEXT, bonus_sticky_slots INTEGER NOT NULL DEFAULT 0)');
+    $pdo->exec('CREATE UNIQUE INDEX uq_pu_referral_code ON pro_users (referral_code)');
+    foreach (referralSchemaStatements('sqlite') as $sql) {
+        $pdo->exec($sql);
+    }
+    $pdo->exec("INSERT INTO pro_users (id, email) VALUES (1, 'a@x.com'), (2, 'b@x.com'), (3, 'c@x.com')");
+    return $pdo;
+}
+$pdo = ensureFresh();
+$code1 = referralEnsureCode($pdo, 1);
+check('ensureCode: creates a valid code', $code1 !== null && referralIsValidCode($code1));
+same('ensureCode: second call returns the same code', $code1, referralEnsureCode($pdo, 1));
+same('ensureCode: stored in the column', $code1, (string)$pdo->query('SELECT referral_code FROM pro_users WHERE id = 1')->fetchColumn());
+
+// Forced collision: the first two draws are account 1's code, the third is free.
+$draws = [$code1, $code1, 'bbbbbbbb'];
+$i = 0;
+$gen = static function () use (&$draws, &$i): string {
+    return $draws[min($i++, count($draws) - 1)];
+};
+same('ensureCode: retries after collisions and succeeds', 'bbbbbbbb', referralEnsureCode($pdo, 2, $gen));
+same('ensureCode: three draws were used', 3, $i);
+
+// Every draw collides: gives up after 5 attempts and returns null without throwing.
+$i = 0;
+$always = static function () use (&$i, $code1): string {
+    $i++;
+    return $code1;
+};
+$GLOBALS['testLogs'] = [];
+$threw = false;
+$res = 'unset';
+try {
+    $res = referralEnsureCode($pdo, 3, $always);
+} catch (Throwable $e) {
+    $threw = true;
+}
+check('ensureCode: persistent collision returns null, no throw', !$threw && $res === null);
+same('ensureCode: at most 5 attempts', 5, $i);
+$pdo->exec('DROP TABLE pro_users');
+check('ensureCode: missing table returns null, no throw', referralEnsureCode($pdo, 1) === null);
+
+// Summary
+$pdo = ensureFresh();
+$now = strtotime('2026-11-01 12:00:00');
+$ins = $pdo->prepare('INSERT INTO referrals (referrer_id, referee_id, status, created_at, window_ends_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+$mk = static function (int $referrer, int $referee, string $status, string $ends) use ($ins): void {
+    $ins->execute([$referrer, $referee, $status, '2026-10-01 00:00:00', $ends, '2026-10-01 00:00:00']);
+};
+$mk(1, 10, 'joined', '2027-01-01 00:00:00');
+$mk(1, 11, 'joined', '2027-01-01 00:00:00');
+$mk(1, 12, 'qualified', '2027-01-01 00:00:00');
+$mk(1, 13, 'stuck', '2027-01-01 00:00:00');
+$mk(1, 14, 'rewarded', '2027-01-01 00:00:00');
+$mk(1, 15, 'void', '2027-01-01 00:00:00');
+$mk(1, 16, 'expired', '2027-01-01 00:00:00');
+$mk(2, 1, 'joined', '2026-11-01 12:00:00');
+$mk(3, 2, 'joined', '2026-11-01 11:59:59');
+$mk(3, 3, 'qualified', '2027-01-01 00:00:00');
+$sum = referralSummaryFor($pdo, 1, $now);
+same('summary: joined', 2, $sum['joined']);
+same('summary: pending counts qualified and stuck', 2, $sum['pending']);
+same('summary: rewarded', 1, $sum['rewarded']);
+same('summary: own is the referee row inside the window (boundary inclusive)', ['window_ends_at' => '2026-11-01 12:00:00'], $sum['own']);
+same('summary: only the expected keys', ['joined', 'pending', 'rewarded', 'own'], array_keys($sum));
+same('summary: own is null after the window', null, referralSummaryFor($pdo, 2, $now)['own']);
+same('summary: own is null when the referee row is not joined', null, referralSummaryFor($pdo, 3, $now)['own']);
+same('summary: no rows gives zeros', ['joined' => 0, 'pending' => 0, 'rewarded' => 0, 'own' => null], referralSummaryFor($pdo, 99, $now));
+$pdo->exec('DROP TABLE referrals');
+same('summary: missing table gives zeros', ['joined' => 0, 'pending' => 0, 'rewarded' => 0, 'own' => null], referralSummaryFor($pdo, 1, $now));
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);

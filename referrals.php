@@ -774,3 +774,98 @@ if (!function_exists('referralRunRewards')) {
         return $counts;
     }
 }
+
+if (!function_exists('referralEnsureCode')) {
+    /**
+     * The account's invite code, created on first need (epic #387 step 8).
+     * Returns the existing referral_code, else generates one and stores it
+     * with a guarded UPDATE (only while the column is still NULL), retrying
+     * with a new code on a unique-key collision, up to 5 times. The column is
+     * re-read at the end so a concurrent request that won the race is
+     * honoured. Any other failure logs a WARNING (user_id only) and returns
+     * null. Never throws. $generator is a seam for tests; production callers
+     * leave it null and get referralGenerateCode().
+     */
+    function referralEnsureCode(PDO $pdo, int $userId, ?callable $generator = null): ?string
+    {
+        try {
+            if (!tableHasColumn('pro_users', 'referral_code')) {
+                return null;
+            }
+            $read = static function () use ($pdo, $userId): ?string {
+                $stmt = $pdo->prepare('SELECT referral_code FROM pro_users WHERE id = ?');
+                $stmt->execute([$userId]);
+                $value = $stmt->fetchColumn();
+                return is_string($value) && referralIsValidCode($value) ? $value : null;
+            };
+            $existing = $read();
+            if ($existing !== null) {
+                return $existing;
+            }
+            $generate = $generator ?? 'referralGenerateCode';
+            for ($attempt = 0; $attempt < 5; $attempt++) {
+                try {
+                    $stmt = $pdo->prepare('UPDATE pro_users SET referral_code = ? WHERE id = ? AND referral_code IS NULL');
+                    $stmt->execute([(string)$generate(), $userId]);
+                    break;
+                } catch (PDOException $e) {
+                    // 23000 is a unique-key collision: draw another code.
+                    if ((string)$e->getCode() !== '23000') {
+                        throw $e;
+                    }
+                }
+            }
+            return $read();
+        } catch (Throwable $e) {
+            if (function_exists('logMessage')) {
+                logMessage('WARNING', 'Referral: could not ensure invite code', ['user_id' => $userId]);
+            }
+            return null;
+        }
+    }
+}
+
+if (!function_exists('referralSummaryFor')) {
+    /**
+     * Counts for the Invite friends card and the referred-account notes.
+     * joined = status joined; pending = qualified + stuck; rewarded = rewarded.
+     * 'own' is this user's own referee row, only while it is still joined and
+     * $now is inside its window: ['window_ends_at' => 'Y-m-d H:i:s'].
+     * Counts only: never a referee id, address or date (decision 11).
+     * Failure returns zeros and null. Never throws.
+     *
+     * @return array{joined: int, pending: int, rewarded: int, own: ?array{window_ends_at: string}}
+     */
+    function referralSummaryFor(PDO $pdo, int $userId, int $now): array
+    {
+        $summary = ['joined' => 0, 'pending' => 0, 'rewarded' => 0, 'own' => null];
+        try {
+            $stmt = $pdo->prepare('SELECT status, COUNT(*) AS n FROM referrals WHERE referrer_id = ? GROUP BY status');
+            $stmt->execute([$userId]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $n = (int)$row['n'];
+                switch ((string)$row['status']) {
+                    case 'joined':
+                        $summary['joined'] += $n;
+                        break;
+                    case 'qualified':
+                    case 'stuck':
+                        $summary['pending'] += $n;
+                        break;
+                    case 'rewarded':
+                        $summary['rewarded'] += $n;
+                        break;
+                }
+            }
+            $stmt = $pdo->prepare("SELECT window_ends_at FROM referrals WHERE referee_id = ? AND status = 'joined' LIMIT 1");
+            $stmt->execute([$userId]);
+            $ends = $stmt->fetchColumn();
+            if (is_string($ends) && $ends !== '' && date('Y-m-d H:i:s', $now) <= $ends) {
+                $summary['own'] = ['window_ends_at' => $ends];
+            }
+            return $summary;
+        } catch (Throwable $e) {
+            return ['joined' => 0, 'pending' => 0, 'rewarded' => 0, 'own' => null];
+        }
+    }
+}

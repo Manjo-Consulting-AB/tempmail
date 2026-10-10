@@ -21,6 +21,44 @@ $accountIsPro = proUserIsPro((int) $_SESSION['pro_user_id']);
 // Sticky-address cap for this account (null = no cap, an admin); epic #387.
 $stickyLimit = stickyLimitFor((int) $_SESSION['pro_user_id']);
 
+// Referrals (epic #387 step 8). The Invite friends card, the bonus-address
+// line and the referred-account note appear only while referral.enabled is on
+// and the referrals table exists; otherwise nothing below runs a query and
+// the page renders as before. Everything is fail-open: an error hides the
+// card, it never breaks the page.
+$referralOn = false;
+$referralSettings = [];
+$referralCode = null;
+$referralSummary = ['joined' => 0, 'pending' => 0, 'rewarded' => 0, 'own' => null];
+$referralLifetime = false;
+$referralLink = '';
+try {
+    require_once __DIR__ . '/referrals.php';
+    $referralSettings = referralSettings($config['referral'] ?? []);
+    $referralOn = $referralSettings['enabled'] && tableHasColumn('referrals', 'status');
+    if ($referralOn) {
+        $referralUserId = (int) $_SESSION['pro_user_id'];
+        $referralCode = referralEnsureCode($pdo, $referralUserId);
+        $referralSummary = referralSummaryFor($pdo, $referralUserId, time());
+        if ($referralCode !== null) {
+            $referralLink = rtrim((string) ($config['email']['base_url'] ?? ''), '/') . '/invite/' . $referralCode;
+        }
+        // Lifetime means a Pro account with no expiry. A Regular account can
+        // also have a NULL expiry, but it is rewarded with months, not Sticky
+        // slots (referralRunRewards()), so it must not see the Lifetime copy.
+        if ($accountIsPro) {
+            $stmt = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
+            $stmt->execute([$referralUserId]);
+            $referralExpires = $stmt->fetchColumn();
+            $referralLifetime = $referralExpires === null || $referralExpires === '';
+        }
+    }
+} catch (Throwable $e) {
+    $referralOn = false;
+    logMessage('WARNING', 'Failed preparing the referral card', ['user_id' => (int) $_SESSION['pro_user_id']]);
+}
+$referralBonusSlots = ($referralOn && $stickyLimit !== null && $stickyLimit > 10) ? $stickyLimit - 10 : 0;
+
 // When a Pro account's time runs out (the 60-day trial of epic #267, or a
 // voucher), for display only: entitlement is still decided by proUserIsPro()
 // above. A time-limited Pro account keeps the voucher field, because
@@ -179,6 +217,9 @@ $mcpDesktopConfig = '{
                                 <?php else : ?>
                                 <p class="ms-card__note">You're on the free plan.</p>
                                 <?php endif; ?>
+                                <?php if ($referralOn && $referralSummary['own'] !== null) : ?>
+                                <p class="ms-card__note">Invited by a friend: buy a 12-month plan before <?php echo htmlspecialchars(date('j F Y', strtotime($referralSummary['own']['window_ends_at'])), ENT_QUOTES, 'UTF-8'); ?> and get <?php echo (int) (12 + $referralSettings['bonus_months']); ?> months.</p>
+                                <?php endif; ?>
                                 <?php if ($hasPaddleBilling) : ?>
                                 <div class="mb-3">
                                     <p class="form-text">Cancel your subscription, change your payment method or download invoices on Paddle, which handles payments for Mail Shield.</p>
@@ -199,6 +240,23 @@ $mcpDesktopConfig = '{
                                 </div>
                             </div>
 
+                            <?php if ($referralOn && $referralCode !== null) : ?>
+                            <div class="ms-card" id="referralCard">
+                                <h3 class="ms-card__title">Invite friends</h3>
+                                <?php if ($referralLifetime) : ?>
+                                <p class="ms-card__desc">Invite a friend. When they buy a 12-month Pro plan within <?php echo (int) $referralSettings['window_days']; ?> days, they get <?php echo (int) (12 + $referralSettings['bonus_months']); ?> months &mdash; and you get <?php echo (int) $referralSettings['sticky_bonus']; ?> more Sticky addresses, for life. No limit.</p>
+                                <?php else : ?>
+                                <p class="ms-card__desc">Give <?php echo (int) $referralSettings['bonus_months']; ?> months. Get <?php echo (int) $referralSettings['bonus_months']; ?> months. When a friend signs up through your link and buys a 12-month Pro plan within <?php echo (int) $referralSettings['window_days']; ?> days, they get <?php echo (int) (12 + $referralSettings['bonus_months']); ?> months of Pro &mdash; and you get <?php echo (int) $referralSettings['bonus_months']; ?> extra months. No limit: your bonus months stack.</p>
+                                <?php endif; ?>
+                                <div class="input-group mb-2" style="max-width:520px;">
+                                    <input type="text" id="referralLinkInput" class="form-control" value="<?php echo htmlspecialchars($referralLink, ENT_QUOTES, 'UTF-8'); ?>" readonly aria-label="Your invite link" />
+                                    <button type="button" id="referralCopyBtn" class="btn btn-secondary">Copy link</button>
+                                </div>
+                                <p class="ms-card__note">Signed up: <?php echo (int) $referralSummary['joined']; ?> &middot; Waiting: <?php echo (int) $referralSummary['pending']; ?> &middot; Rewarded: <?php echo (int) $referralSummary['rewarded']; ?></p>
+                                <p class="form-text">A reward is added <?php echo (int) $referralSettings['hold_days']; ?> days after your friend's payment.</p>
+                            </div>
+                            <?php endif; ?>
+
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Email address</h3>
                                 <p class="ms-card__desc">Where sign-in links, digests and account notices are sent.</p>
@@ -217,7 +275,7 @@ $mcpDesktopConfig = '{
 
                             <div class="ms-card">
                                 <h3 class="ms-card__title">Sticky addresses</h3>
-                                <p class="ms-card__desc">Create up to 10 sticky addresses and manage them from one inbox.</p>
+                                <p class="ms-card__desc">Create up to 10 sticky addresses and manage them from one inbox.<?php if ($referralBonusSlots > 0) : ?> You have <?php echo (int) $referralBonusSlots; ?> bonus addresses from invites.<?php endif; ?></p>
                                 <div class="d-flex align-items-center mb-2 flex-wrap">
                                     <div class="input-group" style="max-width:420px;">
                                         <input id="personalLocal" class="form-control" placeholder="yourname" aria-label="local part" />
@@ -614,6 +672,35 @@ $mcpDesktopConfig = '{
         // On page load, fetch profile and populate (reuse same endpoints)
         $(function(){
             $('#proProfileAlert').html('<div class="alert alert-info">Loading profile...</div>');
+<?php if ($referralOn && $referralCode !== null) : ?>
+            // Invite friends: copy the link (epic #387 step 8). The button
+            // says "Copied" for 2 s; with no clipboard API the input's text
+            // is selected so the visitor can copy it by hand. No alert().
+            (function () {
+                var btn = document.getElementById('referralCopyBtn');
+                var input = document.getElementById('referralLinkInput');
+                if (!btn || !input) return;
+                var timer = null;
+                function flash() {
+                    btn.textContent = 'Copied';
+                    clearTimeout(timer);
+                    timer = setTimeout(function () { btn.textContent = 'Copy link'; }, 2000);
+                }
+                function selectInput() {
+                    input.focus();
+                    input.select();
+                    input.setSelectionRange(0, input.value.length);
+                }
+                btn.addEventListener('click', function () {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(input.value).then(flash, selectInput);
+                    } else {
+                        selectInput();
+                    }
+                });
+            })();
+<?php endif; ?>
+
 
             // Assume Pro until get_profile says otherwise, so nothing gets disabled/shown
             // before we actually know the account tier (avoids a flash of the wrong state,
