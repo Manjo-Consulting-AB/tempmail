@@ -869,3 +869,144 @@ if (!function_exists('referralSummaryFor')) {
         }
     }
 }
+
+if (!function_exists('referralDigestCollect')) {
+    /**
+     * What happened to the referrals in the window (since, until], for the
+     * admin digest (cron/referrals-digest.php). Both bounds are unix times;
+     * the lower one is exclusive and the upper inclusive, so consecutive
+     * windows never overlap or leave a gap. Ids and counts only, never an
+     * address. Returns null when the table is missing or the lookup fails.
+     *
+     * @return array{
+     *   joined: int[], qualified: int[], rewarded: int[], rewarded_kinds: array<string,int>,
+     *   voided: array<string,int[]>, stuck_new: int[], stuck_all: int[], expired: int,
+     *   by_status: array<string,int>
+     * }|null
+     */
+    function referralDigestCollect(PDO $pdo, int $since, int $until): ?array
+    {
+        try {
+            $from = date('Y-m-d H:i:s', $since);
+            $to = date('Y-m-d H:i:s', $until);
+            $ids = static function (string $sql, array $params = []) use ($pdo): array {
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute($params);
+                return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+            };
+
+            $out = [
+                'joined' => $ids('SELECT id FROM referrals WHERE created_at > ? AND created_at <= ? ORDER BY id', [$from, $to]),
+                'qualified' => $ids('SELECT id FROM referrals WHERE qualified_at > ? AND qualified_at <= ? ORDER BY id', [$from, $to]),
+                'rewarded' => $ids('SELECT id FROM referrals WHERE referrer_reward_at > ? AND referrer_reward_at <= ? ORDER BY id', [$from, $to]),
+                'rewarded_kinds' => [],
+                'voided' => [],
+                'stuck_new' => $ids("SELECT id FROM referrals WHERE status = 'stuck' AND updated_at > ? AND updated_at <= ? ORDER BY id", [$from, $to]),
+                'stuck_all' => $ids("SELECT id FROM referrals WHERE status = 'stuck' ORDER BY id"),
+                'expired' => count($ids("SELECT id FROM referrals WHERE status = 'expired' AND updated_at > ? AND updated_at <= ?", [$from, $to])),
+                'by_status' => [],
+            ];
+
+            $stmt = $pdo->prepare('SELECT COALESCE(referrer_reward_kind, \'unknown\') AS kind, COUNT(*) AS n FROM referrals WHERE referrer_reward_at > ? AND referrer_reward_at <= ? GROUP BY kind ORDER BY kind');
+            $stmt->execute([$from, $to]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $out['rewarded_kinds'][(string)$row['kind']] = (int)$row['n'];
+            }
+
+            $stmt = $pdo->prepare("SELECT id, COALESCE(void_reason, 'unknown') AS reason FROM referrals WHERE status = 'void' AND updated_at > ? AND updated_at <= ? ORDER BY id");
+            $stmt->execute([$from, $to]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $out['voided'][(string)$row['reason']][] = (int)$row['id'];
+            }
+            ksort($out['voided']);
+
+            foreach ($pdo->query('SELECT status, COUNT(*) AS n FROM referrals GROUP BY status ORDER BY status')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $out['by_status'][(string)$row['status']] = (int)$row['n'];
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('referralDigestBody')) {
+    /**
+     * The admin digest as [subject, body], or null when nothing in the window
+     * calls for a mail: a new invite, a qualified or rewarded one, a void, or
+     * a reward that has just become stuck. Expiries alone never trigger one
+     * (they are routine), but are counted when a mail goes out anyway. Pure:
+     * takes the result of referralDigestCollect() and the window bounds.
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    function referralDigestBody(array $d, int $since, int $until): ?array
+    {
+        $voidedTotal = 0;
+        foreach ($d['voided'] as $list) {
+            $voidedTotal += count($list);
+        }
+        if (!$d['joined'] && !$d['qualified'] && !$d['rewarded'] && !$voidedTotal && !$d['stuck_new']) {
+            return null;
+        }
+
+        // At most 20 ids per line, so a burst never makes the mail huge.
+        $list = static function (array $ids): string {
+            $shown = array_slice($ids, 0, 20);
+            $more = count($ids) - count($shown);
+            return implode(', ', $shown) . ($more > 0 ? " and {$more} more" : '');
+        };
+
+        $subject = [];
+        if ($d['stuck_new']) {
+            $subject[] = count($d['stuck_new']) . ' stuck';
+        }
+        if ($d['joined']) {
+            $subject[] = count($d['joined']) . ' new';
+        }
+        if ($d['qualified']) {
+            $subject[] = count($d['qualified']) . ' qualified';
+        }
+        if ($d['rewarded']) {
+            $subject[] = count($d['rewarded']) . ' rewarded';
+        }
+        if ($voidedTotal) {
+            $subject[] = $voidedTotal . ' void';
+        }
+
+        $lines = ['Mail Shield referrals, ' . date('Y-m-d H:i', $since) . ' to ' . date('Y-m-d H:i', $until), ''];
+        if ($d['stuck_all']) {
+            $lines[] = 'NEEDS ACTION: reward stuck after repeated failures, grant by hand: referral ' . $list($d['stuck_all']) . '.';
+            $lines[] = '';
+        }
+        if ($d['joined']) {
+            $lines[] = 'New invites bound: ' . count($d['joined']) . ' (referral ' . $list($d['joined']) . ')';
+        }
+        if ($d['qualified']) {
+            $lines[] = 'Qualified (friend bought a year plan or Lifetime): ' . count($d['qualified']) . ' (referral ' . $list($d['qualified']) . ')';
+        }
+        if ($d['rewarded']) {
+            $kinds = [];
+            foreach ($d['rewarded_kinds'] as $kind => $n) {
+                $kinds[] = "{$kind} {$n}";
+            }
+            $lines[] = 'Inviter rewards granted: ' . count($d['rewarded']) . ($kinds ? ' (' . implode(', ', $kinds) . ')' : '') . ' (referral ' . $list($d['rewarded']) . ')';
+        }
+        foreach ($d['voided'] as $reason => $ids) {
+            $lines[] = 'Void, ' . $reason . ': ' . count($ids) . ' (referral ' . $list($ids) . ')';
+        }
+        if ($d['expired']) {
+            $lines[] = 'Expired without a purchase: ' . $d['expired'];
+        }
+
+        $status = [];
+        foreach ($d['by_status'] as $name => $n) {
+            $status[] = "{$name} {$n}";
+        }
+        $lines[] = '';
+        $lines[] = 'All referrals now: ' . ($status ? implode(', ', $status) : 'none');
+        $lines[] = 'Details: php check_referrals.php on the server. The ids above are referrals.id; no addresses are included.';
+
+        return ['Mail Shield referrals: ' . implode(', ', $subject), implode("\n", $lines) . "\n"];
+    }
+}

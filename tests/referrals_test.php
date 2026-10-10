@@ -699,5 +699,100 @@ same('summary: no rows gives zeros', ['joined' => 0, 'pending' => 0, 'rewarded' 
 $pdo->exec('DROP TABLE referrals');
 same('summary: missing table gives zeros', ['joined' => 0, 'pending' => 0, 'rewarded' => 0, 'own' => null], referralSummaryFor($pdo, 1, $now));
 
+// 12. referralDigestCollect() / referralDigestBody() (the admin digest, cron/referrals-digest.php)
+function dgFresh(): PDO
+{
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    foreach (referralSchemaStatements('sqlite') as $sql) {
+        $pdo->exec($sql);
+    }
+    return $pdo;
+}
+function dgAdd(PDO $pdo, int $id, string $status, array $o = []): void
+{
+    $o += ['created' => '2026-12-01 00:00:00', 'qualified' => null, 'rewarded' => null, 'kind' => null, 'reason' => null, 'updated' => '2026-12-01 00:00:00'];
+    $pdo->prepare("INSERT INTO referrals (id, referrer_id, referee_id, status, created_at, window_ends_at, qualified_at, referrer_reward_at, referrer_reward_kind, void_reason, attempts, updated_at)
+        VALUES (?, 1, ?, ?, ?, '2027-06-01 00:00:00', ?, ?, ?, ?, 0, ?)")
+        ->execute([$id, 100 + $id, $status, $o['created'], $o['qualified'], $o['rewarded'], $o['kind'], $o['reason'], $o['updated']]);
+}
+$dgSince = strtotime('2027-01-10 08:00:00');
+$dgUntil = strtotime('2027-01-11 07:59:00');
+
+$pdo = dgFresh();
+$d = referralDigestCollect($pdo, $dgSince, $dgUntil);
+same('digest: an empty table collects nothing', ['joined' => [], 'qualified' => [], 'rewarded' => [], 'rewarded_kinds' => [], 'voided' => [], 'stuck_new' => [], 'stuck_all' => [], 'expired' => 0, 'by_status' => []], $d);
+same('digest: nothing to report gives no mail', null, referralDigestBody($d, $dgSince, $dgUntil));
+
+// Window edges: the lower bound is exclusive, the upper inclusive.
+$pdo = dgFresh();
+dgAdd($pdo, 1, 'joined', ['created' => '2027-01-10 08:00:00']);
+dgAdd($pdo, 2, 'joined', ['created' => '2027-01-10 08:00:01']);
+dgAdd($pdo, 3, 'joined', ['created' => '2027-01-11 07:59:00']);
+dgAdd($pdo, 4, 'joined', ['created' => '2027-01-11 07:59:01']);
+$d = referralDigestCollect($pdo, $dgSince, $dgUntil);
+same('digest: lower bound exclusive, upper inclusive', [2, 3], $d['joined']);
+
+// Each event reads its own timestamp; old rows stay out of the lists but not out of the totals.
+$pdo = dgFresh();
+dgAdd($pdo, 10, 'qualified', ['qualified' => '2027-01-10 12:00:00']);
+dgAdd($pdo, 11, 'rewarded', ['qualified' => '2026-12-01 00:00:00', 'rewarded' => '2027-01-10 13:00:00', 'kind' => 'months']);
+dgAdd($pdo, 12, 'rewarded', ['qualified' => '2026-12-01 00:00:00', 'rewarded' => '2027-01-10 14:00:00', 'kind' => 'sticky']);
+dgAdd($pdo, 13, 'rewarded', ['qualified' => '2026-12-01 00:00:00', 'rewarded' => '2027-01-10 15:00:00', 'kind' => 'months']);
+dgAdd($pdo, 14, 'rewarded', ['qualified' => '2026-11-01 00:00:00', 'rewarded' => '2026-12-20 00:00:00', 'kind' => 'billing']);
+dgAdd($pdo, 15, 'void', ['reason' => 'refunded', 'updated' => '2027-01-10 16:00:00']);
+dgAdd($pdo, 16, 'void', ['reason' => 'same_customer', 'updated' => '2027-01-10 17:00:00']);
+dgAdd($pdo, 17, 'void', ['reason' => 'refunded', 'updated' => '2026-12-05 00:00:00']);
+dgAdd($pdo, 18, 'expired', ['updated' => '2027-01-10 18:00:00']);
+dgAdd($pdo, 19, 'expired', ['updated' => '2026-12-05 00:00:00']);
+$d = referralDigestCollect($pdo, $dgSince, $dgUntil);
+same('digest: qualified in the window', [10], $d['qualified']);
+same('digest: rewarded in the window', [11, 12, 13], $d['rewarded']);
+same('digest: rewarded by kind', ['months' => 2, 'sticky' => 1], $d['rewarded_kinds']);
+same('digest: voided grouped by reason, old ones left out', ['refunded' => [15], 'same_customer' => [16]], $d['voided']);
+same('digest: expired counted inside the window only', 1, $d['expired']);
+same('digest: totals cover every row', ['expired' => 2, 'qualified' => 1, 'rewarded' => 4, 'void' => 3], $d['by_status']);
+$mail = referralDigestBody($d, $dgSince, $dgUntil);
+check('digest: a mail is built', $mail !== null);
+[$subject, $body] = $mail;
+same('digest: subject lists the counts', 'Mail Shield referrals: 1 qualified, 3 rewarded, 2 void', $subject);
+check('digest: body names the reward kinds', strpos($body, 'Inviter rewards granted: 3 (months 2, sticky 1) (referral 11, 12, 13)') !== false);
+check('digest: body names each void reason', strpos($body, 'Void, refunded: 1 (referral 15)') !== false && strpos($body, 'Void, same_customer: 1 (referral 16)') !== false);
+check('digest: body counts the expiry too', strpos($body, 'Expired without a purchase: 1') !== false);
+check('digest: body carries the status totals', strpos($body, 'All referrals now: expired 2, qualified 1, rewarded 4, void 3') !== false);
+check('digest: body has no address in it', strpos($body, '@') === false && strpos($subject, '@') === false);
+check('digest: no stuck warning when none is stuck', strpos($body, 'NEEDS ACTION') === false);
+
+// Expiries alone are routine and send nothing.
+$pdo = dgFresh();
+dgAdd($pdo, 1, 'expired', ['updated' => '2027-01-10 18:00:00']);
+same('digest: expiries alone give no mail', null, referralDigestBody(referralDigestCollect($pdo, $dgSince, $dgUntil), $dgSince, $dgUntil));
+
+// A reward that has just become stuck triggers a mail and lists every stuck one; an old stuck one alone does not.
+$pdo = dgFresh();
+dgAdd($pdo, 1, 'stuck', ['updated' => '2026-12-20 00:00:00']);
+same('digest: an old stuck reward alone gives no mail', null, referralDigestBody(referralDigestCollect($pdo, $dgSince, $dgUntil), $dgSince, $dgUntil));
+dgAdd($pdo, 2, 'stuck', ['updated' => '2027-01-10 20:00:00']);
+$d = referralDigestCollect($pdo, $dgSince, $dgUntil);
+same('digest: stuck_new only holds the new one', [2], $d['stuck_new']);
+same('digest: stuck_all holds both', [1, 2], $d['stuck_all']);
+[$subject, $body] = referralDigestBody($d, $dgSince, $dgUntil);
+same('digest: a stuck reward leads the subject', 'Mail Shield referrals: 1 stuck', $subject);
+check('digest: body asks for action and lists both', strpos($body, 'NEEDS ACTION: reward stuck after repeated failures, grant by hand: referral 1, 2.') !== false);
+
+// A burst never makes the mail huge.
+$pdo = dgFresh();
+for ($i = 1; $i <= 30; $i++) {
+    dgAdd($pdo, $i, 'joined', ['created' => '2027-01-10 12:00:00']);
+}
+[$subject, $body] = referralDigestBody(referralDigestCollect($pdo, $dgSince, $dgUntil), $dgSince, $dgUntil);
+same('digest: 30 new invites in the subject', 'Mail Shield referrals: 30 new', $subject);
+check('digest: ids are capped at 20 with a remainder', strpos($body, 'New invites bound: 30 (referral 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 and 10 more)') !== false);
+
+// Missing table: collect reports failure instead of throwing.
+$pdo = dgFresh();
+$pdo->exec('DROP TABLE referrals');
+same('digest: a missing table gives null', null, referralDigestCollect($pdo, $dgSince, $dgUntil));
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);
