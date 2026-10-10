@@ -352,3 +352,117 @@ if (!function_exists('referralBindOnVerification')) {
         }
     }
 }
+
+if (!function_exists('referralQualify')) {
+    /**
+     * Marks a referee's first qualifying payment (epic #387 decision 5):
+     * joined -> qualified inside the window, or joined -> void when the paying
+     * Paddle customer is already linked to the referrer. Marks only: no
+     * Paddle call, no entitlement change. Runs inside the caller's
+     * transaction and never throws. Returns an outcome suffix or ''.
+     */
+    function referralQualify(PDO $pdo, int $refereeId, string $plan, ?string $subscriptionId, ?string $transactionId, string $customerId, array $options): string
+    {
+        $log = static function (string $level, string $message, array $context) use ($options): void {
+            if (function_exists('paddleLog')) {
+                paddleLog($options, $level, $message, $context);
+            }
+        };
+        try {
+            $stmt = $pdo->prepare("SELECT id, referrer_id, window_ends_at FROM referrals WHERE referee_id = ? AND status = 'joined'");
+            $stmt->execute([$refereeId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return '';
+            }
+            $now = (int)($options['now'] ?? time());
+            $windowEnd = strtotime((string)$row['window_ends_at']);
+            if ($windowEnd === false || $now > $windowEnd) {
+                return '';
+            }
+            $referralId = (int)$row['id'];
+            $referrerId = (int)$row['referrer_id'];
+            $stamp = date('Y-m-d H:i:s', $now);
+
+            $stmt = $pdo->prepare(
+                'SELECT 1 FROM paddle_subscriptions WHERE customer_id = ? AND pro_user_id = ?
+                 UNION SELECT 1 FROM paddle_transactions WHERE customer_id = ? AND pro_user_id = ?'
+            );
+            $stmt->execute([$customerId, $referrerId, $customerId, $referrerId]);
+            if ($stmt->fetchColumn() !== false) {
+                $pdo->prepare("UPDATE referrals SET status = 'void', void_reason = 'same_customer', updated_at = ? WHERE id = ? AND status = 'joined'")
+                    ->execute([$stamp, $referralId]);
+                $log('WARNING', 'Referral voided: same Paddle customer as referrer', [
+                    'referral_id' => $referralId, 'referrer_id' => $referrerId, 'referee_id' => $refereeId,
+                ]);
+                return "; referral {$referralId} voided";
+            }
+
+            $holdDays = (int)($options['referral_settings']['hold_days'] ?? 30);
+            $dueAt = date('Y-m-d H:i:s', $now + $holdDays * 86400);
+            $upd = $pdo->prepare(
+                "UPDATE referrals SET status = 'qualified', plan = ?, subscription_id = ?, transaction_id = ?,
+                    qualified_at = ?, referrer_reward_due_at = ?, updated_at = ?
+                 WHERE id = ? AND status = 'joined'"
+            );
+            $upd->execute([$plan, $subscriptionId, $transactionId, $stamp, $dueAt, $stamp, $referralId]);
+            if ($upd->rowCount() < 1) {
+                return '';
+            }
+            $log('INFO', 'Referral qualified', [
+                'referral_id' => $referralId, 'plan' => $plan, 'paddle_id' => $subscriptionId ?? $transactionId,
+            ]);
+            return "; referral {$referralId} qualified";
+        } catch (Throwable $e) {
+            $log('WARNING', 'Referral: qualification failed', ['referee_id' => $refereeId]);
+            return '';
+        }
+    }
+}
+
+if (!function_exists('referralVoidOnRefund')) {
+    /**
+     * A revoking adjustment voids a referral whose qualifying payment it
+     * matches, as long as the referrer has not been rewarded (decision 8).
+     * After the reward nothing changes and only a WARNING is logged. Runs
+     * inside the caller's transaction and never throws. Returns an outcome
+     * suffix or ''.
+     */
+    function referralVoidOnRefund(PDO $pdo, ?string $subscriptionId, string $transactionId, array $options): string
+    {
+        $log = static function (string $level, string $message, array $context) use ($options): void {
+            if (function_exists('paddleLog')) {
+                paddleLog($options, $level, $message, $context);
+            }
+        };
+        try {
+            // A null subscription id binds a value that cannot match.
+            $sub = $subscriptionId ?? '';
+            $match = "((plan = 'year' AND subscription_id = ? AND ? <> '') OR (plan = 'lifetime' AND transaction_id = ?))";
+            $params = [$sub, $sub, $transactionId];
+            $stamp = date('Y-m-d H:i:s', (int)($options['now'] ?? time()));
+
+            $upd = $pdo->prepare(
+                "UPDATE referrals SET status = 'void', void_reason = 'refunded', updated_at = ?
+                 WHERE status IN ('qualified','stuck') AND referrer_reward_at IS NULL AND {$match}"
+            );
+            $upd->execute(array_merge([$stamp], $params));
+            $changed = $upd->rowCount();
+            if ($changed > 0) {
+                $log('INFO', 'Referral voided: qualifying payment refunded', ['count' => $changed]);
+            }
+
+            $sel = $pdo->prepare("SELECT id FROM referrals WHERE status = 'rewarded' AND {$match}");
+            $sel->execute($params);
+            foreach ($sel->fetchAll(PDO::FETCH_COLUMN) as $referralId) {
+                $log('WARNING', 'Refund after referral reward, no clawback', [
+                    'referral_id' => (int)$referralId, 'subscription_id' => $subscriptionId, 'transaction_id' => $transactionId,
+                ]);
+            }
+            return $changed > 0 ? "; {$changed} referral(s) voided" : '';
+        } catch (Throwable $e) {
+            $log('WARNING', 'Referral: refund handling failed', ['transaction_id' => $transactionId]);
+            return '';
+        }
+    }
+}

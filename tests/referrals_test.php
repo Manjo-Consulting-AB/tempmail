@@ -275,5 +275,80 @@ same('missing referrals table: null', null, $res);
 // 9. Short key
 same('10-character key is never new', false, referralAddressIsNew($pdo, 'friend@y.com', str_repeat('k', 10)));
 
+// 10. referralQualify() / referralVoidOnRefund() called directly (epic #387 step 4)
+function qualifyFresh(): PDO
+{
+    global $pdo;
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    foreach (referralSchemaStatements('sqlite') as $sql) {
+        $pdo->exec($sql);
+    }
+    $pdo->exec('CREATE TABLE paddle_subscriptions (subscription_id TEXT PRIMARY KEY, customer_id TEXT, pro_user_id INTEGER)');
+    $pdo->exec('CREATE TABLE paddle_transactions (transaction_id TEXT PRIMARY KEY, customer_id TEXT, pro_user_id INTEGER)');
+    $pdo->exec("INSERT INTO referrals (referrer_id, referee_id, status, created_at, window_ends_at, attempts, updated_at) VALUES (1, 2, 'joined', '2026-01-01 00:00:00', '2026-05-01 00:00:00', 0, '2026-01-01 00:00:00')");
+    return $pdo;
+}
+$qNow = strtotime('2026-02-01 12:00:00');
+$qOpts = ['now' => $qNow, 'referral_settings' => ['hold_days' => 30]];
+
+$pdo = qualifyFresh();
+same('qualify: no row for another referee', '', referralQualify($pdo, 99, 'year', 'sub_1', null, 'ctm_1', $qOpts));
+$out = referralQualify($pdo, 2, 'year', 'sub_1', null, 'ctm_1', $qOpts);
+same('qualify: suffix', '; referral 1 qualified', $out);
+$row = $pdo->query('SELECT * FROM referrals WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
+same('qualify: status', 'qualified', $row['status']);
+same('qualify: qualified_at in local time', '2026-02-01 12:00:00', $row['qualified_at']);
+same('qualify: due after hold_days', '2026-03-03 12:00:00', $row['referrer_reward_due_at']);
+same('qualify: a second call finds no joined row', '', referralQualify($pdo, 2, 'year', 'sub_1', null, 'ctm_1', $qOpts));
+
+$pdo = qualifyFresh();
+same('qualify: window over returns empty', '', referralQualify($pdo, 2, 'year', 'sub_1', null, 'ctm_1', ['now' => strtotime('2026-05-02 00:00:00')] + $qOpts));
+same('qualify: window over leaves joined', 'joined', $pdo->query('SELECT status FROM referrals')->fetchColumn());
+
+$pdo = qualifyFresh();
+$pdo->exec("INSERT INTO paddle_transactions VALUES ('txn_r', 'ctm_1', 1)");
+referralQualify($pdo, 2, 'lifetime', null, 'txn_1', 'ctm_1', $qOpts);
+same('qualify: same customer voids', 'same_customer', $pdo->query('SELECT void_reason FROM referrals')->fetchColumn());
+
+$pdo = qualifyFresh();
+$pdo->exec('DROP TABLE referrals');
+$threw = false;
+$res = 'unset';
+try {
+    $res = referralQualify($pdo, 2, 'year', 'sub_1', null, 'ctm_1', $qOpts);
+} catch (Throwable $e) {
+    $threw = true;
+}
+check('qualify: missing table does not throw', !$threw);
+same('qualify: missing table returns empty', '', $res);
+
+$pdo = qualifyFresh();
+referralQualify($pdo, 2, 'year', 'sub_1', null, 'ctm_1', $qOpts);
+same('refund: null subscription id and other transaction match nothing', '', referralVoidOnRefund($pdo, null, 'txn_x', $qOpts));
+same('refund: still qualified', 'qualified', $pdo->query('SELECT status FROM referrals')->fetchColumn());
+same('refund: year matched on subscription id', '; 1 referral(s) voided', referralVoidOnRefund($pdo, 'sub_1', 'txn_x', $qOpts));
+same('refund: void reason', 'refunded', $pdo->query('SELECT void_reason FROM referrals')->fetchColumn());
+
+$pdo = qualifyFresh();
+referralQualify($pdo, 2, 'lifetime', null, 'txn_1', 'ctm_1', $qOpts);
+referralVoidOnRefund($pdo, null, 'txn_1', $qOpts);
+same('refund: lifetime matched on transaction id', 'void', $pdo->query('SELECT status FROM referrals')->fetchColumn());
+
+$pdo = qualifyFresh();
+$pdo->exec("UPDATE referrals SET status = 'rewarded', plan = 'year', subscription_id = 'sub_1', referrer_reward_at = '2026-03-04 00:00:00'");
+same('refund: rewarded row is not voided', '', referralVoidOnRefund($pdo, 'sub_1', 'txn_x', $qOpts));
+same('refund: rewarded row unchanged', 'rewarded', $pdo->query('SELECT status FROM referrals')->fetchColumn());
+
+$pdo = qualifyFresh();
+$pdo->exec('DROP TABLE referrals');
+$threw = false;
+try {
+    referralVoidOnRefund($pdo, 'sub_1', 'txn_x', $qOpts);
+} catch (Throwable $e) {
+    $threw = true;
+}
+check('refund: missing table does not throw', !$threw);
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);

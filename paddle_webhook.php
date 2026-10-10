@@ -31,6 +31,7 @@
 define('TEMPMAIL_APP', true);
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/paddle_sync.php';
+require_once __DIR__ . '/referrals.php';
 
 header('Content-Type: application/json');
 
@@ -98,6 +99,9 @@ try {
         // (#346) — the sandbox destination points at this live endpoint.
         'environment' => $environment,
         'sandbox_user_ids' => $config['paddle']['sandbox_user_ids'] ?? [],
+        // Referrals (epic #387): mark qualifying payments; rewards run in cron/referrals.php.
+        'referrals' => !empty($config['referral']['enabled']) && tableHasColumn('referrals', 'status'),
+        'referral_settings' => referralSettings($config['referral'] ?? []),
         'log' => function (string $level, string $message, array $context): void {
             logMessage($level, $message, $context);
         },

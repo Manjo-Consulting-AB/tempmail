@@ -154,15 +154,20 @@ function paddleTiersForEnvironment(array $tiers, string $environment): array
 /**
  * Which price IDs grant Pro, from one environment's plans
  * (paddleTiersForEnvironment()):
- * ['subscription' => [...month/year ids], 'lifetime' => [...once ids]].
- * A price outside both lists is stored but grants nothing.
+ * ['subscription' => [...month/year ids], 'lifetime' => [...once ids],
+ * 'year' => [...year ids]]. The year ids are also in 'subscription'; 'year'
+ * only tells referrals (epic #387) which subscriptions can qualify. A price
+ * outside the lists is stored but grants nothing.
  */
 function paddlePlanPriceIds(array $tiers): array
 {
-    $ids = ['subscription' => [], 'lifetime' => []];
+    $ids = ['subscription' => [], 'lifetime' => [], 'year' => []];
     foreach ($tiers as $tier) {
         foreach (($tier['priceId'] ?? []) as $kind => $priceId) {
             $ids[$kind === 'once' ? 'lifetime' : 'subscription'][] = (string) $priceId;
+            if ($kind === 'year') {
+                $ids['year'][] = (string) $priceId;
+            }
         }
     }
     return $ids;
@@ -392,6 +397,9 @@ function paddleSyncSubscription(PDO $pdo, array $sub, string $order, string $occ
             $outcome .= ' (unlinked)';
         } else {
             $outcome .= '; ' . paddleApplyEntitlement($pdo, $userId, $options);
+            if (!empty($options['referrals']) && $status === 'active' && in_array($priceId, $options['prices']['year'] ?? [], true)) {
+                $outcome .= referralQualify($pdo, $userId, 'year', $id, null, $customerId, $options);
+            }
         }
 
         $pdo->commit();
@@ -455,6 +463,9 @@ function paddleSyncTransaction(PDO $pdo, array $txn, string $order, array $optio
             $outcome .= ' (unlinked)';
         } elseif ($lifetime) {
             $outcome .= '; ' . paddleApplyEntitlement($pdo, $userId, $options);
+            if (!empty($options['referrals'])) {
+                $outcome .= referralQualify($pdo, $userId, 'lifetime', null, $id, $customerId, $options);
+            }
         }
 
         $pdo->commit();
@@ -857,6 +868,9 @@ function paddleSyncAdjustment(PDO $pdo, array $adj, string $order, array $option
             $outcome .= ' (unlinked)';
         } else {
             $outcome .= '; ' . paddleApplyEntitlement($pdo, $userId, $options);
+        }
+        if ($effect === 1 && !empty($options['referrals'])) {
+            $outcome .= referralVoidOnRefund($pdo, $subscriptionId, $transactionId, $options);
         }
 
         $pdo->commit();
