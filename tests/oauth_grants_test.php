@@ -717,7 +717,7 @@ $keys = ['PII_ENCRYPTION_KEY' => $encKey, 'PII_INDEX_KEY' => $idxKey];
 
 $probe = sys_get_temp_dir() . '/ms_oauth_grants_probe_' . bin2hex(random_bytes(6));
 mkdir($probe);
-foreach (['pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php', 'oauth_server.php', 'after_login.php'] as $file) {
+foreach (['pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php', 'oauth_server.php', 'after_login.php'] as $file) {
     copy($repoRoot . '/' . $file, $probe . '/' . $file);
 }
 file_put_contents($probe . '/config.php', $stub);

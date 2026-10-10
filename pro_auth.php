@@ -6,6 +6,7 @@
 require_once 'config.php';
 require_once __DIR__ . '/TwoFactorAuth.php';
 require_once __DIR__ . '/pro_trial.php';
+require_once __DIR__ . '/referrals.php';
 require_once __DIR__ . '/login_tokens.php';
 require_once __DIR__ . '/email_log_ref.php';
 require_once __DIR__ . '/pii_crypto.php';
@@ -910,6 +911,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // (createLoginToken()) - länken pekar på pro_login.php?token=..., som
     // konsumerar token och sätter email_verified_at om kontot var
     // overifierat (utökat i den här issuen, se pro_login.php).
+    // Invite code from /invite/<code> (epic #387), bound at first verification.
+    referralStorePendingCode($pdo, $userId, referralCookieCode(), referralSettings($config['referral'] ?? []));
     $token = createLoginToken($userId);
     sendVerificationEmail($email, $token, $userId);
     logMessage('INFO', 'Account registered, verification email sent', ['user_id' => $userId, 'plan' => $plan]);

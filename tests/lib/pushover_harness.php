@@ -376,7 +376,7 @@ function ms_test_probe_build(string $repoRoot): string {
     // oauth_server.php since #331 step 6: pro_profile_page.php and index.php
     // both require it for oauthDiscoveryEnabled(), which decides whether the
     // connect copy may name the sign-in. It brings mcp_tokens.php with it.
-    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'login_tokens.php', 'TwoFactorAuth.php', 'php_imap_processor.php', 'webhook_secret.php', 'paddle_sync.php', 'reserved_local_parts.php', 'email_log_ref.php', 'pii_crypto.php', 'address_cooldown.php', 'retention_hold.php', 'abuse_guard.php', 'pro_remember.php', 'feed_token.php', 'mailbox_service.php', 'mcp_tokens.php', 'after_login.php', 'oauth_server.php'] as $page) {
+    foreach (['pro_profile.php', 'pro_profile_page.php', 'index.php', 'pro_auth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php', 'TwoFactorAuth.php', 'php_imap_processor.php', 'webhook_secret.php', 'paddle_sync.php', 'reserved_local_parts.php', 'email_log_ref.php', 'pii_crypto.php', 'address_cooldown.php', 'retention_hold.php', 'abuse_guard.php', 'pro_remember.php', 'feed_token.php', 'mailbox_service.php', 'mcp_tokens.php', 'after_login.php', 'oauth_server.php'] as $page) {
         if (!copy($repoRoot . '/' . $page, $root . '/' . $page)) {
             throw new RuntimeException("Could not copy {$page} into the probe docroot");
         }
