@@ -331,7 +331,7 @@ if (!function_exists('referralBindOnVerification')) {
                 return null;
             }
 
-            $createdAt = gmdate('Y-m-d H:i:s', $now);
+            $createdAt = date('Y-m-d H:i:s', $now);
             $windowEnd = referralWindowEnd($createdAt, (int)($settings['window_days'] ?? 120));
             try {
                 $ins = $pdo->prepare("INSERT INTO referrals (referrer_id, referee_id, status, created_at, window_ends_at, attempts, updated_at) VALUES (?, ?, 'joined', ?, ?, 0, ?)");
