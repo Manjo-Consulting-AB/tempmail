@@ -894,6 +894,59 @@ try {
 }
 check('missing referrals table: a refund still syncs', !$threw);
 
+echo "\n32. granted_until follows the later of next_billed_at and the period end (epic #387 step 6b)\n";
+
+$grantedUntil = function (PDO $pdo): array {
+    return paddleFetch($pdo, 'SELECT granted_until, period_ends_at FROM paddle_subscriptions WHERE subscription_id = ?', ['sub_1']);
+};
+$yearEnd = NOW + 365 * 86400;
+$later = strtotime('+3 months', $yearEnd);
+
+// 1. next_billed_at equal to the period end: exactly what the period end alone gives.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', ['next_billed_at' => iso($yearEnd)]), $prices);
+check('next_billed_at equal to the period end: granted_until is the period end', $grantedUntil($pdo)['granted_until'] === local($yearEnd));
+check('…and pro_expires_at is the period end', user($pdo, 42)['pro_expires_at'] === local($yearEnd));
+
+// 2. next_billed_at three months after the period end.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', ['next_billed_at' => iso($later)]), $prices);
+$row = $grantedUntil($pdo);
+check('later next_billed_at: granted_until is next_billed_at', $row['granted_until'] === local($later), (string) $row['granted_until']);
+check('…period_ends_at stays the billing period end', $row['period_ends_at'] === local($yearEnd), (string) $row['period_ends_at']);
+check('…and pro_expires_at follows granted_until', user($pdo, 42)['pro_expires_at'] === local($later), (string) user($pdo, 42)['pro_expires_at']);
+
+// 3. next_billed_at before the period end.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', ['next_billed_at' => iso($yearEnd - 30 * 86400)]), $prices);
+check('earlier next_billed_at: granted_until is the period end', $grantedUntil($pdo)['granted_until'] === local($yearEnd));
+
+// 4. A scheduled cancel leaves next_billed_at null.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', [
+    'next_billed_at' => null,
+    'scheduled_change' => ['action' => 'cancel', 'effective_at' => iso($yearEnd), 'resume_at' => null],
+]), $prices);
+check('scheduled cancel (next_billed_at null): granted_until is the period end', $grantedUntil($pdo)['granted_until'] === local($yearEnd));
+
+// 5. trialing behaves the same.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('trialing', ['next_billed_at' => iso($later)]), $prices);
+check('trialing with a later next_billed_at: granted_until is next_billed_at', $grantedUntil($pdo)['granted_until'] === local($later));
+
+// 6. A full refund of the current period still clamps, with the later granted_until.
+$pdo = freshDb();
+addUser($pdo, 42, 'buyer@example.com');
+run($pdo, subEvent('active', ['next_billed_at' => iso($later)]), $prices);
+check('before the refund Pro runs to next_billed_at', user($pdo, 42)['pro_expires_at'] === local($later));
+run($pdo, adjEvent('adj_nb', 'refund', 'approved', ['transaction_id' => 'txn_sub1', 'subscription_id' => 'sub_1'], NOW + 86400), $prices, NOW + 86400);
+check('refund of the current period clamps to the refund moment', user($pdo, 42)['pro_expires_at'] === local(NOW + 86400), (string) user($pdo, 42)['pro_expires_at']);
+
 function freshDbWithUser42(): PDO
 {
     $pdo = freshDb();

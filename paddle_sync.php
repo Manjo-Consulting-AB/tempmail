@@ -347,6 +347,9 @@ function paddleSyncSubscription(PDO $pdo, array $sub, string $order, string $occ
         $status = (string) ($sub['status'] ?? '');
         $priceId = (string) ($sub['items'][0]['price']['id'] ?? '');
         $periodEnd = paddleLocalTime($sub['current_billing_period']['ends_at'] ?? null);
+        // A referral reward moves next_billed_at (epic #387). Paddle may or may not
+        // move the billing period with it, so access runs to the later of the two.
+        $nextBilled = paddleLocalTime($sub['next_billed_at'] ?? null);
         $scheduled = $sub['scheduled_change'] ?? null;
 
         $grants = in_array($priceId, $options['prices']['subscription'] ?? [], true);
@@ -355,7 +358,7 @@ function paddleSyncSubscription(PDO $pdo, array $sub, string $order, string $occ
             switch ($status) {
                 case 'active':
                 case 'trialing':
-                    $grantedUntil = $periodEnd;
+                    $grantedUntil = ($nextBilled !== null && ($periodEnd === null || $nextBilled > $periodEnd)) ? $nextBilled : $periodEnd;
                     break;
                 case 'past_due':
                     $grace = date('Y-m-d H:i:s', strtotime($occurredAt) + PADDLE_PAST_DUE_GRACE_DAYS * 86400);
