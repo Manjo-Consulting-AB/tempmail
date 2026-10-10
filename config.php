@@ -377,6 +377,15 @@ $baseConfig = [
         'hash_key' => (string)($_ENV['PRO_TRIAL_HASH_KEY'] ?? ''),
         'claim_retention_days' => 1825,
     ],
+    // Referrals (epic #387). Off by default; while off nothing binds or rewards.
+    'referral' => [
+        'enabled'      => filter_var($_ENV['REFERRAL_ENABLED'] ?? '0', FILTER_VALIDATE_BOOLEAN),
+        'bonus_months' => max(1, (int)($_ENV['REFERRAL_BONUS_MONTHS'] ?? 3)),
+        'sticky_bonus' => max(1, (int)($_ENV['REFERRAL_STICKY_BONUS'] ?? 3)),
+        'window_days'  => max(1, (int)($_ENV['REFERRAL_WINDOW_DAYS'] ?? 120)),
+        'hold_days'    => max(0, (int)($_ENV['REFERRAL_HOLD_DAYS'] ?? 30)),
+        'cookie_days'  => max(1, (int)($_ENV['REFERRAL_COOKIE_DAYS'] ?? 30)),
+    ],
     // Cool-off for released personal addresses (address_cooldown.php): a
     // deleted personal address stays reserved for its last owner for
     // `months`, and each owner holds at most `max_per_user` such
