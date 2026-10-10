@@ -32,12 +32,16 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 $f = require __DIR__ . '/partials/legal_facts.php';
 
+// The invite cookie's lifetime (epic #387) comes from config, like $f.
+require_once __DIR__ . '/referrals.php';
+$ref = referralSettings($config['referral'] ?? []);
+
 $msLegalDoc = [
     'title'       => 'Privacy policy',
     'lede'        => 'Mail Shield exists to keep your primary address out of places it does not need to be. This page says what we collect to do that, why, how long we keep it, and who else sees it.',
     'description' => 'What personal data Mail Shield collects, why, how long it is kept, and who processes it — including payments handled by Paddle.',
     'path'        => '/privacy.php',
-    'updated'     => '30 September 2026',
+    'updated'     => '10 October 2026',
     'sections'    => [
         [
             'id'      => 'controller',
@@ -56,6 +60,8 @@ $msLegalDoc = [
                 . '<h3>Connected apps</h3>'
                 . '<p>You can connect an app or an AI assistant to your account: either by signing in and approving the app when it asks, or by creating an access token and giving that to the app. Either way we store only a one-way hash of the credential — never the token itself — together with the access you granted (read only, or read and change) and when it was last used. A token you created yourself also carries the name you gave it and the expiry you chose.</p>'
                 . '<p>For an app you approve on the sign-in screen we keep the name the app gave itself, the host of the address it asked to be sent back to, and when you connected it. The app supplies those details itself when it registers; they are what the Connected apps card shows you, so you can tell one app from another and disconnect it.</p>'
+                . '<h3>Invites</h3>'
+                . '<p>When you sign up through an invite link, we store which account invited you and the status of the invite, with its dates and, once you buy Pro, the plan and the Paddle subscription or transaction it concerns. The invite code is kept in a cookie and on your new account until you verify your address. The person who invited you only sees counts, never who you are. The record holds account numbers, not email addresses, and stays when either account is deleted. Every account also has an invite code of its own.</p>'
                 . '<h3>Technical data</h3>'
                 . '<p>Our server logs record events such as sign-ins, errors and suspicious requests, with the IP address involved. Sign-in attempts are recorded to stop password guessing. We do not write your registered email address into the logs.</p>'
                 . '<p>To protect addresses from floods of mail and the service from misuse, we count how many messages, and how many bytes, each address receives, how many addresses are created from each IP address and account, and how many notifications each integration sends. When a limit is reached we pause the address or the integration for a while and tell you, and we keep a record of that step.</p>'
@@ -136,6 +142,7 @@ $msLegalDoc = [
                 . '<li><strong>A trusted-browser cookie</strong>, set only if you choose to have a browser remembered for two-factor authentication. It lasts 30 days.</li>'
                 . '<li><strong>A stay-signed-in cookie</strong>, set only if you choose to stay signed in on a device. It lasts the period you chose (1, 7 or 30 days from your last visit, at most 90 days) and is removed when you sign out.</li>'
                 . '<li><strong>Google Analytics cookies</strong>, set only on the public pages (never on the inbox, your account or sign-in pages) and only after you click Accept in the cookie notice. Use Cookie settings in the footer to withdraw your consent; that stops these cookies being set on later pages and deletes the ones already set.</li>'
+                . '<li><strong>An invite cookie, <code>ms_ref</code></strong>, set only when you follow an invite link while the invite programme is open. It holds the invite code, lasts up to ' . $ref['cookie_days'] . ' days and is removed when you verify your account.</li>'
                 . '<li><strong>Paddle cookies</strong> on the front page, the pricing page and in the checkout.</li>'
                 . '<li><strong>Your cookie choice</strong> itself is remembered in your browser\'s local storage, not a cookie, so we can honour it; it is strictly necessary and is not sent to us.</li>'
                 . '</ul>'

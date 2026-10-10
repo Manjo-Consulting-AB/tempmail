@@ -19,6 +19,10 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 $f = require __DIR__ . '/partials/legal_facts.php';
 
+// The invite programme's numbers (epic #387) come from config, like $f.
+require_once __DIR__ . '/referrals.php';
+$ref = referralSettings($config['referral'] ?? []);
+
 $trialLine = $f['trial_days'] > 0
     ? '<p>Every new account starts with a free Pro trial of ' . $f['trial_days'] . ' days, once per email address. No payment details are needed for the trial, and it does not turn into a paid plan by itself: when it ends, the account continues as a free Regular account unless you buy Pro.</p>'
     : '';
@@ -28,7 +32,7 @@ $msLegalDoc = [
     'lede'        => 'These terms are the agreement between you and us when you use Mail Shield. They are written to be read, so they are short where they can be.',
     'description' => 'The terms that apply when you use Mail Shield, including Pro plans sold through Paddle as Merchant of Record.',
     'path'        => '/terms.php',
-    'updated'     => '30 September 2026',
+    'updated'     => '10 October 2026',
     'sections'    => [
         [
             'id'      => 'who',
@@ -99,6 +103,21 @@ $msLegalDoc = [
                 . '<p>If we change the price of a subscription, we tell you by email before the change applies to your next renewal, so you can cancel first.</p>'
                 . '<h3>Refunds</h3>'
                 . '<p>You can get your money back within 30 days of a payment. The details are in our <a href="/refund-policy.php">refund policy</a>.</p>',
+        ],
+        [
+            'id'      => 'referrals',
+            'heading' => 'Invites',
+            'html'    => '<p>While the invite programme is open, every account has a personal invite link, shown on your profile. The rules are:</p>'
+                . '<ul>'
+                . '<li>A friend who creates a <strong>new</strong> account through your link, and whose email address has never been used with Mail Shield before, is linked to you. The link is made once, when the account is first verified, and cannot be changed afterwards.</li>'
+                . '<li>If that friend buys a 12-month Pro plan within ' . $ref['window_days'] . ' days of creating the account, the friend gets ' . $ref['bonus_months'] . ' extra months: their next payment is moved ' . $ref['bonus_months'] . ' months later. If their subscription is set to end instead, the months are added to their Pro time.</li>'
+                . '<li>You get ' . $ref['bonus_months'] . ' months of Pro ' . $ref['hold_days'] . ' days after the friend\'s payment, provided it has not been refunded or charged back by then. If you pay by subscription, your next payment moves ' . $ref['bonus_months'] . ' months later. Otherwise the months are added to your current end date, or to today if it has passed. If you have Lifetime, you get ' . $ref['sticky_bonus'] . ' more Sticky addresses instead, on top of the usual limit, for as long as the account is Pro.</li>'
+                . '<li>A Lifetime purchase by the friend also counts for you, but gives the friend nothing extra.</li>'
+                . '<li>There is no limit on the number of invites, and rewards stack. Rewards have no cash value and cannot be transferred.</li>'
+                . '<li>Inviting yourself, or using several accounts or payment details to collect rewards, is not allowed. We may withhold or remove rewards obtained that way.</li>'
+                . '<li>We may change or end the programme. Rewards already granted are kept.</li>'
+                . '</ul>'
+                . '<p>What happens to a reward when a payment is refunded is in the <a href="/refund-policy.php#after">refund policy</a>; what we store about an invite is in the <a href="/privacy.php#data">privacy policy</a>.</p>',
         ],
         [
             'id'      => 'termination',

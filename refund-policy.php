@@ -17,12 +17,16 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 $f = require __DIR__ . '/partials/legal_facts.php';
 
+// The invite programme's numbers (epic #387) come from config, like $f.
+require_once __DIR__ . '/referrals.php';
+$ref = referralSettings($config['referral'] ?? []);
+
 $msLegalDoc = [
     'title'       => 'Refund policy',
     'lede'        => 'If Mail Shield Pro is not right for you, you can have your money back within 30 days of paying. No questions asked.',
     'description' => 'Mail Shield offers a 30-day money-back guarantee on Pro subscriptions and Lifetime purchases. Refunds are issued by Paddle, our reseller.',
     'path'        => '/refund-policy.php',
-    'updated'     => '26 September 2026',
+    'updated'     => '10 October 2026',
     'sections'    => [
         [
             'id'      => 'guarantee',
@@ -53,6 +57,7 @@ $msLegalDoc = [
             'html'    => '<p>A refund ends the Pro time that the payment paid for, and a refunded subscription is cancelled so that it does not renew. Your account stays, as a free Regular account. As with any Pro plan that ends, sticky addresses are deleted 7 days later, with their mail, so move anything you want to keep before then.</p>'
                 . '<p>A refunded Lifetime purchase ends Pro on the date of the refund. After that the same 7 days apply before sticky addresses are deleted.</p>'
                 . '<p>Any Pro time you had before the purchase — the free trial, or a voucher — is not affected by the refund.</p>'
+                . '<p>If a payment made through an <a href="/terms.php#referrals">invite</a> is refunded or charged back before the inviter\'s reward is granted, which is ' . $ref['hold_days'] . ' days after the payment, the inviter\'s bonus is not granted, and the friend\'s bonus months end with the refunded subscription. A refund after the inviter has received their reward does not take that reward back.</p>'
                 . '<p>A refund is not a request to delete your data. Apart from Pro ending, your account and its data follow the ordinary retention rules in our <a href="/privacy.php#retention">privacy policy</a>. To delete them, delete your account.</p>',
         ],
         [
