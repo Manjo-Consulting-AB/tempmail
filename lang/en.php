@@ -280,4 +280,10 @@ return [
     'faq.foot.blog' => 'Blog',
     'faq.foot.faq' => 'FAQ',
     'faq.foot.cookie_settings' => 'Cookie settings',
+    'legal.shell.effective' => 'Effective',
+    'legal.shell.toc' => 'On this page',
+    'legal.fact.org_number' => 'corporate identity number {number}',
+    'legal.fact.vat_number' => 'VAT number {number}',
+    'legal.fact.company_full' => '{company}{ids}, a company registered in Sweden',
+    'legal.fact.hosting' => 'Inleed, a trade name of Yelles AB (Sweden)',
 ];

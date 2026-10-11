@@ -32,7 +32,7 @@ $msLegalDoc = [
     'lede'        => 'These terms are the agreement between you and us when you use Mail Shield. They are written to be read, so they are short where they can be.',
     'description' => 'The terms that apply when you use Mail Shield, including Pro plans sold through Paddle as Merchant of Record.',
     'path'        => '/terms.php',
-    'updated'     => '10 October 2026',
+    'updated'     => '2026-10-10',
     'sections'    => [
         [
             'id'      => 'who',

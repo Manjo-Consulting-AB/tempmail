@@ -96,7 +96,7 @@ if (!function_exists('i18nSupportedLocales')) {
             '/pro_login.php'       => ['en'],
             '/terms.php'           => ['en'],
             '/privacy.php'         => ['en'],
-            '/refund-policy.php'   => ['en'],
+            '/refund-policy.php'   => ['en', 'sv'],
         ];
     }
 
