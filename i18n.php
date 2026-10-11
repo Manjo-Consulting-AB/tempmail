@@ -104,7 +104,7 @@ if (!function_exists('i18nSupportedLocales')) {
             '/blog.php'            => ['en', 'sv'],
             '/register.php'        => ['en'],
             '/pro_login.php'       => ['en'],
-            '/privacy.php'         => ['en'],
+            '/privacy.php'         => ['en', 'sv'],
             '/refund-policy.php'   => ['en', 'sv'],
             '/terms.php'           => ['en', 'sv'],
         ];
