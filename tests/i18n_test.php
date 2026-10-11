@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -2551,7 +2551,7 @@ foreach (array_keys(ms_pp_page_cases()) as $ppName) {
     $svPg = ms_pp_page($pp, $ppName, true, 'sv-SE,sv;q=0.9');
     $svNoJson = preg_replace('#<script type="application/json" id="ms-i18n">.*?</script>#s', '', $svPg['body']);
     $svNoJson = preg_replace("/msT\\('(?:profile|app\\.common)\\.[a-z_.0-9]+'/", "msT('", $svNoJson);
-    check("sv profile page {$ppName}: rendered without PHP errors", $svPg['body'] !== '' && $ppNoPhpError($sv), (string) $svPg['res']['stderr']);
+    check("sv profile page {$ppName}: rendered without PHP errors", $svPg['body'] !== '' && $ppNoPhpError($svPg), (string) $svPg['res']['stderr']);
     check("sv profile page {$ppName}: <html lang=\"sv\">", strpos($svPg['body'], '<html lang="sv">') !== false);
     check("sv profile page {$ppName}: no raw profile. key anywhere but the language JSON", !preg_match($ppKeyRe, $svNoJson), (string) (preg_match($ppKeyRe, $svNoJson, $km) ? $km[0] : ''));
     check("sv profile page {$ppName}: the title, heading, rail and section titles are Swedish",
@@ -2712,7 +2712,8 @@ check('scan: pro_profile_page.php defines msT() once, exactly as I18N.md documen
     && strpos($profilePageSrc, "JSON.parse(document.getElementById('ms-i18n').textContent)") !== false
     && strpos($profilePageSrc, "return text.replace(/\\{(\\w+)\\}/g, function (m, name) {") !== false);
 preg_match_all("/(?<![\\w.\$])msT\\('([^']+)'/", $profilePageSrc, $pk);
-$pageMsKeys = array_unique($pk[1]);
+// A key built at run time ('profile.webhooks.status_' + word) is checked by its own scan further down.
+$pageMsKeys = array_values(array_filter(array_unique($pk[1]), static fn(string $k): bool => substr($k, -1) !== '_'));
 check('scan: pro_profile_page.php uses msT() keys', count($pageMsKeys) >= 45, (string) count($pageMsKeys));
 check('scan: every msT() key of pro_profile_page.php exists in both catalogs and is in a prefix the page hands over',
     array_diff($pageMsKeys, array_keys($en)) === [] && array_diff($pageMsKeys, array_keys($sv)) === []
@@ -2742,7 +2743,8 @@ $jsList = substr($profilePageSrc, (int) strpos($profilePageSrc, 'function render
 $unescaped = 0;
 foreach (explode("\n", $jsList) as $line) {
     // A msT() result concatenated into row HTML must be escaped; .text() / confirm() / alert() calls are not HTML.
-    if (strpos($line, 'msT(') !== false && (strpos($line, "'<") !== false || strpos($line, '.html(') !== false) && strpos($line, 'escapeHtml(msT(') === false) {
+    $rest = preg_replace('/escapeHtml\((?:[^()]|\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\))*\)/', '', $line);
+    if (strpos($rest, 'msT(') !== false && (strpos($rest, "'<") !== false || strpos($rest, '.html(') !== false) && !preg_match('/\.(?:text|attr|val|prop)\(/', $rest)) {
         $unescaped++;
     }
 }
@@ -2802,6 +2804,206 @@ same('service: ending when none is active keeps its English error and key', ['No
 i18nSetLocale('sv');
 same('service: i18nServiceError() translates the hold error', 'En paus är redan aktiv', i18nServiceError($second, 'x'));
 i18nSetLocale('en');
+// --- Profile B (epic #428, step 5/8): the Automation section ---------------------------------------
+// The Webhooks, RSS feed and Digest emails cards, the per-address RSS and hooks buttons, and the
+// pro_profile.php actions behind them. The English fixtures were rendered (tests/lib/profile_probe.php)
+// from the code as it was before the cards went through te()/tHtml(); the page's inline script is
+// checked by the scans below. Credentials (a webhook secret, a Pushover token and user key, a custom
+// header value, a feed token) never reach a catalog string, a placeholder or a log line.
+$autoIds = ['whName', 'whKind', 'whUrl', 'whConfig', 'whSecret', 'whCreateBtn', 'whProNote', 'whMsg', 'webhookList', 'feedUrlInput', 'copyFeedToken', 'openFeedBtn', 'regenFeedToken', 'feedProNote', 'digestEnabled', 'digestFrequency', 'digestHour', 'digestTz', 'digestNote'];
+$autoKeyRe = '/\bprofile\.(?:automation|webhooks|feeds|digest)\.[a-z_0-9]+/';
+$autoSections = [];
+foreach (array_keys(ms_pp_automation_page_cases()) as $apName) {
+    $fixture = $ppNorm((string) file_get_contents($fx . "profile.automation.{$apName}.en.html"));
+    $r = ms_pp_automation_page($pp, $apName);
+    check("automation {$apName}: rendered without PHP errors", $r['section'] !== '' && $ppNoPhpError($r), (string) $r['res']['stderr']);
+    same("fixture: Automation cards ({$apName}), English only", $fixture, $ppNorm($r['section']));
+    $svA = ms_pp_automation_page($pp, $apName, true, 'sv');
+    $autoSections[$apName] = $svA['section'];
+    check("sv automation {$apName}: rendered without PHP errors", $svA['section'] !== '' && $ppNoPhpError($svA), (string) $svA['res']['stderr']);
+    check("sv automation {$apName}: no raw profile. key in the cards", !preg_match($autoKeyRe, $svA['section']), (string) (preg_match($autoKeyRe, $svA['section'], $km) ? $km[0] : ''));
+    $svNoJson = preg_replace('#<script type="application/json" id="ms-i18n">.*?</script>#s', '', $svA['body']);
+    $svNoJson = preg_replace("/msT\\('(?:profile|app\\.common)\\.[a-z_.0-9]+'/", "msT('", $svNoJson);
+    check("sv automation {$apName}: no raw profile. key anywhere but the language JSON", !preg_match($autoKeyRe, $svNoJson), (string) (preg_match($autoKeyRe, $svNoJson, $km) ? $km[0] : ''));
+    $sec = $svA['section'];
+    check("sv automation {$apName}: the Webhooks card is Swedish",
+        strpos($sec, '<h3 class="ms-card__title">Webhooks</h3>') !== false
+        && strpos($sec, 'Skicka varje inkommande meddelande som JSON med POST till din egen endpoint, eller skicka det till din telefon med Pushover.') !== false
+        && strpos($sec, '>Namn (valfritt)</label>') !== false && strpos($sec, 'placeholder="Min Pushover"') !== false && strpos($sec, '>Typ</label>') !== false
+        && strpos($sec, '>Generell (POST JSON)</option>') !== false && strpos($sec, '>URL / endpoint</label>') !== false && strpos($sec, '>Konfiguration (JSON)</label>') !== false
+        && strpos($sec, '<code>token</code> och <code>user</code> krävs') !== false && strpos($sec, '<code>{"headers":{"Authorization":"Bearer ..."}}</code>') !== false
+        && strpos($sec, '>Hemlighet (valfri)</label>') !== false && strpos($sec, 'placeholder="Valfri signeringshemlighet"') !== false
+        && strpos($sec, 'huvudet <code>X-TempMail-Signature</code> med sha256-HMAC.') !== false
+        && strpos($sec, '>Skapa webhook</button>') !== false && strpos($sec, '>Webhooks kräver ett Pro-konto.</div>') !== false && strpos($sec, '>Dina webhooks</h4>') !== false);
+    check("sv automation {$apName}: the RSS feed card is Swedish",
+        strpos($sec, '<h3 class="ms-card__title">RSS-flöde</h3>') !== false && strpos($sec, 'omfattar <strong>alla</strong> dina adresser') !== false
+        && strpos($sec, 'placeholder="(läser in...)"') !== false && strpos($sec, 'aria-label="Flödesåtgärder"') !== false
+        && strpos($sec, '>Kopiera</button>') !== false && strpos($sec, '>Öppna</button>') !== false && strpos($sec, '>Skapa ny</button>') !== false
+        && strpos($sec, 'Håll token-delen av webbadressen hemlig.') !== false && strpos($sec, '>RSS-flödet kräver ett Pro-konto.</div>') !== false);
+    check("sv automation {$apName}: the Digest emails card is Swedish, numbers from the call",
+        strpos($sec, '<h3 class="ms-card__title">Sammanfattningsmejl</h3>') !== false && strpos($sec, '>Aktivera sammanfattningsmejl</label>') !== false
+        && strpos($sec, '>Frekvens (dagar)</label>') !== false && strpos($sec, '>Sändningstid (timme)</label>') !== false && strpos($sec, '>Tidszon</label>') !== false
+        && strpos($sec, 'Sammanfattningar skickas högst en gång per 24 timmar och inte oftare än 1 dag. Frekvensen kan inte vara högre än adressens livslängd minus 1 dag.') !== false
+        && strpos($sec, 'lägg till <strong>noreply@manjo.me</strong> i din adressbok') !== false);
+    check("sv automation {$apName}: the lede is Swedish", strpos($sec, 'Skicka din e-post vidare när den kommer, eller läs den någon helt annanstans.') !== false);
+    $missingIds = array_filter($autoIds, static fn(string $id): bool => strpos($sec, 'id="' . $id . '"') === false);
+    check("sv automation {$apName}: ids the scripts depend on survive", $missingIds === [], implode(', ', $missingIds));
+    $svJsonA = preg_match('#<script type="application/json" id="ms-i18n">(.*?)</script>#s', $svA['body'], $sm) ? json_decode($sm[1], true) : null;
+    check("sv automation {$apName}: ms-i18n carries the script's Swedish texts",
+        is_array($svJsonA) && ($svJsonA['profile.webhooks.badge_paused'] ?? null) === 'Pausad' && ($svJsonA['profile.webhooks.delivery_line'] ?? null) === '[{status}] försök={attempts} skapad={created}'
+        && ($svJsonA['profile.feeds.row_rss_on'] ?? null) === 'RSS på' && ($svJsonA['profile.automation.hooks_paused'] ?? null) === 'Hooks pausade'
+        && ($svJsonA['profile.digest.pro_required'] ?? null) === 'Sammanfattningsmejl kräver ett Pro-konto.');
+}
+same('automation: the hook list is drawn by the script, so the cards are the same with and without hooks (Swedish)', $ppNorm($autoSections['none']), $ppNorm($autoSections['hooks']));
+same('fixtures: the two Automation fixtures are the same markup', $ppNorm((string) file_get_contents($fx . 'profile.automation.none.en.html')), $ppNorm((string) file_get_contents($fx . 'profile.automation.hooks.en.html')));
+check('automation: no webhook secret, Pushover token or user key, or header value reaches the page', (function () use ($pp): bool {
+    $r = ms_pp_automation_page($pp, 'hooks', true, 'sv');
+    return strpos($r['body'], MS_TEST_FAKE_TOKEN) === false && strpos($r['body'], MS_TEST_FAKE_USER_KEY) === false;
+})());
+
+// pro_profile.php answers of the Automation actions.
+$autoPrefixes = ['profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.error.'];
+$autoParams = [[], ['days' => 1], ['max' => 100], ['max' => 2048], ['max' => '4KB']];
+$autoSwedish = static function (string $text) use ($en, $autoPrefixes, $autoParams): array {
+    $found = [];
+    foreach ($en as $key => $value) {
+        if (!is_string($value)) {
+            continue;
+        }
+        foreach ($autoPrefixes as $prefix) {
+            if (strncmp($key, $prefix, strlen($prefix)) !== 0) {
+                continue;
+            }
+            foreach ($autoParams as $params) {
+                if (t($key, $params, 'en') === $text) {
+                    $found[t($key, $params, 'sv')] = $key;
+                }
+            }
+        }
+    }
+    return $found;
+};
+// Messages the code relays from php_imap_processor.php's header validation: English, naming only a header name.
+$autoUntranslated = ['webhook_create.header_reserved', 'webhook_create.header_name', 'webhook_create.headers_not_object'];
+foreach (array_keys(ms_pp_automation_json_cases()) as $apName) {
+    $fixture = trim((string) file_get_contents($fx . "profile.{$apName}.en.json"));
+    $r = ms_pp_json($pp, $apName);
+    same("profile/{$apName}: the English answer equals its fixture", $fixture, $r['body']);
+    check("profile/{$apName}: no PHP error", $ppNoPhpError($r), (string) $r['res']['stderr']);
+    $enAnswer = json_decode($fixture, true);
+    $rSv = ms_pp_json($pp, $apName, 'sv');
+    $svAnswer = $rSv['json'];
+    check("profile/{$apName}: X-MS-Locale sv answers JSON", is_array($svAnswer), $rSv['body']);
+    $text = $enAnswer['error'] ?? $enAnswer['message'] ?? null;
+    if (in_array($apName, $autoUntranslated, true)) {
+        same("profile/{$apName}: a validation message from the webhook headers stays English", $text, $svAnswer['error'] ?? null);
+    } else {
+        $candidates = $autoSwedish((string) $text);
+        check("profile/{$apName}: the English text has a catalog key", $candidates !== [], (string) $text);
+        check("profile/{$apName}: the Swedish answer is the catalog text, and it is Swedish", isset($candidates[$svAnswer['error'] ?? '']) && count($candidates) === 1 && array_key_first($candidates) !== $text, json_encode($candidates) . ' vs ' . ($svAnswer['error'] ?? ''));
+    }
+    $enRest = $enAnswer;
+    $svRest = $svAnswer;
+    unset($enRest['error'], $svRest['error']);
+    same("profile/{$apName}: the rest of the answer is language independent", $enRest, $svRest);
+}
+same('profile: the digest TTL error carries its number in Swedish', 'Sammanfattningar tillåts inte när adressens livslängd är 1 dag', ms_pp_json($pp, 'update_digest_settings.ttl_one', 'sv')['json']['error'] ?? null);
+same('profile: the signing-secret error carries its limit in Swedish', 'Signeringshemligheten är för lång (högst 100 tecken)', ms_pp_json($pp, 'webhook_create.secret_too_long', 'sv')['json']['error'] ?? null);
+same('profile: the config error carries its limit in Swedish', 'Konfigurationen är för stor (högst 4KB)', ms_pp_json($pp, 'webhook_create.config_too_large', 'sv')['json']['error'] ?? null);
+same('profile: the per-action origin error is the shared text in Swedish', t('profile.error.invalid_origin', [], 'sv'), ms_pp_json($pp, 'address_hooks_pause.invalid_origin', 'sv')['json']['error'] ?? null);
+check('profile: no answer of these actions carries a secret, token or key (the failed create keeps the text only)', (function () use ($pp): bool {
+    $body = ms_pp_json($pp, 'webhook_create.credentials_unavailable', 'sv')['body'] . ms_pp_json($pp, 'feed_get_token.undecryptable', 'sv')['body'];
+    return strpos($body, 'not-a-valid-ciphertext') === false && strpos($body, '"token"') === false;
+})());
+
+// Scans.
+$autoMsKeys = array_values(array_filter($pageMsKeys, static fn(string $k): bool => preg_match('/^profile\.(?:automation|webhooks|feeds|digest)\./', $k) === 1));
+check('scan: the Automation script uses many msT() keys', count($autoMsKeys) >= 45, (string) count($autoMsKeys));
+// Every msT() key with its English fallback: the fallback is the English catalog text.
+preg_match_all("/(?<![\\w.\$])msT\\('(profile\\.(?:automation|webhooks|feeds|digest)\\.[a-z_0-9]+)', '((?:[^'\\\\]|\\\\.)*)'/", $profilePageSrc, $fb, PREG_SET_ORDER);
+$badFallback = [];
+foreach ($fb as [$all, $fbKey, $fbText]) {
+    if (!isset($en[$fbKey]) || $en[$fbKey] !== stripslashes($fbText)) {
+        $badFallback[] = $fbKey;
+    }
+}
+check('scan: every msT() fallback of the Automation script is the English catalog text', count($fb) >= 45 && $badFallback === [], implode(', ', $badFallback));
+check('scan: the delivery-status words are catalog keys equal to the stored words', array_filter(['pending', 'succeeded', 'success', 'failed'], static fn(string $w): bool => ($en['profile.webhooks.status_' . $w] ?? null) !== $w) === []
+    && strpos($profilePageSrc, "msT('profile.webhooks.status_' + word, word)") !== false && strpos($profilePageSrc, 'function deliveryStatusLabel(status)') !== false);
+// The Automation markup: no literal text outside PHP tags, nor a literal title/aria-label/placeholder (the URL example is not copy).
+$autoMarkup = substr($profilePageSrc, (int) strpos($profilePageSrc, '<section class="ms-settings__section" id="settings-automation">'));
+$autoMarkup = substr($autoMarkup, 0, (int) strpos($autoMarkup, '</section>'));
+$autoText = trim(preg_replace('/\s+/', ' ', strip_tags(preg_replace('/<\?php.*?\?>/s', ' ', $autoMarkup))));
+check('scan: the Automation markup has no literal text outside PHP tags', $autoText === '', $autoText);
+check('scan: ... nor a literal title/aria-label/placeholder', !preg_match('/\b(?:title|aria-label|placeholder)="[A-Za-z]/', str_replace('placeholder="https://example.com/webhook"', '', preg_replace('/<\?php.*?\?>/s', '', $autoMarkup))));
+check('scan: ... and the card titles, descriptions and notes use the catalog keys', substr_count($autoMarkup, "te('profile.") + substr_count($autoMarkup, "tHtml('profile.") >= 35);
+// A msT() text that goes into HTML is escaped; everything else is put in with .text(), alert() or confirm().
+$unescapedHtml = [];
+foreach (explode("\n", $profilePageSrc) as $i => $line) {
+    if (strpos($line, 'msT(') === false || (strpos($line, '.html(') === false && strpos($line, "'<") === false)) {
+        continue;
+    }
+    // Take away every escapeHtml(...) call (three levels of nested parentheses are enough here); a msT() left over is raw.
+    $rest = preg_replace('/escapeHtml\((?:[^()]|\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\))*\)/', '', $line);
+    if (strpos($rest, 'msT(') !== false && preg_match('/\.html\(|\'<|"<|\+\s*\'</', $rest) && !preg_match('/\.(?:text|attr|val|prop)\(/', $rest)) {
+        $unescapedHtml[] = ($i + 1) . ': ' . trim($line);
+    }
+}
+check('scan: no msT() text is concatenated into HTML without escapeHtml()', $unescapedHtml === [], implode(' | ', array_slice($unescapedHtml, 0, 3)));
+check('scan: the webhook form puts its messages in as text', substr_count($profilePageSrc, 'function whSay(cls, text)') === 1 && strpos($profilePageSrc, "\$('#whMsg').html(") === false && substr_count($profilePageSrc, 'whSay(') >= 6);
+$deliveriesJs = substr($profilePageSrc, (int) strpos($profilePageSrc, "\$(document).on('click', '.wh-deliveries'"), 2600);
+check('scan: the delivery log escapes the status, the attempts, the date and the error', substr_count($deliveriesJs, 'escapeHtml(msT(') >= 4 && strpos($deliveriesJs, "escapeHtml(d.status)") === false);
+check('scan: applyProGating() takes the digest note from the catalog', strpos($profilePageSrc, "\$('#digestNote').text('Digest emails require") === false && strpos($profilePageSrc, "msT('profile.digest.pro_required'") !== false);
+check('scan: the per-address RSS and hooks button texts exist only as msT() fallbacks', substr_count($profilePageSrc, "'Hooks paused'") === substr_count($profilePageSrc, "msT('profile.automation.hooks_paused', 'Hooks paused')")
+    && substr_count($profilePageSrc, "'RSS on'") === substr_count($profilePageSrc, "msT('profile.feeds.row_rss_on', 'RSS on')") && substr_count($profilePageSrc, "msT('profile.feeds.row_rss_on'") >= 2);
+check('scan: no confirm() or alert() in the Automation script has a literal English text', !preg_match("/(?:confirm|alert)\\('[A-Za-z]/", $deliveriesJs . substr($profilePageSrc, (int) strpos($profilePageSrc, '// --- Per-address feeds'), (int) strpos($profilePageSrc, '// Delete account handler') - (int) strpos($profilePageSrc, '// --- Per-address feeds'))));
+
+// pro_profile.php: no literal user-facing text in the listed actions.
+$autoActions = ['webhooks_list', 'webhook_create', 'webhook_delete', 'webhook_set_filter_mode', 'webhook_set_addresses', 'webhook_deliveries', 'feed_get_token', 'feed_regenerate', 'address_feed_get_token', 'address_feed_regenerate', 'address_feed_disable', 'address_hooks_resume', 'get_digest_settings', 'update_digest_settings'];
+foreach ($autoActions as $action) {
+    // The test delivery's payload message is sent to the user's endpoint, not shown to the user.
+    $block = preg_replace(['/logMessage\([^;]*;/s', "/'message' => 'This is a test delivery for your newly created webhook\\.',/"], '', $ppCaseBlock($profileSrc, $action));
+    check("scan: pro_profile.php action {$action} has no literal 'error' / 'message' text", $block !== '' && !preg_match("/'(?:error|message)' => ['\"]/", $block), $action);
+}
+check('scan: address_hooks_pause and address_hooks_resume share one translated block', strpos($profileSrc, "case 'address_hooks_pause':\n        case 'address_hooks_resume':") !== false);
+check('scan: the webhook action errors use the profile.webhooks. / profile.feeds. / profile.digest. / profile.automation. keys',
+    substr_count($profileSrc, "t('profile.webhooks.") >= 22 && substr_count($profileSrc, "t('profile.feeds.") >= 9 && substr_count($profileSrc, "t('profile.digest.") >= 4 && substr_count($profileSrc, "t('profile.automation.") >= 3);
+// Credentials: no t(), te() or tHtml() call in either file is given a parameter named secret, token, user_key or headers.
+$credentialCalls = 0;
+$credentialHits = [];
+foreach ([['pro_profile.php', $profileSrc], ['pro_profile_page.php', $profilePageSrc]] as [$file, $src]) {
+    preg_match_all('/(?<![\w>$:.])(?:tHtml|te|t|tp)\(/', $src, $cm, PREG_OFFSET_CAPTURE);
+    foreach ($cm[0] as [$call, $offset]) {
+        $depth = 0;
+        $quote = '';
+        $end = $offset;
+        for ($pos = $offset + strlen($call) - 1, $len = strlen($src); $pos < $len; $pos++) {
+            $ch = $src[$pos];
+            if ($quote !== '') {
+                if ($ch === '\\') { $pos++; } elseif ($ch === $quote) { $quote = ''; }
+                continue;
+            }
+            if ($ch === "'" || $ch === '"') { $quote = $ch; continue; }
+            if ($ch === '(') { $depth++; }
+            if ($ch === ')' && --$depth === 0) { $end = $pos; break; }
+        }
+        $text = substr($src, $offset, $end - $offset + 1);
+        $credentialCalls++;
+        if (preg_match('/[\'"](?:secret|token|user_key|headers)[\'"]\s*=>/', $text)) {
+            $credentialHits[] = $file . ': ' . substr($text, 0, 80);
+        }
+    }
+}
+check('scan: no t(), te() or tHtml() call in pro_profile.php or pro_profile_page.php is given a secret, token, user_key or headers parameter', $credentialCalls > 150 && $credentialHits === [], $credentialCalls . ' ' . implode(' | ', $credentialHits));
+check('scan: no catalog string of the Automation cards holds a credential placeholder', (function () use ($en): bool {
+    foreach ($en as $key => $value) {
+        if (is_string($value) && preg_match('/^profile\.(?:automation|webhooks|feeds|digest)\./', $key) && preg_match('/\{(?:secret|token|user_key|headers|user|key)\}/', $value)) {
+            return false;
+        }
+    }
+    return true;
+})());
+
 ms_test_cleanup($pp['root']);
 
 echo "\n{$passed} passed, {$failed} failed\n";

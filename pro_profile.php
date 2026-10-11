@@ -260,7 +260,7 @@ try {
             $stmt->execute([$userId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) {
-                send_json(['success' => false, 'error' => 'User not found']);
+                send_json(['success' => false, 'error' => t('profile.error.user_not_found')]);
             }
             // Determine max allowed frequency (address_ttl_days - 1), ensure at least 1
             $addressTtl = (int)($row['address_ttl_days'] ?? 1);
@@ -295,17 +295,17 @@ try {
             $maxFreq = max(1, $addressTtl - 1);
 
             if ($enabled && $addressTtl <= 1) {
-                send_json(['success' => false, 'error' => 'Digests are not allowed when address TTL is 1 day']);
+                send_json(['success' => false, 'error' => t('profile.digest.error_ttl_one', ['days' => 1])]);
             }
 
             if ($freq < 1 || $freq > $maxFreq) {
-                send_json(['success' => false, 'error' => 'Invalid frequency selection', 'max_allowed' => $maxFreq]);
+                send_json(['success' => false, 'error' => t('profile.digest.error_frequency'), 'max_allowed' => $maxFreq]);
             }
 
             // Validate hour if provided
             if (!is_null($hour)) {
                 if ($hour < 0 || $hour > 23) {
-                    send_json(['success' => false, 'error' => 'Invalid digest hour']);
+                    send_json(['success' => false, 'error' => t('profile.digest.error_hour')]);
                 }
             }
 
@@ -313,7 +313,7 @@ try {
             if ($tz !== null && $tz !== '') {
                 $validTz = in_array($tz, timezone_identifiers_list(), true);
                 if (!$validTz) {
-                    send_json(['success' => false, 'error' => 'Invalid timezone']);
+                    send_json(['success' => false, 'error' => t('profile.digest.error_timezone')]);
                 }
             } else {
                 $tz = null; // normalize empty to null
@@ -1257,7 +1257,7 @@ try {
                 echo json_encode(['success' => true, 'routing_available' => $routing, 'webhooks' => $rows]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed listing webhooks', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                echo json_encode(['success' => false, 'error' => 'Could not fetch webhooks']);
+                echo json_encode(['success' => false, 'error' => t('profile.webhooks.error_list')]);
             }
             break;
 
@@ -1268,15 +1268,15 @@ try {
         case 'webhook_set_addresses':
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin webhook address change', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             require_pro($userId);
             if (!proWebhookRoutingAvailable()) {
-                send_json(['success' => false, 'error' => 'Webhook routing is not available yet']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_routing_unavailable')]);
             }
             $wid = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             if ($wid <= 0) {
-                send_json(['success' => false, 'error' => 'Invalid id']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_id')]);
             }
             // address_ids is optional and an empty list is meaningful: it is how
             // a hook is emptied. Present but not an array is a malformed request
@@ -1284,7 +1284,7 @@ try {
             $addressIds = [];
             if (array_key_exists('address_ids', $_POST)) {
                 if (!is_array($_POST['address_ids'])) {
-                    send_json(['success' => false, 'error' => 'Invalid request']);
+                    send_json(['success' => false, 'error' => t('profile.error.invalid_request')]);
                 }
                 foreach ($_POST['address_ids'] as $rawId) {
                     // Non-scalars are dropped rather than cast: (int)[] is 1, so
@@ -1299,7 +1299,7 @@ try {
                 }
                 $addressIds = array_values($addressIds);
                 if (count($addressIds) > 50) {
-                    send_json(['success' => false, 'error' => 'Too many addresses']);
+                    send_json(['success' => false, 'error' => t('profile.webhooks.error_too_many')]);
                 }
             }
             $includeTemporary = (($_POST['include_temporary'] ?? '') === '1');
@@ -1309,7 +1309,7 @@ try {
                 $s->execute([$wid]);
                 $row = $s->fetch(PDO::FETCH_ASSOC);
                 if (!$row || (int)$row['user_id'] !== $userId) {
-                    send_json(['success' => false, 'error' => 'Not found']);
+                    send_json(['success' => false, 'error' => t('profile.webhooks.error_not_found')]);
                 }
 
                 // Every id must be one of this user's own personal addresses.
@@ -1332,7 +1332,7 @@ try {
                     if (count($owned) !== count($addressIds)) {
                         // All or nothing: a partially applied set would be a
                         // routing state the caller never asked for.
-                        send_json(['success' => false, 'error' => 'Address not found']);
+                        send_json(['success' => false, 'error' => t('profile.automation.error_address_not_found')]);
                     }
                 }
 
@@ -1358,7 +1358,7 @@ try {
                 send_json(['success' => true, 'id' => $wid, 'address_ids' => $addressIds, 'include_temporary' => $includeTemporary]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed updating webhook addresses', ['user_id' => $userId, 'webhook_id' => $wid, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not update webhook addresses']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_update_addresses')]);
             }
             break;
 
@@ -1380,7 +1380,7 @@ try {
                         $pair = feedTokenNewPair();
                         if ($pair === null) {
                             feedTokenLogError('Could not create feed token: WEBHOOKS_KEY missing or encryption failed', ['user_id' => $userId]);
-                            send_json(['success' => false, 'error' => 'Feed is temporarily unavailable. Please try again later.']);
+                            send_json(['success' => false, 'error' => t('profile.feeds.error_unavailable')]);
                         }
                         $u = $pdo->prepare("UPDATE pro_users SET feed_token_hash = ?, feed_token_enc = ?, feed_token = NULL WHERE id = ?");
                         $u->execute([$pair['feed_token_hash'], $pair['feed_token_enc'], $userId]);
@@ -1390,7 +1390,7 @@ try {
                     $token = feedTokenOpen($r['feed_token_enc'] ?? null);
                     if ($token === null) {
                         feedTokenLogError('Could not decrypt feed token', ['user_id' => $userId]);
-                        send_json(['success' => false, 'error' => 'Could not retrieve feed token. Use Regenerate below.']);
+                        send_json(['success' => false, 'error' => t('profile.feeds.error_retrieve_regenerate')]);
                     }
                     send_json(['success' => true, 'token' => $token]);
                 }
@@ -1409,7 +1409,7 @@ try {
                 send_json(['success' => true, 'token' => $token]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed fetching/creating feed token', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not retrieve feed token']);
+                send_json(['success' => false, 'error' => t('profile.feeds.error_retrieve')]);
             }
             break;
 
@@ -1420,7 +1420,7 @@ try {
                     $pair = feedTokenNewPair();
                     if ($pair === null) {
                         feedTokenLogError('Could not regenerate feed token: WEBHOOKS_KEY missing or encryption failed', ['user_id' => $userId]);
-                        send_json(['success' => false, 'error' => 'Feed is temporarily unavailable. Please try again later.']);
+                        send_json(['success' => false, 'error' => t('profile.feeds.error_unavailable')]);
                     }
                     $u = $pdo->prepare("UPDATE pro_users SET feed_token_hash = ?, feed_token_enc = ?, feed_token = NULL WHERE id = ?");
                     $u->execute([$pair['feed_token_hash'], $pair['feed_token_enc'], $userId]);
@@ -1435,7 +1435,7 @@ try {
                 send_json(['success' => true, 'token' => $new]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed regenerating feed token', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not regenerate token']);
+                send_json(['success' => false, 'error' => t('profile.feeds.error_regenerate')]);
             }
             break;
 
@@ -1449,7 +1449,7 @@ try {
             try {
                 $addressId = (int)($_POST['id'] ?? 0);
                 if (!$addressId) {
-                    send_json(['success' => false, 'error' => 'Invalid address']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_invalid_address')]);
                 }
 
                 if (feedTokenColumnsExist('temp_emails')) {
@@ -1457,13 +1457,13 @@ try {
                     $s->execute([$addressId, $userId]);
                     $row = $s->fetch(PDO::FETCH_ASSOC);
                     if (!$row) {
-                        send_json(['success' => false, 'error' => 'Address not found']);
+                        send_json(['success' => false, 'error' => t('profile.automation.error_address_not_found')]);
                     }
                     if (empty($row['feed_token_hash'])) {
                         $pair = feedTokenNewPair();
                         if ($pair === null) {
                             feedTokenLogError('Could not create per-address feed token: WEBHOOKS_KEY missing or encryption failed', ['user_id' => $userId, 'address_id' => $addressId]);
-                            send_json(['success' => false, 'error' => 'Feed is temporarily unavailable. Please try again later.']);
+                            send_json(['success' => false, 'error' => t('profile.feeds.error_unavailable')]);
                         }
                         $u = $pdo->prepare("UPDATE temp_emails SET feed_token_hash = ?, feed_token_enc = ?, feed_token = NULL WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
                         $u->execute([$pair['feed_token_hash'], $pair['feed_token_enc'], $addressId, $userId]);
@@ -1473,20 +1473,20 @@ try {
                     $token = feedTokenOpen($row['feed_token_enc'] ?? null);
                     if ($token === null) {
                         feedTokenLogError('Could not decrypt per-address feed token', ['user_id' => $userId, 'address_id' => $addressId]);
-                        send_json(['success' => false, 'error' => 'Could not retrieve feed token. Use Regenerate below.']);
+                        send_json(['success' => false, 'error' => t('profile.feeds.error_retrieve_regenerate')]);
                     }
                     send_json(['success' => true, 'token' => $token]);
                 }
 
                 if (!tableHasColumn('temp_emails', 'feed_token')) {
                     // Migration not run: no per-address feeds exist yet.
-                    send_json(['success' => false, 'error' => 'Could not retrieve feed token']);
+                    send_json(['success' => false, 'error' => t('profile.feeds.error_retrieve')]);
                 }
                 $s = $pdo->prepare("SELECT feed_token FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                 $s->execute([$addressId, $userId]);
                 $row = $s->fetch(PDO::FETCH_ASSOC);
                 if (!$row) {
-                    send_json(['success' => false, 'error' => 'Address not found']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_address_not_found')]);
                 }
                 $token = $row['feed_token'] ?? null;
                 if (empty($token)) {
@@ -1499,7 +1499,7 @@ try {
                 send_json(['success' => true, 'token' => $token]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed fetching/creating per-address feed token', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not retrieve feed token']);
+                send_json(['success' => false, 'error' => t('profile.feeds.error_retrieve')]);
             }
             break;
 
@@ -1508,19 +1508,19 @@ try {
             try {
                 $addressId = (int)($_POST['id'] ?? 0);
                 if (!$addressId) {
-                    send_json(['success' => false, 'error' => 'Invalid address']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_invalid_address')]);
                 }
 
                 if (feedTokenColumnsExist('temp_emails')) {
                     $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                     $s->execute([$addressId, $userId]);
                     if (!$s->fetch(PDO::FETCH_ASSOC)) {
-                        send_json(['success' => false, 'error' => 'Address not found']);
+                        send_json(['success' => false, 'error' => t('profile.automation.error_address_not_found')]);
                     }
                     $pair = feedTokenNewPair();
                     if ($pair === null) {
                         feedTokenLogError('Could not regenerate per-address feed token: WEBHOOKS_KEY missing or encryption failed', ['user_id' => $userId, 'address_id' => $addressId]);
-                        send_json(['success' => false, 'error' => 'Feed is temporarily unavailable. Please try again later.']);
+                        send_json(['success' => false, 'error' => t('profile.feeds.error_unavailable')]);
                     }
                     $u = $pdo->prepare("UPDATE temp_emails SET feed_token_hash = ?, feed_token_enc = ?, feed_token = NULL WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
                     $u->execute([$pair['feed_token_hash'], $pair['feed_token_enc'], $addressId, $userId]);
@@ -1529,12 +1529,12 @@ try {
                 }
 
                 if (!tableHasColumn('temp_emails', 'feed_token')) {
-                    send_json(['success' => false, 'error' => 'Could not regenerate token']);
+                    send_json(['success' => false, 'error' => t('profile.feeds.error_regenerate')]);
                 }
                 $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                 $s->execute([$addressId, $userId]);
                 if (!$s->fetch(PDO::FETCH_ASSOC)) {
-                    send_json(['success' => false, 'error' => 'Address not found']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_address_not_found')]);
                 }
                 $new = bin2hex(random_bytes(32));
                 $u = $pdo->prepare("UPDATE temp_emails SET feed_token = ? WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
@@ -1543,7 +1543,7 @@ try {
                 send_json(['success' => true, 'token' => $new]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed regenerating per-address feed token', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not regenerate token']);
+                send_json(['success' => false, 'error' => t('profile.feeds.error_regenerate')]);
             }
             break;
 
@@ -1551,16 +1551,16 @@ try {
             require_pro($userId);
             try {
                 if (!tableHasColumn('temp_emails', 'feed_token') && !feedTokenColumnsExist('temp_emails')) {
-                    send_json(['success' => false, 'error' => 'Could not disable feed']);
+                    send_json(['success' => false, 'error' => t('profile.feeds.error_disable')]);
                 }
                 $addressId = (int)($_POST['id'] ?? 0);
                 if (!$addressId) {
-                    send_json(['success' => false, 'error' => 'Invalid address']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_invalid_address')]);
                 }
                 $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                 $s->execute([$addressId, $userId]);
                 if (!$s->fetch(PDO::FETCH_ASSOC)) {
-                    send_json(['success' => false, 'error' => 'Address not found']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_address_not_found')]);
                 }
                 // Clears all three columns, whichever exist, so no credential
                 // (plaintext or ciphertext) survives a disable.
@@ -1571,7 +1571,7 @@ try {
                 send_json(['success' => true]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed disabling per-address feed', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not disable feed']);
+                send_json(['success' => false, 'error' => t('profile.feeds.error_disable')]);
             }
             break;
 
@@ -1585,22 +1585,22 @@ try {
         case 'address_hooks_resume':
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin per-address hook change', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             require_pro($userId);
             $pause = ($action === 'address_hooks_pause');
             try {
                 if (!tableHasColumn('temp_emails', 'hooks_paused')) {
-                    send_json(['success' => false, 'error' => 'Could not update hook settings']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_hooks_update')]);
                 }
                 $addressId = (int)($_POST['id'] ?? 0);
                 if (!$addressId) {
-                    send_json(['success' => false, 'error' => 'Invalid address']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_invalid_address')]);
                 }
                 $s = $pdo->prepare("SELECT id FROM temp_emails WHERE id = ? AND pro_user_id = ? AND is_personal = 1 LIMIT 1");
                 $s->execute([$addressId, $userId]);
                 if (!$s->fetch(PDO::FETCH_ASSOC)) {
-                    send_json(['success' => false, 'error' => 'Address not found']);
+                    send_json(['success' => false, 'error' => t('profile.automation.error_address_not_found')]);
                 }
                 $u = $pdo->prepare("UPDATE temp_emails SET hooks_paused = ? WHERE id = ? AND pro_user_id = ? AND is_personal = 1");
                 $u->execute([$pause ? 1 : 0, $addressId, $userId]);
@@ -1608,7 +1608,7 @@ try {
                 send_json(['success' => true, 'hooks_paused' => $pause]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed updating per-address hook state', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not update hook settings']);
+                send_json(['success' => false, 'error' => t('profile.automation.error_hooks_update')]);
             }
             break;
 
@@ -1634,7 +1634,7 @@ try {
                     if ($flagPatterns) {
                         flagMaliciousActivity(getVisitorIp(), 'Suspicious webhook input: ' . implode(', ', $flagPatterns)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                     }
-                    send_json(['success' => false, 'error' => 'Invalid request']);
+                    send_json(['success' => false, 'error' => t('profile.error.invalid_request')]);
                 }
             }
 
@@ -1645,19 +1645,19 @@ try {
             // 100 characters at most: encrypted, that still fits
             // pro_webhooks.secret (VARCHAR(191)); 256 did not. Refused, not cut.
             if (strlen((string) $rawSecret) > 100) {
-                send_json(['success' => false, 'error' => 'Signing secret is too long (max 100 characters)']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_secret_long', ['max' => 100])]);
             }
             $secret = sanitizeString($rawSecret, 100, true) ?? '';
 
             if (empty($url)) {
-                send_json(['success' => false, 'error' => 'URL is required']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_url_required')]);
             }
             // Validate URL format and require https for security
             if (!filter_var($url, FILTER_VALIDATE_URL)) {
-                send_json(['success' => false, 'error' => 'Invalid URL format']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_url_format')]);
             }
             if (strlen($url) > 2048) {
-                send_json(['success' => false, 'error' => 'URL too long (max 2048 characters)']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_url_long', ['max' => 2048])]);
             }
             // Only allow https URLs that resolve to a public (non-internal) address.
             // Webhooks are meant for third-party external services, so unlike some
@@ -1666,13 +1666,13 @@ try {
             $parsedUrl = parse_url($url);
             $scheme = $parsedUrl['scheme'] ?? '';
             if ($scheme !== 'https') {
-                send_json(['success' => false, 'error' => 'Only HTTPS URLs are allowed']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_https_only')]);
             }
             if (resolveUrlToPublicTarget($url) === null) {
-                send_json(['success' => false, 'error' => 'URL must resolve to a public address']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_not_public')]);
             }
             if (!in_array($kind, ['generic', 'pushover'])) {
-                send_json(['success' => false, 'error' => 'Invalid kind']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_kind')]);
             }
 
             // Validate config JSON
@@ -1680,7 +1680,7 @@ try {
             if ($rawHookConfig) {
                 // Limit config size to prevent abuse
                 if (is_string($rawHookConfig) && strlen($rawHookConfig) > 4096) {
-                    send_json(['success' => false, 'error' => 'Config too large (max 4KB)']);
+                    send_json(['success' => false, 'error' => t('profile.webhooks.error_config_large', ['max' => '4KB'])]);
                 }
                 if (is_string($rawHookConfig)) {
                     $configArr = json_decode($rawHookConfig, true, 10); // max depth 10
@@ -1688,12 +1688,12 @@ try {
                     $configArr = $rawHookConfig;
                 }
                 if ($configArr === null && $rawHookConfig) {
-                    send_json(['success' => false, 'error' => 'Invalid config JSON']);
+                    send_json(['success' => false, 'error' => t('profile.webhooks.error_config_json')]);
                 }
                 // Its keys are sent as fields (Pushover) or merged into the body
                 // (generic), so it has to be a JSON object, not a list or scalar.
                 if (!is_array($configArr) || ($configArr !== [] && array_keys($configArr) === range(0, count($configArr) - 1))) {
-                    send_json(['success' => false, 'error' => 'Config must be a JSON object']);
+                    send_json(['success' => false, 'error' => t('profile.webhooks.error_config_object')]);
                 }
                 // Custom headers (generic hooks) are checked here so a bad one is
                 // refused now, not on every delivery.
@@ -1709,7 +1709,7 @@ try {
             // Pushover must include token and user
             if ($kind === 'pushover') {
                 if (empty($configArr['token']) || empty($configArr['user'])) {
-                    send_json(['success' => false, 'error' => 'Pushover config requires token and user']);
+                    send_json(['success' => false, 'error' => t('profile.webhooks.error_pushover_config')]);
                 }
             }
 
@@ -1721,7 +1721,7 @@ try {
                     if ($storedSecret === null) {
                         // No WEBHOOKS_KEY: refuse rather than store it readable.
                         logMessage('ERROR', 'Webhook secret could not be encrypted (WEBHOOKS_KEY missing?)', ['user_id' => $userId]);
-                        send_json(['success' => false, 'error' => 'Signing secrets are unavailable right now. Create the webhook without a secret or try again later.']);
+                        send_json(['success' => false, 'error' => t('profile.webhooks.error_secrets_unavailable')]);
                     }
                 }
                 // Credentials in the config (Pushover's token and user key)
@@ -1732,7 +1732,7 @@ try {
                     $storedConfig = webhookConfigSeal($configArr, $kind);
                     if ($storedConfig === null) {
                         logMessage('ERROR', 'Webhook credentials could not be encrypted (WEBHOOKS_KEY missing?)', ['user_id' => $userId]);
-                        send_json(['success' => false, 'error' => 'Webhooks with credentials cannot be saved right now. Please try again later.']);
+                        send_json(['success' => false, 'error' => t('profile.webhooks.error_credentials_unavailable')]);
                     }
                 }
                 $ins = $pdo->prepare("INSERT INTO pro_webhooks (user_id, name, url, kind, config, secret) VALUES (?, ?, ?, ?, ?, ?)");
@@ -1841,7 +1841,7 @@ try {
                 send_json(['success' => true, 'id' => $id]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed creating webhook', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not create webhook']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_create')]);
             }
             break;
 
@@ -1849,7 +1849,7 @@ try {
             require_pro($userId);
             $wid = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             if ($wid <= 0) {
-                echo json_encode(['success' => false, 'error' => 'Invalid id']);
+                echo json_encode(['success' => false, 'error' => t('profile.error.invalid_id')]);
                 exit;
             }
             try {
@@ -1858,7 +1858,7 @@ try {
                 $s->execute([$wid]);
                 $row = $s->fetch(PDO::FETCH_ASSOC);
                 if (!$row || (int)$row['user_id'] !== $userId) {
-                    echo json_encode(['success' => false, 'error' => 'Not found']);
+                    echo json_encode(['success' => false, 'error' => t('profile.webhooks.error_not_found')]);
                     exit;
                 }
                 $d = $pdo->prepare("DELETE FROM pro_webhooks WHERE id = ?");
@@ -1874,7 +1874,7 @@ try {
                 send_json(['success' => true]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed deleting webhook', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not delete webhook']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_delete')]);
             }
             break;
 
@@ -1884,10 +1884,10 @@ try {
             $wid = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             $mode = $_POST['filter_mode'] ?? '';
             if ($wid <= 0) {
-                send_json(['success' => false, 'error' => 'Invalid id']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_id')]);
             }
             if (!in_array($mode, ['all', 'paused'], true)) {
-                send_json(['success' => false, 'error' => 'Invalid filter_mode. Use "all" or "paused"']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_filter_mode')]);
             }
             try {
                 // Ensure ownership
@@ -1895,7 +1895,7 @@ try {
                 $s->execute([$wid]);
                 $row = $s->fetch(PDO::FETCH_ASSOC);
                 if (!$row || (int)$row['user_id'] !== $userId) {
-                    send_json(['success' => false, 'error' => 'Not found']);
+                    send_json(['success' => false, 'error' => t('profile.webhooks.error_not_found')]);
                 }
                 $u = $pdo->prepare("UPDATE pro_webhooks SET filter_mode = ? WHERE id = ?");
                 $u->execute([$mode, $wid]);
@@ -1903,7 +1903,7 @@ try {
                 send_json(['success' => true, 'filter_mode' => $mode]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed updating webhook filter_mode', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not update webhook']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_update')]);
             }
             break;
 
@@ -1929,7 +1929,7 @@ try {
                 send_json(['success' => true, 'deliveries' => $rows]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed listing webhook deliveries', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'Could not fetch deliveries']);
+                send_json(['success' => false, 'error' => t('profile.webhooks.error_deliveries')]);
             }
             break;
 

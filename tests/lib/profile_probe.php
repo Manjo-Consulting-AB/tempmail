@@ -368,11 +368,11 @@ function ms_pp_automation_section(string $html): string
     return $start === false || $end === false ? '' : substr($html, $start, $end + 10 - $start);
 }
 
-/** The Automation section for one case; $svApp offers Swedish in the app area. */
-function ms_pp_automation_page(array $probe, string $name, bool $svApp = false): array
+/** The Automation section for one case; $svApp offers Swedish in the app area, $acceptLanguage is sent as Accept-Language. */
+function ms_pp_automation_page(array $probe, string $name, bool $svApp = false, string $acceptLanguage = ''): array
 {
     [$user, $setup, $switches] = ms_pp_automation_page_cases()[$name];
-    $extra = ['server' => [], 'locales' => $svApp ? 'en,sv' : 'en', 'app_sv' => $svApp] + $switches;
+    $extra = ['server' => $acceptLanguage !== '' ? ['HTTP_ACCEPT_LANGUAGE' => $acceptLanguage] : [], 'locales' => $svApp ? 'en,sv' : 'en', 'app_sv' => $svApp] + $switches;
     $r = ms_pp_run($probe, ['page' => 'pro_profile_page.php', 'method' => 'GET', 'user' => $user], $setup, $extra);
     $r['section'] = ms_pp_automation_section($r['body']);
     return $r;
