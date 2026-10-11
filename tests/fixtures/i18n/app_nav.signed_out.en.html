@@ -1,0 +1,50 @@
+<nav class="ms-appnav" aria-label="Application">
+    <div class="ms-appnav__inner">
+        <a class="ms-logo ms-appnav__logo" href="/"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+        <button type="button" class="ms-appnav__toggle" id="hamburgerBtn"
+                aria-expanded="false" aria-controls="navbarMenu" aria-label="Menu">
+            <span class="ms-appnav__toggle-line"></span>
+            <span class="ms-appnav__toggle-line"></span>
+            <span class="ms-appnav__toggle-line"></span>
+        </button>
+
+        <div class="ms-appnav__panel" id="navbarMenu">
+            <div class="ms-appnav__links">
+                                <a href="index.php" class="navbar-link">Home</a>
+                                <a href="blog.php" class="navbar-link">Blog</a>
+                <a href="faq.php" class="navbar-link">FAQ</a>
+
+                                    <a href="register.php" class="navbar-link">Sign up</a>
+                    <a href="pro_login.php" class="navbar-link">Pro</a>
+                            </div>
+
+                    </div>
+    </div>
+</nav>
+
+<script>
+(function () {
+    var btn = document.getElementById('hamburgerBtn');
+    var panel = document.getElementById('navbarMenu');
+    if (!btn || !panel) return;
+
+    function isOpen() { return btn.getAttribute('aria-expanded') === 'true'; }
+    function setOpen(open) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        panel.classList.toggle('is-open', open);
+    }
+    function close(moveFocus) {
+        if (!isOpen()) return;
+        setOpen(false);
+        if (moveFocus) btn.focus();
+    }
+
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(true); });
+    // An outside click leaves focus where the user clicked; only Escape pulls it
+    // back to the button.
+    document.addEventListener('click', function (e) {
+        if (!panel.contains(e.target) && !btn.contains(e.target)) close(false);
+    });
+})();
+</script>
