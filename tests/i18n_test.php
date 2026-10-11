@@ -270,7 +270,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -742,6 +742,205 @@ check('tiers: every description and feature key exists in lang/en.php', array_di
 same('tiers: plan keys and names', [['pro', 'Pro'], ['lifetime', 'Lifetime']], array_map(fn($t) => [$t['key'], $t['name']], $tiersOut));
 same('tiers: the retention numbers still come from $config', ['days' => 30, 'times' => 4], $tiersOut[0]['features'][2][1]);
 check('tiers: pricing_tiers.php never calls t() and so needs no i18n.php', !preg_match('/\bt\(|\bte\(|i18n/', preg_replace('#/\*.*?\*/#s', '', (string) file_get_contents($tiersFile))));
+
+/**
+ * Renders the real faq.php in a probe docroot (a copy of the page and what it
+ * requires, plus a stub config.php) as a CLI subprocess and returns the page.
+ * $signIn switches the OAuth discovery answer ($msMcpSignIn), $trial is the
+ * trial length in days.
+ */
+function faqRender(string $root, string $locale, array $enabled, bool $signIn, int $trial, bool $signedIn = false): array
+{
+    static $probe = null;
+    if ($probe === null) {
+        $probe = sys_get_temp_dir() . '/ms_faq_probe_' . getmypid();
+        @mkdir($probe, 0777, true);
+        foreach (['faq.php', 'i18n.php', 'oauth_server.php', 'mcp_tokens.php'] as $f) {
+            copy($root . '/' . $f, $probe . '/' . $f);
+        }
+        foreach (['partials', 'lang'] as $d) {
+            @mkdir($probe . '/' . $d, 0777, true);
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/' . $d, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $item) {
+                $rel = substr($item->getPathname(), strlen($root) + 1);
+                if ($item->isDir()) {
+                    @mkdir($probe . '/' . $rel, 0777, true);
+                } else {
+                    copy($item->getPathname(), $probe . '/' . $rel);
+                }
+            }
+        }
+        file_put_contents($probe . '/config.php', <<<'PHP'
+<?php
+// Stub config.php for tests/i18n_test.php: just what faq.php and its partials read.
+$config = [
+    'email'  => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+    'app'    => ['version' => 'test'],
+    'trial'  => ['days' => (int) getenv('PROBE_TRIAL')],
+    'i18n'   => ['enabled' => array_values(array_filter(explode(',', (string) getenv('PROBE_ENABLED'))))],
+    'oauth'  => ['enabled' => getenv('PROBE_SIGNIN') === '1'],
+    'retention_hold' => ['days' => 30, 'max_per_year' => 4],
+];
+$_SERVER['REQUEST_URI'] = (string) getenv('PROBE_URI');
+require_once __DIR__ . '/i18n.php';
+i18nBootstrap($config['i18n'], $_SERVER);
+// oauthDiscoveryEnabled() asks the database whether oauth_clients exists.
+$pdo = new PDO('sqlite::memory:');
+if (getenv('PROBE_SIGNIN') === '1') {
+    $pdo->exec('CREATE TABLE oauth_clients (id INTEGER)');
+}
+session_start();
+$_SESSION = getenv('PROBE_SIGNED_IN') === '1' ? ['pro_user_id' => 1] : [];
+function logMessage($level, $message, $context = []) {}
+PHP);
+        register_shutdown_function(static function () use ($probe) {
+            exec('rm -rf ' . escapeshellarg($probe));
+        });
+    }
+    $env = [
+        'PROBE_ENABLED' => implode(',', $enabled),
+        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/faq.php',
+        'PROBE_SIGNIN' => $signIn ? '1' : '0',
+        'PROBE_TRIAL' => (string) $trial,
+        'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
+        'PATH' => (string) getenv('PATH'),
+    ];
+    $proc = proc_open([PHP_BINARY, '-d', 'session.save_path=' . sys_get_temp_dir(), 'faq.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $probe, $env);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    proc_close($proc);
+    return ['raw' => $out, 'err' => $err];
+}
+
+/**
+ * The copyright year changes every January; the fixtures must not. The
+ * FAQPage JSON-LD gained "inLanguage" after the fixtures were rendered, so it is
+ * removed before the English page is compared.
+ */
+function faqNorm(string $html): string
+{
+    $html = preg_replace('/&copy; \d{4}/', '&copy; YYYY', $html);
+    return str_replace('"inLanguage":"en",', '', $html);
+}
+
+// --- FAQ page: English fixtures -----------------------------------------------
+// The fixtures were rendered from faq.php before it went through t() and the data
+// files: signed out, with and without the OAuth sign-in wording, with and without
+// the trial.
+$faqVariants = [
+    'signin_trial'      => [true, 60],
+    'token_trial'       => [false, 60],
+    'signin_notrial'    => [true, 0],
+    'token_notrial'     => [false, 0],
+];
+foreach ($faqVariants as $name => [$signIn, $trial]) {
+    $r = faqRender($root, 'en', $onlyEn, $signIn, $trial);
+    check("faq en {$name}: the page rendered", $r['raw'] !== '', $r['err']);
+    check("faq en {$name}: the page carries inLanguage en", strpos($r['raw'], '"inLanguage":"en"') !== false);
+    same("fixture: faq.{$name}.en.html", faqNorm((string) file_get_contents($fx . "faq.{$name}.en.html")), faqNorm($r['raw']));
+}
+
+same('pages: the FAQ is offered in Swedish', ['en', 'sv'], $realPages['/faq.php'] ?? null);
+i18nTranslatedPages($realPages);
+
+// The two data files: same groups, same number of questions per group, same
+// variables interpolated. Loaded the way faq.php does, once per branch of the
+// conditions (trial on/off, sign-in wording on/off).
+$faqLoad = static function (string $file, bool $signIn, int $trial) use ($root): array {
+    $msU = static fn(string $path): string => $path;
+    $msT = $trial;
+    $msDomain = 'example.test';
+    $msMcpUrl = 'https://example.test/mcp';
+    $msMcpSignIn = $signIn;
+    $msHoldDays = 30;
+    $msHoldMax = 4;
+    return require $root . '/partials/content/' . $file;
+};
+$faqVars = static function (string $file): array {
+    $src = (string) file_get_contents($file);
+    preg_match_all('/\{?\$(ms[A-Za-z]+)/', preg_replace('#/\*.*?\*/#s', '', $src), $m);
+    $names = array_values(array_unique($m[1]));
+    sort($names);
+    return $names;
+};
+if (!defined('TEMPMAIL_APP')) {
+    define('TEMPMAIL_APP', true);
+}
+foreach ([[true, 60], [false, 60], [true, 0], [false, 0]] as [$signIn, $trial]) {
+    $label = ($signIn ? 'signin' : 'token') . ($trial > 0 ? '+trial' : '+notrial');
+    $enData = $faqLoad('faq.en.php', $signIn, $trial);
+    $svData = $faqLoad('faq.sv.php', $signIn, $trial);
+    same("faq data {$label}: same group keys, same order", array_keys($enData), array_keys($svData));
+    $counts = static fn(array $d): array => array_map(fn($g) => count($g['items']), $d);
+    same("faq data {$label}: same number of questions per group", $counts($enData), $counts($svData));
+    $bad = [];
+    foreach ($svData as $gid => $g) {
+        foreach ($g['items'] as $i => $item) {
+            if (trim((string) ($item['q'] ?? '')) === '' || trim((string) ($item['a'] ?? '')) === '') {
+                $bad[] = "{$gid}[{$i}]";
+            }
+            if (($enData[$gid]['items'][$i]['q'] ?? '') === $item['q']) {
+                $bad[] = "{$gid}[{$i}] question not translated";
+            }
+        }
+    }
+    check("faq data {$label}: every Swedish question and answer is filled in and translated", $bad === [], implode(', ', $bad));
+}
+same('faq data: the same variables are interpolated', $faqVars($root . '/partials/content/faq.en.php'), $faqVars($root . '/partials/content/faq.sv.php'));
+foreach (['en', 'sv'] as $code) {
+    $src = (string) file_get_contents($root . "/partials/content/faq.{$code}.php");
+    check("faq data {$code}: guarded like partials/landing", strpos($src, "if (!defined('TEMPMAIL_APP'))") !== false);
+    check("faq data {$code}: links to public pages go through \$msU", !preg_match('#href="/(?:pricing|temporary-email|blog|faq|terms|privacy|refund-policy)(?:\.php)?[^"]*"|href="/"#', $src));
+}
+
+
+// --- FAQ page: Swedish render -------------------------------------------------
+foreach ($faqVariants as $name => [$signIn, $trial]) {
+    $r = faqRender($root, 'sv', $both, $signIn, $trial);
+    $enR = faqRender($root, 'en', $both, $signIn, $trial);
+    $raw = $r['raw'];
+    check("faq sv {$name}: the page rendered", $raw !== '', $r['err']);
+    check("faq sv {$name}: no raw key", !preg_match('/(?<![\/\w])faq\.(?!php\b)[a-z_.0-9]+\b/', $raw));
+    check("faq sv {$name}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $raw));
+    check("faq sv {$name}: differs from English", $raw !== $enR['raw']);
+    check("faq sv {$name}: <html lang=\"sv\">", strpos($raw, '<html lang="sv">') !== false);
+    check("faq sv {$name}: canonical and hreflang", strpos($raw, '<link rel="canonical" href="https://example.test/sv/faq.php">') !== false
+        && strpos($raw, 'hreflang="sv" href="https://example.test/sv/faq.php"') !== false
+        && strpos($raw, 'hreflang="en" href="https://example.test/faq.php"') !== false
+        && strpos($raw, 'hreflang="x-default" href="https://example.test/faq.php"') !== false
+        && strpos($raw, '<meta property="og:locale" content="sv_SE">') !== false);
+    check("faq sv {$name}: Swedish title and description", strpos($raw, '<title>Vanliga frågor · Mail Shield</title>') !== false && strpos($raw, 'Korta svar om Mail Shield') !== false);
+    check("faq sv {$name}: stylesheets resolve from the root, not from /sv/", strpos($raw, 'href="/assets/css/style.css"') !== false && strpos($raw, 'href="/assets/css/mailshield.css?v=') !== false && strpos($raw, 'href="assets/') === false);
+    check("faq sv {$name}: section anchors stay English", strpos($raw, 'id="accounts"') !== false && strpos($raw, 'href="#automation"') !== false && strpos($raw, 'id="troubleshooting"') !== false);
+    check("faq sv {$name}: the pricing link is the Swedish page, app pages stay plain", strpos($raw, 'href="/sv/pricing.php"') !== false && strpos($raw, 'href="/pro_login.php"') !== false && strpos($raw, '/sv/pro_login.php') === false);
+    check("faq sv {$name}: pages not yet in Swedish keep their plain URL", strpos($raw, 'href="/temporary-email.php"') !== false && strpos($raw, 'href="/blog.php"') !== false && strpos($raw, '/sv/blog.php') === false && strpos($raw, '/sv/temporary-email.php') === false);
+    check("faq sv {$name}: header and footer links go to the Swedish page", strpos($raw, '<li><a href="/sv/">Startsida</a></li>') !== false && strpos($raw, 'href="/sv/faq.php">Vanliga frågor</a>') !== false);
+    check("faq sv {$name}: numbers and the domain are the config's (10, 1 to 7, 30 days, 4 times)", strpos($raw, 'upp till 10 Sticky-adresser') !== false && strpos($raw, '1 till 7') !== false && strpos($raw, 'i 30 dagar, upp till 4 gånger per år') !== false && strpos($raw, 'shopping@example.test') !== false);
+    check("faq sv {$name}: the trial days are the config's", $trial > 0 ? strpos($raw, "{$trial} dagar Pro") !== false : strpos($raw, 'provperioden') === false);
+    check("faq sv {$name}: the AI answer follows the sign-in switch", $signIn ? strpos($raw, 'logga in när den ber om det') !== false : strpos($raw, 'Du skapar en åtkomsttoken') !== false);
+    check("faq sv {$name}: no English page chrome left", strpos($raw, 'Skip to content') === false && strpos($raw, 'Jump to') === false && strpos($raw, 'Cookie settings') === false && strpos($raw, 'Frequently asked') === false);
+    preg_match('#<script type="application/ld\+json">(.*?)</script>#s', $raw, $lm);
+    $ld = json_decode($lm[1] ?? '', true);
+    check("faq sv {$name}: the JSON-LD parses as a Swedish FAQPage", is_array($ld) && ($ld['@type'] ?? '') === 'FAQPage' && ($ld['inLanguage'] ?? '') === 'sv' && count($ld['mainEntity'] ?? []) > 20);
+    $names = array_map(fn($q) => $q['name'] ?? '', $ld['mainEntity'] ?? []);
+    check("faq sv {$name}: the JSON-LD question names are Swedish", in_array('Vad är Mail Shield?', $names, true) && !in_array('What is Mail Shield?', $names, true));
+    $enLd = json_decode((preg_match('#<script type="application/ld\+json">(.*?)</script>#s', $enR['raw'], $em) ? $em[1] : ''), true);
+    same("faq sv {$name}: as many JSON-LD questions as English", count($enLd['mainEntity'] ?? []), count($ld['mainEntity'] ?? []));
+    check("faq sv {$name}: every JSON-LD answer is in the visible page", (function () use ($ld, $raw) {
+        $visible = preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(preg_replace('#</?(?:p|li|ul|br)\b[^>]*>#i', ' ', $raw)), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        foreach ($ld['mainEntity'] ?? [] as $q) {
+            if (strpos($visible, mb_substr((string) $q['acceptedAnswer']['text'], 0, 60)) === false) {
+                return false;
+            }
+        }
+        return true;
+    })());
+}
+// With Swedish switched off the Swedish URL is not offered and the English page carries no hreflang.
+$offHtml = faqRender($root, 'en', $onlyEn, false, 60)['raw'];
+check('faq en-only: no hreflang, no og:locale', strpos($offHtml, 'hreflang') === false && strpos($offHtml, 'og:locale') === false);
+same('resolve: /sv/faq.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/faq.php'], $both));
+same('resolve: ...and redirects while only English is on', '/faq.php', i18nResolveRequest(['REQUEST_URI' => '/sv/faq.php'], $onlyEn));
+i18nSetLocale('en');
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

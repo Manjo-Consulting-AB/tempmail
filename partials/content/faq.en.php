@@ -1,0 +1,266 @@
+<?php
+/**
+ * The FAQ in English: the AI-assistant answer and the whole page as data
+ * (groups, questions, answers). Loaded by faq.php for the English page, and by
+ * faq.php as the fallback when a language has no partials/content/faq.<locale>.php.
+ * A Swedish file (faq.sv.php) mirrors this structure: the same group keys, the
+ * same number of questions per group and the same conditional branches (trial
+ * on/off, sign-in wording on/off); only the words differ.
+ *
+ * Variables faq.php defines for this file:
+ *   $msU            closure: a public page path -> its escaped, language-aware URL
+ *   $msT            trial length in days (0 = no trial; the answers fall back)
+ *   $msDomain       the mail domain, already HTML-escaped
+ *   $msMcpUrl       the MCP endpoint URL, already HTML-escaped
+ *   $msMcpSignIn    whether a client can connect by signing in (OAuth is on)
+ *   $msHoldDays     retention hold length in days
+ *   $msHoldMax      retention holds per year
+ *
+ * 'a' holds the inner HTML of an answer: markup authored here, never anything a
+ * visitor supplies. Group ids (the array keys) stay English in every language so
+ * the #anchors keep working.
+ *
+ * @return array<string, array{title: string, items: list<array{q: string, a: string}>}>
+ */
+
+if (!defined('TEMPMAIL_APP')) {
+    http_response_code(403);
+    exit;
+}
+
+// The AI-assistant answer, in whichever of its two forms matches the switch
+// (#331, step 6). Both are Pro-only, both stop at the tool list brief §9
+// carries, and neither names a price or a date; the sign-in one is shown only
+// while OAuth is actually on, so a switched-off deploy says tokens and nothing
+// more. The provider sentence stays in both: an approved app is the user's
+// choice, not our processor.
+$msAiSignInAnswer = <<<HTML
+<p>Yes, on Pro. Add <code>{$msMcpUrl}</code> in your app and sign in when it asks — Mail Shield shows you what the app wants and you approve it. A client that only accepts a header takes one of your access tokens instead. Either way the assistant connects over the Model Context Protocol (MCP), and it can then list your addresses, read your mail, and — if you gave it write access — create and delete addresses for you.</p>
+<p>The assistant acts as your account, so treat what you give it like a password. Anything it reads is sent to whoever runs it: that provider is chosen by you, not by us, and we are not its processor. Disconnect an app, or revoke a token, in the Connected apps card in your profile and it stops working immediately; changing your password or your email address cuts every connection at once.</p>
+HTML;
+$msAiTokenAnswer = <<<HTML
+<p>Yes, on Pro. You create an access token in your profile and give it to the assistant, which connects to Mail Shield over the Model Context Protocol (MCP) at <code>{$msMcpUrl}</code>. It can then list your addresses, read your mail, and — if you gave the token write access — create and delete addresses for you.</p>
+<p>The assistant acts as your account, so treat its access token like a password. Anything it reads is sent to whoever runs it: that provider is chosen by you, not by us, and we are not its processor. Revoke a token from the Connected apps card in your profile and it stops working immediately; changing your password or your email address revokes every token at once.</p>
+HTML;
+$msAiAnswer = $msMcpSignIn ? $msAiSignInAnswer : $msAiTokenAnswer;
+
+/**
+ * The whole page as data: six groups, in page order, each holding its questions.
+ *
+ * Both the visible copy and the FAQPage structured data are rendered from this
+ * one array, so the answers a crawler reads cannot drift from the answers a
+ * person reads. That is the point of the shape — the alternative is a second
+ * copy of every answer inside the JSON-LD block, which is a guaranteed future
+ * lie the first time someone edits one and not the other.
+ *
+ * 'a' holds the inner HTML of the answer (what goes inside .ms-prose), not
+ * escaped text: it is markup we author here, never anything a visitor supplies.
+ */
+return [
+    'general' => [
+        'title' => 'General',
+        'items' => [
+            [
+                'q' => 'What is Mail Shield?',
+                'a' => <<<HTML
+<p>A separate inbox for the email you don't want in your primary one. Shopping, newsletters, signups, forum replies, automated mail and the services you're only trying out all have somewhere else to go, and you read them in one place on the web.</p>
+<p>You get addresses of your own — timed ones that delete themselves, and sticky ones you keep. It is not a page that prints a throwaway address and forgets you the moment you close the tab: an address here belongs to an account, so a confirmation that arrives an hour later is still waiting for you.</p>
+HTML,
+            ],
+            [
+                'q' => 'How do I get a timed address?',
+                'a' => <<<HTML
+<p>Create an account with your own email address, verify it, then create the timed address from your inbox. There is no button on the homepage that issues one anonymously — an address needs an account behind it, which is what lets you come back for a message that arrives later.</p>
+HTML,
+            ],
+            [
+                'q' => 'How long are messages and addresses kept?',
+                'a' => <<<HTML
+<p>A timed address on a free account is deleted automatically <strong>24 hours</strong> after you create it, and the messages in it go with it. On Pro you choose the lifetime for each timed address, from <strong>1 to 7 days</strong>.</p>
+<p>Sticky addresses don't run on a timer at all — they stay until you delete them.</p>
+HTML,
+            ],
+            [
+                'q' => 'Does it cost anything?',
+                'a' => $msT > 0 ? <<<HTML
+<p>A free account costs nothing and needs no card, and every new account starts with <strong>{$msT} days of Pro</strong> at no cost. After that, stay on Pro with a <a href="{$msU('/pricing.php')}">monthly, yearly or one-time plan</a>, or a voucher code.</p>
+HTML : <<<HTML
+<p>A free account costs nothing and needs no card. Pro is a <a href="{$msU('/pricing.php')}">monthly, yearly or one-time plan</a>, or a voucher code.</p>
+HTML,
+            ],
+        ],
+    ],
+    'accounts' => [
+        'title' => 'Accounts and plans',
+        'items' => [
+            [
+                'q' => 'What\'s the difference between Free and Pro?',
+                'a' => <<<HTML
+<p>A free account covers temporary email: one timed address at a time, deleted 24 hours after you create it.</p>
+<p>Pro adds the permanent side of the product and the automation — up to 10 sticky addresses, a timed-address lifetime of 1 to 7 days that you choose, RSS, webhooks, Pushover, digest emails and the Agent.</p>
+HTML . ($msT > 0 ? <<<HTML
+<p>Every new account gets Pro for its first {$msT} days, so you can try all of it before you decide.</p>
+HTML : ''),
+            ],
+            ...($msT > 0 ? [[
+                'q' => "How does the {$msT}-day Pro trial work?",
+                'a' => <<<HTML
+<p>Every new account gets Pro for its first {$msT} days, starting when you confirm your email address. There's no card to enter and nothing to cancel.</p>
+<p>The trial is once per email address. If you delete your account and sign up again with the same address, the clock keeps running from your first sign-up — it doesn't start over.</p>
+<p>When the trial ends, your account carries on as a free one. Automation is switched off, and sticky addresses — with the mail in them — are deleted 7 days later, so move anything you still need first. To stay on Pro, choose one of our <a href="{$msU('/pricing.php')}">plans</a>, or redeem a voucher code in your profile.</p>
+HTML,
+            ]] : []),
+            [
+                'q' => 'How many addresses can I create?',
+                'a' => <<<HTML
+<p>Addresses belong to your account, not to a browser session. Every account holds one timed address at a time, and creating a new one replaces the old one.</p>
+<p>Pro accounts also get up to 10 sticky addresses, which live alongside the timed one and deliver into the same inbox.</p>
+HTML,
+            ],
+            [
+                'q' => 'How do I create a Pro account?',
+                'a' => $msT > 0 ? <<<HTML
+<p>Create an account — it starts on Pro for its first {$msT} days. To keep Pro after that, choose a <a href="{$msU('/pricing.php')}">plan</a> while signed in, or redeem a voucher code in your profile; either way, the time is added after the trial ends. Accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
+HTML : <<<HTML
+<p>Create a free account and choose a <a href="{$msU('/pricing.php')}">plan</a> while signed in — or register with a voucher code: pick Pro on the sign-up page and enter the code. Pro accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
+HTML,
+            ],
+            [
+                'q' => 'What settings are available on Pro?',
+                'a' => <<<HTML
+<ul>
+<li>Set a password for sign-in, alongside the email link.</li>
+<li>Choose how long new timed addresses last, from 1 to 7 days.</li>
+<li>Create, review and delete up to 10 sticky addresses.</li>
+<li>Turn two-factor authentication on or off, and manage trusted browsers.</li>
+<li>Keep mail for {$msHoldDays} days, up to {$msHoldMax} times a year.</li>
+<li>Configure automation: RSS, webhooks and digest emails.</li>
+</ul>
+HTML,
+            ],
+            [
+                'q' => 'Can I keep my mail longer?',
+                'a' => <<<HTML
+<p>Yes, on Pro. Up to {$msHoldMax} times a year you can hold back the clean-up: mail on your sticky addresses that would otherwise be deleted is kept for {$msHoldDays} days from the day it arrived, instead of the usual 1 to 7. Start a hold by choosing {$msHoldDays} days under <strong>Profile &rarr; Default lifetime</strong>.</p>
+<p>Ending a hold early leaves the mail that was already extended in place. Timed addresses are not affected — they still expire on schedule and take their messages with them. Your mailbox storage limit still applies, and when it is reached the oldest mail is removed first.</p>
+HTML,
+            ],
+        ],
+    ],
+    'temporary' => [
+        'title' => 'Timed and sticky addresses',
+        'items' => [
+            [
+                'q' => 'What\'s the difference between a timed and a sticky address?',
+                'a' => <<<HTML
+<p>A timed address is Mail Shield's take on temporary email: it is meant to be thrown away. It expires on a timer you don't have to think about — 24 hours on a free account, 1 to 7 days on Pro — and takes its messages with it.</p>
+<p>A sticky address is one you keep: a readable name like <span class="ms-addr">shopping@{$msDomain}</span> instead of a random string, no expiry, and you decide when it goes. Both kinds arrive in the same inbox.</p>
+HTML,
+            ],
+            [
+                'q' => 'Can I use Mail Shield for permanent addresses?',
+                'a' => <<<HTML
+<p>Yes — that's what sticky addresses are for. A Pro account can hold up to 10 of them, all permanent in the sense that matters: they don't expire, and you delete them when you're done with them.</p>
+<p>Every address uses the {$msDomain} domain, and every one of them delivers into the same inbox.</p>
+HTML,
+            ],
+            [
+                'q' => 'How long do sticky addresses last?',
+                'a' => <<<HTML
+<p>Until you delete them. They carry no expiry timer and aren't caught by the clean-up that removes timed addresses. Deleting one from your profile removes the address, and it stops receiving mail from then on.</p>
+HTML,
+            ],
+        ],
+    ],
+    'automation' => [
+        'title' => 'Automation',
+        'items' => [
+            [
+                'q' => 'What can I connect it to?',
+                'a' => <<<HTML
+<p>Pro accounts can route mail onward in several ways:</p>
+<ul>
+<li>A private RSS feed, read in any feed reader, protected by a token — for your whole account, or for one sticky address on its own.</li>
+<li>Webhooks that POST each incoming message as JSON to an endpoint you control.</li>
+<li>Pushover, for incoming mail as a notification on your phone.</li>
+<li>Digest emails, a periodic summary of what arrived.</li>
+</ul>
+<p>If you run your own mail server, the Agent is there too: you manage sender lists and filter rules in Mail Shield, and the Agent applies them to a mailbox on your server. That mail stays on your server — it doesn't come into Mail Shield.</p>
+<p>You can also connect an AI assistant to your account, to read and manage your addresses for you. That has its own question below.</p>
+HTML,
+            ],
+            [
+                'q' => 'Can I connect an AI assistant to my account?',
+                'a' => $msAiAnswer,
+            ],
+            [
+                'q' => 'Is automation included in a free account?',
+                'a' => $msT > 0 ? <<<HTML
+<p>For the first {$msT} days, yes — every new account starts on Pro, automation included. After the trial, RSS, webhooks, Pushover, digests and the Agent are part of Pro, and a free account covers temporary email.</p>
+HTML : <<<HTML
+<p>No. RSS, webhooks, Pushover, digests and the Agent are all part of Pro. A free account covers temporary email.</p>
+HTML,
+            ],
+        ],
+    ],
+    'security' => [
+        'title' => 'Security and privacy',
+        'items' => [
+            [
+                'q' => 'Is my email content private?',
+                'a' => <<<HTML
+<p>The answer differs by kind of address, so it's worth being exact. A timed address is reachable through its link: whoever holds that link can read the inbox, and so can anyone who finds it. Treat a timed address as somewhere to receive, not somewhere to keep a secret.</p>
+<p>Sticky addresses are different. They belong to your account and can only be read while you're signed in as the owner.</p>
+<p>Either way, don't send sensitive personal data — banking, identity documents, medical details — to an address you intend to throw away.</p>
+HTML,
+            ],
+            [
+                'q' => 'How are attachments handled?',
+                'a' => <<<HTML
+<p>Attachments are stored temporarily, and download links are signed and time-limited so a link can't be guessed or passed around indefinitely. Files are cleaned up together with the messages they arrived on.</p>
+HTML,
+            ],
+            [
+                'q' => 'What does two-factor authentication (2FA) protect?',
+                'a' => <<<HTML
+<p>2FA protects password sign-in to your account: after 2FA is enabled, signing in with your password also requires a 6-digit code from an authenticator app. It does not add a step to email sign-in links — a magic link already proves you have access to the inbox, which is itself a second factor.</p>
+HTML,
+            ],
+            [
+                'q' => 'Which authenticator apps are supported?',
+                'a' => <<<HTML
+<p>Any standard TOTP authenticator app works, including 1Password, Authy, and Google Authenticator. Set it up from the two-factor authentication section of your profile by scanning the QR code or entering the key manually.</p>
+HTML,
+            ],
+            [
+                'q' => 'What if I lose my phone or authenticator app?',
+                'a' => <<<HTML
+<p>You're not locked out. Sign in using your email login link (magic link) as usual — it works even with 2FA enabled — and then turn off two-factor authentication from your profile. From there you can set up 2FA again on a new device, or leave it off. You can also use one of the one-time recovery codes shown when you enrolled, if you saved them.</p>
+HTML,
+            ],
+            [
+                'q' => 'Is the Agent safe?',
+                'a' => <<<HTML
+<p>The Agent runs on your own server, so your data stays under your control. It verifies RSA-signed webhooks from Mail Shield before acting on them, and stores the secrets it needs encrypted rather than in plain text. Filtering happens on your machine, so your mail doesn't have to leave it to be sorted.</p>
+HTML,
+            ],
+        ],
+    ],
+    'troubleshooting' => [
+        'title' => 'Troubleshooting',
+        'items' => [
+            [
+                'q' => 'I didn\'t receive an expected message — what now?',
+                'a' => <<<HTML
+<p>Check the full address you gave out, local part and domain both. For a sticky address, make sure you're signed in to the account that owns it. Then give it a moment and refresh — mail is fetched from the server on a schedule, so a message can take a short while to appear. If it still doesn't arrive, the sender may have delayed or rejected it.</p>
+HTML,
+            ],
+            [
+                'q' => 'How do I get support?',
+                'a' => <<<HTML
+<p>Account-specific problems are best handled from inside your account: <a href="/pro_login.php">sign in</a> and use the contact page, and include the address or the message you're asking about. This FAQ is meant to answer the general cases first.</p>
+HTML,
+            ],
+        ],
+    ],
+];

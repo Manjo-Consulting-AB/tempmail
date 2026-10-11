@@ -90,7 +90,7 @@ if (!function_exists('i18nSupportedLocales')) {
             '/'                    => ['en', 'sv'],
             '/temporary-email.php' => ['en'],
             '/pricing.php'         => ['en', 'sv'],
-            '/faq.php'             => ['en'],
+            '/faq.php'             => ['en', 'sv'],
             '/blog.php'            => ['en'],
             '/register.php'        => ['en'],
             '/pro_login.php'       => ['en'],
