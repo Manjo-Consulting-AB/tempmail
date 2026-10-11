@@ -124,9 +124,9 @@ function ms_oc_build(string $repoRoot, string $clientName = MS_OC_APP_NAME, stri
     );
     $config .= <<<'PHP'
 
-// Only when a case asks: the app area offered in Swedish (the '@app' gate, I18N.md 2.1).
-if (getenv('PROBE_APP_SV')) {
-    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@app' => ['en', 'sv']]));
+// Only when a case asks: the '@app' gate forced open (1) or closed (0), instead of the shipped list (I18N.md 2.1).
+if (getenv('PROBE_APP_SV') !== false) {
+    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@app' => getenv('PROBE_APP_SV') === '1' ? ['en', 'sv'] : ['en']]));
 }
 function proUserIsSuspended(int $userId): bool { return false; }
 function proSessionEndIfSuspended(): bool { return false; }
@@ -175,15 +175,15 @@ function ms_oc_add_client(PDO $pdo, string $name, string $redirectUri = MS_OC_RE
  *
  * @return array{0:resource,1:int,2:array<int,resource>}
  */
-function ms_oc_start(string $root, string $locales = 'en', bool $appSv = false): array
+function ms_oc_start(string $root, string $locales = 'en', ?bool $appSv = null): array
 {
     $sessions = $root . '/sessions';
     if (!is_dir($sessions)) {
         @mkdir($sessions, 0700, true);
     }
     $env = ['PROBE_SQLITE' => ms_test_probe_sqlite($root), 'PATH' => (string) (getenv('PATH') ?: '/usr/bin:/bin'), 'PROBE_LOCALES' => $locales];
-    if ($appSv) {
-        $env['PROBE_APP_SV'] = '1';
+    if ($appSv !== null) {
+        $env['PROBE_APP_SV'] = $appSv ? '1' : '0';
     }
     for ($attempt = 0; $attempt < 10; $attempt++) {
         $port = random_int(20000, 60000);
@@ -268,6 +268,14 @@ function ms_oc_http(string $root, int $port, string $method, string $path, ?int 
         }
     }
     return ['status' => $status, 'body' => $responseBody === false ? '' : $responseBody, 'headers' => $out];
+}
+
+/** A session file for user $uid; the id to send as $cookieSid so several requests share one session. */
+function ms_oc_session(string $root, int $uid): string
+{
+    $sid = 'ocsess' . bin2hex(random_bytes(6));
+    file_put_contents($root . '/sessions/sess_' . $sid, 'pro_user_id|' . serialize($uid) . 'pro_user_email|' . serialize('x@example.com'));
+    return $sid;
 }
 
 /** The authorize query string for $clientId; $overrides replaces a field, null drops it. */

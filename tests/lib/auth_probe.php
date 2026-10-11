@@ -99,8 +99,8 @@ foreach (($probeRequest['server'] ?? []) as $k => $v) {
 }
 i18nBootstrap($config['i18n'], $_SERVER);
 // The app area is offered in Swedish only once '@app' lists it (step 7/8); a case can switch that on.
-if (!empty($probeRequest['app_sv'])) {
-    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@app' => ['en', 'sv']]));
+if (isset($probeRequest['app_sv'])) {
+    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@app' => $probeRequest['app_sv'] ? ['en', 'sv'] : ['en']]));
 }
 if (!empty($probeRequest['session_id'])) {
     session_id((string) $probeRequest['session_id']);
@@ -417,15 +417,18 @@ function ms_app_page_cases(): array
 /**
  * Renders inbox.php or pro.php of the probe docroot as alice (signed in) or a
  * visitor. $locale is sent as X-MS-Locale, $acceptLanguage as Accept-Language, and
- * $svApp offers Swedish in the app area (the '@app' gate).
+ * $svApp forces the '@app' gate open (true) or closed (false); null leaves the shipped list.
  *
  * @return array{html:string,err:string,log:string}
  */
-function ms_app_page(string $root, string $script, bool $signedIn, bool $isPro, array $get = [], bool $pending = false, ?string $locale = null, bool $svApp = false, string $acceptLanguage = ''): array
+function ms_app_page(string $root, string $script, bool $signedIn, bool $isPro, array $get = [], bool $pending = false, ?string $locale = null, ?bool $svApp = false, string $acceptLanguage = '', ?string $locales = null, ?string $accountLocale = null): array
 {
-    [$db, $ids] = ms_auth_probe_db($root, function (PDO $pdo, array $ids) use ($pending): void {
+    [$db, $ids] = ms_auth_probe_db($root, function (PDO $pdo, array $ids) use ($pending, $accountLocale): void {
         $pdo->exec('CREATE TABLE temp_emails (id INTEGER PRIMARY KEY AUTOINCREMENT, unique_address TEXT, expires_at TEXT, pro_user_id INTEGER, is_personal INTEGER DEFAULT 0, created_at TEXT)');
         $pdo->exec("INSERT INTO temp_emails (unique_address, expires_at) VALUES ('abcdef0123456789', '2099-01-01 00:00:00')");
+        if ($accountLocale !== null) {
+            $pdo->prepare('UPDATE pro_users SET locale = ? WHERE id = ?')->execute([$accountLocale, $ids['alice']]);
+        }
         if ($pending) {
             // pro.php orders and shows created_at, which the auth probe's table does not have.
             $pdo->exec('ALTER TABLE pending_profile_changes ADD COLUMN created_at TEXT');
@@ -434,7 +437,7 @@ function ms_app_page(string $root, string $script, bool $signedIn, bool $isPro, 
             $ins->execute([$ids['alice'], 'set_password', json_encode([]), 't2', '2099-01-03 10:00:00', '2099-01-01 11:00:00']);
         }
     });
-    $request = ['method' => 'GET', 'uri' => '/' . $script, 'get' => $get, 'locales' => $svApp ? 'en,sv' : 'en', 'is_pro' => $isPro, 'app_sv' => $svApp];
+    $request = ['method' => 'GET', 'uri' => '/' . $script, 'get' => $get, 'locales' => $locales ?? ($svApp ? 'en,sv' : 'en'), 'is_pro' => $isPro, 'app_sv' => $svApp];
     $server = [];
     if ($locale !== null) {
         $server['HTTP_X_MS_LOCALE'] = $locale;

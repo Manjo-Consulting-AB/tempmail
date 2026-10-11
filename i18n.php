@@ -107,6 +107,7 @@ if (!function_exists('i18nSupportedLocales')) {
             '/privacy.php'         => ['en', 'sv'],
             '/refund-policy.php'   => ['en', 'sv'],
             '/terms.php'           => ['en', 'sv'],
+            '/welcome.php'         => ['en', 'sv'],
         ];
     }
 

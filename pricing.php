@@ -82,7 +82,7 @@ $pricingConfig = [
     'email'           => $customerEmail !== '' ? $customerEmail : null,
     'userId'          => $signedIn ? (int) $_SESSION['pro_user_id'] : null,
     'checkoutEnabled' => $checkoutEnabled,
-    'successUrl'      => $origin . '/welcome.php',
+    'successUrl'      => $origin . i18nUrl('/welcome.php'),
     'perMonth'        => t('pricing.per_month'),
     'perYear'         => t('pricing.per_year'),
     'locale'          => i18nLocale(),

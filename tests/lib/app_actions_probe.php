@@ -47,8 +47,8 @@ function ms_aa_build(string $repoRoot): array
     $config .= <<<'PHP'
 
 // Only when a case asks: the app area offered in Swedish (the '@app' gate, I18N.md 2.1).
-if (!empty($MS_EXTRA['app_sv'])) {
-    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@app' => ['en', 'sv']]));
+if (isset($MS_EXTRA['app_sv'])) {
+    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@app' => $MS_EXTRA['app_sv'] ? ['en', 'sv'] : ['en']]));
 }
 function sanitizeLocalPart($local, int $minLength = 3, int $maxLength = 64): ?string {
     $s = sanitizeString($local, $maxLength, true);

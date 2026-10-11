@@ -80,9 +80,9 @@ same('split: double slash cannot produce a protocol-relative path', ['sv', '/evi
 same('resolve: CLI has no REQUEST_URI', null, i18nResolveRequest([], $both));
 same('resolve: CLI is English', 'en', i18nLocale());
 same('resolve: plain URL', null, i18nResolveRequest(['REQUEST_URI' => '/terms.php'], $both));
-same('resolve: untranslated /sv/ page redirects to the plain URL', '/welcome.php', i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $both));
+same('resolve: untranslated /sv/ page redirects to the plain URL', '/client_agent_manage.php', i18nResolveRequest(['REQUEST_URI' => '/sv/client_agent_manage.php'], $both));
 same('resolve: ...and stays English', 'en', i18nLocale());
-same('resolve: query string survives the redirect', '/welcome.php?plan=pro', i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php?plan=pro'], $both));
+same('resolve: query string survives the redirect', '/client_agent_manage.php?plan=pro', i18nResolveRequest(['REQUEST_URI' => '/sv/client_agent_manage.php?plan=pro'], $both));
 same('resolve: app page under /sv/ redirects', '/inbox.php?address=abc', i18nResolveRequest(['REQUEST_URI' => '/sv/inbox.php?address=abc'], $both));
 
 // --- With Swedish translations (simulated) ------------------------------------
@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.security.', 'profile.apps.', 'profile.twofa.', 'profile.password.', 'profile.agent.', 'profile.delete.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.security.', 'profile.apps.', 'profile.twofa.', 'profile.password.', 'profile.agent.', 'profile.delete.', 'contact.', 'welcome.', 'oauth.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -696,7 +696,9 @@ foreach ($pricingVariants as $name => [$in, $co, $prod]) {
     $cfg = is_array($r['config']) ? $r['config'] : [];
     same("pricing sv {$name}: config perMonth, perYear, locale", ['/ månad', '/ år', 'sv'], [$cfg['perMonth'] ?? null, $cfg['perYear'] ?? null, $cfg['locale'] ?? null]);
     $cfgEn = is_array($enR['config']) ? $enR['config'] : [];
-    unset($cfg['perMonth'], $cfg['perYear'], $cfg['locale'], $cfgEn['perMonth'], $cfgEn['perYear'], $cfgEn['locale']);
+    // Step 7/8: Paddle sends the buyer back to the success page in the buyer's language.
+    same("pricing sv {$name}: successUrl is the Swedish welcome page, English stays plain", ['https://example.test/sv/welcome.php', 'https://example.test/welcome.php'], [$cfg['successUrl'] ?? null, $cfgEn['successUrl'] ?? null]);
+    unset($cfg['perMonth'], $cfg['perYear'], $cfg['locale'], $cfg['successUrl'], $cfgEn['perMonth'], $cfgEn['perYear'], $cfgEn['locale'], $cfgEn['successUrl']);
     same("pricing sv {$name}: prices, ids and the checkout gate are not language-dependent", $cfgEn, $cfg);
     check("pricing sv {$name}: canonical and hreflang", strpos($r['raw'], '<link rel="canonical" href="https://example.test/sv/pricing.php">') !== false && strpos($r['raw'], 'hreflang="x-default" href="https://example.test/pricing.php"') !== false);
 }
@@ -1761,7 +1763,7 @@ same('accept: returns the candidate as spelled', 'sv', i18nAcceptLanguage('sv', 
 
 // --- i18nAppLocale() -----------------------------------------------------------
 $appSv = ['HTTP_ACCEPT_LANGUAGE' => 'sv-SE,sv;q=0.9', 'HTTP_X_MS_LOCALE' => 'sv'];
-i18nTranslatedPages($realPages);
+i18nTranslatedPages(['@app' => ['en']]); // the closed gate, explicitly (the shipped list changes in step 7/8)
 same("appLocale '@app'=en: Accept-Language sv still gives en", 'en', i18nAppLocale($appSv, null, $both, false));
 same("appLocale '@app'=en: the account's sv gives en", 'en', i18nAppLocale([], 'sv', $both, false));
 same("appLocale '@app'=en: X-MS-Locale ignored on a page", 'en', i18nAppLocale(['HTTP_X_MS_LOCALE' => 'sv'], null, $both, false));
@@ -3282,6 +3284,269 @@ foreach (['en' => [false, 'sign in when it asks'], 'sv' => [true, 'logga in när
     $on = ms_pp_security_page($pp, 'oauth_on', $svFlag, $svFlag ? 'sv' : '');
     check("security ({$lang}): with OAuth off the sign-in sentence is nowhere on the page, the language JSON included", strpos($off['body'], $needle) === false && strpos($on['body'], $needle) !== false);
 }
+
+// =============================================================================
+// Step 7/8 (epic #428): pro_contact.php, welcome.php and the OAuth consent page
+// =============================================================================
+// The contact page and welcome.php run as subprocesses on the sign-in probe docroot, the
+// consent page on PHP's built-in server (it refuses the CLI), all through
+// tests/lib/last_pages_probe.php. The English fixtures were rendered from the code as it was
+// before the pages went through t()/te()/tHtml(). Each probe states the '@app' gate it runs
+// under (open or closed), so these checks do not depend on the list the site ships.
+require_once $root . '/tests/lib/last_pages_probe.php';
+$lp = ms_auth_probe_build($root);
+$lpNorm = static fn(string $html): string => trim(preg_replace('/\s+/', ' ', authNorm($html)));
+$lpKeyRe = '/\b(?:contact|welcome|oauth)\.(?:meta|title|lede|reply_to|category|message|chars|back|send|sending|sent|failed|network|error|heading|body|cta|consent)[a-z_.0-9]*/';
+$lpSv = 'sv-SE,sv;q=0.9';
+
+// --- pro_contact.php: the form ------------------------------------------------------
+$contactFx = $lpNorm((string) file_get_contents($fx . 'contact.form.en.html'));
+$cEn = ms_app_page($lp, 'pro_contact.php', true, true);
+check('contact page (en): rendered without PHP errors', $cEn['html'] !== '' && $cEn['err'] === '', $cEn['err']);
+same('fixture: contact form, English only', $contactFx, $lpNorm($cEn['html']));
+$cGateOpenEnOnly = ms_app_page($lp, 'pro_contact.php', true, true, [], false, null, true, $lpSv, 'en');
+same("fixture: contact form, '@app' open but LOCALES_ENABLED=en, browser asks for Swedish", $contactFx, $lpNorm($cGateOpenEnOnly['html']));
+$cGateClosed = ms_app_page($lp, 'pro_contact.php', true, true, [], false, null, false, $lpSv, 'en,sv');
+same("fixture: contact form, sv enabled but '@app' closed, browser asks for Swedish", $contactFx, $lpNorm($cGateClosed['html']));
+$cSv = ms_app_page($lp, 'pro_contact.php', true, true, [], false, null, true, $lpSv);
+$cSvNoJson = preg_replace(['#<script type="application/json" id="ms-i18n">.*?</script>#s', "/msT\\('contact\\.[a-z_.0-9]+'/"], ['', "msT('"], $cSv['html']);
+check('sv contact page: rendered without PHP errors', $cSv['html'] !== '' && $cSv['err'] === '', $cSv['err']);
+check('sv contact page: <html lang="sv"> and the Swedish title', strpos($cSv['html'], '<html lang="sv">') !== false && strpos($cSv['html'], '<title>Kontakta supporten · Mail Shield</title>') !== false);
+check('sv contact page: no raw key anywhere but the language JSON', !preg_match($lpKeyRe, $cSvNoJson), (string) (preg_match($lpKeyRe, $cSvNoJson, $km) ? $km[0] : ''));
+$cSvText = authVisible($cSv['html']);
+foreach (['Kontakta supporten', 'Meddelanden går direkt till teamet.', 'Svaret skickas till', 'Kategori', 'Välj en kategori...', 'Fråga', 'Förslag', 'Felrapport', 'Meddelande', '0 / 5000 tecken', 'Tillbaka till översikten', 'Skicka meddelande'] as $needle) {
+    check("sv contact page: shows \"{$needle}\"", strpos($cSvText, $needle) !== false);
+}
+check('sv contact page: the placeholder is Swedish', strpos($cSv['html'], 'placeholder="Beskriv din fråga, ditt förslag eller felet du stötte på..."') !== false);
+check('sv contact page: the category values the server validates stay English', strpos($cSv['html'], '<option value="Question">') !== false && strpos($cSv['html'], '<option value="Suggestion">') !== false && strpos($cSv['html'], '<option value="Bug report">') !== false);
+check('sv contact page: ids the script and the nav depend on survive', count(array_filter(['contactForm', 'category', 'message', 'charCount', 'submitBtn', 'contactAlert', 'proExpiryLine'], fn($id) => strpos($cSv['html'], 'id="' . $id . '"') !== false)) === 7);
+check('sv contact page: the nav expiry texts reach the script in Swedish', strpos($cSv['html'], '"free":"Gratis"') !== false);
+preg_match('#<script type="application/json" id="ms-i18n">(.*?)</script>#s', $cSv['html'], $cjm);
+$cSvJson = json_decode($cjm[1] ?? '', true);
+check('sv contact page: the language JSON carries the script strings in Swedish', is_array($cSvJson) && ($cSvJson['contact.sending'] ?? null) === 'Skickar...' && ($cSvJson['contact.network'] ?? null) === 'Nätverksfel. Försök igen.' && ($cSvJson['contact.failed'] ?? null) === 'Det gick inte att skicka meddelandet');
+check('contact page (en): the language JSON is English', (bool) preg_match('#id="ms-i18n">\{[^<]*"contact\.sending":"Sending\.\.\."#', $cEn['html']));
+// Who picks the language: the account first, then the browser.
+$cAccSv = ms_app_page($lp, 'pro_contact.php', true, true, [], false, null, true, '', 'en,sv', 'sv');
+check('contact page: an account with locale sv gets Swedish with no Accept-Language', strpos($cAccSv['html'], '<html lang="sv">') !== false);
+$cAccEn = ms_app_page($lp, 'pro_contact.php', true, true, [], false, null, true, $lpSv, 'en,sv', 'en');
+check('contact page: an account with locale en gets English although the browser asks for Swedish', strpos($cAccEn['html'], '<html lang="en">') !== false && $lpNorm($cAccEn['html']) === $contactFx);
+$cAccNull = ms_app_page($lp, 'pro_contact.php', true, true, [], false, null, true, $lpSv, 'en,sv');
+check('contact page: an account with no choice (NULL) follows Accept-Language', strpos($cAccNull['html'], '<html lang="sv">') !== false);
+$cAccNullNone = ms_app_page($lp, 'pro_contact.php', true, true, [], false, null, true, '', 'en,sv');
+check('contact page: an account with no choice and no browser language gets English', strpos($cAccNullNone['html'], '<html lang="en">') !== false);
+$cRegular = ms_app_page($lp, 'pro_contact.php', true, false, [], false, null, true, $lpSv);
+check('sv contact page (Regular account): the script gets "Gratis"', strpos($cRegular['html'], '"free":"Gratis"') !== false);
+$cOut = ms_app_page($lp, 'pro_contact.php', false, false);
+check('contact page: a signed-out visitor is sent to the sign-in page', $cOut['html'] === '' || strpos($cOut['html'], '<form id="contactForm"') === false);
+
+// --- pro_contact.php: the answers ---------------------------------------------------
+foreach (ms_contact_json_cases() as $cname => [$cpost, $corigin]) {
+    $cr = ms_contact_json($lp, $cpost, $corigin);
+    check("contact answer {$cname}: no PHP error and valid JSON", $cr['json'] !== null && $cr['err'] === '', $cr['err'] . $cr['body']);
+    same("fixture: contact.{$cname}.en.json", trim((string) file_get_contents($fx . "contact.{$cname}.en.json")), $cr['body']);
+    $csv = ms_contact_json($lp, $cpost, $corigin, 'sv', true);
+    $cText = (string) ($csv['json']['error'] ?? $csv['json']['message'] ?? '');
+    check("contact answer {$cname} (X-MS-Locale sv): not the English text and no raw key", $cText !== '' && $cText !== (string) ($cr['json']['error'] ?? $cr['json']['message'] ?? '') && strpos($cText, 'contact.') === false, $cText);
+    check("contact answer {$cname} (X-MS-Locale sv): success flag unchanged", ($csv['json']['success'] ?? null) === ($cr['json']['success'] ?? null));
+}
+$cSvAnswers = [];
+foreach (ms_contact_json_cases() as $cname => [$cpost, $corigin]) {
+    $cSvAnswers[$cname] = ms_contact_json($lp, $cpost, $corigin, 'sv', true)['json'];
+}
+same('contact answers (sv): forbidden', 'Förbjudet', $cSvAnswers['forbidden']['error'] ?? null);
+same('contact answers (sv): invalid category', 'Ogiltig kategori vald', $cSvAnswers['invalid_category']['error'] ?? null);
+same('contact answers (sv): message required', 'Du måste skriva ett meddelande', $cSvAnswers['message_required']['error'] ?? null);
+same('contact answers (sv): too long carries its number', 'Meddelandet är för långt (högst 5000 tecken)', $cSvAnswers['too_long']['error'] ?? null);
+same('contact answers (sv): sent', 'Tack! Ditt meddelande har skickats.', $cSvAnswers['sent']['message'] ?? null);
+$cAcct = ms_contact_json($lp, ['category' => 'Nope', 'message' => 'x'], 'ok', null, true, '', 'sv');
+same('contact answer: the account language applies to the endpoint too', 'Ogiltig kategori vald', $cAcct['json']['error'] ?? null);
+$cHdrWins = ms_contact_json($lp, ['category' => 'Nope', 'message' => 'x'], 'ok', 'en', true, $lpSv, 'sv');
+same('contact answer: X-MS-Locale en wins over the account and the browser', 'Invalid category selected', $cHdrWins['json']['error'] ?? null);
+$cGateEn = ms_contact_json($lp, ['category' => 'Nope', 'message' => 'x'], 'ok', null, false, $lpSv);
+same("contact answer: with '@app' closed the browser's Swedish is ignored", 'Invalid category selected', $cGateEn['json']['error'] ?? null);
+// The mail to the operator is an internal message: English, whatever language the page was in.
+$cMailEn = ms_contact_json($lp, ['category' => 'Bug report', 'message' => 'Det går inte att logga in'], 'ok');
+$cMailSv = ms_contact_json($lp, ['category' => 'Bug report', 'message' => 'Det går inte att logga in'], 'ok', 'sv', true, $lpSv, 'sv');
+check('contact mail (en): sent', ($cMailEn['json']['success'] ?? false) === true && strpos($cMailEn['mail'], 'Subject: Mail Shield contact form: Bug report') !== false, $cMailEn['mail']);
+check('contact mail (sv page): subject, labels and category stay English', strpos($cMailSv['mail'], 'Subject: Mail Shield contact form: Bug report') !== false && strpos($cMailSv['mail'], 'Category: Bug report') !== false && strpos($cMailSv['mail'], 'From: alice@example.com (user_id ') !== false, $cMailSv['mail']);
+check('contact mail (sv page): the message is passed on as written', strpos($cMailSv['mail'], 'Det går inte att logga in') !== false);
+check('contact mail (sv page): no Swedish template text and no catalog text', strpos($cMailSv['mail'], 'Kategori') === false && strpos($cMailSv['mail'], 'Felrapport') === false && strpos($cMailSv['mail'], 'contact.') === false);
+// Scans.
+$contactSrc = (string) file_get_contents($root . '/pro_contact.php');
+$mailBlock = substr($contactSrc, (int) strpos($contactSrc, '$supportTo'), (int) strpos($contactSrc, "echo json_encode(['success' => true") - (int) strpos($contactSrc, '$supportTo'));
+check("scan: the operator mail block of pro_contact.php has no t(), te() or tHtml() call", $mailBlock !== '' && !preg_match('/(?<![\w>$:.])t[eH]?\w*\(/', preg_replace('/logMessage\([^;]*;/s', '', $mailBlock)) && strpos($mailBlock, "'Mail Shield contact form: ' . \$category") !== false);
+check("scan: pro_contact.php has no literal 'error' / 'message' answer", !preg_match("/'(?:error|message)' => '/", preg_replace('/logMessage\([^;]*;/s', '', $contactSrc)));
+check('scan: pro_contact.php passes the POST flag as $isApi to i18nUseAppLocale()', strpos($contactSrc, "\$config['i18n'] ?? [], \$_SERVER['REQUEST_METHOD'] === 'POST');") !== false);
+$contactScript = substr($contactSrc, (int) strrpos($contactSrc, 'function msT('));
+check('scan: pro_contact.php inserts nothing with .html() or innerHTML (the server text goes in as text)', !preg_match('/\.html\(|innerHTML|insertAdjacentHTML/', $contactScript));
+check('scan: pro_contact.php hands its script the contact. strings', strpos($contactSrc, "\$msI18nJs = ['contact.'];") !== false);
+preg_match_all("/(?<![\\w.\$])msT\\('([^']+)',\\s*'((?:[^'\\\\]|\\\\.)*)'/", $contactSrc, $cmm, PREG_SET_ORDER);
+check('scan: pro_contact.php msT() calls found', count($cmm) === 4, (string) count($cmm));
+foreach ($cmm as [, $ckey, $cfallback]) {
+    same("pro_contact.php: msT fallback for {$ckey} is the English catalog value", $en[$ckey] ?? null, stripslashes($cfallback));
+    check("pro_contact.php: {$ckey} is covered by the contact. prefix", strncmp($ckey, 'contact.', 8) === 0);
+}
+check('scan: pro_contact.php has no visible attribute or text left as a literal', !preg_match('/\b(?:title|aria-label|placeholder)="[A-Za-z]/', $contactSrc) && !preg_match('#>\s*[A-Z][a-z]+ [a-z ]+\s*<#', preg_replace('#<script.*?</script>#s', '', preg_replace('#<\?php.*?\?>#s', '', $contactSrc))));
+
+// --- welcome.php ---------------------------------------------------------------------
+foreach (['signed_out' => false, 'signed_in' => true] as $wname => $win) {
+    $wfx = $lpNorm((string) file_get_contents($fx . "welcome.{$wname}.en.html"));
+    $w = ms_welcome_page($lp, '/welcome.php', $win);
+    check("welcome ({$wname}): rendered without PHP errors", $w['html'] !== '' && $w['err'] === '', $w['err']);
+    same("fixture: welcome.{$wname}.en.html, English only", $wfx, $lpNorm($w['html']));
+    $wBoth = ms_welcome_page($lp, '/welcome.php', $win, 'en,sv');
+    same("fixture: welcome.{$wname}.en.html, Swedish enabled but not chosen (hreflang and the language switcher apart)", $wfx, $lpNorm(preg_replace('#<nav class="ms-footer__langs".*?</nav>#s', '', $wBoth['html'])));
+    $wSv = ms_welcome_page($lp, '/sv/welcome.php', $win, 'en,sv');
+    $wSvText = authVisible($wSv['html']);
+    check("sv welcome ({$wname}): rendered without PHP errors, lang=\"sv\"", $wSv['html'] !== '' && $wSv['err'] === '' && strpos($wSv['html'], '<html lang="sv">') !== false, $wSv['err']);
+    check("sv welcome ({$wname}): no raw key", !preg_match('/\bwelcome\.(?:meta|heading|body|cta)[a-z_.0-9]*/', $wSv['html']));
+    check("sv welcome ({$wname}): the title, description, heading and body are Swedish", strpos($wSv['html'], '<title>Tack · Mail Shield</title>') !== false && strpos($wSv['html'], 'content="Din betalning till Mail Shield gick igenom."') !== false
+        && strpos($wSvText, 'Tack för ditt köp') !== false && strpos($wSvText, 'Ett kvitto är på väg till din e-post från Paddle') !== false);
+    if ($win) {
+        check('sv welcome (signed in): the link goes to the inbox', strpos($wSv['html'], 'href="/pro.php">Gå till din inkorg</a>') !== false);
+    } else {
+        check('sv welcome (signed out): the sign-in and sign-up links carry /sv/', strpos($wSv['html'], 'href="/sv/pro_login.php">Logga in</a>') !== false && strpos($wSv['html'], 'href="/sv/register.php?plan=regular">Skapa din inkorg</a>') !== false);
+        check('welcome (signed out, en): the links stay plain', strpos($w['html'], 'href="/pro_login.php">Log in</a>') !== false && strpos($w['html'], 'href="/register.php?plan=regular">Create your inbox</a>') !== false);
+    }
+    check("sv welcome ({$wname}): still noindex, with no analytics and no consent notice", strpos($wSv['html'], 'noindex, nofollow') !== false && !preg_match('/gtag|googletagmanager|ms-i18n-consent|consent\.js/', $wSv['html']));
+    check("sv welcome ({$wname}): canonical and alternates name the Swedish page", strpos($wSv['html'], '<link rel="canonical" href="https://example.test/sv/welcome.php">') !== false && strpos($wSv['html'], 'hreflang="x-default" href="https://example.test/welcome.php"') !== false);
+}
+same('pages: welcome.php is offered in Swedish', ['en', 'sv'], $realPages['/welcome.php'] ?? null);
+same('resolve: /sv/welcome.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $both));
+same('resolve: ...and redirects while only English is on', '/welcome.php', i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $onlyEn));
+i18nSetLocale('en');
+check('scan: sitemap.php does not list welcome.php (it is noindex)', stripos((string) file_get_contents($root . '/sitemap.php'), 'welcome') === false);
+check("scan: pricing.php hands Paddle the success page in the buyer's language", strpos((string) file_get_contents($root . '/pricing.php'), "'successUrl'      => \$origin . i18nUrl('/welcome.php'),") !== false);
+check('scan: welcome.php is a public-shell page (URL language), not an app page', stripos((string) file_get_contents($root . '/welcome.php'), 'i18nUseAppLocale') === false && strpos((string) file_get_contents($root . '/welcome.php'), "'analytics'   => false") !== false);
+
+// --- The OAuth consent page ----------------------------------------------------------
+$oc = ms_oc_build($root);
+$ocServers = ['en' => ms_oc_start($oc['root'], 'en', false), 'enOpen' => ms_oc_start($oc['root'], 'en', true), 'sv' => ms_oc_start($oc['root'], 'en,sv', true)];
+$ocPort = static fn(string $which): int => (int) $ocServers[$which][1];
+$ocHdr = ['Accept-Language' => $lpSv];
+foreach (ms_oc_cases() as $oname => [$okind, $oquery, $ouser]) {
+    $ofx = ms_oc_norm((string) file_get_contents($fx . "consent.{$oname}.en.html"));
+    $oe = ms_oc_render($oc, $ocPort('en'), $oname);
+    same("fixture: consent.{$oname}.en.html, English only", $ofx, ms_oc_norm($oe['body']));
+    $oe2 = ms_oc_render($oc, $ocPort('enOpen'), $oname, $ocHdr);
+    same("fixture: consent.{$oname}.en.html, '@app' open but LOCALES_ENABLED=en, browser asks for Swedish", $ofx, ms_oc_norm($oe2['body']));
+    $oe3 = ms_oc_render($oc, $ocPort('en'), $oname, $ocHdr);
+    same("fixture: consent.{$oname}.en.html, '@app' closed, browser asks for Swedish", $ofx, ms_oc_norm($oe3['body']));
+    // Swedish.
+    $os = ms_oc_render($oc, $ocPort('sv'), $oname, $ocHdr);
+    $osText = authVisible($os['body']);
+    check("sv consent {$oname}: same status as English ({$oe['status']})", $os['status'] === $oe['status'], (string) $os['status']);
+    check("sv consent {$oname}: <html lang=\"sv\">, no raw oauth. key", strpos($os['body'], '<html lang="sv">') !== false && !preg_match('/\boauth\.(?:consent|error)\.[a-z_]+/', $os['body']));
+    check("sv consent {$oname}: X-Frame-Options DENY and frame-ancestors 'none' unchanged", ($os['headers']['x-frame-options'] ?? '') === 'DENY' && ($os['headers']['content-security-policy'] ?? '') === "frame-ancestors 'none'");
+    check("sv consent {$oname}: no-store, noindex and no analytics", strpos($os['headers']['cache-control'] ?? '', 'no-store') !== false && strpos($os['body'], '<meta name="robots" content="noindex, nofollow">') !== false && !preg_match('/gtag|googletagmanager|ms-i18n-consent|consent\.js|analytics/i', $os['body']));
+    check("sv consent {$oname}: differs from English", ms_oc_norm($os['body']) !== $ofx);
+    check("sv consent {$oname}: the footer link and the close/back texts are Swedish", strpos($osText, 'Tillbaka till Mail Shield') !== false);
+}
+$ocRead = ms_oc_render($oc, $ocPort('sv'), 'read', $ocHdr);
+$ocWrite = ms_oc_render($oc, $ocPort('sv'), 'write', $ocHdr);
+$ocReadText = authVisible($ocRead['body']);
+foreach (['Ansluta den här appen?', 'En app på din dator eller telefon vill använda ditt Mail Shield-konto.', '”Example App”', 'Det här är namnet som appen ger sig själv. Mail Shield har inte kontrollerat vem den är.', 'Du skickas tillbaka till example.com när du är klar.', 'Vad appen får göra', 'Endast läsning', 'Se dina adresser och läsa dina meddelanden.', 'Allt som den här appen läser skickas till den som driver den, utanför Mail Shield. Anslut bara en app du litar på.', 'Avbryt', 'Tillåt'] as $needle) {
+    check("sv consent (read): shows \"{$needle}\"", strpos($ocReadText, $needle) !== false);
+}
+check('sv consent (read): the title is Swedish', strpos($ocRead['body'], '<title>Ansluta den här appen? · Mail Shield</title>') !== false);
+check('sv consent (read): only the read choice is offered, and it starts checked', strpos($ocRead['body'], 'value="mcp:read" checked') !== false && strpos($ocRead['body'], 'Läsa och ändra') === false && strpos($ocRead['body'], 'mcp:write') === false);
+check('sv consent (write): both choices, the narrower one checked', strpos($ocWrite['body'], 'value="mcp:read" checked') !== false && strpos($ocWrite['body'], 'value="mcp:read mcp:write"') !== false && strpos($ocWrite['body'], 'value="mcp:read mcp:write" checked') === false
+    && strpos(authVisible($ocWrite['body']), 'Läsa och ändra') !== false && strpos(authVisible($ocWrite['body']), 'Även skapa och radera dina adresser.') !== false);
+check('sv consent: the form values the server reads are protocol values and stay as they are', strpos($ocRead['body'], 'name="decision" value="cancel"') !== false && strpos($ocRead['body'], 'name="decision" value="allow"') !== false && preg_match('/name="csrf" value="[0-9a-f]{64}"/', $ocRead['body']) === 1 && strpos($ocRead['body'], 'name="client_id"') === false && strpos($ocRead['body'], 'name="redirect_uri"') === false);
+check('sv consent: the host is in its own <code> element', strpos($ocRead['body'], '<code>example.com</code>') !== false);
+$ocErr = [
+    'error.unknown_client' => ['Länken kan inte användas', 'Appen är inte registrerad, så den kan inte anslutas.'],
+    'error.redirect_mismatch' => ['Länken kan inte användas', 'Den begärda omdirigeringsadressen stämmer inte med den som appen registrerade.'],
+    'error.not_pro' => ['Att ansluta en app kräver Pro', 'Att ansluta en app ingår i Mail Shield Pro. Ditt konto har gratisplanen, så ingen åtkomst gavs.'],
+    'error.method' => ['Metoden tillåts inte', 'Den här sidan svarar bara på GET och POST.'],
+    'error.expired' => ['Sidan har gått ut', 'Börja om från appen du ville ansluta.'],
+];
+foreach ($ocErr as $oname => [$otitle, $obody]) {
+    $or = ms_oc_render($oc, $ocPort('sv'), $oname, $ocHdr);
+    $orText = authVisible($or['body']);
+    check("sv consent {$oname}: the title and the sentence are Swedish", strpos($orText, $otitle) !== false && strpos($orText, $obody) !== false);
+}
+check('sv consent error.not_pro: the action link is Swedish and keeps its target', strpos(ms_oc_render($oc, $ocPort('sv'), 'error.not_pro', $ocHdr)['body'], 'href="pro_profile_page.php">Se din plan</a>') !== false);
+check('sv consent error.expired: the close link is Swedish', strpos(ms_oc_render($oc, $ocPort('sv'), 'error.expired', $ocHdr)['body'], 'href="/">Stäng</a>') !== false);
+check('consent error.method: Allow header unchanged', (ms_oc_render($oc, $ocPort('sv'), 'error.method', $ocHdr)['headers']['allow'] ?? '') === 'GET, POST');
+// Who picks the language on the consent page: the account first, then the browser.
+check('consent: an account with locale sv gets Swedish with no Accept-Language', strpos(ms_oc_render($oc, $ocPort('sv'), 'read', [], 'svAccount')['body'], '<html lang="sv">') !== false);
+check('consent: an account with locale en gets English although the browser asks for Swedish', strpos(ms_oc_render($oc, $ocPort('sv'), 'read', $ocHdr, 'enAccount')['body'], '<html lang="en">') !== false);
+check('consent: an account with no choice and no browser language gets English', strpos(ms_oc_render($oc, $ocPort('sv'), 'read', [])['body'], '<html lang="en">') !== false);
+// The app's name is attacker-controlled: shown escaped and literal in both languages.
+$ocPdo = ms_test_db(ms_test_probe_sqlite($oc['root']));
+$hostile = ms_oc_add_client($ocPdo, '<b>Bold</b> {x} {name} &amp; "q"');
+foreach (['en' => ['en', '“'], 'sv' => ['sv', '”']] as $hlang => [$hsrv, $hquote]) {
+    $hr = ms_oc_http($oc['root'], $ocPort($hsrv === 'sv' ? 'sv' : 'en'), 'GET', ms_oc_path($hostile), $oc['pro'], $hsrv === 'sv' ? $ocHdr : []);
+    check("consent ({$hlang}): an app name with markup, braces and an entity is escaped and literal", strpos($hr['body'], '&lt;b&gt;Bold&lt;/b&gt; {x} {name} &amp;amp; &quot;q&quot;') !== false && strpos($hr['body'], '<b>Bold</b>') === false, substr($hr['body'], (int) strpos($hr['body'], 'ms-grant__app-name'), 160));
+    check("consent ({$hlang}): the name sits in quotes of that language in its own element", strpos($hr['body'], '<p class="ms-grant__app-name">' . $hquote . '&lt;b&gt;') !== false);
+    check("consent ({$hlang}): the label saying the app named itself is still there", strpos($hr['body'], 'class="ms-grant__app-note"') !== false);
+}
+// The decision, in Swedish: protocol values in the redirect stay English.
+$ocSid = ms_oc_session($oc['root'], $oc['pro']);
+$ocPage = ms_oc_http($oc['root'], $ocPort('sv'), 'GET', ms_oc_path($oc['client'], ['scope' => 'mcp:read mcp:write']), null, $ocHdr, null, $ocSid);
+preg_match('/name="csrf" value="([0-9a-f]{64})"/', $ocPage['body'], $ocCsrf);
+$ocCancel = ms_oc_http($oc['root'], $ocPort('sv'), 'POST', '/oauth_authorize.php', null, $ocHdr, ['csrf' => $ocCsrf[1] ?? '', 'decision' => 'cancel'], $ocSid);
+check('sv consent: Cancel redirects with access_denied and the English description', $ocCancel['status'] === 302 && strpos($ocCancel['headers']['location'] ?? '', 'error=access_denied') !== false && strpos($ocCancel['headers']['location'] ?? '', 'error_description=The%20user%20refused%20the%20request.') !== false && strpos($ocCancel['headers']['location'] ?? '', 'state=st-abc-123') !== false);
+$ocSid2 = ms_oc_session($oc['root'], $oc['pro']);
+$ocPage2 = ms_oc_http($oc['root'], $ocPort('sv'), 'GET', ms_oc_path($oc['client']), null, $ocHdr, null, $ocSid2);
+preg_match('/name="csrf" value="([0-9a-f]{64})"/', $ocPage2['body'], $ocCsrf2);
+$ocBadCsrf = ms_oc_http($oc['root'], $ocPort('sv'), 'POST', '/oauth_authorize.php', null, $ocHdr, ['csrf' => str_repeat('0', 64), 'decision' => 'allow'], $ocSid2);
+check('sv consent: a wrong CSRF token is refused (403) with the Swedish page, no redirect', $ocBadCsrf['status'] === 403 && !isset($ocBadCsrf['headers']['location']) && strpos(authVisible($ocBadCsrf['body']), 'Sidan har gått ut') !== false);
+$ocAllow = ms_oc_http($oc['root'], $ocPort('sv'), 'POST', '/oauth_authorize.php', null, $ocHdr, ['csrf' => $ocCsrf2[1] ?? '', 'decision' => 'allow', 'scope' => 'mcp:read'], $ocSid2);
+check('sv consent: a refused token does not burn the request: the right one then answers a code', $ocAllow['status'] === 302 && strpos($ocAllow['headers']['location'] ?? '', 'code=') !== false, (string) $ocAllow['status']);
+$ocSid3 = ms_oc_session($oc['root'], $oc['pro']);
+$ocPage3 = ms_oc_http($oc['root'], $ocPort('sv'), 'GET', ms_oc_path($oc['client']), null, $ocHdr, null, $ocSid3);
+preg_match('/name="csrf" value="([0-9a-f]{64})"/', $ocPage3['body'], $ocCsrf3);
+$ocAllow3 = ms_oc_http($oc['root'], $ocPort('sv'), 'POST', '/oauth_authorize.php', null, $ocHdr, ['csrf' => $ocCsrf3[1] ?? '', 'decision' => 'allow', 'scope' => 'mcp:read'], $ocSid3);
+check('sv consent: Allow redirects to the registered address with a code, the state and iss', $ocAllow3['status'] === 302 && preg_match('#^https://example\.com/cb\?code=[0-9a-f]{64}&state=st-abc-123&iss=#', $ocAllow3['headers']['location'] ?? '') === 1, $ocAllow3['headers']['location'] ?? '');
+$ocBadScope = ms_oc_http($oc['root'], $ocPort('sv'), 'GET', ms_oc_path($oc['client'], ['response_type' => 'token']), $oc['pro'], $ocHdr);
+check('sv consent: a parameter error still redirects to the proven address with protocol values in English', $ocBadScope['status'] === 302 && strpos($ocBadScope['headers']['location'] ?? '', 'error=unsupported_response_type') !== false && strpos($ocBadScope['headers']['location'] ?? '', 'error_description=') !== false && !preg_match('/Ogiltig|stöds|Sidan|appen/u', rawurldecode($ocBadScope['headers']['location'] ?? '')));
+foreach ($ocServers as $ocServer) {
+    ms_oc_stop($ocServer);
+}
+$ocSrc = (string) file_get_contents($root . '/oauth_authorize.php');
+$ocCode = preg_replace('#/\*.*?\*/#s', '', $ocSrc);
+check('scan: oauth_authorize.php still sends X-Frame-Options DENY and frame-ancestors none', strpos($ocSrc, "header('X-Frame-Options: DENY');") !== false && strpos($ocSrc, "header(\"Content-Security-Policy: frame-ancestors 'none'\");") !== false);
+check('scan: oauth_authorize.php has no analytics partial', stripos($ocCode, 'analytics') === false && stripos($ocCode, 'gtag') === false);
+check('scan: no notice or refusal of oauth_authorize.php is given a literal title or sentence', !preg_match("/oauthAuthorize(?:NoticePage|RefusePost)\(\s*(?:\d+,\s*)?'/", $ocCode) && !preg_match("/'title' => '|'message' => '/", $ocCode));
+check('scan: the page markup of oauth_authorize.php has no literal visible text left', !preg_match('#>[A-Z][a-z]+(?: [a-z]+)+[.?]?<#', $ocCode) && !preg_match("#(?:class=\"btn[^\"]*\"|ms-grant__[a-z-]+\")>[A-Za-z]#", $ocCode));
+check('scan: the protocol values stay literals (access_denied, the refusal description, iss)', strpos($ocSrc, "'error' => 'access_denied'") !== false && strpos($ocSrc, "'error_description' => 'The user refused the request.'") !== false && strpos($ocSrc, "'iss' => oauthAuthorizeIssuer()") !== false);
+check('scan: oauth_authorize.php escapes the app name and the host as parameters of te()/tHtml()', strpos($ocSrc, "te('oauth.consent.app_name', ['name' => \$appName])") !== false && strpos($ocSrc, "tHtml('oauth.consent.app_host', ['host' => \$appHost]") !== false);
+check('scan: the validation order, the CSRF check and the rate limit are where they were', strpos($ocSrc, 'oauthAuthorizeRequestValidate($pdo, $_GET)') !== false && strpos($ocSrc, 'hash_equals(oauthAuthorizeCsrfToken($pendingParams), $postedCsrf)') !== false && strpos($ocSrc, 'oauthAuthorizeRateLimit($pdo)') !== false);
+$ocKeys = array_filter(array_keys($en), static fn(string $k): bool => strncmp($k, 'oauth.', 6) === 0);
+check('scan: 37 oauth. keys, each in both languages', count($ocKeys) === 37&& array_diff($ocKeys, array_keys($sv)) === [], (string) count($ocKeys));
+$ocLeaks = [];
+foreach ($ocKeys as $ocKey) {
+    foreach ([$en[$ocKey], $sv[$ocKey]] as $ocVal) {
+        if (preg_match('/https?:|example|\b(?:access_denied|invalid_request|invalid_scope|invalid_client|unsupported_response_type|mcp:read|mcp:write)\b/', (string) $ocVal)) {
+            $ocLeaks[] = $ocKey;
+        }
+    }
+}
+check('scan: no oauth. catalog value holds a URL, a host, a client name or an OAuth protocol value', $ocLeaks === [], implode(', ', $ocLeaks));
+check('scan: the two attacker-controlled values are placeholders only', substr_count($en['oauth.consent.app_name'], '{name}') === 1 && substr_count($sv['oauth.consent.app_name'], '{name}') === 1 && substr_count($en['oauth.consent.app_host'], '{host}') === 1 && substr_count($sv['oauth.consent.app_host'], '{host}') === 1);
+check('scan: each oauth. key in the Swedish catalog has the same placeholders as English', array_filter($ocKeys, static fn(string $k): bool => placeholders($en[$k]) !== placeholders($sv[$k])) === []);
+check('scan: tests/oauth_authorize_test.php is not part of this change', strpos((string) file_get_contents($root . '/tests/oauth_authorize_test.php'), 'This link cannot be used') !== false);
+ms_test_cleanup($oc['root']);
+
+// --- Every app page in English while Swedish is not enabled --------------------------
+// '@app' open, LOCALES_ENABLED=en: the gate on the languages wins whatever the account or the browser says.
+foreach (['inbox.php' => ['inbox.php', true, true], 'pro.php' => ['pro.php', true, true], 'pro_contact.php' => ['pro_contact.php', true, true]] as $gname => [$gscript, $gin, $gpro]) {
+    $g = ms_app_page($lp, $gscript, $gin, $gpro, [], false, null, true, $lpSv, 'en', 'sv');
+    check("app page {$gname}: '@app' open and LOCALES_ENABLED=en still renders English (account sv, browser sv)", strpos($g['html'], '<html lang="en">') !== false && strpos($g['html'], 'Kontakta') === false && strpos($g['html'], 'Din inkorg') === false, $g['err']);
+}
+$gp = ms_pp_page($pp, 'pro', true, $lpSv, 'sv', 'en');
+check("app page pro_profile_page.php: '@app' open and LOCALES_ENABLED=en still renders English (account sv, browser sv)", strpos($gp['body'], '<html lang="en">') !== false && strpos($gp['body'], 'id="languageCard"') === false);
+// LOCALES_ENABLED=en,sv with the gate open: the account decides, then the browser.
+foreach (['inbox.php' => ['inbox.php', 'Din inkorg'], 'pro.php' => ['pro.php', 'Din inkorg'], 'pro_contact.php' => ['pro_contact.php', 'Kontakta supporten']] as $gname => [$gscript, $gneedle]) {
+    $a = ms_app_page($lp, $gscript, true, true, [], false, null, true, '', 'en,sv', 'sv');
+    $b = ms_app_page($lp, $gscript, true, true, [], false, null, true, $lpSv, 'en,sv', 'en');
+    $c = ms_app_page($lp, $gscript, true, true, [], false, null, true, $lpSv, 'en,sv');
+    $d = ms_app_page($lp, $gscript, true, true, [], false, null, true, '', 'en,sv');
+    check("app page {$gname}: account sv gives Swedish, account en gives English, NULL follows Accept-Language", strpos($a['html'], '<html lang="sv">') !== false && strpos($a['html'], $gneedle) !== false && strpos($b['html'], '<html lang="en">') !== false && strpos($c['html'], '<html lang="sv">') !== false && strpos($d['html'], '<html lang="en">') !== false);
+}
+ms_auth_probe_remove($lp);
 
 ms_test_cleanup($pp['root']);
 
