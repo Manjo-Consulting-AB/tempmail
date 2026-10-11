@@ -15,7 +15,10 @@
  *     URL always renders the same language, which is what lets each version be
  *     indexed (brief §14). .htaccess maps /<locale>/<page>.php onto the same
  *     file; i18nBootstrap() reads the prefix from REQUEST_URI.
- *   - app pages (a later phase): the account's saved choice, then a cookie.
+ *   - app pages and JSON endpoints: the account's saved choice, then the
+ *     browser's Accept-Language, then English; an endpoint called from a page
+ *     follows that page's X-MS-Locale header. No cookie. See i18nAppLocale()
+ *     and documentaion/I18N.md §2.1.
  *
  * Catalogs are plain PHP arrays in lang/<locale>.php — no gettext, so nothing
  * needs compiling, no system locale has to exist on the host, and OPcache
@@ -74,6 +77,12 @@ if (!function_exists('i18nSupportedLocales')) {
      * and reviewed: this list is what the canonical/hreflang tags, the
      * sitemap and the /<locale>/ routes follow. Phase 2 adds 'sv' page by page.
      *
+     * A key starting with '@' is a pseudo-entry, not a URL: '@app' lists the
+     * languages the signed-in app area (inbox, profile, contact, consent
+     * page) is translated into. It is a gate like the others and stays at
+     * ['en'] until every app page is translated; sitemap, hreflang and the
+     * /<locale>/ routes never see it.
+     *
      * $override replaces the list for the rest of the request; only
      * tests/i18n_test.php passes it.
      *
@@ -87,6 +96,7 @@ if (!function_exists('i18nSupportedLocales')) {
             $pages = $override;
         }
         return $pages ?? [
+            '@app'                 => ['en'],
             '/'                    => ['en', 'sv'],
             '/temporary-email.php' => ['en', 'sv'],
             '/pricing.php'         => ['en', 'sv'],
@@ -109,7 +119,9 @@ if (!function_exists('i18nSupportedLocales')) {
      */
     function i18nPageLocales(string $path, array $enabled): array
     {
-        $path = i18nNormalisePath($path);
+        if ($path === '' || $path[0] !== '@') {
+            $path = i18nNormalisePath($path);
+        }
         $translated = i18nTranslatedPages()[$path] ?? [i18nDefaultLocale()];
         $out = [];
         foreach ($enabled as $code) {
@@ -204,6 +216,156 @@ if (!function_exists('i18nSupportedLocales')) {
             header('Location: ' . $redirect, true, 302);
             exit;
         }
+    }
+
+    /**
+     * The best candidate for an Accept-Language header, or null. Entries are
+     * ordered by q-value, highest first, header order on a tie; the primary
+     * subtag is matched case-insensitively (sv-SE matches sv). q=0 and
+     * malformed entries (including "*") are ignored. Pure.
+     *
+     * @param list<string> $candidates
+     */
+    function i18nAcceptLanguage(string $header, array $candidates): ?string
+    {
+        $entries = [];
+        foreach (explode(',', $header) as $index => $part) {
+            $bits = explode(';', trim($part));
+            $tag = trim($bits[0]);
+            if (!preg_match('/^([A-Za-z]{1,8})(?:-[A-Za-z0-9]{1,8})*$/', $tag, $m)) {
+                continue;
+            }
+            $q = 1.0;
+            if (isset($bits[1])) {
+                if (!preg_match('/^\s*q\s*=\s*(0(?:\.\d{0,3})?|1(?:\.0{0,3})?)\s*$/i', $bits[1], $qm)) {
+                    continue;
+                }
+                $q = (float) $qm[1];
+            }
+            if ($q <= 0.0) {
+                continue;
+            }
+            $entries[] = [$q, $index, strtolower($m[1])];
+        }
+        usort($entries, static fn(array $a, array $b): int => [$b[0], $a[1]] <=> [$a[0], $b[1]]);
+        foreach ($entries as [, , $primary]) {
+            foreach ($candidates as $candidate) {
+                if (strtolower($candidate) === $primary) {
+                    return $candidate;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The language of an app page or JSON endpoint (documentaion/I18N.md
+     * §2.1). Candidates are the enabled languages the '@app' gate offers.
+     * In order: for an endpoint, the X-MS-Locale header when that language is
+     * enabled (checked against $enabled only, because a public /sv/ page
+     * sends it); the account's saved language; Accept-Language; English.
+     * Pure.
+     *
+     * @param array<string,mixed> $server
+     * @param list<string>        $enabled
+     */
+    function i18nAppLocale(array $server, ?string $accountLocale, array $enabled, bool $isApi): string
+    {
+        $candidates = array_values(array_intersect($enabled, i18nPageLocales('@app', $enabled)));
+
+        if ($isApi) {
+            $header = $server['HTTP_X_MS_LOCALE'] ?? null;
+            if (is_string($header) && in_array($header, $enabled, true)) {
+                return $header;
+            }
+        }
+        if ($accountLocale !== null && in_array($accountLocale, $candidates, true)) {
+            return $accountLocale;
+        }
+        $accept = i18nAcceptLanguage((string) ($server['HTTP_ACCEPT_LANGUAGE'] ?? ''), $candidates);
+        if ($accept !== null) {
+            return $accept;
+        }
+        return i18nDefaultLocale();
+    }
+
+    /**
+     * pro_users.locale for an account, or null when none is chosen, the value
+     * is not a supported language, the column does not exist yet or anything
+     * fails (fail-open; a WARNING with user_id at most).
+     */
+    function i18nAccountLocale(PDO $pdo, int $userId): ?string
+    {
+        try {
+            $stmt = $pdo->prepare('SELECT locale FROM pro_users WHERE id = ?');
+            $stmt->execute([$userId]);
+            $value = $stmt->fetchColumn();
+            return (is_string($value) && isset(i18nSupportedLocales()[$value])) ? $value : null;
+        } catch (Throwable $e) {
+            if (function_exists('logMessage')) {
+                logMessage('WARNING', 'Could not read the account language', ['user_id' => $userId]);
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Stores an account's language. Never throws; false for an unsupported
+     * language, a missing column or any error. With $onlyIfEmpty the row is
+     * changed only while its locale is still NULL.
+     */
+    function proUserSetLocale(PDO $pdo, int $userId, string $locale, bool $onlyIfEmpty): bool
+    {
+        if (!isset(i18nSupportedLocales()[$locale])) {
+            return false;
+        }
+        try {
+            $sql = 'UPDATE pro_users SET locale = ? WHERE id = ?' . ($onlyIfEmpty ? ' AND locale IS NULL' : '');
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$locale, $userId]);
+            return true;
+        } catch (Throwable $e) {
+            if (function_exists('logMessage')) {
+                logMessage('WARNING', 'Could not store the account language', ['user_id' => $userId]);
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Sets this request's language for an app page or endpoint and tells
+     * caches about it (Vary, Content-Language) while headers can still be
+     * sent. $userId is the signed-in account or null.
+     *
+     * @param array<string,mixed> $server
+     * @param array<string,mixed> $i18nConfig $config['i18n']
+     */
+    function i18nUseAppLocale(PDO $pdo, ?int $userId, array $server, array $i18nConfig, bool $isApi = false): void
+    {
+        $enabled = $i18nConfig['enabled'] ?? [i18nDefaultLocale()];
+        $enabled = is_array($enabled) ? array_values($enabled) : [i18nDefaultLocale()];
+        $account = ($userId !== null && $userId > 0) ? i18nAccountLocale($pdo, $userId) : null;
+        i18nSetLocale(i18nAppLocale($server, $account, $enabled, $isApi));
+        if (!headers_sent()) {
+            header('Vary: Accept-Language, X-MS-Locale', false);
+            header('Content-Language: ' . i18nLocale());
+        }
+    }
+
+    /**
+     * The message for a service result at the web edge: the translated
+     * error_key (with error_params) when the service gave one, else its
+     * English error, else $fallback. MCP never calls this.
+     *
+     * @param array<string,mixed> $result
+     */
+    function i18nServiceError(array $result, string $fallback): string
+    {
+        $key = $result['error_key'] ?? null;
+        if (is_string($key) && $key !== '') {
+            return t($key, (array) ($result['error_params'] ?? []));
+        }
+        return (string) ($result['error'] ?? $fallback);
     }
 
     /**

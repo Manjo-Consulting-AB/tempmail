@@ -43,6 +43,10 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
 // Hantera AJAX-förfrågningar
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
+    // The answer is in the language of the page that called (X-MS-Locale), else the account's.
+    if (function_exists('i18nUseAppLocale')) {
+        i18nUseAppLocale($pdo, isset($_SESSION['pro_user_id']) ? (int) $_SESSION['pro_user_id'] : null, $_SERVER, $config['i18n'] ?? [], true);
+    }
     
     $rawAction = $_POST['action'] ?? '';
     

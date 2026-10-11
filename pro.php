@@ -8,6 +8,9 @@ session_start();
 if (function_exists('proSessionEndIfSuspended')) {
     proSessionEndIfSuspended();
 }
+if (function_exists('i18nUseAppLocale')) {
+    i18nUseAppLocale($pdo, isset($_SESSION['pro_user_id']) ? (int) $_SESSION['pro_user_id'] : null, $_SERVER, $config['i18n'] ?? []);
+}
 
 // Shared inbox links always open the public reader, never this dashboard.
 // app.js used to build the share link from the current page, so links shared
@@ -97,7 +100,7 @@ try {
 $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUOTES, 'UTF-8');
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
 <head>
 
     <meta charset="UTF-8">
@@ -408,6 +411,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="assets/js/site-controls.js"></script>
     <script src="assets/js/app.js?v=<?php echo file_exists(__DIR__ . '/assets/js/app.js') ? filemtime(__DIR__ . '/assets/js/app.js') : time(); ?>"></script>
