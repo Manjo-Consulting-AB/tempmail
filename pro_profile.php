@@ -26,6 +26,9 @@ session_start();
 if (function_exists('proSessionEndIfSuspended')) {
     proSessionEndIfSuspended();
 }
+if (function_exists('i18nUseAppLocale')) {
+    i18nUseAppLocale($pdo, isset($_SESSION['pro_user_id']) ? (int) $_SESSION['pro_user_id'] : null, $_SERVER, $config['i18n'] ?? [], true);
+}
 
 header('Content-Type: application/json');
 

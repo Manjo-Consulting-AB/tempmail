@@ -276,4 +276,23 @@ return [
     'faq.foot.blog' => 'Blogg',
     'faq.foot.faq' => 'Vanliga frågor',
     'faq.foot.cookie_settings' => 'Cookie-inställningar',
+
+    // Appens navigering (partials/nav.php)
+    'appnav.label'         => 'Applikation',
+    'appnav.menu'          => 'Meny',
+    'appnav.home'          => 'Hem',
+    'appnav.inbox'         => 'Inkorg',
+    'appnav.blog'          => 'Blogg',
+    'appnav.faq'           => 'Vanliga frågor',
+    'appnav.client_agent'  => 'Client Agent',
+    'appnav.settings'      => 'Inställningar',
+    'appnav.pending'       => 'väntande ändringar',
+    'appnav.contact'       => 'Kontakt',
+    'appnav.admin'         => 'Admin',
+    'appnav.logout'        => 'Logga ut',
+    'appnav.signup'        => 'Skapa konto',
+    'appnav.pro'           => 'Pro',
+    'appnav.signed_in_as'  => 'Inloggad som',
+    'appnav.type_pro'      => 'Pro',
+    'appnav.type_free'     => 'Gratis',
 ];

@@ -5,6 +5,9 @@ session_start();
 if (function_exists('proSessionEndIfSuspended')) {
     proSessionEndIfSuspended();
 }
+if (function_exists('i18nUseAppLocale')) {
+    i18nUseAppLocale($pdo, isset($_SESSION['pro_user_id']) ? (int) $_SESSION['pro_user_id'] : null, $_SERVER, $config['i18n'] ?? []);
+}
 
 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
     header('Location: pro_login.php');
@@ -151,7 +154,7 @@ $mcpDesktopConfig = '{
 
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
 <head>
 
     <meta charset="UTF-8">
@@ -666,6 +669,7 @@ $mcpDesktopConfig = '{
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- NOTE: app.js is intentionally NOT included here to avoid auto-refresh email polling -->
     <script>

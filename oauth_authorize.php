@@ -179,7 +179,7 @@ function oauthAuthorizePage(string $title, string $body): void
     $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -212,6 +212,7 @@ function oauthAuthorizePage(string $title, string $body): void
             <p><a href="/">&larr; Back to Mail Shield</a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
         </footer>
     </div>
+<?php require __DIR__ . '/partials/app_locale_js.php'; ?>
 </body>
 </html>
     <?php
@@ -256,6 +257,9 @@ if (!oauthAvailable($pdo)) {
 session_start();
 // A suspended account is signed out before anything trusts the session.
 proSessionEndIfSuspended();
+if (function_exists('i18nUseAppLocale')) {
+    i18nUseAppLocale($pdo, isset($_SESSION['pro_user_id']) ? (int) $_SESSION['pro_user_id'] : null, $_SERVER, $config['i18n'] ?? []);
+}
 
 $requestMethod = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
 if ($requestMethod !== 'GET' && $requestMethod !== 'POST') {
