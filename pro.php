@@ -107,7 +107,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#FAFAF9">
     <meta name="robots" content="noindex, nofollow">
-    <title>Your inbox · Mail Shield</title>
+    <title><?php echo te('app.common.title'); ?></title>
 <?php require __DIR__ . '/partials/favicons.php'; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -144,12 +144,19 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
             (function(){
                 try {
                     var ex = window.tempMailConfig && window.tempMailConfig.proExpiresAt ? window.tempMailConfig.proExpiresAt : null;
+                    // The four texts, in this request's language ({date} is filled in below).
+                    var L = <?php echo json_encode([
+                        'free' => t('app.common.expiry_free'),
+                        'lifetime' => t('app.common.expiry_lifetime'),
+                        'expired' => t('app.common.expiry_expired', ['date' => '{date}']),
+                        'expires' => t('app.common.expiry_expires', ['date' => '{date}']),
+                    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE); ?>;
                     if (!(window.tempMailConfig && window.tempMailConfig.isProAccount)) {
-                        document.getElementById('proExpiryLine').textContent = 'Free';
+                        document.getElementById('proExpiryLine').textContent = L.free;
                         return;
                     }
                     if (!ex) {
-                        document.getElementById('proExpiryLine').textContent = 'Pro: Lifetime';
+                        document.getElementById('proExpiryLine').textContent = L.lifetime;
                         return;
                     }
                     var d = new Date(ex + ' UTC');
@@ -160,10 +167,10 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                     var now = new Date();
                     var diffMs = d - now;
                     if (diffMs <= 0) {
-                        document.getElementById('proExpiryLine').textContent = 'Pro expired on ' + dateOnly;
+                        document.getElementById('proExpiryLine').textContent = L.expired.replace('{date}', dateOnly);
                         document.getElementById('proExpiryLine').style.color = '#ff6b6b';
                     } else {
-                        document.getElementById('proExpiryLine').textContent = 'Pro expires: ' + dateOnly;
+                        document.getElementById('proExpiryLine').textContent = L.expires.replace('{date}', dateOnly);
                     }
                 } catch (e) {
                     // ignore
@@ -173,7 +180,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
         </div>
 
         <main class="ms-dash">
-            <h1 class="ms-dash__title">Your inbox</h1>
+            <h1 class="ms-dash__title"><?php echo te('app.pro.heading'); ?></h1>
 
             <div class="ms-dash__grid">
                 <!-- The inbox is the page, in two boxes: the address header up
@@ -194,8 +201,8 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                              Dashboard section of assets/css/mailshield.css. -->
                         <div class="card ms-pending">
                             <div class="card-header ms-pending__head">
-                                <h2 class="ms-pending__title">Pending profile changes</h2>
-                                <span class="badge bg-warning"><?php echo count($pendingChanges); ?> pending</span>
+                                <h2 class="ms-pending__title"><?php echo te('app.pro.pending_title'); ?></h2>
+                                <span class="badge bg-warning"><?php echo te('app.pro.pending_badge', ['count' => count($pendingChanges)]); ?></span>
                             </div>
                             <ul class="list-group ms-pending__list">
                                 <?php foreach ($pendingChanges as $pc):
@@ -203,20 +210,20 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                                     $label = htmlspecialchars($pc['action']);
                                     $detail = '';
                                     if ($pc['action'] === 'update_email' && isset($d['new_email'])) {
-                                        $detail = 'New email: ' . htmlspecialchars($d['new_email']);
+                                        $detail = t('app.pro.pending_new_email', ['email' => (string) $d['new_email']]);
                                     } elseif ($pc['action'] === 'set_password') {
-                                        $detail = 'Password change pending confirmation';
+                                        $detail = t('app.pro.pending_password');
                                     }
                                 ?>
                                 <li id="pending-item-<?php echo $pc['id']; ?>" class="list-group-item ms-pending__item">
                                     <div class="ms-pending__body">
                                         <strong class="ms-pending__action"><?php echo $label; ?></strong>
                                         <div class="ms-pending__detail"><?php echo htmlspecialchars($detail); ?></div>
-                                        <div class="ms-pending__meta">Requested: <?php echo htmlspecialchars($pc['created_at']); ?></div>
-                                        <div class="ms-pending__meta">Expires: <?php echo htmlspecialchars($pc['expires_at']); ?></div>
-                                        <a href="#" class="resend-pending-link ms-pending__resend" data-id="<?php echo $pc['id']; ?>">Resend confirmation email</a>
+                                        <div class="ms-pending__meta"><?php echo te('app.pro.requested', ['time' => (string) $pc['created_at']]); ?></div>
+                                        <div class="ms-pending__meta"><?php echo te('app.pro.expires', ['time' => (string) $pc['expires_at']]); ?></div>
+                                        <a href="#" class="resend-pending-link ms-pending__resend" data-id="<?php echo $pc['id']; ?>"><?php echo te('app.pro.resend'); ?></a>
                                     </div>
-                                    <button class="btn btn-sm btn-outline-danger btn-cancel-pending" data-id="<?php echo $pc['id']; ?>">Cancel</button>
+                                    <button class="btn btn-sm btn-outline-danger btn-cancel-pending" data-id="<?php echo $pc['id']; ?>"><?php echo te('app.pro.cancel'); ?></button>
                                 </li>
                                 <?php endforeach; ?>
                             </ul>
@@ -225,9 +232,9 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
 
                         <!-- Initial address generator (visas tills adress är skapad) -->
                         <div id="initial-generator" class="ms-inbox__empty">
-                            <h2 class="ms-inbox__empty-title">Click to get your timed address</h2>
+                            <h2 class="ms-inbox__empty-title"><?php echo te('app.common.click_to_get'); ?></h2>
                             <button id="generateBtn" class="btn btn-primary btn-lg">
-                                <i class="fas fa-magic" aria-hidden="true"></i> Get Email Address
+                                <i class="fas fa-magic" aria-hidden="true"></i> <?php echo te('app.common.get_address'); ?>
                             </button>
                         </div>
 
@@ -235,23 +242,23 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                         <div class="email-container d-none">
                             <div class="ms-inbox__head">
                                 <div class="ms-inbox__id">
-                                    <p class="ms-eyebrow ms-inbox__label">Your address</p>
+                                    <p class="ms-eyebrow ms-inbox__label"><?php echo te('app.common.address_label'); ?></p>
                                     <h2 class="email-address ms-inbox__addr" id="currentEmail" tabindex="0"></h2>
                                     <p class="ms-inbox__meta">
-                                        <span id="privacyIndicator" class="d-none ms-inbox__privacy"><i class="fas fa-lock" aria-hidden="true"></i> <span id="privacyText">Private</span></span>
-                                        <span class="ms-inbox__validity"><i class="fas fa-clock" aria-hidden="true"></i> <span id="validityText">Valid for 24 hours</span></span>
+                                        <span id="privacyIndicator" class="d-none ms-inbox__privacy"><i class="fas fa-lock" aria-hidden="true"></i> <span id="privacyText"><?php echo te('app.common.privacy_private'); ?></span></span>
+                                        <span class="ms-inbox__validity"><i class="fas fa-clock" aria-hidden="true"></i> <span id="validityText"><?php echo te('app.common.validity', ['hours' => 24]); ?></span></span>
                                     </p>
                                 </div>
 
                                 <div class="ms-inbox__actions">
                                     <button id="copyBtn" class="btn btn-primary">
-                                        <i class="fas fa-copy" aria-hidden="true"></i> Copy address
+                                        <i class="fas fa-copy" aria-hidden="true"></i> <?php echo te('app.common.copy_address'); ?>
                                     </button>
                                     <button id="refreshBtn" class="btn btn-outline-secondary">
-                                        <i class="fas fa-sync-alt" aria-hidden="true"></i> Refresh
+                                        <i class="fas fa-sync-alt" aria-hidden="true"></i> <?php echo te('app.common.refresh'); ?>
                                     </button>
                                     <button id="shareBtn" class="btn btn-outline-secondary">
-                                        <i class="fas fa-share-alt" aria-hidden="true"></i> Share link
+                                        <i class="fas fa-share-alt" aria-hidden="true"></i> <?php echo te('app.common.share_link'); ?>
                                     </button>
                                     <!-- Second way into the generator. It carries the
                                          other id the inbox script's delegated handler
@@ -260,7 +267,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                                          are invalid, and getElementById only ever finds
                                          the first — the empty state above. -->
                                     <button id="newAddressBtn" class="btn btn-outline-secondary">
-                                        <i class="fas fa-plus" aria-hidden="true"></i> New address
+                                        <i class="fas fa-plus" aria-hidden="true"></i> <?php echo te('app.common.new_address'); ?>
                                     </button>
                                 </div>
                             </div>
@@ -280,14 +287,14 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                             <div class="ms-inbox__listbar">
                                 <div class="ms-inbox__count">
                                     <span id="emailCount">0</span>
-                                    <span>messages</span>
-                                    <button id="imageToggle" class="btn btn-sm btn-outline-secondary" title="Blockera externa bilder">
+                                    <span><?php echo te('app.common.messages'); ?></span>
+                                    <button id="imageToggle" class="btn btn-sm btn-outline-secondary" title="<?php echo te('app.common.block_images_title'); ?>">
                                         <i class="fas fa-image" aria-hidden="true"></i>
                                     </button>
                                 </div>
                                 <div class="ms-inbox__freshness">
-                                    <span class="status-indicator"><i class="fas fa-circle" aria-hidden="true"></i> Ready</span>
-                                    <span class="ms-inbox__updated">Last updated: <span id="lastUpdate">Never</span></span>
+                                    <span class="status-indicator"><i class="fas fa-circle" aria-hidden="true"></i> <?php echo te('app.common.status_ready'); ?></span>
+                                    <span class="ms-inbox__updated"><?php echo tHtml('app.common.last_updated', [], ['time' => '<span id="lastUpdate">' . te('app.common.never') . '</span>']); ?></span>
                                 </div>
                             </div>
 
@@ -297,9 +304,9 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                             <div class="ms-inbox__filter" id="addressFilterBar" hidden>
                                 <span class="ms-chip ms-inbox__filter-chip">
                                     <i class="fas fa-filter" aria-hidden="true"></i>
-                                    <span>Filtered by: <strong id="addressFilterLabel"></strong></span>
+                                    <span><?php echo tHtml('app.pro.filtered_by', [], ['address' => '<strong id="addressFilterLabel"></strong>']); ?></span>
                                 </span>
-                                <button type="button" class="ms-address-filter-clear">Clear filter</button>
+                                <button type="button" class="ms-address-filter-clear"><?php echo te('app.pro.clear_filter'); ?></button>
                             </div>
 
                             <!-- E-postlista -->
@@ -312,19 +319,19 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                         <div class="ms-inbox__stats" id="userStats">
                             <div class="ms-inbox__stat">
                                 <span class="ms-inbox__stat-n" id="statsEmails">0</span>
-                                <span class="ms-inbox__stat-l">Emails in your inbox</span>
+                                <span class="ms-inbox__stat-l"><?php echo te('app.common.stat_emails'); ?></span>
                             </div>
                             <div class="ms-inbox__stat">
                                 <span class="ms-inbox__stat-n" id="statsReceived24h">0</span>
-                                <span class="ms-inbox__stat-l">Received last 24 h</span>
+                                <span class="ms-inbox__stat-l"><?php echo te('app.common.stat_received', ['hours' => 24]); ?></span>
                             </div>
                             <div class="ms-inbox__stat">
                                 <span class="ms-inbox__stat-n" id="statsAddresses">0</span>
-                                <span class="ms-inbox__stat-l">Active addresses</span>
+                                <span class="ms-inbox__stat-l"><?php echo te('app.common.stat_addresses'); ?></span>
                             </div>
                             <div class="ms-inbox__stat">
                                 <span class="ms-inbox__stat-n" id="statsStorage">&ndash;</span>
-                                <span class="ms-inbox__stat-l">Storage used</span>
+                                <span class="ms-inbox__stat-l"><?php echo te('app.common.stat_storage'); ?></span>
                             </div>
                         </div>
                     </div>
@@ -335,23 +342,23 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                      filters the inbox on that address instead of navigating. -->
                 <div class="ms-dash__rail">
                     <section class="ms-rail__group" aria-labelledby="railAddressesTitle">
-                        <h2 class="ms-eyebrow ms-rail__title" id="railAddressesTitle">Addresses</h2>
+                        <h2 class="ms-eyebrow ms-rail__title" id="railAddressesTitle"><?php echo te('app.pro.addresses'); ?></h2>
                         <ul class="ms-rail__addrs" id="railAddressList" role="list"></ul>
                         <p class="ms-rail__hint">
-                            Manage your addresses in <a href="pro_profile_page.php">Settings</a>.
+                            <?php echo tHtml('app.pro.manage_hint', [], ['settings' => '<a href="pro_profile_page.php">', 'settings_end' => '</a>']); ?>
                         </p>
                     </section>
 
                     <section class="ms-rail__group" aria-labelledby="railTtlTitle">
-                        <h2 class="ms-eyebrow ms-rail__title" id="railTtlTitle">Default lifetime</h2>
-                        <label class="ms-visually-hidden" for="ttlSelect">Default lifetime</label>
+                        <h2 class="ms-eyebrow ms-rail__title" id="railTtlTitle"><?php echo te('app.pro.default_lifetime'); ?></h2>
+                        <label class="ms-visually-hidden" for="ttlSelect"><?php echo te('app.pro.default_lifetime'); ?></label>
                         <select id="ttlSelect" class="form-select ms-rail__select">
                             <?php for ($d=1;$d<=7;$d++): ?>
-                                <option value="<?php echo $d; ?>" <?php echo ($d === $proTtl) ? 'selected' : ''; ?>><?php echo $d; ?> day<?php echo $d>1 ? 's' : ''; ?></option>
+                                <option value="<?php echo $d; ?>" <?php echo ($d === $proTtl) ? 'selected' : ''; ?>><?php echo htmlspecialchars(tp('app.pro.ttl_days', $d), ENT_QUOTES, 'UTF-8'); ?></option>
                             <?php endfor; ?>
                         </select>
                         <div id="ttlMsg"></div>
-                        <p class="ms-rail__hint">Applied to new timed addresses.</p>
+                        <p class="ms-rail__hint"><?php echo te('app.pro.ttl_hint'); ?></p>
                     </section>
                 </div>
             </div>
@@ -363,23 +370,23 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
         <div class="modal-dialog modal-main modal-fullscreen-sm-down">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="emailModalLabel">Email Message</h5>
+                    <h5 class="modal-title" id="emailModalLabel"><?php echo te('app.common.modal_title'); ?></h5>
                     <div class="d-flex align-items-center">
-                        <button id="modalShowImagesBtn" type="button" class="btn btn-sm btn-outline-secondary me-2" title="Visa bilder i detta meddelande">Visa bilder</button>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button id="modalShowImagesBtn" type="button" class="btn btn-sm btn-outline-secondary me-2" title="<?php echo te('app.common.show_images_title'); ?>"><?php echo te('app.common.show_images'); ?></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?php echo te('app.common.close'); ?>"></button>
                     </div>
                 </div>
                 <div class="modal-body">
                     <div class="row mb-3">
-                        <div class="col-sm-3"><strong>From:</strong></div>
+                        <div class="col-sm-3"><strong><?php echo te('app.common.from'); ?></strong></div>
                         <div class="col-sm-9" id="emailFrom"></div>
                     </div>
                     <div class="row mb-3">
-                        <div class="col-sm-3"><strong>To:</strong></div>
+                        <div class="col-sm-3"><strong><?php echo te('app.common.to'); ?></strong></div>
                         <div class="col-sm-9" id="emailTo"></div>
                     </div>
                     <div class="row mb-3">
-                        <div class="col-sm-3"><strong>Date:</strong></div>
+                        <div class="col-sm-3"><strong><?php echo te('app.common.date'); ?></strong></div>
                         <div class="col-sm-9" id="emailDate"></div>
                     </div>
                     <hr>
@@ -387,12 +394,12 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                         <!-- Email content loaded here -->
                     </div>
                     <div id="emailAttachments" class="mt-3" style="display:none">
-                        <h6>Attachments</h6>
+                        <h6><?php echo te('app.common.attachments'); ?></h6>
                         <!-- Attachment links injected here -->
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><?php echo te('app.common.close'); ?></button>
                 </div>
             </div>
         </div>
@@ -402,7 +409,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
     <footer class="text-center mt-5 py-4">
         <div class="container">
             <p class="text-light mb-0">
-                <small>Mail Shield · Operated by Manjo Consulting AB · v <?php echo htmlspecialchars($config['app']['version'] ?? ''); ?></small>
+                <small><?php echo te('app.common.footer', ['version' => (string) ($config['app']['version'] ?? '')]); ?></small>
             </p>
             <p class="text-light mb-0 mt-1">
                 <small>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</small>
@@ -414,19 +421,24 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
     <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="assets/js/site-controls.js"></script>
+<?php
+// The scripts' own strings (partials/i18n_js.php, read by msT() in assets/js/app.js and below).
+$msI18nJs = ['app.'];
+require __DIR__ . '/partials/i18n_js.php';
+?>
     <script src="assets/js/app.js?v=<?php echo file_exists(__DIR__ . '/assets/js/app.js') ? filemtime(__DIR__ . '/assets/js/app.js') : time(); ?>"></script>
     <script>
     (function(){
         function performSaveTtl(ttl) {
             var $msg = $('#ttlMsg');
             // Indicate saving (blue)
-            $msg.css('color', '#9ecbff').text('Saving...');
+            $msg.css('color', '#9ecbff').text(msT('app.pro.ttl_saving', 'Saving...'));
             // Include currently shown address (if any) so backend can update its expires_at
             var currentAddress = $('#currentEmail').text().trim();
             $.post('pro_profile.php', {action: 'update_ttl', ttl: ttl, address: currentAddress}, function(res){
                 if (res && res.success) {
                     // Show Saved in white for 2 seconds
-                    $msg.css('color', '#fff').text('Saved');
+                    $msg.css('color', '#fff').text(msT('app.pro.ttl_saved', 'Saved'));
                     if (res.expires_at) {
                         // Parse server timestamp (YYYY-MM-DD HH:MM:SS) into JS Date
                         try {
@@ -438,22 +450,22 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                                 } else if (typeof window.tempMailApp.updateValidityText === 'function') {
                                     window.tempMailApp.updateValidityText();
                                 } else {
-                                    $('#validityText').text('Valid until ' + res.expires_at);
+                                    $('#validityText').text(msT('app.pro.valid_until', 'Valid until {time}', { time: res.expires_at }));
                                 }
                             } else {
-                                $('#validityText').text('Valid until ' + res.expires_at);
+                                $('#validityText').text(msT('app.pro.valid_until', 'Valid until {time}', { time: res.expires_at }));
                             }
                         } catch (e) {
-                            $('#validityText').text('Valid until ' + res.expires_at);
+                            $('#validityText').text(msT('app.pro.valid_until', 'Valid until {time}', { time: res.expires_at }));
                         }
                     }
                     setTimeout(function(){ $msg.text('').css('color', '#9ecbff'); }, 2000);
                 } else {
                     // Show error externally in red
-                    $msg.css('color', '#ff6b6b').text(res.error || 'Error');
+                    $msg.css('color', '#ff6b6b').text(res.error || msT('app.pro.ttl_error', 'Error'));
                 }
             }, 'json').fail(function(){
-                $msg.css('color', '#ff6b6b').text('Request failed');
+                $msg.css('color', '#ff6b6b').text(msT('app.pro.ttl_request_failed', 'Request failed'));
             });
         }
 
@@ -484,7 +496,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
         $.post('index.php', { action: 'list_personal' }, function(res){
             var rows = (res && res.success && res.personal) ? res.personal : [];
             if (!rows.length) {
-                list.innerHTML = '<li class="ms-rail__empty">No sticky addresses yet</li>';
+                list.innerHTML = '<li class="ms-rail__empty">' + esc(msT('app.pro.rail_empty', 'No sticky addresses yet')) + '</li>';
                 return;
             }
             var addresses = [];
@@ -493,7 +505,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                 addresses.push(full);
                 return '<li class="ms-rail__addr">' +
                        '<button type="button" class="ms-rail__addr-link" data-address="' + esc(full) + '"' +
-                       ' title="Show only mail sent to this address">' + esc(full) + '</button>' +
+                       ' title="' + esc(msT('app.pro.rail_filter_title', 'Show only mail sent to this address')) + '">' + esc(full) + '</button>' +
                        '</li>';
             }).join('');
             // The inbox script needs the list to tell an address that belongs
@@ -504,7 +516,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                 window.tempMailApp.setKnownPersonalAddresses(addresses);
             }
         }, 'json').fail(function(){
-            list.innerHTML = '<li class="ms-rail__empty">Could not load addresses</li>';
+            list.innerHTML = '<li class="ms-rail__empty">' + esc(msT('app.pro.rail_failed', 'Could not load addresses')) + '</li>';
         });
     })();
     </script>

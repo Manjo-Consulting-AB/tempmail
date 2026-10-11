@@ -3,6 +3,25 @@
  * Hanterar UI-interaktioner och AJAX-calls
  */
 
+/**
+ * The page's own strings (documentaion/I18N.md, "JS-bryggan"): partials/i18n_js.php
+ * puts the catalog subset in #ms-i18n in the account's language. Without the
+ * element, or without the key, the English fallback is used. The result is
+ * plain text: set it with .text() or run it through escapeHtml() before it
+ * goes into HTML.
+ */
+var msI18n = null;
+function msT(key, fallback, params) {
+    if (msI18n === null) {
+        try { msI18n = JSON.parse(document.getElementById('ms-i18n').textContent); }
+        catch (e) { msI18n = {}; }
+    }
+    var text = (typeof msI18n[key] === 'string') ? msI18n[key] : fallback;
+    return text.replace(/\{(\w+)\}/g, function (m, name) {
+        return params && name in params ? String(params[name]) : m;
+    });
+}
+
 class TempMailApp {
     constructor() {
         this.currentAddress = '';
@@ -237,7 +256,7 @@ class TempMailApp {
             $('body').addClass('modal-open');
 
             // Show loading state in modal
-            $('#proProfileAlert').html('<div class="alert alert-info">Loading profile...</div>');
+            $('#proProfileAlert').html('<div class="alert alert-info">' + this.escapeHtml(msT('app.js.profile_loading', 'Loading profile...')) + '</div>');
 
             try {
                 const res = await $.post('pro_profile.php', { action: 'get_profile' }, null, 'json');
@@ -253,11 +272,11 @@ class TempMailApp {
                         $('#proPasswordCurrentGroup').addClass('d-none');
                     }
                 } else {
-                    $('#proProfileAlert').html('<div class="alert alert-warning">Could not load profile data.</div>');
+                    $('#proProfileAlert').html('<div class="alert alert-warning">' + this.escapeHtml(msT('app.js.profile_load_failed', 'Could not load profile data.')) + '</div>');
                 }
             } catch (err) {
                 console.error('Failed to load pro profile', err);
-                $('#proProfileAlert').html('<div class="alert alert-danger">Network error while loading profile</div>');
+                $('#proProfileAlert').html('<div class="alert alert-danger">' + this.escapeHtml(msT('app.js.profile_network', 'Network error while loading profile')) + '</div>');
             }
         });
 
@@ -306,13 +325,13 @@ class TempMailApp {
             try {
                 const res = await $.post('pro_profile.php', { action: 'update_email', email }, null, 'json');
                 if (res.success) {
-                    var msg = res.message || 'Confirmation link sent to the new email address';
+                    var msg = res.message || msT('app.js.profile_email_sent', 'Confirmation link sent to the new email address');
                     $('#proProfileAlert').html('<div class="alert alert-success">' + msg + '</div>');
                 } else {
-                    $('#proProfileAlert').html('<div class="alert alert-danger">' + (res.error || 'Failed') + '</div>');
+                    $('#proProfileAlert').html('<div class="alert alert-danger">' + (res.error || msT('app.error.failed', 'Failed')) + '</div>');
                 }
             } catch (err) {
-                $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+                $('#proProfileAlert').html('<div class="alert alert-danger">' + this.escapeHtml(msT('app.error.network', 'Network error')) + '</div>');
             }
         });
 
@@ -325,14 +344,14 @@ class TempMailApp {
                 const payload = { action: 'set_password', password, confirm };
                 const res = await $.post('pro_profile.php', payload, null, 'json');
                 if (res.success) {
-                    $('#proProfileAlert').html('<div class="alert alert-success">Password set</div>');
+                    $('#proProfileAlert').html('<div class="alert alert-success">' + this.escapeHtml(msT('app.js.password_set', 'Password set')) + '</div>');
                     $('#proPassword').val('');
                     $('#proPasswordConfirm').val('');
                 } else {
-                    $('#proProfileAlert').html('<div class="alert alert-danger">' + (res.error || 'Failed') + '</div>');
+                    $('#proProfileAlert').html('<div class="alert alert-danger">' + (res.error || msT('app.error.failed', 'Failed')) + '</div>');
                 }
             } catch (err) {
-                $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+                $('#proProfileAlert').html('<div class="alert alert-danger">' + this.escapeHtml(msT('app.error.network', 'Network error')) + '</div>');
             }
         });
 
@@ -341,7 +360,7 @@ class TempMailApp {
             e.preventDefault();
             var id = $(this).data('id');
             if (!id) return;
-            if (!confirm('Avbryt denna väntande ändring?')) return;
+            if (!confirm(msT('app.js.confirm_cancel_pending', 'Avbryt denna väntande ändring?'))) return;
             try {
                 const res = await $.post('pro_profile.php', { action: 'cancel_pending_change', id: id }, null, 'json');
                         if (res && res.success) {
@@ -355,14 +374,14 @@ class TempMailApp {
                                     $card.fadeOut(200, function(){ $(this).remove(); });
                                 } else {
                                     // Update header badge count text
-                                    $card.find('.card-header .badge').text(remaining + ' pending');
+                                    $card.find('.card-header .badge').text(msT('app.pro.pending_badge', '{count} pending', { count: remaining }));
                                 }
                             });
                         } else {
-                    alert('Kunde inte avbryta: ' + (res && res.error ? res.error : 'Unknown'));
+                    alert(msT('app.js.cancel_failed', 'Kunde inte avbryta: {reason}', { reason: res && res.error ? res.error : msT('app.js.unknown', 'Unknown') }));
                 }
             } catch (err) {
-                alert('Network error');
+                alert(msT('app.error.network', 'Network error'));
             }
         });
 
@@ -374,12 +393,12 @@ class TempMailApp {
             try {
                 const res = await $.post('pro_profile.php', { action: 'resend_pending_change', id: id }, null, 'json');
                 if (res && res.success) {
-                    alert(res.message || 'Confirmation email resent successfully.');
+                    alert(res.message || msT('app.js.resend_ok', 'Confirmation email resent successfully.'));
                 } else {
-                    alert('Kunde inte skicka om: ' + (res && res.error ? res.error : 'Unknown'));
+                    alert(msT('app.js.resend_failed', 'Kunde inte skicka om: {reason}', { reason: res && res.error ? res.error : msT('app.js.unknown', 'Unknown') }));
                 }
             } catch (err) {
-                alert('Network error');
+                alert(msT('app.error.network', 'Network error'));
             }
         });
 
@@ -438,7 +457,7 @@ class TempMailApp {
      */
     async generateNewAddress() {
         try {
-            this.showLoading('#generateBtn, #newAddressBtn', 'Genererar...');
+            this.showLoading('#generateBtn, #newAddressBtn', msT('app.js.generating', 'Genererar...'));
 
             const response = await $.ajax({
                 url: 'index.php',
@@ -448,8 +467,8 @@ class TempMailApp {
                 error: function(xhr, status, error) {
                     console.error('AJAX error:', status, error, xhr.responseText);
                     $('#generateBtn, #newAddressBtn').removeClass('btn-primary').addClass('btn-danger');
-                    $('#generateBtn, #newAddressBtn').text('Error! Try again');
-                    window.tempMailApp?.showNotification('AJAX error: ' + status + ' ' + error, 'error');
+                    $('#generateBtn, #newAddressBtn').text(msT('app.js.btn_error', 'Error! Try again'));
+                    window.tempMailApp?.showNotification(msT('app.js.ajax_error', 'AJAX error: {status} {error}', { status: status, error: error }), 'error');
                 }
             });
 
@@ -463,27 +482,27 @@ class TempMailApp {
                 this.updateUI();
                 this.startValidityCountdown();
                 this.loadEmails();
-                this.showNotification('New email address generated!', 'success');
+                this.showNotification(msT('app.js.generated', 'New email address generated!'), 'success');
                 $('#generateBtn, #newAddressBtn').removeClass('btn-danger').addClass('btn-primary');
-                $('#generateBtn, #newAddressBtn').text('Generate New Address');
+                $('#generateBtn, #newAddressBtn').text(msT('app.common.generate_new', 'Generate New Address'));
             } else {
-                this.showNotification('Could not generate address: ' + (response.error || 'Unknown error'), 'error');
+                this.showNotification(msT('app.error.generate', 'Could not generate address: {reason}', { reason: response.error || msT('app.error.unknown', 'Unknown error') }), 'error');
                 console.error('Backend error (generate):', response);
                 $('#generateBtn, #newAddressBtn').removeClass('btn-primary').addClass('btn-danger');
-                $('#generateBtn, #newAddressBtn').text('Error! Try again');
+                $('#generateBtn, #newAddressBtn').text(msT('app.js.btn_error', 'Error! Try again'));
             }
 
         } catch (error) {
             console.error('Error generating address (catch):', error);
-            this.showNotification('Network error when generating address: ' + error, 'error');
+            this.showNotification(msT('app.error.generate_network', 'Network error when generating address: {error}', { error: error }), 'error');
             $('#generateBtn, #newAddressBtn').removeClass('btn-primary').addClass('btn-danger');
-            $('#generateBtn, #newAddressBtn').text('Network error! Try again');
+            $('#generateBtn, #newAddressBtn').text(msT('app.js.btn_network_error', 'Network error! Try again'));
         } finally {
             setTimeout(() => {
                 $('#generateBtn, #newAddressBtn').removeClass('btn-danger').addClass('btn-primary');
-                $('#generateBtn, #newAddressBtn').text('Generate New Address');
+                $('#generateBtn, #newAddressBtn').text(msT('app.common.generate_new', 'Generate New Address'));
             }, 4000);
-            this.hideLoading('#generateBtn, #newAddressBtn', 'Generate new address');
+            this.hideLoading('#generateBtn, #newAddressBtn', msT('app.js.generate_new_lower', 'Generate new address'));
         }
     }
     
@@ -497,7 +516,7 @@ class TempMailApp {
         }
 
         try {
-            const actionText = forceRefresh ? 'Fetching from server...' : 'Updating...';
+            const actionText = forceRefresh ? msT('app.js.fetching', 'Fetching from server...') : msT('app.js.updating', 'Updating...');
             this.showLoading('#refreshBtn', actionText);
             this.updateStatus('loading');
 
@@ -533,20 +552,20 @@ class TempMailApp {
                 this.loadStats();
             } else {
                     if ((response.error || '').toLowerCase().includes('ogiltig adress')) {
-                        this.showNotification('Invalid address, new address created', 'info');
+                        this.showNotification(msT('app.js.invalid_address_new', 'Invalid address, new address created'), 'info');
                         await this.generateNewAddress();
                     } else {
-                        this.showNotification('Could not load emails: ' + (response.error || 'Unknown error'), 'error');
+                        this.showNotification(msT('app.error.load_emails', 'Could not load emails: {reason}', { reason: response.error || msT('app.error.unknown', 'Unknown error') }), 'error');
                         this.updateStatus('offline');
                     }
             }
             
         } catch (error) {
             console.error('Error loading emails:', error);
-            this.showNotification('Network error when loading emails', 'error');
+            this.showNotification(msT('app.error.load_emails_network', 'Network error when loading emails'), 'error');
             this.updateStatus('offline');
         } finally {
-            this.hideLoading('#refreshBtn', 'Refresh');
+            this.hideLoading('#refreshBtn', msT('app.common.refresh', 'Refresh'));
         }
     }
     
@@ -690,9 +709,9 @@ class TempMailApp {
                 // en tom inkorg — säg vilken adress som saknar mail.
                 container.html(`
                     <div class="ms-mail-empty">
-                        <p class="ms-mail-empty__line">No messages for ${this.escapeHtml(this.activeAddressFilter)}</p>
-                        <p class="ms-mail-empty__hint">Nothing has been sent to this address yet.
-                            <button type="button" class="ms-address-filter-clear">Clear filter</button>
+                        <p class="ms-mail-empty__line">${this.escapeHtml(msT('app.js.no_messages_for', 'No messages for {address}', { address: this.activeAddressFilter }))}</p>
+                        <p class="ms-mail-empty__hint">${this.escapeHtml(msT('app.js.nothing_sent', 'Nothing has been sent to this address yet.'))}
+                            <button type="button" class="ms-address-filter-clear">${this.escapeHtml(msT('app.pro.clear_filter', 'Clear filter'))}</button>
                         </p>
                     </div>
                 `);
@@ -701,8 +720,8 @@ class TempMailApp {
             }
             container.html(`
                 <div class="ms-mail-empty">
-                    <p class="ms-mail-empty__line">No messages yet</p>
-                    <p class="ms-mail-empty__hint">Messages appear here automatically.</p>
+                    <p class="ms-mail-empty__line">${this.escapeHtml(msT('app.js.no_messages', 'No messages yet'))}</p>
+                    <p class="ms-mail-empty__hint">${this.escapeHtml(msT('app.js.messages_appear', 'Messages appear here automatically.'))}</p>
                 </div>
             `);
             // Uppdatera email counter badge till 0
@@ -738,8 +757,8 @@ class TempMailApp {
                         <span class="ms-mail__time">${this.escapeHtml(time)}</span>
                     </span>
                     <span class="ms-mail__sub">
-                        <span class="ms-mail__subject">${this.escapeHtml(email.subject || '(No subject)')}</span>
-                        ${toLocal ? `<span class="ms-chip ms-mail__to">To: ${this.escapeHtml(toLocal)}</span>` : ''}
+                        <span class="ms-mail__subject">${this.escapeHtml(email.subject || msT('app.js.no_subject', '(No subject)'))}</span>
+                        ${toLocal ? `<span class="ms-chip ms-mail__to">${this.escapeHtml(msT('app.js.to_chip', 'To: {name}', { name: toLocal }))}</span>` : ''}
                     </span>
                     <span class="ms-mail__preview">${this.escapeHtml(preview)}</span>
                 </div>
@@ -796,15 +815,15 @@ class TempMailApp {
                 // If the server indicates the message has expired, show a friendly toast
                 const err = (response && response.error) ? response.error.toString().toLowerCase() : '';
                 if (err.includes('förfall') || err.includes('expired') || err.includes('har förfallit')) {
-                    this.showNotification('Det här meddelandet har förfallit och kan inte visas.', 'warning', 5000);
+                    this.showNotification(msT('app.js.message_expired', 'Det här meddelandet har förfallit och kan inte visas.'), 'warning', 5000);
                 } else {
-                    this.showNotification(response.error || 'Could not load email message', 'error');
+                    this.showNotification(response.error || msT('app.error.load_message', 'Could not load email message'), 'error');
                 }
             }
             
         } catch (error) {
             console.error('Error loading email:', error);
-            this.showNotification('Network error when loading message', 'error');
+            this.showNotification(msT('app.error.load_message_network', 'Network error when loading message'), 'error');
         }
     }
     
@@ -815,7 +834,7 @@ class TempMailApp {
         const modal = $('#emailModal');
         
         // Sätt innehåll
-        modal.find('.modal-title').text(email.subject || '(No subject)');
+        modal.find('.modal-title').text(email.subject || msT('app.js.no_subject', '(No subject)'));
         modal.find('#emailFrom').text(email.from_address);
         modal.find('#emailTo').text(email.to_address);
         modal.find('#emailDate').text(this.formatTime(new Date(email.received_at)));
@@ -837,7 +856,7 @@ class TempMailApp {
             const parsed = this.parseSimpleMarkdown(escaped);
             contentContainer.html(parsed);
         } else {
-            contentContainer.html('<p class="text-muted">No content available</p>');
+            contentContainer.html('<p class="text-muted">' + this.escapeHtml(msT('app.js.no_content', 'No content available')) + '</p>');
         }
         
         // Visa attachments (if any)
@@ -847,7 +866,7 @@ class TempMailApp {
             attachments.forEach(att => {
                 const url = att.download_url || ('/files.php?id=' + encodeURIComponent(att.id));
                 const dl = `<div class="tm-attachment-item mb-2">
-                    <a class="btn btn-sm btn-outline-primary" href="${url}" target="_blank" rel="noreferrer noopener">Ladda ner</a>
+                    <a class="btn btn-sm btn-outline-primary" href="${url}" target="_blank" rel="noreferrer noopener">${this.escapeHtml(msT('app.js.download', 'Ladda ner'))}</a>
                     <small class="ms-2">${this.escapeHtml(att.filename)}</small>
                 </div>`;
                 attachmentsHtml.push(dl);
@@ -885,7 +904,7 @@ class TempMailApp {
      */
     async copyAddress() {
         if (!this.currentAddress) {
-            this.showNotification('No address to copy', 'error');
+            this.showNotification(msT('app.js.no_address_copy', 'No address to copy'), 'error');
             return;
         }
         
@@ -893,7 +912,7 @@ class TempMailApp {
         
         try {
             await navigator.clipboard.writeText(fullAddress);
-            this.showNotification('Adress kopierad!', 'success');
+            this.showNotification(msT('app.js.address_copied', 'Adress kopierad!'), 'success');
         } catch (error) {
             // Fallback för äldre webbläsare
             const textArea = document.createElement('textarea');
@@ -902,7 +921,7 @@ class TempMailApp {
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
-            this.showNotification('Adress kopierad!', 'success');
+            this.showNotification(msT('app.js.address_copied', 'Adress kopierad!'), 'success');
         }
     }
     
@@ -911,7 +930,7 @@ class TempMailApp {
      */
     async shareLink() {
         if (!this.currentAddress) {
-            this.showNotification('No address to share', 'error');
+            this.showNotification(msT('app.js.no_address_share', 'No address to share'), 'error');
             return;
         }
         
@@ -923,7 +942,7 @@ class TempMailApp {
         
         try {
             await navigator.clipboard.writeText(shareUrl);
-            this.showNotification('Länk kopierad! Andra kan nu använda samma adress.', 'success');
+            this.showNotification(msT('app.js.link_copied', 'Länk kopierad! Andra kan nu använda samma adress.'), 'success');
         } catch (error) {
             // Fallback för äldre webbläsare
             const textArea = document.createElement('textarea');
@@ -932,7 +951,7 @@ class TempMailApp {
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
-            this.showNotification('Länk kopierad! Andra kan nu använda samma adress.', 'success');
+            this.showNotification(msT('app.js.link_copied', 'Länk kopierad! Andra kan nu använda samma adress.'), 'success');
         }
     }
     
@@ -1002,12 +1021,12 @@ class TempMailApp {
         if (blocked) {
             btn.classList.add('btn-danger');
             btn.classList.remove('btn-outline-light');
-            btn.title = 'Bilder blockeras (klicka för att visa)';
+            btn.title = msT('app.js.images_blocked_title', 'Bilder blockeras (klicka för att visa)');
             if (icon) icon.className = 'fas fa-eye-slash';
         } else {
             btn.classList.remove('btn-danger');
             btn.classList.add('btn-outline-light');
-            btn.title = 'Blockera externa bilder';
+            btn.title = msT('app.common.block_images_title', 'Blockera externa bilder');
             if (icon) icon.className = 'fas fa-image';
         }
     }
@@ -1086,13 +1105,13 @@ class TempMailApp {
         
         if (this.autoRefreshEnabled) {
             this.startAutoRefresh();
-            this.showNotification('Auto-refresh enabled', 'success');
+            this.showNotification(msT('app.js.autorefresh_enabled', 'Auto-refresh enabled'), 'success');
         } else {
             if (this.refreshInterval) {
                 clearInterval(this.refreshInterval);
                 this.refreshInterval = null;
             }
-            this.showNotification('Auto-refresh disabled', 'info');
+            this.showNotification(msT('app.js.autorefresh_disabled', 'Auto-refresh disabled'), 'info');
         }
         
         this.updateAutoRefreshIndicator();
@@ -1107,17 +1126,17 @@ class TempMailApp {
             $('#currentEmail').text(fullAddress);
             $('.email-container').removeClass('d-none');
             $('#initial-generator').addClass('d-none');
-            $('#generateBtn, #newAddressBtn').text('Generate New Address');
+            $('#generateBtn, #newAddressBtn').text(msT('app.common.generate_new', 'Generate New Address'));
             console.log('updateUI: expiresAt =', this.expiresAt, 'isPersonal =', this.isPersonalAddress);
             this.startValidityCountdown();
             // Update privacy indicator
             if (this.isPersonalAddress) {
                 $('#privacyIndicator').removeClass('d-none');
-                $('#privacyText').text('Private');
+                $('#privacyText').text(msT('app.common.privacy_private', 'Private'));
                 $('#privacyIndicator i').removeClass('fa-globe').addClass('fa-lock');
             } else {
                 $('#privacyIndicator').removeClass('d-none');
-                $('#privacyText').text('Public');
+                $('#privacyText').text(msT('app.common.privacy_public', 'Public'));
                 $('#privacyIndicator i').removeClass('fa-lock').addClass('fa-globe');
             }
         } else {
@@ -1127,9 +1146,9 @@ class TempMailApp {
                 $('.ms-dash__messages .email-container').removeClass('d-none');
             }
             $('#initial-generator').removeClass('d-none');
-            $('#generateBtn, #newAddressBtn').text('Get Email Address');
+            $('#generateBtn, #newAddressBtn').text(msT('app.common.get_address', 'Get Email Address'));
             this.stopValidityCountdown();
-            $('#validityText').text('Valid for 24 hours');
+            $('#validityText').text(msT('app.common.validity', 'Valid for {hours} hours', { hours: 24 }));
             $('#privacyIndicator').addClass('d-none');
         }
     }
@@ -1140,7 +1159,7 @@ class TempMailApp {
     startValidityCountdown() {
         this.stopValidityCountdown();
         if (!this.expiresAt) {
-            $('#validityText').text('Valid for 24 hours');
+            $('#validityText').text(msT('app.common.validity', 'Valid for {hours} hours', { hours: 24 }));
             return;
         }
         this.updateValidityText();
@@ -1161,7 +1180,7 @@ class TempMailApp {
      */
     updateValidityText() {
         if (!this.expiresAt) {
-            $('#validityText').text('Valid for 24 hours till automatically deleted');
+            $('#validityText').text(msT('app.js.valid_till_deleted', 'Valid for {hours} hours till automatically deleted', { hours: 24 }));
             return;
         }
         const now = new Date();
@@ -1169,11 +1188,11 @@ class TempMailApp {
         // Treat very long expirations as 'Unlimited' (e.g. personal/pro addresses with multi-year TTL)
         const unlimitedThresholdSeconds = 60 * 60 * 24 * 365 * 5; // 5 years
         if (diff > unlimitedThresholdSeconds) {
-            $('#validityText').text('Unlimited');
+            $('#validityText').text(msT('app.js.unlimited', 'Unlimited'));
             return;
         }
         if (diff <= 0) {
-            $('#validityText').text('Utgången – automatically deleted');
+            $('#validityText').text(msT('app.js.expired_deleted', 'Utgången – automatically deleted'));
             this.stopValidityCountdown();
             return;
         }
@@ -1181,13 +1200,13 @@ class TempMailApp {
         const minutes = Math.floor((diff % 3600) / 60);
         let timeText = '';
         if (hours > 0) {
-            timeText = `${hours}h ${minutes}m`;
+            timeText = msT('app.js.left_hm', '{hours}h {minutes}m', { hours: hours, minutes: minutes });
         } else if (minutes > 0) {
-            timeText = `${minutes}m`;
+            timeText = msT('app.js.left_m', '{minutes}m', { minutes: minutes });
         } else {
-            timeText = `${diff % 60}s`;
+            timeText = msT('app.js.left_s', '{seconds}s', { seconds: diff % 60 });
         }
-        $('#validityText').text(`${timeText} till automatically deleted`);
+        $('#validityText').text(msT('app.js.time_till_deleted', '{time} till automatically deleted', { time: timeText }));
     }
     
     /**
@@ -1212,13 +1231,13 @@ class TempMailApp {
         
         switch (status) {
             case 'online':
-                indicator.addClass('status-online').html('<i class="fas fa-circle"></i> Online ' + text);
+                indicator.addClass('status-online').html('<i class="fas fa-circle"></i> ' + this.escapeHtml(msT('app.js.status_online', 'Online')) + ' ' + text);
                 break;
             case 'offline':
-                indicator.addClass('status-offline').html('<i class="fas fa-exclamation-circle"></i> Offline');
+                indicator.addClass('status-offline').html('<i class="fas fa-exclamation-circle"></i> ' + this.escapeHtml(msT('app.js.status_offline', 'Offline')));
                 break;
             case 'loading':
-                indicator.addClass('loading').html('<div class="spinner"></div> Laddar...');
+                indicator.addClass('loading').html('<div class="spinner"></div> ' + this.escapeHtml(msT('app.js.status_loading', 'Laddar...')));
                 break;
         }
     }
@@ -1234,9 +1253,9 @@ class TempMailApp {
         }
         
         if (this.autoRefreshEnabled) {
-            indicator.html('<i class="fas fa-sync-alt"></i> Auto-refresh: ON').show();
+            indicator.html('<i class="fas fa-sync-alt"></i> ' + this.escapeHtml(msT('app.js.autorefresh_on', 'Auto-refresh: ON'))).show();
         } else {
-            indicator.html('<i class="fas fa-pause"></i> Auto-refresh: OFF').show();
+            indicator.html('<i class="fas fa-pause"></i> ' + this.escapeHtml(msT('app.js.autorefresh_off', 'Auto-refresh: OFF'))).show();
         }
     }
     
@@ -1247,7 +1266,7 @@ class TempMailApp {
         const btn = $(selector);
         btn.prop('disabled', true);
         btn.data('original-text', btn.text());
-        btn.html(`<span class="spinner-border spinner-border-sm me-2"></span>${text}`);
+        btn.html(`<span class="spinner-border spinner-border-sm me-2"></span>${this.escapeHtml(text)}`);
     }
     
     /**
@@ -1269,7 +1288,7 @@ class TempMailApp {
         
         const notification = $(`
             <div class="copy-notification ${type}">
-                <i class="fas fa-${this.getNotificationIcon(type)}"></i> ${message}
+                <i class="fas fa-${this.getNotificationIcon(type)}"></i> ${this.escapeHtml(message)}
             </div>
         `);
         
@@ -1307,10 +1326,10 @@ class TempMailApp {
         const hours = Math.floor(minutes / 60);
         const days = Math.floor(hours / 24);
         
-        if (minutes < 1) return 'Nu';
-        if (minutes < 60) return `${minutes}m sedan`;
-        if (hours < 24) return `${hours}t sedan`;
-        if (days < 7) return `${days}d sedan`;
+        if (minutes < 1) return msT('app.js.time_now', 'Nu');
+        if (minutes < 60) return msT('app.js.time_min_ago', '{minutes}m sedan', { minutes: minutes });
+        if (hours < 24) return msT('app.js.time_hour_ago', '{hours}t sedan', { hours: hours });
+        if (days < 7) return msT('app.js.time_day_ago', '{days}d sedan', { days: days });
         
         return date.toLocaleDateString('sv-SE', {
             year: 'numeric',
@@ -1325,7 +1344,7 @@ class TempMailApp {
      * Hämta förhandsvisning av e-post
      */
     getEmailPreview(content, maxLength = 150) {
-        if (!content) return 'Inget innehåll tillgängligt';
+        if (!content) return msT('app.js.no_preview', 'Inget innehåll tillgängligt');
         
         // Ta bort HTML-taggar
         const text = content.replace(/<[^>]*>/g, '');
@@ -1425,7 +1444,7 @@ class TempMailApp {
             placeholder.className = 'ms-mail-img-blocked';
             let host = '';
             try { host = src ? new URL(src, window.location.href).host : ''; } catch (e) { host = ''; }
-            placeholder.textContent = host ? ('Image blocked: ' + host) : 'Image blocked';
+            placeholder.textContent = host ? msT('app.js.image_blocked_host', 'Image blocked: {host}', { host: host }) : msT('app.js.image_blocked', 'Image blocked');
             img.replaceWith(placeholder);
         });
 
@@ -1464,7 +1483,7 @@ class TempMailApp {
         frame.className = 'ms-mail-frame';
         frame.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
         frame.setAttribute('referrerpolicy', 'no-referrer');
-        frame.setAttribute('title', 'Message content');
+        frame.setAttribute('title', msT('app.js.frame_title', 'Message content'));
         if (blocked > 0) frame.setAttribute('data-blocked-images', String(blocked));
         frame.srcdoc = srcdoc;
 
@@ -1473,8 +1492,8 @@ class TempMailApp {
             const note = document.createElement('p');
             note.className = 'ms-mail-frame__note';
             note.textContent = blocked === 1
-                ? '1 external image is blocked. Use "Visa bilder" to load it.'
-                : `${blocked} external images are blocked. Use "Visa bilder" to load them.`;
+                ? msT('app.js.images_blocked_one', '1 external image is blocked. Use "Visa bilder" to load it.')
+                : msT('app.js.images_blocked_many', '{count} external images are blocked. Use "Visa bilder" to load them.', { count: blocked });
             nodes.push(note);
         }
         nodes.push(frame);
