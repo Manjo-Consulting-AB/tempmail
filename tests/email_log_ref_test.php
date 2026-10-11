@@ -266,9 +266,11 @@ PHP;
 
 $probe = sys_get_temp_dir() . '/ms_email_log_ref_' . bin2hex(random_bytes(6));
 mkdir($probe);
-foreach (['pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php', 'after_login.php'] as $file) {
+foreach (['pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php', 'after_login.php', 'i18n.php'] as $file) {
     copy($repoRoot . '/' . $file, $probe . '/' . $file);
 }
+// pro_auth.php answers through t(): the language library and its catalogs (epic #428).
+symlink($repoRoot . '/lang', $probe . '/lang');
 file_put_contents($probe . '/config.php', probeStubConfig());
 
 function probeDb(string $path): void

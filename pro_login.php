@@ -42,7 +42,7 @@ $error = '';
 if ($token) {
     $result = consumeLoginToken($token);
     if ($result === null) {
-        $error = "Invalid or expired link.";
+        $error = t('auth.login.error.invalid_link');
     } else {
         // Magic link is itself two factors (knowledge of the address +
         // inbox access) — it must never trigger a pending_2fa challenge, and
@@ -54,6 +54,9 @@ if ($token) {
         $_SESSION['pro_user_email'] = $result['email'];
         $_SESSION['pro_login_method'] = 'magic_link';
         recordProUserLogin($result['user_id']);
+        // A sign-in from a non-default page language remembers it, but only while
+        // the account has no language of its own (pro_auth.php).
+        proAuthRecordLocale($result['user_id']);
         // "Stay signed in" period chosen on the login form, carried in the link.
         proRememberIssue((int) $result['user_id'], proRememberNormaliseDays($_GET['stay'] ?? 0));
 
@@ -87,10 +90,25 @@ if ($token) {
 // indexable (§14 lists only inbox/pro_profile/client_agent/log_viewer/pro_contact
 // as noindex) and is one of the six paths in sitemap.php.
 $msOgOrigin = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
-$msOgUrl    = $msOgOrigin . '/pro_login.php';
+$msPath     = '/pro_login.php';
+$msOgUrl    = $msOgOrigin . i18nUrl($msPath);
 $msOgImage  = $msOgOrigin . '/assets/images/og-mailshield.png';
-$msTitle    = 'Log in · Mail Shield';
-$msDesc     = 'Log in to Mail Shield with a magic link sent to your email address, or with your password if you have set one.';
+$msTitle    = t('auth.login.meta.title');
+$msDesc     = t('auth.login.meta.desc');
+
+// The page's stylesheets and its endpoint are relative links (history). Under
+// /sv/ a relative link would resolve to /sv/assets/... and /sv/pro_auth.php, so
+// every non-default language gets the root-relative form; the English markup is
+// unchanged.
+$msAssets = i18nLocale() === i18nDefaultLocale() ? '' : '/';
+$msAuthUrl = $msAssets . 'pro_auth.php';
+
+// The scripts' own strings (partials/i18n_js.php, read by msT() below).
+$msI18nJs = ['auth.login.js.', 'auth.twofa.js.'];
+
+$msEsc = function ($value): string {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+};
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
@@ -103,6 +121,7 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
     <meta name="description" content="<?php echo htmlspecialchars($msDesc, ENT_QUOTES, 'UTF-8'); ?>">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="<?php echo htmlspecialchars($msOgUrl, ENT_QUOTES, 'UTF-8'); ?>">
+<?php require __DIR__ . '/partials/i18n_head.php'; ?>
 
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Mail Shield">
@@ -121,40 +140,41 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
 <?php require __DIR__ . '/partials/favicons.php'; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/style.css" rel="stylesheet">
     <script>
         // Only show the magic-link test URL in non-production environments
         window.showMagicLink = <?php echo (strpos($config['email']['base_url'], 'manjo.me') === false) ? 'true' : 'false'; ?>;
     </script>
 
-    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
+<?php require __DIR__ . '/partials/i18n_js.php'; ?>
 </head>
 <body>
     <div class="ms-auth">
         <header class="ms-auth__bar">
             <div class="ms-auth__bar-inner">
-                <?php echo ms_logo(['href' => '/']); ?>
+                <?php echo ms_logo(['href' => i18nUrl('/')]); ?>
             </div>
         </header>
 
         <main class="ms-auth__main">
             <div class="ms-card ms-auth__card">
-                <h1 class="ms-auth__title">Log in</h1>
-                <p class="ms-auth__sub">Sign in to your Mail Shield account.</p>
+                <h1 class="ms-auth__title"><?php echo te('auth.login.title'); ?></h1>
+                <p class="ms-auth__sub"><?php echo te('auth.login.sub'); ?></p>
 
                 <?php if ($error): ?>
                     <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
                 <?php endif; ?>
 
                 <div class="mb-3" id="loginModeToggle">
-                    <div class="ms-auth__segment" role="group" aria-label="Login mode">
+                    <div class="ms-auth__segment" role="group" aria-label="<?php echo te('auth.login.mode_label'); ?>">
                         <input type="radio" class="btn-check" name="loginMode" id="modeMagic" autocomplete="off" checked>
-                        <label class="btn btn-outline-secondary" for="modeMagic">Magic link</label>
+                        <label class="btn btn-outline-secondary" for="modeMagic"><?php echo te('auth.login.mode_magic'); ?></label>
 
                         <input type="radio" class="btn-check" name="loginMode" id="modePassword" autocomplete="off">
-                        <label class="btn btn-outline-secondary" for="modePassword">Password</label>
+                        <label class="btn btn-outline-secondary" for="modePassword"><?php echo te('auth.login.mode_password'); ?></label>
                     </div>
                 </div>
 
@@ -163,24 +183,24 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                 <!-- Shared by both modes; the choice travels with the magic link
                      and waits through the 2FA challenge (pro_remember.php). -->
                 <div class="mb-3" id="staySignedInField">
-                    <label for="staySignedIn" class="form-label">Stay signed in on this device</label>
+                    <label for="staySignedIn" class="form-label"><?php echo te('auth.login.stay_label'); ?></label>
                     <select class="form-select" id="staySignedIn" aria-describedby="staySignedInHint">
-                        <option value="0">Until I close the browser</option>
-                        <option value="1">For 1 day</option>
-                        <option value="7">For 7 days</option>
-                        <option value="30">For 30 days</option>
+                        <option value="0"><?php echo te('auth.login.stay_0'); ?></option>
+                        <option value="1"><?php echo te('auth.login.stay_1', ['days' => 1]); ?></option>
+                        <option value="7"><?php echo te('auth.login.stay_7', ['days' => 7]); ?></option>
+                        <option value="30"><?php echo te('auth.login.stay_30', ['days' => 30]); ?></option>
                     </select>
-                    <div class="form-text" id="staySignedInHint">Keeps you signed in when your phone closes the browser in the background. Only choose a period on a device that is yours.</div>
+                    <div class="form-text" id="staySignedInHint"><?php echo te('auth.login.stay_hint'); ?></div>
                 </div>
 
                 <div id="magicBlock">
-                    <form method="post" action="pro_auth.php" id="loginRequestForm">
+                    <form method="post" action="<?php echo $msEsc($msAuthUrl); ?>" id="loginRequestForm">
                         <input type="hidden" name="action" value="request_login_link">
                         <div class="mb-3">
-                            <label for="email" class="form-label">Email address</label>
+                            <label for="email" class="form-label"><?php echo te('auth.login.email'); ?></label>
                             <input type="email" class="form-control" name="email" id="email" required>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">Send me a login link</button>
+                        <button type="submit" class="btn btn-primary w-100"><?php echo te('auth.login.send_link'); ?></button>
                     </form>
                     <div id="loginRequestMsg" class="mt-3"></div>
                 </div>
@@ -189,56 +209,57 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                     <form id="passwordLoginForm">
                         <input type="hidden" name="action" value="password_login">
                         <div class="mb-3">
-                            <label for="pwEmail" class="form-label">Email address</label>
+                            <label for="pwEmail" class="form-label"><?php echo te('auth.login.email'); ?></label>
                             <input type="email" class="form-control" name="email" id="pwEmail" required>
                         </div>
                         <div class="mb-3">
-                            <label for="pwPassword" class="form-label">Password</label>
+                            <label for="pwPassword" class="form-label"><?php echo te('auth.login.password'); ?></label>
                             <div class="ms-password-field">
                                 <input type="password" class="form-control" name="password" id="pwPassword" required>
-                                <button type="button" class="ms-password-toggle" data-target="pwPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                <button type="button" class="ms-password-toggle" data-target="pwPassword" aria-label="<?php echo te('auth.login.show_password'); ?>" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">Sign in</button>
+                        <button type="submit" class="btn btn-primary w-100"><?php echo te('auth.login.submit'); ?></button>
                     </form>
                     <div id="passwordLoginMsg" class="mt-3"></div>
                 </div>
 
                 <div id="twoFactorBlock" style="display:none;">
-                    <p class="ms-auth__hint ms-auth__hint--lead">Open your authenticator app (1Password, Authy, Google Authenticator &hellip;) and enter the 6-digit code for Mail Shield.</p>
+                    <p class="ms-auth__hint ms-auth__hint--lead"><?php echo te('auth.twofa.lead'); ?></p>
                     <form id="twoFactorForm">
                         <input type="hidden" name="action" value="verify_2fa">
                         <div class="mb-3 form-check">
                             <input type="checkbox" class="form-check-input" name="remember_device" id="rememberDeviceCheck">
-                            <label class="form-check-label" for="rememberDeviceCheck">Remember this browser for 30 days</label>
+                            <label class="form-check-label" for="rememberDeviceCheck"><?php echo te('auth.twofa.remember', ['days' => 30]); ?></label>
                         </div>
                         <div class="mb-3">
-                            <label for="twoFactorCode" class="form-label" id="twoFactorCodeLabel">Authentication code</label>
+                            <label for="twoFactorCode" class="form-label" id="twoFactorCodeLabel"><?php echo te('auth.twofa.code_label'); ?></label>
                             <input type="text" class="form-control" name="code" id="twoFactorCode"
                                    inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*"
                                    autofocus required>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">Verify</button>
+                        <button type="submit" class="btn btn-primary w-100"><?php echo te('auth.twofa.verify'); ?></button>
                     </form>
                     <div class="ms-auth__link-row">
-                        <a href="#" id="useRecoveryCodeLink">Use a recovery code instead</a>
+                        <a href="#" id="useRecoveryCodeLink"><?php echo te('auth.twofa.use_recovery'); ?></a>
                     </div>
                     <div class="ms-auth__link-row">
-                        <a href="#" id="lostAuthenticatorLink">Lost your authenticator? Sign in with an email link instead</a> &mdash; you can then turn off two-factor authentication in your profile.
+                        <?php echo tHtml('auth.twofa.lost', [], ['lost' => '<a href="#" id="lostAuthenticatorLink">', 'lost_end' => '</a>']); ?>
+
                     </div>
                     <div class="ms-auth__link-row">
-                        <a href="#" id="cancel2faLink">Cancel</a>
+                        <a href="#" id="cancel2faLink"><?php echo te('auth.twofa.cancel'); ?></a>
                     </div>
                     <div id="twoFactorMsg" class="mt-3"></div>
                 </div>
 
-                <?php $msTrialDays = max(0, (int) ($config['trial']['days'] ?? 0)); ?>
-                <p class="ms-auth__alt">New here? <a href="/register.php?plan=regular">Create your inbox</a><?php if ($msTrialDays > 0) : ?> &mdash; it starts with <?php echo $msTrialDays; ?> days of Pro<?php endif; ?>.</p>
+                <?php $msTrialDays = max(0, (int) ($config['trial']['days'] ?? 0)); $msCreate = ['create' => '<a href="' . $msEsc(i18nUrl('/register.php?plan=regular')) . '">', 'create_end' => '</a>']; ?>
+                <p class="ms-auth__alt"><?php echo $msTrialDays > 0 ? tHtml('auth.login.new_here_trial', ['days' => $msTrialDays], $msCreate) : tHtml('auth.login.new_here', [], $msCreate); ?></p>
             </div>
         </main>
 
         <footer class="ms-auth__foot">
-            <p><a href="/">&larr; Back to Mail Shield</a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
+            <p><a href="<?php echo $msEsc(i18nUrl('/')); ?>"><?php echo te('auth.login.back'); ?></a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
         </footer>
     </div>
 
@@ -246,6 +267,26 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
     <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    // Strings for the scripts below: the page's slice of the catalog, in the
+    // page's language (partials/i18n_js.php); English when it is missing.
+    var msI18n = null;
+    function msT(key, fallback, params) {
+        if (msI18n === null) {
+            try { msI18n = JSON.parse(document.getElementById('ms-i18n').textContent); }
+            catch (e) { msI18n = {}; }
+        }
+        var text = (typeof msI18n[key] === 'string') ? msI18n[key] : fallback;
+        return text.replace(/\{(\w+)\}/g, function (m, name) {
+            return params && name in params ? String(params[name]) : m;
+        });
+    }
+    function msEsc(text) {
+        return String(text).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+    // Our own endpoint: root-relative under /sv/, where a relative URL would not resolve.
+    var AUTH_URL = <?php echo json_encode($msAuthUrl); ?>;
     $(function(){
         // Each status region belongs to the fields that write into it, so the
         // association is made here rather than in the markup: every one of
@@ -297,8 +338,8 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                 pattern: '[0-9]*',
                 autocomplete: 'one-time-code'
             });
-            $('#twoFactorCodeLabel').text('Authentication code');
-            $('#useRecoveryCodeLink').text('Use a recovery code instead');
+            $('#twoFactorCodeLabel').text(msT('auth.twofa.js.code_label', 'Authentication code'));
+            $('#useRecoveryCodeLink').text(msT('auth.twofa.js.use_recovery', 'Use a recovery code instead'));
         }
 
         function showTwoFactorBlock() {
@@ -328,7 +369,7 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
         // regardless of whether the request succeeded (the session entry
         // also expires on its own after 10 minutes).
         function cancelTwoFactor(callback) {
-            $.post('pro_auth.php', { action: 'cancel_2fa' }, function(){}, 'json').always(callback);
+            $.post(AUTH_URL, { action: 'cancel_2fa' }, function(){}, 'json').always(callback);
         }
 
         $('#twoFactorCode').on('input', function(){
@@ -345,16 +386,16 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
             var code = $('#twoFactorCode').val();
             if (!code) return;
             var rememberDevice = $('#rememberDeviceCheck').is(':checked') ? 1 : 0;
-            $('#twoFactorMsg').html('<div class="alert alert-info">Verifying...</div>');
-            $.post('pro_auth.php', { action: 'verify_2fa', code: code, remember_device: rememberDevice }, function(res){
+            $('#twoFactorMsg').html('<div class="alert alert-info">' + msEsc(msT('auth.twofa.js.verifying', 'Verifying...')) + '</div>');
+            $.post(AUTH_URL, { action: 'verify_2fa', code: code, remember_device: rememberDevice }, function(res){
                 if (res && res.success) {
                     window.location = res.redirect || 'pro.php';
                 } else {
-                    $('#twoFactorMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Incorrect code') + '</div>');
+                    $('#twoFactorMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : msEsc(msT('auth.twofa.js.incorrect', 'Incorrect code'))) + '</div>');
                     $('#twoFactorCode').val('').trigger('focus');
                 }
             }, 'json').fail(function(){
-                $('#twoFactorMsg').html('<div class="alert alert-danger">Network error</div>');
+                $('#twoFactorMsg').html('<div class="alert alert-danger">' + msEsc(msT('auth.twofa.js.network', 'Network error')) + '</div>');
                 $('#twoFactorCode').val('').trigger('focus');
             });
         });
@@ -369,8 +410,8 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                     pattern: '[A-Za-z0-9-]*',
                     autocomplete: 'off'
                 });
-                $('#twoFactorCodeLabel').text('Recovery code');
-                $(this).text('Use your authenticator app instead');
+                $('#twoFactorCodeLabel').text(msT('auth.twofa.js.recovery_label', 'Recovery code'));
+                $(this).text(msT('auth.twofa.js.use_app', 'Use your authenticator app instead'));
             } else {
                 resetTwoFactorField();
             }
@@ -391,17 +432,17 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
         $('#loginRequestForm').on('submit', function(e){
             e.preventDefault();
             var email = $('#email').val();
-            $('#loginRequestMsg').html('<div class="alert alert-info">Sending link...</div>');
-            $.post('pro_auth.php', {action:'request_login_link', email:email, stay_days: stayDays()}, function(res){
+            $('#loginRequestMsg').html('<div class="alert alert-info">' + msEsc(msT('auth.login.js.sending', 'Sending link...')) + '</div>');
+            $.post(AUTH_URL, {action:'request_login_link', email:email, stay_days: stayDays()}, function(res){
                 if (res.success) {
-                    let html = '<div class="alert alert-success">Login link sent! Check your email.</div>';
+                    let html = '<div class="alert alert-success">' + msEsc(msT('auth.login.js.link_sent', 'Login link sent! Check your email.')) + '</div>';
                     // Only display the test magic link when allowed by server config
                     if (res.login_url && window.showMagicLink) {
-                        html += '<div class="alert alert-info">Magic link (test):<br><a href="' + res.login_url + '" target="_blank">' + res.login_url + '</a></div>';
+                        html += '<div class="alert alert-info">' + msEsc(msT('auth.login.js.magic_test', 'Magic link (test):')) + '<br><a href="' + res.login_url + '" target="_blank">' + res.login_url + '</a></div>';
                     }
                     $('#loginRequestMsg').html(html);
                 } else {
-                    $('#loginRequestMsg').html('<div class="alert alert-danger">' + (res.error || 'Could not send link.') + '</div>');
+                    $('#loginRequestMsg').html('<div class="alert alert-danger">' + (res.error || msEsc(msT('auth.login.js.link_failed', 'Could not send link.'))) + '</div>');
                 }
             }, 'json');
         });
@@ -411,8 +452,8 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
             e.preventDefault();
             var email = $('#pwEmail').val();
             var password = $('#pwPassword').val();
-            $('#passwordLoginMsg').html('<div class="alert alert-info">Signing in...</div>');
-            $.post('pro_auth.php', { action: 'password_login', email: email, password: password, stay_days: stayDays() }, function(res){
+            $('#passwordLoginMsg').html('<div class="alert alert-info">' + msEsc(msT('auth.login.js.signing_in', 'Signing in...')) + '</div>');
+            $.post(AUTH_URL, { action: 'password_login', email: email, password: password, stay_days: stayDays() }, function(res){
                 if (res && res.success) {
                     if (res.requires_2fa) {
                         $('#passwordLoginMsg').html('');
@@ -422,9 +463,9 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                         window.location = res.redirect || 'pro.php';
                     }
                 } else {
-                    $('#passwordLoginMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Login failed') + '</div>');
+                    $('#passwordLoginMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : msEsc(msT('auth.login.js.login_failed', 'Login failed'))) + '</div>');
                 }
-            }, 'json').fail(function(){ $('#passwordLoginMsg').html('<div class="alert alert-danger">Network error</div>'); });
+            }, 'json').fail(function(){ $('#passwordLoginMsg').html('<div class="alert alert-danger">' + msEsc(msT('auth.login.js.network', 'Network error')) + '</div>'); });
         });
     });
     </script>
@@ -460,7 +501,7 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
                 }
 
                 btn.setAttribute('aria-pressed', String(masked));
-                btn.setAttribute('aria-label', masked ? 'Hide password' : 'Show password');
+                btn.setAttribute('aria-label', masked ? msT('auth.login.js.hide_password', 'Hide password') : msT('auth.login.js.show_password', 'Show password'));
             });
         });
     })();

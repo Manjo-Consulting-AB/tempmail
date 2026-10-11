@@ -80,9 +80,9 @@ same('split: double slash cannot produce a protocol-relative path', ['sv', '/evi
 same('resolve: CLI has no REQUEST_URI', null, i18nResolveRequest([], $both));
 same('resolve: CLI is English', 'en', i18nLocale());
 same('resolve: plain URL', null, i18nResolveRequest(['REQUEST_URI' => '/terms.php'], $both));
-same('resolve: untranslated /sv/ page redirects to the plain URL', '/pro_login.php', i18nResolveRequest(['REQUEST_URI' => '/sv/pro_login.php'], $both));
+same('resolve: untranslated /sv/ page redirects to the plain URL', '/welcome.php', i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $both));
 same('resolve: ...and stays English', 'en', i18nLocale());
-same('resolve: query string survives the redirect', '/register.php?plan=pro', i18nResolveRequest(['REQUEST_URI' => '/sv/register.php?plan=pro'], $both));
+same('resolve: query string survives the redirect', '/welcome.php?plan=pro', i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php?plan=pro'], $both));
 same('resolve: app page under /sv/ redirects', '/inbox.php?address=abc', i18nResolveRequest(['REQUEST_URI' => '/sv/inbox.php?address=abc'], $both));
 
 // --- With Swedish translations (simulated) ------------------------------------
@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -495,7 +495,7 @@ foreach (landingVariants() as $section => $variants) {
         preg_match_all('/[A-Za-z0-9._-]+@([A-Za-z0-9.-]+)/', $svOut, $mm);
         check("sv render {$label}: every example address is on the configured domain", array_unique($mm[1]) === [] || array_unique($mm[1]) === ['example.test'], implode(',', array_unique($mm[1])));
         check("sv render {$label}: no hard-coded manjo.me", stripos($svOut, 'manjo.me') === false);
-        check("sv render {$label}: Swedish links stay on pages that exist in Swedish", strpos($svOut, 'href="/sv/register.php') === false);
+        check("sv render {$label}: Swedish links stay on pages that exist in Swedish", strpos($svOut, 'href="/sv/blog.php') === false && strpos($svOut, 'href="/sv/terms.php') === false);
     }
 }
 check('sv render: the lang attribute is not hard-coded in a partial', strpos($svAll, 'lang="en"') === false);
@@ -506,7 +506,7 @@ $statsSv = renderLanding('stats', [false, 60, false], 'sv', $both);
 check('sv stats: numbers through i18nNumber (no-break space)', strpos($statsSv, "1\u{00A0}234\u{00A0}567") !== false);
 same('stats: nothing at all when every figure is zero', '', renderLanding('stats', [false, 60, false], 'en', $onlyEn, ['emails_processed' => 0]));
 $planSv = renderLanding('plans', [false, 60, false], 'sv', $both);
-check('sv plans: pricing is translated so its link has the prefix; register stays plain until it is', strpos($planSv, 'href="/sv/pricing.php"') !== false && strpos($planSv, 'href="/register.php?plan=pro"') !== false);
+check('sv plans: pricing and register are translated so their links have the prefix', strpos($planSv, 'href="/sv/pricing.php"') !== false && strpos($planSv, 'href="/sv/register.php?plan=pro"') !== false);
 i18nTranslatedPages(['/' => ['en', 'sv'], '/pricing.php' => ['en', 'sv'], '/register.php' => ['en', 'sv'], '/temporary-email.php' => ['en', 'sv']]);
 $planSv = renderLanding('plans', [false, 60, false], 'sv', $both);
 check('sv plans: ...and follow them once translated', strpos($planSv, 'href="/sv/pricing.php"') !== false && strpos($planSv, 'href="/sv/register.php?plan=pro"') !== false);
@@ -1430,17 +1430,17 @@ check('blog sv: an unknown basename is a 404 in Swedish', $r['status'] === 404 &
 foreach ($blogSv as $base) {
     $r = blogRender($root, 'sv', $both, 'post=' . $base);
     $raw = $r['raw'];
-    $en = blogRender($root, 'en', $both, 'post=' . $base);
+    $enPost = blogRender($root, 'en', $both, 'post=' . $base);
     check("blog sv {$base}: the page rendered", $raw !== '' && $r['status'] === 200, $r['err']);
     check("blog sv {$base}: <html lang=\"sv\"> and the Swedish canonical", strpos($raw, '<html lang="sv">') !== false && strpos($raw, '<link rel="canonical" href="https://example.test/sv/blog.php?post=' . $base . '">') !== false);
     check("blog sv {$base}: hreflang to the English twin, the Swedish page and x-default", strpos($raw, 'hreflang="en" href="https://example.test/blog.php?post=' . $base . '"') !== false
         && strpos($raw, 'hreflang="sv" href="https://example.test/sv/blog.php?post=' . $base . '"') !== false
         && strpos($raw, 'hreflang="x-default" href="https://example.test/blog.php?post=' . $base . '"') !== false
         && strpos($raw, '<meta property="og:locale" content="sv_SE">') !== false);
-    check("blog en {$base}: the English post points to its Swedish twin", strpos($en['raw'], 'hreflang="sv" href="https://example.test/sv/blog.php?post=' . $base . '"') !== false && strpos($en['raw'], '<html lang="en">') !== false);
+    check("blog en {$base}: the English post points to its Swedish twin", strpos($enPost['raw'], 'hreflang="sv" href="https://example.test/sv/blog.php?post=' . $base . '"') !== false && strpos($enPost['raw'], '<html lang="en">') !== false);
     check("blog sv {$base}: no image or link path is relative", !preg_match('#(?:src|href)="(?!https?:|mailto:|/|\#)#', preg_replace('#<(?:html|meta|link)\b[^>]*>#', '', $raw)));
     check("blog sv {$base}: images are root-relative", !preg_match('#<img [^>]*src="(?!/|https?:)#', $raw) && (strpos($raw, '<img ') === false || strpos($raw, 'src="/blog/images/') !== false));
-    check("blog en {$base}: English output keeps the relative image path", strpos($en['raw'], '<img ') === false || strpos($en['raw'], 'src="blog/images/') !== false);
+    check("blog en {$base}: English output keeps the relative image path", strpos($enPost['raw'], '<img ') === false || strpos($enPost['raw'], 'src="blog/images/') !== false);
     check("blog sv {$base}: the date is Swedish", preg_match('#<time class="ms-blog__date" datetime="' . $base . '">\d{1,2} (?:januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december) \d{4}</time>#u', $raw) === 1);
     check("blog sv {$base}: the back links go to the Swedish pages", strpos($raw, '<a href="/sv/blog.php"><span aria-hidden="true">&larr;</span> Alla inlägg</a>') !== false && strpos($raw, 'Tillbaka till Mail Shield</a>') !== false);
     check("blog sv {$base}: no English page chrome left", strpos($raw, 'All posts') === false && strpos($raw, 'Back to Mail Shield') === false && strpos($raw, 'Skip to content') === false && strpos($raw, 'opens in new tab') === false);
@@ -1999,6 +1999,340 @@ check('sv app nav, signed in: the account type is Swedish-aware (Pro)', strpos($
 check('sv app nav: #proExpiryLine, #hamburgerBtn and #navbarMenu survive', strpos($svIn, 'id="proExpiryLine"') !== false && strpos($svIn, 'id="hamburgerBtn"') !== false && strpos($svIn, 'id="navbarMenu"') !== false);
 check('sv app nav, signed in: the active link keeps navbar-link active', strpos($svIn, 'navbar-link active') !== false);
 @unlink($navScript);
+
+// --- Sign-in area (epic #428, step 2/8): register, sign-in, sign-out, pro_auth.php --------
+// The real pages and pro_auth.php run as subprocesses against a stub config.php on SQLite
+// (tests/lib/auth_probe.php). The English fixtures were rendered from the code as it was
+// before these pages went through t().
+require_once $root . '/tests/lib/auth_probe.php';
+require_once $root . '/TwoFactorAuth.php'; // base32Decode() and the trusted-device cookie name
+$authProbe = ms_auth_probe_build($root);
+
+/**
+ * English HTML compared with a fixture: the stylesheet cache-busters, the year and the
+ * language JSON element are neutralised, inline scripts are compared apart (their
+ * strings are checked key by key below), entities are decoded so a catalog value holding
+ * an em dash equals the old &mdash;, and the one relative link that became root-relative
+ * (register.php's "sign in" link) is aligned.
+ */
+function authNorm(string $html): string
+{
+    $html = preg_replace('/\?v=\d+/', '?v=0', $html);
+    $html = str_replace('&copy; ' . date('Y'), '&copy; {year}', $html);
+    $html = preg_replace('#<script type="application/json" id="ms-i18n">.*?</script>\n?#s', '', $html);
+    $html = preg_replace('#<script>.*?</script>#s', '<script></script>', $html);
+    // With Swedish switched on the page is offered in two languages, so it gains its hreflang
+    // alternates and og:locale (as every public page does); they are checked apart.
+    $html = preg_replace('#^ *<link rel="alternate" hreflang="[^"]*" href="[^"]*">\n#m', '', $html);
+    $html = preg_replace('#^ *<meta property="og:locale" content="[^"]*">\n#m', '', $html);
+    $html = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return str_replace('href="pro_login.php"', 'href="/pro_login.php"', $html);
+}
+
+/** The visible text of a page: scripts, tags and entities removed. */
+function authVisible(string $html): string
+{
+    return html_entity_decode(strip_tags(preg_replace('#<script\b.*?</script>#s', '', $html)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+}
+
+$authSrc = static fn(string $file): string => (string) file_get_contents($root . '/' . $file);
+
+// English pages, English only and with Swedish enabled but not chosen.
+foreach (ms_auth_page_cases() as $name => [$script, $uri, $get, $trial]) {
+    $fixture = authNorm((string) file_get_contents($fx . $name . '.en.html'));
+    foreach (['en' => 'English only', 'en,sv' => 'sv enabled, English URL'] as $locales => $label) {
+        $r = ms_auth_page($authProbe, $script, $uri, $get, $trial, $locales);
+        check("auth page {$name} ({$label}): rendered without PHP errors", $r['html'] !== '' && $r['err'] === '', $r['err']);
+        same("fixture: {$name}, {$label}", $fixture, authNorm($r['html']));
+        if ($locales === 'en' && $script !== 'pro_logout.php') {
+            check("auth page {$name}: English only emits no hreflang and no og:locale", strpos($r['html'], 'hreflang') === false && strpos($r['html'], 'og:locale') === false);
+        }
+    }
+}
+
+// The inline scripts' English strings are unchanged: every msT() fallback is the catalog
+// value and appears in the fixture's script exactly as it was written there.
+foreach (['register.php' => 'register.regular.trial', 'pro_login.php' => 'pro_login.plain.trial'] as $file => $fixtureName) {
+    $source = $authSrc($file);
+    $oldPage = (string) file_get_contents($fx . $fixtureName . '.en.html');
+    preg_match_all("/msT\\('([^']+)',\\s*'((?:[^'\\\\]|\\\\.)*)'/", $source, $m, PREG_SET_ORDER);
+    check("{$file}: the scripts use msT()", count($m) >= 8, (string) count($m));
+    foreach ($m as [, $key, $fallback]) {
+        $fallback = stripslashes($fallback);
+        same("{$file}: msT fallback for {$key} is the English catalog value", $en[$key] ?? null, $fallback);
+        $old = $key === 'auth.register.js.too_short' ? "Password must be at least ' + MIN_PASSWORD_LENGTH + ' characters" : $fallback;
+        check("{$file}: {$key} is in the unmodified script", strpos($oldPage, $old) !== false || strpos($oldPage, htmlspecialchars($old, ENT_QUOTES)) !== false, $old);
+    }
+}
+
+// Swedish pages.
+$svPages = [
+    'register' => ['register.php', '/sv/register.php', ['plan' => 'regular'], 'Skapa din inkorg'],
+    'register pro' => ['register.php', '/sv/register.php', ['plan' => 'pro'], 'Pro (värdekod)'],
+    'pro_login' => ['pro_login.php', '/sv/pro_login.php', [], 'Förbli inloggad på den här enheten'],
+    'pro_login error' => ['pro_login.php', '/sv/pro_login.php', ['token' => 'not-a-valid-token'], 'Ogiltig eller utgången länk.'],
+];
+foreach ($svPages as $label => [$script, $uri, $get, $needle]) {
+    $r = ms_auth_page($authProbe, $script, $uri, $get, 60, 'en,sv');
+    $html = $r['html'];
+    $page = '/' . $script;
+    check("sv page {$label}: rendered without PHP errors", $html !== '' && $r['err'] === '', $r['err']);
+    check("sv page {$label}: lang=\"sv\"", strpos($html, '<html lang="sv">') !== false);
+    check("sv page {$label}: Swedish text", strpos(authVisible($html), $needle) !== false, $needle);
+    check("sv page {$label}: the /sv/ canonical", strpos($html, '<link rel="canonical" href="https://example.test/sv' . $page . '">') !== false);
+    check("sv page {$label}: hreflang en, sv and x-default", strpos($html, 'hreflang="en" href="https://example.test' . $page . '"') !== false
+        && strpos($html, 'hreflang="sv" href="https://example.test/sv' . $page . '"') !== false && strpos($html, 'hreflang="x-default"') !== false);
+    check("sv page {$label}: og:locale sv_SE", strpos($html, '<meta property="og:locale" content="sv_SE">') !== false);
+    check("sv page {$label}: still index, follow", strpos($html, '<meta name="robots" content="index, follow">') !== false);
+    check("sv page {$label}: no raw key", !preg_match('/\bauth\.(register|login|twofa|logout)\.[a-z_.]+\b/', preg_replace('#<script\b.*?</script>#s', '', $html)));
+    check("sv page {$label}: stylesheets and the endpoint are root-relative", strpos($html, 'href="assets/') === false && strpos($html, 'href="/assets/css/mailshield.css') !== false
+        && strpos($html, '"\/pro_auth.php"') !== false);
+    check("sv page {$label}: the language JSON carries the Swedish strings", preg_match('#<script type="application/json" id="ms-i18n">(.*?)</script>#s', $html, $jm) === 1
+        && (json_decode($jm[1], true)['auth.' . ($script === 'register.php' ? 'register.js.network' : 'login.js.network')] ?? '') === 'Nätverksfel');
+    check("sv page {$label}: links to public pages carry /sv/", strpos($html, 'href="/sv/"') !== false);
+}
+$svReg = ms_auth_page($authProbe, 'register.php', '/sv/register.php', ['plan' => 'pro'], 60, 'en,sv')['html'];
+check('sv register: the pricing link carries /sv/', strpos($svReg, 'href="/sv/pricing.php"') !== false);
+check('sv register: the sign-in link carries /sv/', strpos($svReg, 'href="/sv/pro_login.php"') !== false);
+check('sv register: trial days are rendered from $config', strpos(authVisible($svReg), 'De första 60 dagarna får du Pro') !== false);
+$svRegNo = ms_auth_page($authProbe, 'register.php', '/sv/register.php', [], 0, 'en,sv')['html'];
+check('sv register, no trial: the pre-trial wording', strpos(authVisible($svRegNo), 'En Timed-adress i taget.') !== false && strpos($svRegNo, ' 0 dagar') === false);
+$svLogin = ms_auth_page($authProbe, 'pro_login.php', '/sv/pro_login.php', [], 60, 'en,sv')['html'];
+check('sv sign-in: the 2FA step is Swedish', strpos(authVisible($svLogin), 'Öppna din autentiseringsapp') !== false && strpos(authVisible($svLogin), 'Autentiseringskod') !== false);
+check('sv sign-in: the "lost authenticator" link keeps its id inside the translated sentence', preg_match('#<a href="\#" id="lostAuthenticatorLink">Har du tappat bort din autentiserare\?#u', $svLogin) === 1);
+check('sv sign-in: the create-inbox link carries /sv/ and its trial days', strpos($svLogin, 'href="/sv/register.php?plan=regular"') !== false && strpos(authVisible($svLogin), 'den börjar med 60 dagar Pro') !== false);
+check('sv sign-in: every element id the script binds to survives', count(array_filter(['loginModeToggle', 'staySignedIn', 'loginRequestForm', 'passwordLoginForm', 'twoFactorForm', 'twoFactorCode', 'useRecoveryCodeLink', 'lostAuthenticatorLink', 'cancel2faLink'], fn($id) => strpos($svLogin, 'id="' . $id . '"') !== false)) === 9);
+// Sign-out: an app page, so its language is the account's / the browser's, and only once '@app' lists Swedish.
+$logout = static function (array $server, bool $appSv) use ($authProbe): string {
+    [$db] = ms_auth_probe_db($authProbe);
+    $run = ms_auth_probe_run($authProbe, 'pro_logout.php', ['method' => 'GET', 'uri' => '/pro_logout.php', 'locales' => 'en,sv', 'server' => $server, 'app_sv' => $appSv], $db);
+    @unlink($db);
+    return $run['out'];
+};
+$svLogout = $logout(['HTTP_ACCEPT_LANGUAGE' => 'sv-SE,sv;q=0.9'], true);
+check('sv logout (app on, browser Swedish): lang="sv" and Swedish text', strpos($svLogout, '<html lang="sv">') !== false && strpos($svLogout, '<title>Utloggad</title>') !== false && strpos($svLogout, 'klicka här</a>') !== false);
+check('sv logout: sends the visitor to the Swedish landing page', strpos($svLogout, 'url=/sv/') !== false && strpos($svLogout, 'href="/sv/"') !== false && strpos($svLogout, 'replace("\/sv\/")') !== false);
+check('sv logout: no raw key', strpos($svLogout, 'auth.logout.') === false);
+$enLogout = $logout(['HTTP_ACCEPT_LANGUAGE' => 'sv-SE,sv;q=0.9'], false);
+check('logout with the app gate closed stays English whatever the browser says', strpos($enLogout, '<title>Logged out</title>') !== false && strpos($enLogout, 'href="index.php"') !== false);
+// A /sv/ URL while Swedish is switched off answers a redirect, not a page.
+check('/sv/register.php with only English enabled renders no page (302)', ms_auth_page($authProbe, 'register.php', '/sv/register.php', [], 60, 'en')['html'] === '');
+check('/sv/pro_login.php with only English enabled renders no page (302)', ms_auth_page($authProbe, 'pro_login.php', '/sv/pro_login.php', [], 60, 'en')['html'] === '');
+
+// pro_auth.php answers: English fixtures, then the Swedish string per case.
+$authSvKey = [
+    'login_link.invalid_email' => 'auth.error.invalid_email',
+    'voucher.redeemed' => 'auth.message.voucher_redeemed',
+    'voucher.invalid_email' => 'voucher.error.invalid_email',
+    'voucher.invalid_code_format' => 'voucher.error.invalid_code_format',
+    'voucher.invalid_or_expired_code' => 'voucher.error.invalid_or_expired_code',
+    'voucher.code_not_active' => 'voucher.error.code_not_active',
+    'voucher.code_expired' => 'voucher.error.code_expired',
+    'voucher.code_fully_redeemed' => 'voucher.error.code_fully_redeemed',
+    'voucher.domain_not_allowed' => 'voucher.error.domain_not_allowed',
+    'voucher.already_redeemed' => 'voucher.error.already_redeemed',
+    'voucher.already_lifetime' => 'voucher.error.already_lifetime',
+    'voucher.redemption_failed' => 'voucher.error.redemption_failed',
+    'register.suspicious' => 'auth.error.invalid_request',
+    'register.invalid_email' => 'auth.error.invalid_email',
+    'register.passwords_mismatch' => 'auth.error.passwords_mismatch',
+    'register.password_short' => 'auth.error.password_short',
+    'register.password_long' => 'auth.error.password_long',
+    'register.voucher_required' => 'auth.error.voucher_required',
+    'register.unavailable' => 'auth.error.registration_unavailable',
+    'register.check_email' => 'auth.message.check_email',
+    'register.pro_bad_code' => 'voucher.error.invalid_or_expired_code',
+    'password.bad_origin' => 'auth.error.bad_origin',
+    'password.invalid_request' => 'auth.error.invalid_request',
+    'password.throttled_ip' => 'auth.error.throttled_ip',
+    'password.throttled_account' => 'auth.error.throttled_account',
+    'password.incorrect_unknown' => 'auth.error.bad_credentials',
+    'password.incorrect_no_password' => 'auth.error.bad_credentials',
+    'password.incorrect_wrong' => 'auth.error.bad_credentials',
+    'password.incorrect_unverified' => 'auth.error.bad_credentials',
+    'password.suspended' => 'auth.error.suspended',
+    'twofa.bad_origin' => 'auth.error.bad_origin',
+    'twofa.session_expired' => 'auth.error.session_expired',
+    'twofa.suspended' => 'auth.error.suspended',
+    'twofa.blocked' => 'auth.error.incorrect_code',
+    'twofa.incorrect' => 'auth.error.incorrect_code',
+    'twofa.cancel_bad_origin' => 'auth.error.bad_origin',
+    'fallback.no_action' => 'auth.error.unknown_action',
+];
+$authCases = ms_auth_json_cases();
+same('pro_auth answers: every case has its Swedish key', array_keys($authCases), array_keys($authSvKey));
+$authBodies = ['en' => [], 'sv' => []];
+foreach ($authCases as $name => $case) {
+    $fixtureBody = trim((string) file_get_contents($fx . 'pro_auth.' . $name . '.en.json'));
+    $r = ms_auth_json_run($authProbe, $case, null);
+    same("pro_auth {$name}: English answer equals its fixture", $fixtureBody, $r['body']);
+    check("pro_auth {$name}: no PHP error output", $r['run']['err'] === '', $r['run']['err']);
+    $rEnHeader = ms_auth_json_run($authProbe, $case, 'en', 'en,sv');
+    same("pro_auth {$name}: X-MS-Locale en is English", $fixtureBody, $rEnHeader['body']);
+    $rOff = ms_auth_json_run($authProbe, $case, 'sv', 'en');
+    same("pro_auth {$name}: X-MS-Locale sv while Swedish is off is English", $fixtureBody, $rOff['body']);
+    $rSv = ms_auth_json_run($authProbe, $case, 'sv', 'en,sv');
+    $expected = json_decode($fixtureBody, true);
+    $svText = $sv[$authSvKey[$name]] ?? null;
+    $field = isset($expected['error']) ? 'error' : 'message';
+    $expected[$field] = $svText;
+    same("pro_auth {$name}: X-MS-Locale sv carries the Swedish string", json_encode($expected), $rSv['body']);
+    check("pro_auth {$name}: the Swedish string is not the English one", $name === 'fallback.no_action' || $svText !== ($en[$authSvKey[$name]] ?? null));
+    $authBodies['en'][$name] = $r['body'];
+    $authBodies['sv'][$name] = $rSv['body'];
+}
+foreach (['en', 'sv'] as $lang) {
+    $same = array_unique(array_intersect_key($authBodies[$lang], array_flip(['password.incorrect_unknown', 'password.incorrect_no_password', 'password.incorrect_wrong', 'password.incorrect_unverified'])));
+    check("pro_auth: 'Incorrect email or password' is the same answer in all four places ({$lang})", count($same) === 1);
+}
+same('pro_auth: it is one key, used four times', 4, substr_count($authSrc('pro_auth.php'), "t('auth.error.bad_credentials')"));
+check('pro_auth: no hardcoded error or message string is left in a JSON answer', !preg_match("/'(error|message)' => '/", $authSrc('pro_auth.php')));
+
+// voucherRedemptionErrorKey(): a key for every code, English text equal to the old table.
+[$db] = ms_auth_probe_db($authProbe);
+$vk = json_decode(ms_auth_probe_run($authProbe, 'voucher_keys.php', [], $db)['out'], true);
+check('voucherRedemptionErrorKey: all ten codes, null and an unknown one were reported', is_array($vk) && count($vk) === 12, json_encode($vk));
+foreach ((array) $vk as $code => [$key, $message]) {
+    same("voucherRedemptionErrorKey({$code}): the English text is voucherRedemptionErrorMessage()", $message, $en[$key] ?? null);
+    check("voucherRedemptionErrorKey({$code}): translated to Swedish", isset($sv[$key]));
+}
+same('voucherRedemptionErrorKey(null) is redemption_failed', 'voucher.error.redemption_failed', $vk['@null'][0] ?? null);
+same('voucherRedemptionErrorKey(unknown) is redemption_failed', 'voucher.error.redemption_failed', $vk['@unknown'][0] ?? null);
+same('voucherRedemptionErrorMessage() still answers English', 'Your account already has lifetime Pro', $vk['already_lifetime'][1] ?? null);
+@unlink($db);
+
+// Recording the language (epic decision 6).
+$localeOf = static function (string $db, string $email): ?string {
+    $pdo = new PDO('sqlite:' . $db);
+    $stmt = $pdo->prepare('SELECT locale FROM pro_users WHERE email = ?');
+    $stmt->execute([$email]);
+    $v = $stmt->fetchColumn();
+    return $v === false || $v === null ? null : (string) $v;
+};
+$authRequest = static function (string $script, array $request, string $db, ?string $header, bool $keys = true) use ($authProbe): array {
+    $request += ['locales' => 'en,sv', 'uri' => '/' . $script, 'trial' => 60];
+    if ($header !== null) {
+        $request['server'] = ($request['server'] ?? []) + ['HTTP_X_MS_LOCALE' => $header];
+    }
+    return ms_auth_probe_run($authProbe, $script, $request, $db, $keys);
+};
+$regPost = ['action' => 'register_account', 'plan' => 'regular', 'email' => 'newbie@example.com', 'password' => 'long-enough-1', 'password_confirm' => 'long-enough-1'];
+[$db] = ms_auth_probe_db($authProbe);
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => $regPost], $db, 'sv');
+same('locale: an account registered with X-MS-Locale sv has locale sv', 'sv', $localeOf($db, 'newbie@example.com'));
+[$db] = ms_auth_probe_db($authProbe);
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => $regPost], $db, null);
+same('locale: one registered without the header has NULL', null, $localeOf($db, 'newbie@example.com'));
+[$db] = ms_auth_probe_db($authProbe);
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => $regPost], $db, 'en');
+same('locale: one registered with X-MS-Locale en has NULL (English is never recorded)', null, $localeOf($db, 'newbie@example.com'));
+[$db] = ms_auth_probe_db($authProbe, function ($pdo) { $pdo->exec("INSERT INTO vouchers (code, duration_days, max_uses) VALUES ('GOODCODE', 30, 5)"); });
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => ['action' => 'register_account', 'plan' => 'pro', 'code' => 'GOODCODE'] + $regPost], $db, 'sv');
+same('locale: an account created by a voucher from a Swedish page has locale sv', 'sv', $localeOf($db, 'newbie@example.com'));
+[$db] = ms_auth_probe_db($authProbe, function ($pdo) { $pdo->exec("INSERT INTO vouchers (code, duration_days, max_uses) VALUES ('GOODCODE', 30, 5)"); });
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => ['action' => 'redeem_voucher', 'email' => 'fresh@example.com', 'code' => 'GOODCODE']], $db, 'sv');
+same('locale: redeem_voucher creating an account from a Swedish page has locale sv', 'sv', $localeOf($db, 'fresh@example.com'));
+
+$loginPost = ['action' => 'password_login', 'email' => 'alice@example.com', 'password' => 'correct-horse'];
+[$db] = ms_auth_probe_db($authProbe);
+$r = $authRequest('pro_auth.php', ['method' => 'POST', 'post' => $loginPost], $db, 'sv');
+check('locale: the password sign-in itself succeeded', strpos($r['out'], '"success":true') !== false, $r['out']);
+same('locale: a password sign-in with sv sets sv on a NULL account', 'sv', $localeOf($db, 'alice@example.com'));
+[$db] = ms_auth_probe_db($authProbe, fn($pdo, $ids) => $pdo->exec("UPDATE pro_users SET locale = 'en' WHERE id = {$ids['alice']}"));
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => $loginPost], $db, 'sv');
+same('locale: a sign-in with sv leaves an en account at en', 'en', $localeOf($db, 'alice@example.com'));
+[$db] = ms_auth_probe_db($authProbe, fn($pdo, $ids) => $pdo->exec("UPDATE pro_users SET locale = 'sv' WHERE id = {$ids['alice']}"));
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => $loginPost], $db, 'en');
+same('locale: an English page never overwrites a stored sv', 'sv', $localeOf($db, 'alice@example.com'));
+[$db] = ms_auth_probe_db($authProbe);
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => $loginPost], $db, null);
+same('locale: an English sign-in leaves NULL as NULL', null, $localeOf($db, 'alice@example.com'));
+[$db] = ms_auth_probe_db($authProbe);
+$authRequest('pro_auth.php', ['method' => 'POST', 'post' => ['password' => 'wrong-horse'] + $loginPost], $db, 'sv');
+same('locale: a failed sign-in records nothing', null, $localeOf($db, 'alice@example.com'));
+
+// Password + 2FA and the trusted device, with a real TOTP secret.
+$totpSecret = 'JBSWY3DPEHPK3PXP';
+$totpEncrypt = static function (string $plain): string {
+    $iv = random_bytes(12);
+    $tag = '';
+    $cipher = openssl_encrypt($plain, 'aes-256-gcm', base64_decode(MS_AUTH_TOTP_KEY, true), OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+    return base64_encode($iv . $tag . $cipher);
+};
+$totpNow = static function (string $secret): string {
+    $key = TwoFactorAuth::base32Decode($secret);
+    $hash = hash_hmac('sha1', pack('N*', 0, intdiv(time(), 30)), $key, true);
+    $o = ord($hash[19]) & 0xf;
+    $bin = ((ord($hash[$o]) & 0x7f) << 24) | ((ord($hash[$o + 1]) & 0xff) << 16) | ((ord($hash[$o + 2]) & 0xff) << 8) | (ord($hash[$o + 3]) & 0xff);
+    return str_pad((string) ($bin % 1000000), 6, '0', STR_PAD_LEFT);
+};
+$withTotp = function ($pdo, $ids) use ($totpEncrypt, $totpSecret) {
+    $pdo->prepare("INSERT INTO pro_user_totp (user_id, secret_enc, status) VALUES (?, ?, 'active')")->execute([$ids['alice'], $totpEncrypt($totpSecret)]);
+};
+[$db] = ms_auth_probe_db($authProbe, $withTotp);
+$sid = 'probesess' . bin2hex(random_bytes(4));
+$r1 = $authRequest('pro_auth.php', ['method' => 'POST', 'post' => $loginPost, 'session_id' => $sid], $db, 'sv');
+check('locale/2FA: the password step asks for the code', strpos($r1['out'], '"requires_2fa":true') !== false, $r1['out']);
+same('locale/2FA: nothing is recorded before the code is verified', null, $localeOf($db, 'alice@example.com'));
+$r2 = $authRequest('pro_auth.php', ['method' => 'POST', 'post' => ['action' => 'verify_2fa', 'code' => $totpNow($totpSecret)], 'session_id' => $sid], $db, 'sv');
+check('locale/2FA: the code step succeeded', strpos($r2['out'], '"success":true') !== false, $r2['out'] . $r2['err']);
+same('locale/2FA: password + 2FA with sv sets sv on a NULL account', 'sv', $localeOf($db, 'alice@example.com'));
+[$db, $ids] = ms_auth_probe_db($authProbe, $withTotp);
+$selector = bin2hex(random_bytes(16));
+$validator = bin2hex(random_bytes(32));
+(new PDO('sqlite:' . $db))->prepare('INSERT INTO pro_trusted_devices (user_id, selector, validator_hash, label, last_used_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+    ->execute([$ids['alice'], $selector, hash('sha256', $validator), 'probe', date('Y-m-d H:i:s'), date('Y-m-d H:i:s', time() + 86400)]);
+$r = $authRequest('pro_auth.php', ['method' => 'POST', 'post' => $loginPost, 'cookie' => [TwoFactorAuth::TRUSTED_DEVICE_COOKIE => $selector . '.' . $validator]], $db, 'sv');
+check('locale/trusted device: the sign-in skipped the challenge', strpos($r['out'], '"success":true') !== false && strpos($r['out'], 'requires_2fa') === false, $r['out']);
+same('locale/trusted device: a trusted-device sign-in with sv sets sv on a NULL account', 'sv', $localeOf($db, 'alice@example.com'));
+
+// Magic link: the GET in pro_auth.php and the branch in pro_login.php.
+$magicToken = static function (string $db, int $userId) use ($authProbe): string {
+    return trim(ms_auth_probe_run($authProbe, 'mk_token.php', [], $db, true, [], [(string) $userId])['out']);
+};
+[$db, $ids] = ms_auth_probe_db($authProbe);
+$token = $magicToken($db, $ids['alice']);
+check('locale/magic link: a token was minted', preg_match('/^[A-Za-z0-9]{20,}$/', $token) === 1, $token);
+$authRequest('pro_auth.php', ['method' => 'GET', 'get' => ['token' => $token]], $db, 'sv');
+same('locale/magic link (pro_auth.php): sv sets sv on a NULL account', 'sv', $localeOf($db, 'alice@example.com'));
+[$db, $ids] = ms_auth_probe_db($authProbe);
+$token = $magicToken($db, $ids['alice']);
+$authRequest('pro_login.php', ['method' => 'GET', 'get' => ['token' => $token], 'uri' => '/sv/pro_login.php'], $db, null);
+same('locale/magic link (pro_login.php, /sv/ URL): sets sv on a NULL account', 'sv', $localeOf($db, 'alice@example.com'));
+[$db, $ids] = ms_auth_probe_db($authProbe);
+$token = $magicToken($db, $ids['alice']);
+$authRequest('pro_login.php', ['method' => 'GET', 'get' => ['token' => $token], 'uri' => '/pro_login.php'], $db, null);
+same('locale/magic link (pro_login.php, English URL): leaves NULL as NULL', null, $localeOf($db, 'alice@example.com'));
+[$db, $ids] = ms_auth_probe_db($authProbe, fn($pdo, $i) => $pdo->exec("UPDATE pro_users SET locale = 'en' WHERE id = {$i['alice']}"));
+$token = $magicToken($db, $ids['alice']);
+$authRequest('pro_login.php', ['method' => 'GET', 'get' => ['token' => $token], 'uri' => '/sv/pro_login.php'], $db, null);
+same('locale/magic link (pro_login.php): an en account stays en', 'en', $localeOf($db, 'alice@example.com'));
+
+// No column: every path still works (fail-open) — the answer is the same, nothing throws.
+[$db] = ms_auth_probe_db($authProbe);
+(new PDO('sqlite:' . $db))->exec('ALTER TABLE pro_users DROP COLUMN locale');
+$r = $authRequest('pro_auth.php', ['method' => 'POST', 'post' => $loginPost], $db, 'sv');
+check('locale: without the pro_users.locale column a sign-in still succeeds', strpos($r['out'], '"success":true') !== false && $r['err'] === '', $r['out'] . $r['err']);
+check('locale: the log holds no address next to a locale', strpos($r['log'], 'alice@example.com') === false);
+
+// Scans.
+$authPhp = $authSrc('pro_auth.php');
+same('scan: proAuthRecordLocale() follows every INSERT INTO pro_users (3) and every sign-in path (4)', 7, substr_count($authPhp, 'proAuthRecordLocale(') - 1);
+check('scan: proAuthRecordLocale() records only a non-default language, only onlyIfEmpty, never en', strpos($authPhp, 'proUserSetLocale($pdo, (int) $userId, $locale, true)') !== false
+    && strpos($authPhp, '$locale === i18nDefaultLocale()') !== false && strpos($authPhp, "proUserSetLocale(\$pdo, (int) \$userId, 'en'") === false);
+check('scan: pro_login.php records the language at its magic-link sign-in', strpos($authSrc('pro_login.php'), 'proAuthRecordLocale($result[\'user_id\']);') !== false);
+foreach (['register.php', 'pro_login.php', 'pro_logout.php'] as $page) {
+    $src = $authSrc($page);
+    check("scan: {$page} has no <html lang=\"en\">", strpos($src, 'lang="en"') === false);
+}
+foreach (['register.php', 'pro_login.php'] as $page) {
+    $src = $authSrc($page);
+    check("scan: {$page} requires i18n_head.php and i18n_js.php", strpos($src, "partials/i18n_head.php") !== false && strpos($src, "partials/i18n_js.php") !== false);
+    check("scan: {$page} builds its canonical with i18nUrl()", strpos($src, '$msOgUrl    = $msOgOrigin . i18nUrl($msPath);') !== false);
+    check("scan: {$page} posts to a root-relative endpoint under /sv/", strpos($src, "\$msAssets . 'pro_auth.php'") !== false && strpos($src, "\$.post('pro_auth.php'") === false);
+}
+check('scan: the sign-in area logs no locale beside an address', !preg_match('/logMessage\([^;]*locale[^;]*email/i', $authPhp));
+ms_auth_probe_remove($authProbe);
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

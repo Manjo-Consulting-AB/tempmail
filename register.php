@@ -38,17 +38,32 @@ if (!in_array($plan, ['regular', 'pro'], true)) {
 // marketing shell derives its URLs from. This page stays indexable: it is the
 // sign-up entry point and one of the six paths in sitemap.php.
 $msOgOrigin = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
-$msOgUrl    = $msOgOrigin . '/register.php';
+$msPath     = '/register.php';
+$msOgUrl    = $msOgOrigin . i18nUrl($msPath);
 $msOgImage  = $msOgOrigin . '/assets/images/og-mailshield.png';
-$msTitle    = 'Create your inbox · Mail Shield';
+$msTitle    = t('auth.register.meta.title');
 
 // Every new account starts on Pro for this many days (epic #267). Read from
 // $config so the page never promises a trial the backend does not grant; at 0
 // the pre-trial copy is shown instead.
 $msTrialDays = max(0, (int) ($config['trial']['days'] ?? 0));
 $msDesc     = $msTrialDays > 0
-    ? 'Create a Mail Shield account and start with ' . $msTrialDays . ' days of Pro, free: a separate inbox for the email you don\'t want in your primary one, with sticky and timed addresses and automatic clean-up.'
-    : 'Create a free Mail Shield account and get a separate inbox for the email you don\'t want in your primary one. Sticky and timed addresses, with automatic clean-up.';
+    ? t('auth.register.meta.desc_trial', ['days' => $msTrialDays])
+    : t('auth.register.meta.desc_free');
+
+// The page's stylesheets and its endpoint are relative links (history). Under
+// /sv/ a relative link would resolve to /sv/assets/... and /sv/pro_auth.php, so
+// every non-default language gets the root-relative form; the English markup is
+// unchanged.
+$msAssets = i18nLocale() === i18nDefaultLocale() ? '' : '/';
+$msAuthUrl = $msAssets . 'pro_auth.php';
+
+// The scripts' own strings (partials/i18n_js.php, read by msT() below).
+$msI18nJs = ['auth.register.js.'];
+
+$msEsc = function ($value): string {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+};
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
@@ -61,6 +76,7 @@ $msDesc     = $msTrialDays > 0
     <meta name="description" content="<?php echo htmlspecialchars($msDesc, ENT_QUOTES, 'UTF-8'); ?>">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="<?php echo htmlspecialchars($msOgUrl, ENT_QUOTES, 'UTF-8'); ?>">
+<?php require __DIR__ . '/partials/i18n_head.php'; ?>
 
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Mail Shield">
@@ -79,78 +95,79 @@ $msDesc     = $msTrialDays > 0
 <?php require __DIR__ . '/partials/favicons.php'; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/style.css" rel="stylesheet">
 
-    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
+<?php require __DIR__ . '/partials/i18n_js.php'; ?>
 </head>
 <body>
     <div class="ms-auth">
         <header class="ms-auth__bar">
             <div class="ms-auth__bar-inner">
-                <?php echo ms_logo(['href' => '/']); ?>
+                <?php echo ms_logo(['href' => i18nUrl('/')]); ?>
             </div>
         </header>
 
         <main class="ms-auth__main">
             <div class="ms-card ms-auth__card">
-                <h1 class="ms-auth__title">Create your inbox</h1>
-                <p class="ms-auth__sub"><?php echo $msTrialDays > 0 ? 'Includes ' . $msTrialDays . ' days of Pro, free. No card needed.' : 'Free to start. No card needed.'; ?></p>
+                <h1 class="ms-auth__title"><?php echo te('auth.register.title'); ?></h1>
+                <p class="ms-auth__sub"><?php echo $msTrialDays > 0 ? te('auth.register.sub_trial', ['days' => $msTrialDays]) : te('auth.register.sub_free'); ?></p>
 
                 <div class="mb-3" id="registerModeToggle">
-                    <div class="ms-auth__segment" role="group" aria-label="Account type">
+                    <div class="ms-auth__segment" role="group" aria-label="<?php echo te('auth.register.account_type'); ?>">
                         <input type="radio" class="btn-check" name="registerMode" id="modeRegular" autocomplete="off" <?php echo $plan === 'regular' ? 'checked' : ''; ?>>
-                        <label class="btn btn-outline-secondary" for="modeRegular">Free</label>
+                        <label class="btn btn-outline-secondary" for="modeRegular"><?php echo te('auth.register.mode_free'); ?></label>
 
                         <input type="radio" class="btn-check" name="registerMode" id="modePro" autocomplete="off" <?php echo $plan === 'pro' ? 'checked' : ''; ?>>
-                        <label class="btn btn-outline-secondary" for="modePro">Pro (voucher code)</label>
+                        <label class="btn btn-outline-secondary" for="modePro"><?php echo te('auth.register.mode_pro'); ?></label>
                     </div>
                 </div>
 
                 <?php if ($msTrialDays > 0) : ?>
-                    <p class="ms-auth__hint" id="regHintFree">Your first <?php echo $msTrialDays; ?> days are on Pro &mdash; sticky addresses, automation and 1&ndash;7 day timed addresses. After that it's free: one timed address, deleted after 24 hours. One trial per email address.</p>
+                    <p class="ms-auth__hint" id="regHintFree"><?php echo te('auth.register.hint_free_trial', ['days' => $msTrialDays, 'min' => 1, 'max' => 7, 'hours' => 24]); ?></p>
                 <?php else : ?>
-                    <p class="ms-auth__hint" id="regHintFree">One timed address at a time. The address and its messages are deleted after 24 hours.</p>
+                    <p class="ms-auth__hint" id="regHintFree"><?php echo te('auth.register.hint_free', ['hours' => 24]); ?></p>
                 <?php endif; ?>
-                <p class="ms-auth__hint" id="regHintPro" style="display:none;">Sticky addresses and automation. Incoming mail is still temporary and is cleaned up according to your retention settings. Requires a voucher code &mdash; without one, create a free account and choose a <a href="/pricing.php">plan</a> once you are signed in.</p>
+                <p class="ms-auth__hint" id="regHintPro" style="display:none;"><?php echo tHtml('auth.register.hint_pro', [], ['plan' => '<a href="' . $msEsc(i18nUrl('/pricing.php')) . '">', 'plan_end' => '</a>']); ?></p>
 
                 <div id="registerBlock">
                     <form id="registerForm">
                         <input type="hidden" name="plan" id="registerPlan" value="<?php echo htmlspecialchars($plan); ?>">
                         <div class="mb-3">
-                            <label for="regEmail" class="form-label">Email address</label>
+                            <label for="regEmail" class="form-label"><?php echo te('auth.register.email'); ?></label>
                             <input type="email" class="form-control" name="email" id="regEmail" autocomplete="email" required>
                         </div>
                         <div class="mb-3">
-                            <label for="regPassword" class="form-label">Password</label>
+                            <label for="regPassword" class="form-label"><?php echo te('auth.register.password'); ?></label>
                             <div class="ms-password-field">
                                 <input type="password" class="form-control" name="password" id="regPassword" autocomplete="new-password" required>
-                                <button type="button" class="ms-password-toggle" data-target="regPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                <button type="button" class="ms-password-toggle" data-target="regPassword" aria-label="<?php echo te('auth.register.show_password'); ?>" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label for="regPasswordConfirm" class="form-label">Confirm password</label>
+                            <label for="regPasswordConfirm" class="form-label"><?php echo te('auth.register.confirm_password'); ?></label>
                             <div class="ms-password-field">
                                 <input type="password" class="form-control" name="password_confirm" id="regPasswordConfirm" autocomplete="new-password" required>
-                                <button type="button" class="ms-password-toggle" data-target="regPasswordConfirm" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                <button type="button" class="ms-password-toggle" data-target="regPasswordConfirm" aria-label="<?php echo te('auth.register.show_password'); ?>" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
                             </div>
                         </div>
                         <div class="mb-3" id="regCodeBlock" style="display:none;">
-                            <label for="regCode" class="form-label">Voucher code</label>
+                            <label for="regCode" class="form-label"><?php echo te('auth.register.voucher_code'); ?></label>
                             <input type="text" class="form-control" name="code" id="regCode">
                         </div>
-                        <button type="submit" class="btn btn-primary w-100" id="registerSubmit">Create account</button>
+                        <button type="submit" class="btn btn-primary w-100" id="registerSubmit"><?php echo te('auth.register.submit'); ?></button>
                     </form>
                     <div id="registerMsg" class="mt-3"></div>
                 </div>
 
-                <p class="ms-auth__alt">Already have an account? <a href="pro_login.php">Sign in here</a>.</p>
+                <p class="ms-auth__alt"><?php echo tHtml('auth.register.have_account', [], ['login' => '<a href="' . $msEsc(i18nUrl('/pro_login.php')) . '">', 'login_end' => '</a>']); ?></p>
             </div>
         </main>
 
         <footer class="ms-auth__foot">
-            <p><a href="/">&larr; Back to Mail Shield</a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
+            <p><a href="<?php echo $msEsc(i18nUrl('/')); ?>"><?php echo te('auth.register.back'); ?></a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
         </footer>
     </div>
 
@@ -158,6 +175,26 @@ $msDesc     = $msTrialDays > 0
     <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    // Strings for the scripts below: the page's slice of the catalog, in the
+    // page's language (partials/i18n_js.php); English when it is missing.
+    var msI18n = null;
+    function msT(key, fallback, params) {
+        if (msI18n === null) {
+            try { msI18n = JSON.parse(document.getElementById('ms-i18n').textContent); }
+            catch (e) { msI18n = {}; }
+        }
+        var text = (typeof msI18n[key] === 'string') ? msI18n[key] : fallback;
+        return text.replace(/\{(\w+)\}/g, function (m, name) {
+            return params && name in params ? String(params[name]) : m;
+        });
+    }
+    function msEsc(text) {
+        return String(text).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+    // Our own endpoint: root-relative under /sv/, where a relative URL would not resolve.
+    var AUTH_URL = <?php echo json_encode($msAuthUrl); ?>;
     $(function(){
         // Minimum password length must match the server exactly
         // (register_account in pro_auth.php, mirroring pro_profile.php's
@@ -204,18 +241,18 @@ $msDesc     = $msTrialDays > 0
             var code = $('#regCode').val();
 
             if (password !== passwordConfirm) {
-                $('#registerMsg').html('<div class="alert alert-danger">Passwords do not match</div>');
+                $('#registerMsg').html('<div class="alert alert-danger">' + msEsc(msT('auth.register.js.mismatch', 'Passwords do not match')) + '</div>');
                 return;
             }
             if (password.length < MIN_PASSWORD_LENGTH) {
-                $('#registerMsg').html('<div class="alert alert-danger">Password must be at least ' + MIN_PASSWORD_LENGTH + ' characters</div>');
+                $('#registerMsg').html('<div class="alert alert-danger">' + msEsc(msT('auth.register.js.too_short', 'Password must be at least {min} characters', { min: MIN_PASSWORD_LENGTH })) + '</div>');
                 return;
             }
 
             $('#registerSubmit').prop('disabled', true);
-            $('#registerMsg').html('<div class="alert alert-info">Creating account...</div>');
+            $('#registerMsg').html('<div class="alert alert-info">' + msEsc(msT('auth.register.js.creating', 'Creating account...')) + '</div>');
 
-            $.post('pro_auth.php', {
+            $.post(AUTH_URL, {
                 action: 'register_account',
                 plan: plan,
                 email: email,
@@ -228,14 +265,14 @@ $msDesc     = $msTrialDays > 0
                     // again - the message is "check your email", not a
                     // completed action with something more to do here.
                     $('#registerForm').hide();
-                    $('#registerMsg').html('<div class="alert alert-success">' + (res.message || 'Check your email to finish creating your account') + '</div>');
+                    $('#registerMsg').html('<div class="alert alert-success">' + (res.message || msEsc(msT('auth.register.js.done', 'Check your email to finish creating your account'))) + '</div>');
                 } else {
                     $('#registerSubmit').prop('disabled', false);
-                    $('#registerMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Registration failed') + '</div>');
+                    $('#registerMsg').html('<div class="alert alert-danger">' + (res && res.error ? res.error : msEsc(msT('auth.register.js.failed', 'Registration failed'))) + '</div>');
                 }
             }, 'json').fail(function(){
                 $('#registerSubmit').prop('disabled', false);
-                $('#registerMsg').html('<div class="alert alert-danger">Network error</div>');
+                $('#registerMsg').html('<div class="alert alert-danger">' + msEsc(msT('auth.register.js.network', 'Network error')) + '</div>');
             });
         });
     });
@@ -272,7 +309,7 @@ $msDesc     = $msTrialDays > 0
                 }
 
                 btn.setAttribute('aria-pressed', String(masked));
-                btn.setAttribute('aria-label', masked ? 'Hide password' : 'Show password');
+                btn.setAttribute('aria-label', masked ? msT('auth.register.js.hide_password', 'Hide password') : msT('auth.register.js.show_password', 'Show password'));
             });
         });
     })();
