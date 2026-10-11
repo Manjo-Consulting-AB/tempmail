@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#FAFAF9">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Your inbox · Mail Shield</title>
+    <link rel="icon" href="/assets/images/favicon.ico?v=1791723855" sizes="32x32">
+    <link rel="icon" href="/assets/images/favicon.svg?v=1791723855" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/images/favicon-180x180.png?v=1791723855">
+    <link rel="manifest" href="/site.webmanifest">
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link href="assets/css/style.css" rel="stylesheet">
+    
+    <meta name="description" content="Create timed addresses that are automatically deleted after 24 hours. Safe and easy to use.">
+    
+    <link href="assets/css/mailshield-fonts.css?v=1791723855" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=1791723855" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=1791723855" rel="stylesheet">
+</head>
+<body>
+    <div class="main-container">
+        <!-- Header -->
+        <div class="header">
+            <h1><i class="fas fa-envelope"></i> Mail Shield</h1>
+            <p class="lead">Timed addresses for Pro users. Default lifetime applied to new addresses.</p>
+            
+            <nav class="ms-appnav" aria-label="Application">
+    <div class="ms-appnav__inner">
+        <a class="ms-logo ms-appnav__logo" href="/pro.php"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+        <button type="button" class="ms-appnav__toggle" id="hamburgerBtn"
+                aria-expanded="false" aria-controls="navbarMenu" aria-label="Menu">
+            <span class="ms-appnav__toggle-line"></span>
+            <span class="ms-appnav__toggle-line"></span>
+            <span class="ms-appnav__toggle-line"></span>
+        </button>
+
+        <div class="ms-appnav__panel" id="navbarMenu">
+            <div class="ms-appnav__links">
+                                <a href="pro.php" class="navbar-link">Inbox</a>
+                                <a href="blog.php" class="navbar-link">Blog</a>
+                <a href="faq.php" class="navbar-link">FAQ</a>
+
+                                    <a href="client_agent_manage.php" class="navbar-link">Client Agent</a>
+                    <a href="pro_profile_page.php" class="navbar-link">Settings</a>
+                    <a href="pro_contact.php" class="navbar-link">Contact</a>
+                                        <a href="pro_logout.php" class="navbar-link">Log out</a>
+                            </div>
+
+                        <div class="ms-appnav__account">
+                                <span class="ms-appnav__email">Signed in as <span class="ms-appnav__email-addr">alice@example.com</span></span>
+                                <span id="proExpiryLine" class="ms-appnav__status">Pro</span>
+            </div>
+                    </div>
+    </div>
+</nav>
+
+<script>
+(function () {
+    var btn = document.getElementById('hamburgerBtn');
+    var panel = document.getElementById('navbarMenu');
+    if (!btn || !panel) return;
+
+    function isOpen() { return btn.getAttribute('aria-expanded') === 'true'; }
+    function setOpen(open) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        panel.classList.toggle('is-open', open);
+    }
+    function close(moveFocus) {
+        if (!isOpen()) return;
+        setOpen(false);
+        if (moveFocus) btn.focus();
+    }
+
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(true); });
+    // An outside click leaves focus where the user clicked; only Escape pulls it
+    // back to the button.
+    document.addEventListener('click', function (e) {
+        if (!panel.contains(e.target) && !btn.contains(e.target)) close(false);
+    });
+})();
+</script>
+                        <script>
+            (function(){
+                try {
+                    var proExpiry = {"expires":null,"isPro":true};
+                    if (!proExpiry.isPro) {
+                        document.getElementById('proExpiryLine').textContent = 'Free';
+                        return;
+                    }
+                    if (!proExpiry.expires) {
+                        document.getElementById('proExpiryLine').textContent = 'Pro: Lifetime';
+                        return;
+                    }
+                    var d = new Date(proExpiry.expires + ' UTC');
+                    var dd = String(d.getUTCDate()).padStart(2, '0');
+                    var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+                    var yyyy = d.getUTCFullYear();
+                    var dateOnly = dd + '/' + mm + '/' + yyyy;
+                    var now = new Date();
+                    var diffMs = d - now;
+                    if (diffMs <= 0) {
+                        document.getElementById('proExpiryLine').textContent = 'Pro expired on ' + dateOnly;
+                        document.getElementById('proExpiryLine').style.color = '#ff6b6b';
+                    } else {
+                        document.getElementById('proExpiryLine').textContent = 'Pro expires: ' + dateOnly;
+                    }
+                } catch (e) {}
+            })();
+            </script>
+                        <!-- navbar script moved to partial -->
+        </div>
+
+        <!-- Inbox: one frame, the way the landing hero mockup draws it -->
+        <main class="ms-inbox">
+            <div class="ms-inbox__frame">
+                <!-- Empty state (visas tills adress är skapad) -->
+                <div id="initial-generator" class="ms-inbox__empty">
+                                            <h2 class="ms-inbox__empty-title">Click to get your timed address</h2>
+                        <button id="generateBtn" class="btn btn-primary btn-lg">
+                            <i class="fas fa-magic" aria-hidden="true"></i> Get Email Address
+                        </button>
+                                    </div>
+
+                <!-- E-postadress display (visas när adress är skapad) -->
+                <div class="email-container d-none">
+                    <div class="ms-inbox__head">
+                        <div class="ms-inbox__id">
+                            <p class="ms-eyebrow ms-inbox__label">Your address</p>
+                            <h2 class="email-address ms-inbox__addr" id="currentEmail" tabindex="0"></h2>
+                            <p class="ms-inbox__meta">
+                                <span id="privacyIndicator" class="d-none ms-inbox__privacy"><i class="fas fa-lock" aria-hidden="true"></i> <span id="privacyText">Private</span></span>
+                                <span class="ms-inbox__validity"><i class="fas fa-clock" aria-hidden="true"></i> <span id="validityText">Valid for 24 hours</span></span>
+                            </p>
+                        </div>
+
+                        <div class="ms-inbox__actions">
+                            <button id="copyBtn" class="btn btn-primary">
+                                <i class="fas fa-copy" aria-hidden="true"></i> Copy address
+                            </button>
+                            <button id="refreshBtn" class="btn btn-outline-secondary">
+                                <i class="fas fa-sync-alt" aria-hidden="true"></i> Refresh
+                            </button>
+                            <button id="shareBtn" class="btn btn-outline-secondary">
+                                <i class="fas fa-share-alt" aria-hidden="true"></i> Share link
+                            </button>
+                            <button id="newAddressBtn" class="btn btn-outline-secondary">
+                                <i class="fas fa-plus" aria-hidden="true"></i> New address
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="ms-inbox__listbar">
+                        <div class="ms-inbox__count">
+                            <span id="emailCount">0</span>
+                            <span>messages</span>
+                            <button id="imageToggle" class="btn btn-sm btn-outline-secondary" title="Blockera externa bilder">
+                                <i class="fas fa-image" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                        <div class="ms-inbox__freshness">
+                            <span class="status-indicator"><i class="fas fa-circle" aria-hidden="true"></i> Ready</span>
+                            <span class="ms-inbox__updated">Last updated: <span id="lastUpdate">Never</span></span>
+                        </div>
+                    </div>
+
+                    <!-- E-postlista -->
+                    <div class="email-list" id="emailList">
+                        <!-- E-postmeddelanden läses in här via JavaScript -->
+                    </div>
+                </div>
+
+                                <!-- Statistik: the signed-in account's own numbers (get_stats in index.php). A logged-out visitor gets none - the system-wide totals live on the landing page. -->
+                <div class="ms-inbox__stats" id="userStats">
+                    <div class="ms-inbox__stat">
+                        <span class="ms-inbox__stat-n" id="statsEmails">0</span>
+                        <span class="ms-inbox__stat-l">Emails in your inbox</span>
+                    </div>
+                    <div class="ms-inbox__stat">
+                        <span class="ms-inbox__stat-n" id="statsReceived24h">0</span>
+                        <span class="ms-inbox__stat-l">Received last 24 h</span>
+                    </div>
+                    <div class="ms-inbox__stat">
+                        <span class="ms-inbox__stat-n" id="statsAddresses">0</span>
+                        <span class="ms-inbox__stat-l">Active addresses</span>
+                    </div>
+                    <div class="ms-inbox__stat">
+                        <span class="ms-inbox__stat-n" id="statsStorage">&ndash;</span>
+                        <span class="ms-inbox__stat-l">Storage used</span>
+                    </div>
+                </div>
+                            </div>
+        </main>
+    </div>
+
+    <!-- E-post Modal -->
+    <div class="modal fade" id="emailModal" tabindex="-1" aria-labelledby="emailModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-main modal-fullscreen-sm-down">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="emailModalLabel">Email Message</h5>
+                    <div class="d-flex align-items-center">
+                        <button id="modalShowImagesBtn" type="button" class="btn btn-sm btn-outline-secondary me-2" title="Visa bilder i detta meddelande">Visa bilder</button>
+                        <button type="button" class="btn-close" aria-label="Close"></button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>From:</strong></div>
+                        <div class="col-sm-9" id="emailFrom"></div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>To:</strong></div>
+                        <div class="col-sm-9" id="emailTo"></div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>Date:</strong></div>
+                        <div class="col-sm-9" id="emailDate"></div>
+                    </div>
+                    <hr>
+                    <div class="email-content" id="emailContent">
+                        <!-- Email content loaded here -->
+                    </div>
+                    <div id="emailAttachments" class="mt-3" style="display:none">
+                        <h6>Attachments</h6>
+                        <!-- Attachment links injected here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pro Profile Modal -->
+    <div class="modal fade" id="proProfileModal" tabindex="-1" aria-labelledby="proProfileLabel" aria-hidden="true">
+        <div class="modal-dialog modal-main modal-fullscreen-sm-down">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="proProfileLabel">Profile</h5>
+                    <button type="button" class="btn-close" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="proProfileAlert"></div>
+                    <form id="proProfileForm">
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" id="proEmail" />
+                        </div>
+                        <div class="mb-3">
+                            <button type="button" id="saveProfileEmailBtn" class="btn btn-primary">Save email</button>
+                        </div>
+
+                        <hr>
+                        <h6>Set a password for direct access</h6>
+                        <div id="proPasswordCurrentGroup" class="mb-3 d-none">
+                            <label class="form-label">Current password</label>
+                            <input type="password" class="form-control" id="proPasswordCurrent" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">New password</label>
+                            <input type="password" class="form-control" id="proPassword" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Confirm password</label>
+                            <input type="password" class="form-control" id="proPasswordConfirm" />
+                        </div>
+                        <div class="mb-3">
+                            <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="text-center mt-5 py-4">
+        <div class="container">
+            <p class="text-light mb-0">
+                <small>Mail Shield · Operated by Manjo Consulting AB · v </small>
+            </p>
+            <p class="text-light mb-0 mt-1">
+                <small>&copy; 2026 Manjo Consulting AB</small>
+            </p>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <script>
+(function () {
+    window.msLocale = document.documentElement.lang || 'en';
+    if (window.jQuery) {
+        window.jQuery.ajaxSetup({ headers: { 'X-MS-Locale': window.msLocale } });
+    }
+})();
+</script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/site-controls.js"></script>
+    <script>
+        // Konfigurations-objekt för JavaScript
+        window.tempMailConfig = {
+            domain: 'manjo.me',
+            refreshRate: 10000,
+            maxEmailPreview: 150,
+            urlAddress: null,
+            urlExpiresAt: null,
+            isPro: true        };
+    </script>
+    <script src="assets/js/app.js?v=1791723855"></script>
+    <script>
+    (function(){
+        // No personal-address handlers on index; profile page contains those controls now.
+    })();
+    </script>
+</body>
