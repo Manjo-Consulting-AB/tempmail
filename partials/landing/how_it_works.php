@@ -29,28 +29,28 @@ $msHowDomain = htmlspecialchars(
 ?>
 <section class="ms-section ms-section--sunken" id="how-it-works">
     <div class="ms-container">
-        <h2 class="ms-h2">How it works</h2>
+        <h2 class="ms-h2"><?php echo te('landing.how.title'); ?></h2>
 
         <ol class="ms-grid ms-grid--3 ms-steps">
             <li class="ms-card ms-step">
                 <span class="ms-step__num" aria-hidden="true">1</span>
-                <h3 class="ms-h3">Create your inbox</h3>
-                <p class="ms-step__body">Sign up with your real email address. It stays private.</p>
+                <h3 class="ms-h3"><?php echo te('landing.how.step1_title'); ?></h3>
+                <p class="ms-step__body"><?php echo te('landing.how.step1_body'); ?></p>
             </li>
             <li class="ms-card ms-step">
                 <span class="ms-step__num" aria-hidden="true">2</span>
-                <h3 class="ms-h3">Choose an address</h3>
-                <p class="ms-step__body">Use a sticky address like <span class="ms-addr">shopping@<?php echo $msHowDomain; ?></span> when you want to hear from a service again, or create a timed one for mail you only need for a while.</p>
+                <h3 class="ms-h3"><?php echo te('landing.how.step2_title'); ?></h3>
+                <p class="ms-step__body"><?php echo tHtml('landing.how.step2_body', [], ['addr' => '<span class="ms-addr">' . te('landing.mock.addr_shopping') . '@' . $msHowDomain . '</span>']); ?></p>
             </li>
             <li class="ms-card ms-step">
                 <span class="ms-step__num" aria-hidden="true">3</span>
-                <h3 class="ms-h3">Everything lands in one place</h3>
-                <p class="ms-step__body">Read it on the web. Mail is kept only as long as your retention settings allow, or route it onward with RSS, webhooks or push.</p>
+                <h3 class="ms-h3"><?php echo te('landing.how.step3_title'); ?></h3>
+                <p class="ms-step__body"><?php echo te('landing.how.step3_body'); ?></p>
             </li>
         </ol>
 
         <p class="ms-how__more">
-            <a class="ms-btn ms-btn--quiet" href="/temporary-email.php">More about temporary email addresses</a>
+            <a class="ms-btn ms-btn--quiet" href="<?php echo htmlspecialchars(i18nUrl('/temporary-email.php'), ENT_QUOTES, 'UTF-8'); ?>"><?php echo te('landing.how.more'); ?></a>
         </p>
     </div>
 </section>

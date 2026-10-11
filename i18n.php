@@ -87,7 +87,7 @@ if (!function_exists('i18nSupportedLocales')) {
             $pages = $override;
         }
         return $pages ?? [
-            '/'                    => ['en'],
+            '/'                    => ['en', 'sv'],
             '/temporary-email.php' => ['en'],
             '/pricing.php'         => ['en'],
             '/faq.php'             => ['en'],

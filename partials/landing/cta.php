@@ -33,16 +33,16 @@ $msCtaTrialDays = $msCtaSignedIn ? 0 : max(0, (int) ($config['trial']['days'] ??
 ?>
 <section class="ms-section ms-section--sunken ms-cta" id="get-started">
     <div class="ms-container--narrow ms-cta__inner">
-        <h2 class="ms-h2">Give your inbox some breathing room.</h2>
+        <h2 class="ms-h2"><?php echo te('landing.cta.title'); ?></h2>
         <?php if ($msCtaTrialDays > 0) : ?>
-            <p class="ms-cta__body">Keep your primary inbox for what matters &mdash; and start with <?php echo $msCtaTrialDays; ?> days of Pro, free.</p>
+            <p class="ms-cta__body"><?php echo te('landing.cta.body_trial', ['days' => $msCtaTrialDays]); ?></p>
         <?php else : ?>
-            <p class="ms-cta__body">Keep your primary inbox for what matters. Let Mail Shield handle everything else.</p>
+            <p class="ms-cta__body"><?php echo te('landing.cta.body'); ?></p>
         <?php endif; ?>
         <?php if ($msCtaSignedIn) : ?>
-            <a class="ms-btn ms-btn--primary ms-btn--lg" href="/pro.php">Go to your inbox</a>
+            <a class="ms-btn ms-btn--primary ms-btn--lg" href="/pro.php"><?php echo te('landing.cta.go_to_inbox'); ?></a>
         <?php else : ?>
-            <a class="ms-btn ms-btn--primary ms-btn--lg" href="/register.php?plan=regular">Create your inbox</a>
+            <a class="ms-btn ms-btn--primary ms-btn--lg" href="<?php echo htmlspecialchars(i18nUrl('/register.php?plan=regular'), ENT_QUOTES, 'UTF-8'); ?>"><?php echo te('landing.cta.create_inbox'); ?></a>
         <?php endif; ?>
     </div>
 </section>

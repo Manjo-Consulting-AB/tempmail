@@ -44,38 +44,38 @@ if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 ?>
 <section class="ms-section" id="cleanup">
     <div class="ms-container">
-        <p class="ms-eyebrow">Smart cleanup</p>
-        <h2 class="ms-h2">Less clutter. Automatically.</h2>
-        <p class="ms-cleanup__body">Your second inbox shouldn't become another inbox you have to manage.</p>
+        <p class="ms-eyebrow"><?php echo te('landing.cleanup.eyebrow'); ?></p>
+        <h2 class="ms-h2"><?php echo te('landing.cleanup.title'); ?></h2>
+        <p class="ms-cleanup__body"><?php echo te('landing.cleanup.body'); ?></p>
 
         <ul class="ms-cleanup__list">
             <li class="ms-cleanup__item">
                 <svg class="ms-cleanup__mark" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M3.5 8.5L6.5 11.5L12.5 4.5"/>
                 </svg>
-                <p class="ms-cleanup__text">Timed addresses and their messages are deleted automatically.</p>
+                <p class="ms-cleanup__text"><?php echo te('landing.cleanup.item1'); ?></p>
             </li>
 
             <li class="ms-cleanup__item">
                 <svg class="ms-cleanup__mark" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M3.5 8.5L6.5 11.5L12.5 4.5"/>
                 </svg>
-                <p class="ms-cleanup__text">Allow and block lists per sender, so the noise stops before you see it.</p>
-                <p class="ms-cleanup__qualifier">Sender lists run through the Agent.</p>
+                <p class="ms-cleanup__text"><?php echo te('landing.cleanup.item2'); ?></p>
+                <p class="ms-cleanup__qualifier"><?php echo te('landing.cleanup.item2_qualifier'); ?></p>
             </li>
 
             <li class="ms-cleanup__item">
                 <svg class="ms-cleanup__mark" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M3.5 8.5L6.5 11.5L12.5 4.5"/>
                 </svg>
-                <p class="ms-cleanup__text">Digest emails summarise what arrived while you were away.</p>
+                <p class="ms-cleanup__text"><?php echo te('landing.cleanup.item3'); ?></p>
             </li>
 
             <li class="ms-cleanup__item">
                 <svg class="ms-cleanup__mark" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M3.5 8.5L6.5 11.5L12.5 4.5"/>
                 </svg>
-                <p class="ms-cleanup__text">Notifications for the messages that actually matter.</p>
+                <p class="ms-cleanup__text"><?php echo te('landing.cleanup.item4'); ?></p>
             </li>
         </ul>
     </div>

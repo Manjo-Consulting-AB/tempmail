@@ -30,9 +30,9 @@ if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 $msStats = function_exists('getStats') ? getStats() : [];
 
 $msStatsItems = [
-    ['value' => (int) ($msStats['emails_processed'] ?? 0), 'label' => 'Emails received'],
-    ['value' => (int) ($msStats['emails_created'] ?? 0), 'label' => 'Addresses created'],
-    ['value' => (int) ($msStats['attachments_processed'] ?? 0), 'label' => 'Attachments handled'],
+    ['value' => (int) ($msStats['emails_processed'] ?? 0), 'label' => t('landing.stats.emails')],
+    ['value' => (int) ($msStats['emails_created'] ?? 0), 'label' => t('landing.stats.addresses')],
+    ['value' => (int) ($msStats['attachments_processed'] ?? 0), 'label' => t('landing.stats.attachments')],
 ];
 
 $msStatsHasData = false;
@@ -48,14 +48,14 @@ if (!$msStatsHasData) {
 ?>
 <section class="ms-section ms-section--sunken ms-section--tight" id="stats">
     <div class="ms-container">
-        <p class="ms-eyebrow">In numbers</p>
-        <h2 class="ms-h2">Mail Shield so far</h2>
+        <p class="ms-eyebrow"><?php echo te('landing.stats.eyebrow'); ?></p>
+        <h2 class="ms-h2"><?php echo te('landing.stats.title'); ?></h2>
 
         <dl class="ms-stats">
             <?php foreach ($msStatsItems as $msStatsItem) : ?>
             <div class="ms-stats__item">
                 <dt class="ms-stats__label"><?php echo htmlspecialchars($msStatsItem['label'], ENT_QUOTES, 'UTF-8'); ?></dt>
-                <dd class="ms-stats__value"><?php echo htmlspecialchars(number_format($msStatsItem['value'], 0, ',', "\u{00A0}"), ENT_QUOTES, 'UTF-8'); ?></dd>
+                <dd class="ms-stats__value"><?php echo htmlspecialchars(i18nNumber($msStatsItem['value']), ENT_QUOTES, 'UTF-8'); ?></dd>
             </div>
             <?php endforeach; ?>
         </dl>
