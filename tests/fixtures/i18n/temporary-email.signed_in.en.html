@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Google Analytics: consent-gated. See partials/analytics.php and
+     assets/js/consent.js — gtag.js is requested only after the visitor
+     accepts the cookie notice this script shows. -->
+<script type="application/json" id="ms-i18n-consent">{"consent.label":"Cookie consent","consent.text":"We use Google Analytics on our public pages to understand how Mail Shield is used.","consent.learn_more":"Learn more","consent.decline":"Decline","consent.accept":"Accept","consent.privacy_url":"\/privacy.php#cookies"}</script>
+<script>window.msAnalyticsId = 'G-BFX6EC3575';</script>
+<script src="/assets/js/consent.js?v=1"></script>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
+    <title>Temporary email addresses — free disposable email · Mail Shield</title>
+    <meta name="description" content="A temporary email address for signups, downloads and services you only need for a while. Read the mail in your Mail Shield inbox, then let it be cleaned up automatically.">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://example.test/temporary-email.php">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mail Shield">
+    <meta property="og:title" content="Temporary email addresses — free disposable email · Mail Shield">
+    <meta property="og:description" content="A temporary email address for signups, downloads and services you only need for a while. Read the mail in your Mail Shield inbox, then let it be cleaned up automatically.">
+    <meta property="og:url" content="https://example.test/temporary-email.php">
+    <meta property="og:image" content="https://example.test/assets/images/og-mailshield.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Temporary email addresses — free disposable email · Mail Shield">
+    <meta name="twitter:description" content="A temporary email address for signups, downloads and services you only need for a while. Read the mail in your Mail Shield inbox, then let it be cleaned up automatically.">
+    <meta name="twitter:image" content="https://example.test/assets/images/og-mailshield.png">
+
+    <link rel="icon" href="/assets/images/favicon.ico" sizes="32x32">
+    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/images/favicon-180x180.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <!--
+      Structured data, if the page supplied any (brief §14). Built with
+      json_encode() on a PHP array — never by concatenating values into JSON —
+      so a quote or an apostrophe in a headline cannot invalidate the block.
+      json_encode escapes "/" by default, and that is load-bearing here: it is
+      what stops a "</script>" inside a value from ending this element early.
+    -->
+    <script type="application/ld+json">{"@context":"https:\/\/schema.org","@type":"Article","headline":"Temporary email addresses","description":"A temporary email address for signups, downloads and services you only need for a while. Read the mail in your Mail Shield inbox, then let it be cleaned up automatically.","datePublished":"DATE","dateModified":"DATE","mainEntityOfPage":"https:\/\/example.test\/temporary-email.php","image":"https:\/\/example.test\/assets\/images\/og-mailshield.png","author":{"@type":"Organization","name":"Mail Shield"},"publisher":{"@type":"Organization","name":"Mail Shield","logo":{"@type":"ImageObject","url":"https:\/\/example.test\/assets\/images\/og-mailshield.png"}}}</script>
+    <link rel="preload" href="/assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+
+    <!-- Marketing pages load these two stylesheets only (brief §11). -->
+    <link rel="stylesheet" href="/assets/css/mailshield-fonts.css?v=1">
+    <link rel="stylesheet" href="/assets/css/mailshield.css?v=1">
+</head>
+<body>
+<div class="ms-page">
+<a class="ms-skip" href="#main">Skip to content</a>
+<header class="ms-nav" id="ms-nav">
+    <div class="ms-container ms-nav__inner">
+        <a class="ms-logo ms-nav__logo" href="/"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+        <button type="button" class="ms-nav__toggle" id="ms-nav-toggle"
+                aria-expanded="false" aria-controls="ms-nav-panel" aria-label="Menu">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"
+                 fill="none" aria-hidden="true" focusable="false">
+                <path d="M3 6h14M3 10h14M3 14h14" fill="none" stroke="currentColor"
+                      stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+        </button>
+
+        <nav class="ms-nav__panel" id="ms-nav-panel" aria-label="Main" hidden>
+            <ul class="ms-nav__links">
+                <li><a href="/#features">Features</a></li>
+                <li><a href="/#how-it-works">How it works</a></li>
+                <li><a href="/pricing.php">Pricing</a></li>
+                <li><a href="/faq.php">FAQ</a></li>
+            </ul>
+
+            <div class="ms-nav__actions">
+                                                        <a class="ms-btn ms-btn--primary" href="/pro.php">Go to your inbox</a>
+                            </div>
+        </nav>
+    </div>
+</header>
+
+<script>
+(function () {
+    var nav = document.getElementById('ms-nav');
+    var btn = document.getElementById('ms-nav-toggle');
+    var panel = document.getElementById('ms-nav-panel');
+    if (!nav || !btn || !panel) return;
+
+    function isOpen() { return btn.getAttribute('aria-expanded') === 'true'; }
+    function setOpen(open) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) { panel.removeAttribute('hidden'); } else { panel.setAttribute('hidden', ''); }
+    }
+    function close(moveFocus) {
+        if (!isOpen()) return;
+        setOpen(false);
+        if (moveFocus) btn.focus();
+    }
+
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(true); });
+    // An outside click leaves focus where the user clicked; only Escape pulls it
+    // back to the button.
+    document.addEventListener('click', function (e) { if (!nav.contains(e.target)) close(false); });
+
+    // Hairline only once the page has left the top of the document.
+    var onScroll = function () { nav.classList.toggle('ms-nav--scrolled', window.scrollY > 0); };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>
+<main id="main">
+    <article class="ms-doc">
+        <div class="ms-container--narrow">
+            <h1 class="ms-doc__title">Temporary email addresses</h1>
+            <p class="ms-lede ms-doc__lede">Some signups aren't worth your real address. A temporary email address gives you a disposable one instead — read it in a proper web inbox, then let Mail Shield clean it up for you.</p>
+
+            <nav class="ms-doc__toc" aria-label="On this page">
+                <p class="ms-eyebrow">On this page</p>
+                <ul class="ms-doc__toc-list">
+                    <li><a href="#what">What is a temporary email address?</a></li>
+                    <li><a href="#get">How to get a temporary email address</a></li>
+                    <li><a href="#lifetime">How long does a temporary address last?</a></li>
+                    <li><a href="#when-to-use">When to use a temporary email address</a></li>
+                    <li><a href="#when-not-to-use">When not to use one</a></li>
+                    <li><a href="#permanent">Temporary email, or a sticky address?</a></li>
+                </ul>
+            </nav>
+
+            <section class="ms-doc__section" id="what">
+                <h2 class="ms-h2">What is a temporary email address?</h2>
+                <div class="ms-prose">
+                    <p>A temporary email address exists for a short time and then stops existing. You use it wherever you'd rather not hand over the one you actually read — a free trial, a download, a forum — and anything sent to it lands in a web inbox you can open straight away.</p>
+                    <p>The other name for it is disposable email. The address is meant to be thrown away, so it never has to be memorable or tidy. That's the point: your primary inbox keeps the mail that matters, and the rest goes somewhere you don't have to look after.</p>
+                    <p>In Mail Shield this is called a <strong>timed address</strong>: an address that runs on a clock and deletes itself, with everything in it, when the clock runs out.</p>
+                </div>
+            </section>
+
+            <section class="ms-doc__section" id="get">
+                <h2 class="ms-h2">How to get a temporary email address</h2>
+                <div class="ms-prose">
+                    <p>There is no button on this page that prints an address for you, and that's deliberate — a Mail Shield inbox needs an account behind it.</p>
+                    <ol>
+                        <li>Register with your own email address and a password. It's used to verify the account and to reach you about it, nothing else.</li>
+                        <li>Verify it, then sign in.</li>
+                        <li>Create a timed address from your inbox. It's ready to paste into whatever you're signing up for.</li>
+                    </ol>
+                    <p>The extra minute buys something a throwaway generator can't offer. The address lives inside a real inbox that persists, so you can come back for a confirmation that arrives an hour later, or find the message that explains how to cancel. A page that prints an address and forgets you the moment you close the tab can do neither.</p>
+                </div>
+            </section>
+
+            <section class="ms-doc__section" id="lifetime">
+                <h2 class="ms-h2">How long does a temporary address last?</h2>
+                <div class="ms-prose">
+                    <p>It depends on your account, and both numbers are exact.</p>
+
+                    <dl class="ms-doc__retention">
+                        <div class="ms-doc__tier">
+                            <dt class="ms-eyebrow">Free</dt>
+                            <dd class="ms-doc__tier-value">24 hours</dd>
+                        </div>
+                        <div class="ms-doc__tier">
+                            <dt class="ms-eyebrow">Pro</dt>
+                            <dd class="ms-doc__tier-value">1&ndash;7 days</dd>
+                        </div>
+                    </dl>
+
+                    <p>A free account keeps a timed address for 24 hours. On Pro you choose a lifetime of 1 to 7 days for each address. When the clock runs out, the address and everything in it is deleted automatically.</p>
+                </div>
+            </section>
+
+            <div class="ms-doc__cta">
+                <p class="ms-doc__cta-line">It takes about a minute, and it's free.</p>
+                <a class="ms-btn ms-btn--primary ms-btn--lg" href="/pro.php">Go to your inbox</a>
+            </div>
+
+            <section class="ms-doc__section" id="when-to-use">
+                <h2 class="ms-h2">When to use a temporary email address</h2>
+                <div class="ms-prose">
+                    <p>Temporary email is at its best when the address is the only part you're unsure about.</p>
+                    <ul>
+                        <li>Free trials for tools you may never open again.</li>
+                        <li>A one-off download that asks for an address before it starts.</li>
+                        <li>Forum and community registrations.</li>
+                        <li>Marketplace listings and classifieds, where you'd rather not publish the address you actually use.</li>
+                        <li>Testing your own signup and confirmation emails.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section class="ms-doc__section" id="when-not-to-use">
+                <h2 class="ms-h2">When not to use one</h2>
+                <div class="ms-prose">
+                    <p>This is the wrong tool for anything that matters.</p>
+                    <ul>
+                        <li>Banking, government services, or anything tied to your identity.</li>
+                        <li>Accounts you'd need to recover — once the address is gone, so is the password reset.</li>
+                        <li>Anything you intend to keep.</li>
+                    </ul>
+                    <p>One thing worth saying plainly: a temporary inbox you reach through a shared link isn't private. Pass the link on and whoever receives it can read the mail. Mail Shield would rather tell you that than let you assume otherwise, so treat a timed address as somewhere to receive, not somewhere to keep a secret.</p>
+                </div>
+            </section>
+
+            <section class="ms-doc__section" id="permanent">
+                <h2 class="ms-h2">Temporary email, or a sticky address?</h2>
+                <div class="ms-prose">
+                    <p>Timed addresses are one half of the story. Mail Shield also gives Pro accounts up to 10 sticky addresses — <span class="ms-addr">shopping@example.test</span>, <span class="ms-addr">news@example.test</span>, <span class="ms-addr">projects@example.test</span> — for the senders you'll hear from again. The addresses don't expire. You choose when to remove them, while the mail they receive is still cleaned up according to your retention settings.</p>
+                    <p>If you want a disposable email you never think about again, a timed address is the right choice. If you've been handing out your real address because there was nowhere else to put a newsletter, a sticky address is the better fix. <a href="/">The landing page has the full picture</a>.</p>
+                </div>
+            </section>
+
+            <div class="ms-doc__cta ms-doc__cta--end">
+                <p class="ms-doc__cta-line">Your first timed address is a minute away.</p>
+                <a class="ms-btn ms-btn--primary ms-btn--lg" href="/pro.php">Go to your inbox</a>
+            </div>
+        </div>
+    </article>
+</main>
+<footer class="ms-footer">
+    <div class="ms-container ms-footer__inner">
+        <p class="ms-footer__trust">Mail Shield is operated by Manjo Consulting AB.</p>
+
+        <div class="ms-footer__cols">
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">Product</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/register.php?plan=regular">Create your inbox</a></li>
+                    <li><a href="/pro_login.php">Log in</a></li>
+                    <li><a href="/temporary-email.php">Temporary email addresses</a></li>
+                    <li><a href="/faq.php">FAQ</a></li>
+                </ul>
+            </div>
+
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">More</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/blog.php">Blog</a></li>
+                </ul>
+            </div>
+
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">Legal</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/pricing.php">Pricing</a></li>
+                    <li><a href="/terms.php">Terms of service</a></li>
+                    <li><a href="/privacy.php">Privacy policy</a></li>
+                    <li><a href="/refund-policy.php">Refund policy</a></li>
+                    <li><button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button></li>
+                </ul>
+                <p class="ms-footer__legal">&copy; YYYY Manjo Consulting AB &middot; Mail Shield vtest</p>
+            </div>
+        </div>
+    </div>
+</footer>
+</div><!-- /.ms-page -->
+</body>
+</html>

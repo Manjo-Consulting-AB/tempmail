@@ -942,5 +942,93 @@ same('resolve: /sv/faq.php is served once Swedish is on', null, i18nResolveReque
 same('resolve: ...and redirects while only English is on', '/faq.php', i18nResolveRequest(['REQUEST_URI' => '/sv/faq.php'], $onlyEn));
 i18nSetLocale('en');
 
+/**
+ * Renders the real temporary-email.php in a probe docroot (a copy of the page and
+ * what it requires, plus a stub config.php) as a CLI subprocess and returns the
+ * page. $trial is the trial length in days, $signedIn the session flag.
+ */
+function teRender(string $root, string $locale, array $enabled, int $trial, bool $signedIn = false): array
+{
+    static $probe = null;
+    if ($probe === null) {
+        $probe = sys_get_temp_dir() . '/ms_te_probe_' . getmypid();
+        @mkdir($probe, 0777, true);
+        foreach (['temporary-email.php', 'i18n.php'] as $f) {
+            copy($root . '/' . $f, $probe . '/' . $f);
+        }
+        foreach (['partials', 'lang'] as $d) {
+            @mkdir($probe . '/' . $d, 0777, true);
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/' . $d, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $item) {
+                $rel = substr($item->getPathname(), strlen($root) + 1);
+                if ($item->isDir()) {
+                    @mkdir($probe . '/' . $rel, 0777, true);
+                } else {
+                    copy($item->getPathname(), $probe . '/' . $rel);
+                }
+            }
+        }
+        file_put_contents($probe . '/config.php', <<<'PHP'
+<?php
+// Stub config.php for tests/i18n_test.php: just what temporary-email.php and its partials read.
+$config = [
+    'email'  => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+    'app'    => ['version' => 'test'],
+    'trial'  => ['days' => (int) getenv('PROBE_TRIAL')],
+    'i18n'   => ['enabled' => array_values(array_filter(explode(',', (string) getenv('PROBE_ENABLED'))))],
+    'retention_hold' => ['days' => 30, 'max_per_year' => 4],
+];
+$_SERVER['REQUEST_URI'] = (string) getenv('PROBE_URI');
+require_once __DIR__ . '/i18n.php';
+i18nBootstrap($config['i18n'], $_SERVER);
+$pdo = new PDO('sqlite::memory:');
+session_start();
+$_SESSION = getenv('PROBE_SIGNED_IN') === '1' ? ['pro_user_id' => 1] : [];
+function logMessage($level, $message, $context = []) {}
+PHP);
+        register_shutdown_function(static function () use ($probe) {
+            exec('rm -rf ' . escapeshellarg($probe));
+        });
+    }
+    $env = [
+        'PROBE_ENABLED' => implode(',', $enabled),
+        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/temporary-email.php',
+        'PROBE_TRIAL' => (string) $trial,
+        'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
+        'PATH' => (string) getenv('PATH'),
+    ];
+    $proc = proc_open([PHP_BINARY, '-d', 'session.save_path=' . sys_get_temp_dir(), 'temporary-email.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $probe, $env);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    proc_close($proc);
+    return ['raw' => $out, 'err' => $err];
+}
+
+/**
+ * The copyright year changes every January and the Article dates follow the
+ * file's mtime; the fixtures must not. "inLanguage" was added to the JSON-LD
+ * after the fixtures were rendered, so it is removed before the English page is
+ * compared.
+ */
+function teNorm(string $html): string
+{
+    $html = preg_replace('/&copy; \d{4}/', '&copy; YYYY', $html);
+    $html = preg_replace('/"date(Published|Modified)":"[^"]*"/', '"date$1":"DATE"', $html);
+    return str_replace('"inLanguage":"en",', '', $html);
+}
+
+// --- temporary-email.php: English fixtures ------------------------------------
+// Rendered from temporary-email.php before it went through the data file: signed
+// out with the trial, signed out without it, and signed in.
+$teVariants = [
+    'signed_out'         => [60, false],
+    'signed_out_notrial' => [0, false],
+    'signed_in'          => [60, true],
+];
+foreach ($teVariants as $name => [$trial, $signedIn]) {
+    $r = teRender($root, 'en', $onlyEn, $trial, $signedIn);
+    check("temporary-email en {$name}: the page rendered", $r['raw'] !== '', $r['err']);
+    same("fixture: temporary-email.{$name}.en.html", teNorm((string) file_get_contents($fx . "temporary-email.{$name}.en.html")), teNorm($r['raw']));
+}
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);
