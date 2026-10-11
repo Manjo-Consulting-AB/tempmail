@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.security.', 'profile.apps.', 'profile.twofa.', 'profile.password.', 'profile.agent.', 'profile.delete.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -2706,7 +2706,7 @@ check('set_locale: the log carries the user id and the language, never an addres
     return strpos($block, "logMessage('INFO', 'Account language changed', ['user_id' => \$userId, 'locale' => \$storedLocale])") !== false && stripos($block, 'email') === false;
 })());
 check('scan: pro_profile_page.php requires partials/i18n_js.php with the profile. and expiry prefixes before its first inline script',
-    (bool) preg_match("#\\\$msI18nJs = \['profile\.', 'app\.common\.expiry_'\];\s*require __DIR__ \. '/partials/i18n_js\.php';\s*\?>\s*<script>\s*// msT\(key#s", $profilePageSrc)
+    (bool) preg_match("#\\\$msI18nJs = \[[^\]]*'profile\.common\.'[^\]]*'app\.common\.expiry_',\s*\];\s*require __DIR__ \. '/partials/i18n_js\.php';\s*\?>\s*<script>\s*// msT\(key#s", $profilePageSrc)
     && strpos($profilePageSrc, 'partials/app_locale_js.php') !== false);
 check('scan: pro_profile_page.php defines msT() once, exactly as I18N.md documents it', substr_count($profilePageSrc, 'function msT(key, fallback, params)') === 1
     && strpos($profilePageSrc, "JSON.parse(document.getElementById('ms-i18n').textContent)") !== false
@@ -3003,6 +3003,285 @@ check('scan: no catalog string of the Automation cards holds a credential placeh
     }
     return true;
 })());
+
+// --- Profile C (epic #428, step 6/8): Security, Client Agent and Delete account ----------------------
+// Stay signed in, Connected apps, Two-factor authentication, Password, Client signing keys and Delete
+// account, and the pro_profile.php actions behind them. The English fixtures were rendered
+// (tests/lib/profile_probe.php) from the code as it was before the cards went through te()/tHtml(). The
+// one-time token, the recovery codes, the TOTP secret and QR data and any password are separate fields of
+// the JSON and are never a parameter of a catalog string; an app's own name stays data put in with .text().
+$secIds = ['staySignedInCard', 'staySignedInAlert', 'staySignedInUnavailable', 'staySignedInControls', 'staySignedInSelect', 'staySignedInSaveBtn', 'staySignedInEmpty', 'staySignedInList', 'staySignedInRevokeOthersBtn',
+    'twoFactorSection', 'tfaStatusLine', 'tfaNoPasswordNote', 'tfaAlert', 'tfaDisabledState', 'tfaEnableBtn', 'tfaEnrollStep', 'tfaQrContainer', 'tfaManualKey', 'tfaCopyKeyBtn', 'tfaCodeInput', 'tfaConfirmBtn', 'tfaCancelEnrollBtn',
+    'tfaRecoveryCodesBox', 'tfaRecoveryCodesList', 'tfaCopyRecoveryBtn', 'tfaDownloadRecoveryBtn', 'tfaSavedCodesCheck', 'tfaCloseRecoveryBtn', 'tfaEnabledState', 'tfaLowCodesWarning', 'tfaCodesLeftCount', 'tfaRegenBtn', 'tfaDisableBtn',
+    'tfaTrustedDevicesSection', 'tfaTrustedDevicesAlert', 'tfaTrustedDevicesEmpty', 'tfaTrustedDevicesList', 'tfaRevokeAllDevicesBtn', 'tfaRegenForm', 'tfaRegenCodeInput', 'tfaRegenConfirmBtn', 'tfaRegenCancelBtn',
+    'tfaDisableForm', 'tfaDisablePasswordField', 'tfaDisablePasswordInput', 'tfaDisableConfirmBtn', 'tfaDisableCancelBtn', 'proPassword', 'proPasswordConfirm', 'saveProfilePasswordBtn', 'rotateSigningKeysBtn', 'signingKeysProNote', 'deleteAccountBtn'];
+$secAppsIds = ['connectedAppsCard', 'connectedAppsAlert', 'connectedAppsGrantsEmpty', 'connectedAppsGrantList', 'connectedAppsName', 'connectedAppsScope', 'connectedAppsExpiry', 'connectedAppsCreateBtn', 'connectedAppsProNote',
+    'connectedAppsNewToken', 'connectedAppsNewTokenValue', 'connectedAppsCopyBtn', 'connectedAppsEmpty', 'connectedAppsList'];
+$secKeyRe = '/\bprofile\.(?:security|apps|twofa|password|agent|delete)\.[a-z_0-9]+/';
+$secSections = [];
+$secFixtures = [];
+foreach (array_keys(ms_pp_security_page_cases()) as $spName) {
+    $fixtureRaw = (string) file_get_contents($fx . "profile.security.{$spName}.en.html");
+    $secFixtures[$spName] = $ppNorm($fixtureRaw);
+    $r = ms_pp_security_page($pp, $spName);
+    check("security {$spName}: rendered without PHP errors", $r['section'] !== '' && $ppNoPhpError($r), (string) $r['res']['stderr']);
+    same("fixture: Security, Client Agent and Delete sections ({$spName}), English only", $secFixtures[$spName], $ppNorm($r['section']));
+    $oauthOn = strncmp($spName, 'oauth_on', 8) === 0;
+    $unavailable = $spName === 'tokens_unavailable';
+    $enCard = substr($r['section'], (int) strpos($r['section'], 'id="connectedAppsCard"'));
+    $enCard = preg_replace('/<!--.*?-->/s', '', substr($enCard, 0, (int) strpos($enCard, 'Two-factor authentication</h3>')));
+    check("security {$spName}: the English Connected apps card " . ($oauthOn ? 'leads with the sign-in' : 'says tokens and nothing else'),
+        $oauthOn ? strpos($enCard, 'in your app and sign in when it asks') !== false : (preg_match('/sign.?in/i', $enCard) === 0 && ($unavailable || strpos($enCard, 'Point your app at') !== false)));
+    // Swedish.
+    $svS = ms_pp_security_page($pp, $spName, true, 'sv');
+    $secSections[$spName] = $svS['section'];
+    $sec = $svS['section'];
+    check("sv security {$spName}: rendered without PHP errors", $sec !== '' && $ppNoPhpError($svS), (string) $svS['res']['stderr']);
+    check("sv security {$spName}: no raw profile. key in the sections", !preg_match($secKeyRe, $sec), (string) (preg_match($secKeyRe, $sec, $km) ? $km[0] : ''));
+    $svNoJson = preg_replace('#<script type="application/json" id="ms-i18n">.*?</script>#s', '', $svS['body']);
+    $svNoJson = preg_replace("/msT\\('(?:profile|app\\.common)\\.[a-z_.0-9]+'/", "msT('", $svNoJson);
+    check("sv security {$spName}: no raw profile. key anywhere but the language JSON", !preg_match($secKeyRe, $svNoJson), (string) (preg_match($secKeyRe, $svNoJson, $km) ? $km[0] : ''));
+    check("sv security {$spName}: the lede and the Stay signed in card are Swedish",
+        strpos($sec, 'Koder, enheter och hur en inloggning med lösenord verifieras.') !== false && strpos($sec, '<h3 class="ms-card__title">Förbli inloggad</h3>') !== false
+        && strpos($sec, 'upp till 90 dagar efter att du loggade in.') !== false && strpos($sec, '>Håll den här enheten inloggad</label>') !== false
+        && strpos($sec, '<option value="0">Tills jag stänger webbläsaren</option>') !== false && strpos($sec, '<option value="1">I 1 dag</option>') !== false
+        && strpos($sec, '<option value="7">I 7 dagar</option>') !== false && strpos($sec, '<option value="30">I 30 dagar</option>') !== false
+        && strpos($sec, 'Välj bara en period på en enhet som är din.') !== false && strpos($sec, '>Spara</button>') !== false
+        && strpos($sec, '>Enheter som hålls inloggade</h4>') !== false && strpos($sec, '>Inga enheter hålls inloggade.</p>') !== false && strpos($sec, '>Ta bort alla andra enheter</button>') !== false);
+    $svCard = substr($sec, (int) strpos($sec, 'id="connectedAppsCard"'));
+    $svCard = preg_replace('/<!--.*?-->/s', '', substr($svCard, 0, (int) strpos($svCard, 'Tvåfaktorsautentisering</h3>')));
+    if ($unavailable) {
+        check("sv security {$spName}: the Connected apps card says it is not available yet", strpos($svCard, '<p class="text-muted" id="connectedAppsUnavailable">Inte tillgängligt ännu.</p>') !== false && strpos($svCard, '>Anslutna appar</h3>') !== false && strpos($svCard, 'id="connectedAppsCreateBtn"') === false);
+    } else {
+        check("sv security {$spName}: the Connected apps card is Swedish",
+            strpos($svCard, '>Anslutna appar</h3>') !== false && strpos($svCard, '>Åtkomsttoken</h4>') !== false && strpos($svCard, 'placeholder="Till exempel: Claude Desktop"') !== false
+            && strpos($svCard, '>Namn</label>') !== false && strpos($svCard, '>Åtkomst</label>') !== false && strpos($svCard, '<option value="read" selected>Endast läsning</option>') !== false
+            && strpos($svCard, '<option value="read,write">Läsa och ändra</option>') !== false && strpos($svCard, '>Går ut</label>') !== false && strpos($svCard, '<option value="0" selected>Aldrig</option>') !== false
+            && strpos($svCard, '<option value="30">Efter 30 dagar</option>') !== false && strpos($svCard, '<option value="365">Efter 365 dagar</option>') !== false
+            && strpos($svCard, '>Skapa åtkomsttoken</button>') !== false && strpos($svCard, '>Du behöver ett Pro-konto för att skapa åtkomsttoken.</div>') !== false
+            && strpos($svCard, '<strong>Kopiera den här åtkomsttoken nu.</strong> Den visas bara den här gången') !== false && strpos($svCard, '>Inga åtkomsttoken ännu.</p>') !== false
+            && strpos($svCard, '>Så ansluter du</h4>') !== false && strpos($svCard, '<p class="form-text mb-1">Claude Code</p>') !== false
+            && strpos($svCard, 'lägg till i <code>claude_desktop_config.json</code> (kräver Node.js)') !== false
+            && strpos($svCard, 'Ersätt <code>&lt;token&gt;</code> med den token du fick när du skapade den.') !== false
+            && strpos($svCard, 'claude mcp add --transport http mailshield http://localhost:8085/mcp --header "Authorization: Bearer &lt;token&gt;"') !== false);
+        if ($oauthOn) {
+            check("sv security {$spName}: OAuth on, the card leads with the sign-in and keeps the token route",
+                strpos($svCard, 'Lägg till <code>http://localhost:8085/mcp</code> i din app och logga in när den ber om det') !== false
+                && strpos($svCard, 'För en klient som bara accepterar ett HTTP-huvud ger du den i stället en av dina åtkomsttoken:') !== false
+                && strpos($svCard, 'De du anslutit med en inloggning och de åtkomsttoken du skapat själv visas båda här') !== false
+                && strpos($svCard, 'Inga appar är anslutna ännu. En app med en knapp för att ansluta eller logga in visas här när du godkänt den.') !== false);
+        } else {
+            check("sv security {$spName}: OAuth off, the card says tokens and nothing else",
+                strpos($svCard, 'Peka din app mot <code>http://localhost:8085/mcp</code> och ge den en av dina åtkomsttoken som bearer-token.') !== false
+                && strpos($svCard, 'De åtkomsttoken du skapat själv visas här, var och en begränsad till den åtkomst du tillät.') !== false
+                && strpos($svCard, '>Inga appar är anslutna ännu.</p>') !== false
+                && preg_match('/logga in|inloggning|logg in/iu', $svCard) === 0 && strpos($svCard, 'HTTP-huvud') === false);
+        }
+        $missingApps = array_filter($secAppsIds, static fn(string $id): bool => strpos($svCard, 'id="' . $id . '"') === false);
+        check("sv security {$spName}: Connected apps ids the script depends on survive", $missingApps === [], implode(', ', $missingApps));
+    }
+    check("sv security {$spName}: the Two-factor authentication and Password cards are Swedish",
+        strpos($sec, '<h3 class="ms-card__title">Tvåfaktorsautentisering</h3>') !== false && strpos($sec, 'En kod från din autentiseringsapp, utöver ditt lösenord.') !== false
+        && strpos($sec, '>Läser in status...</p>') !== false && strpos($sec, '<a href="#proPassword">ange ett nedan</a> för att aktivera skyddet efter registreringen.') !== false
+        && strpos($sec, '>Aktivera 2FA</button>') !== false && strpos($sec, 'Skanna med 1Password, Authy, Google Authenticator eller en liknande app.') !== false
+        && strpos($sec, '>Kan du inte skanna?</summary>') !== false && strpos($sec, '>Ange den sexsiffriga koden från din app</label>') !== false
+        && strpos($sec, '>Bekräfta och aktivera</button>') !== false && strpos($sec, '>Avbryt</button>') !== false
+        && strpos($sec, '<strong>Spara de här återställningskoderna nu.</strong> De visas bara den här gången.') !== false
+        && strpos($sec, '>Kopiera alla</button>') !== false && strpos($sec, '>Ladda ner som .txt</button>') !== false && strpos($sec, '>Jag har sparat mina koder</label>') !== false && strpos($sec, '>Klart</button>') !== false
+        && strpos($sec, 'Du har <span id="tfaCodesLeftCount"></span> återställningskoder kvar.') !== false && strpos($sec, '>Skapa nya koder</button>') !== false && strpos($sec, '>Inaktivera 2FA</button>') !== false
+        && strpos($sec, '>Betrodda enheter</h4>') !== false && strpos($sec, 'hoppar över koden i 30 dagar.') !== false && strpos($sec, '>Inga betrodda enheter.</p>') !== false && strpos($sec, '>Återkalla alla</button>') !== false
+        && strpos($sec, '>Ange en aktuell kod för att skapa nya återställningskoder</label>') !== false && strpos($sec, '>Ange ditt lösenord för att bekräfta</label>') !== false
+        && substr_count($sec, 'aria-label="Visa lösenord"') === 3
+        && strpos($sec, '<h3 class="ms-card__title">Lösenord</h3>') !== false && strpos($sec, '>Nytt lösenord</label>') !== false && strpos($sec, '>Bekräfta lösenord</label>') !== false && strpos($sec, '>Ange lösenord</button>') !== false);
+    check("sv security {$spName}: the Client Agent and Delete account sections are Swedish",
+        strpos($sec, 'Nycklar för agenten du kör på din egen e-postserver.') !== false && strpos($sec, '<h3 class="ms-card__title">Klientens signeringsnycklar</h3>') !== false
+        && strpos($sec, '>Rotera signeringsnycklar</button>') !== false && strpos($sec, '>Klientens signeringsnycklar kräver ett Pro-konto.</div>') !== false
+        && strpos($sec, '<h2 class="ms-settings__section-title">Radera konto</h2>') !== false && strpos($sec, 'Radera ditt konto och alla tillhörande Pro-inställningar permanent.') !== false
+        && strpos($sec, 'Ett bekräftelsemejl med en raderingslänk skickas först till din adress') !== false && strpos($sec, '>Radera konto</button>') !== false);
+    $missingIds = array_filter($secIds, static fn(string $id): bool => strpos($sec, 'id="' . $id . '"') === false);
+    check("sv security {$spName}: ids the scripts depend on survive", $missingIds === [], implode(', ', $missingIds));
+    $svJsonS = preg_match('#<script type="application/json" id="ms-i18n">(.*?)</script>#s', $svS['body'], $sm) ? json_decode($sm[1], true) : null;
+    check("sv security {$spName}: ms-i18n carries the script's Swedish texts",
+        is_array($svJsonS) && ($svJsonS['profile.apps.revoke'] ?? null) === 'Återkalla' && ($svJsonS['profile.password.hide'] ?? null) === 'Dölj lösenord'
+        && ($svJsonS['profile.security.stay_meta'] ?? null) === '{period} — senast använd {used} — till {until}' && ($svJsonS['profile.twofa.codes_other'] ?? null) === '{count} återställningskoder kvar'
+        && ($svJsonS['profile.agent.rotating'] ?? null) === 'Roterar signeringsnycklarna...' && ($svJsonS['profile.delete.sent'] ?? null) !== null
+        && ($svJsonS['profile.apps.revoke_confirm_grant'] ?? null) === 'Återkalla den här anslutningen? Appen förlorar åtkomsten direkt och måste godkännas igen.');
+    // What the script draws from the database (an app's own name, a token prefix) is not in the server markup.
+    check("sv security {$spName}: no app name, token prefix or token reaches the markup", strpos($svS['body'], 'Probe <b>App</b>') === false && strpos($svS['body'], 'msk_aaaaaaaa') === false && strpos($svS['body'], 'JBSWY3DPEHPK3PXP') === false);
+}
+same('security: OAuth on, the cards are the same with and without 2FA, a grant and a token (English fixtures)', $secFixtures['oauth_on'], $secFixtures['oauth_on_2fa_tokens']);
+same('security: OAuth off, the cards are the same with and without 2FA, a grant and a token (English fixtures)', $secFixtures['oauth_off'], $secFixtures['oauth_off_2fa_tokens']);
+same('security: OAuth on, the Swedish cards are the same with and without 2FA, a grant and a token', $ppNorm($secSections['oauth_on']), $ppNorm($secSections['oauth_on_2fa_tokens']));
+same('security: OAuth off, the Swedish cards are the same with and without 2FA, a grant and a token', $ppNorm($secSections['oauth_off']), $ppNorm($secSections['oauth_off_2fa_tokens']));
+check('security: the two OAuth states differ in the English fixtures (the copy follows the switch)', $secFixtures['oauth_on'] !== $secFixtures['oauth_off']);
+
+// pro_profile.php answers of the Security actions.
+$secPrefixes = ['profile.security.', 'profile.apps.', 'profile.twofa.', 'profile.password.', 'profile.agent.', 'profile.delete.', 'profile.error.'];
+$secParams = [[], ['min' => 8], ['max' => 256], ['max' => 10]];
+$secSwedish = static function (string $text) use ($en, $secPrefixes, $secParams): array {
+    $found = [];
+    foreach ($en as $key => $value) {
+        if (!is_string($value)) {
+            continue;
+        }
+        foreach ($secPrefixes as $prefix) {
+            if (strncmp($key, $prefix, strlen($prefix)) !== 0) {
+                continue;
+            }
+            foreach ($secParams as $params) {
+                if (t($key, $params, 'en') === $text) {
+                    $found[t($key, $params, 'sv')] = $key;
+                }
+            }
+        }
+    }
+    return $found;
+};
+foreach (array_keys(ms_pp_security_json_cases()) as $spName) {
+    $fixture = trim((string) file_get_contents($fx . "profile.{$spName}.en.json"));
+    $r = ms_pp_json($pp, $spName);
+    same("profile/{$spName}: the English answer equals its fixture", $fixture, $r['body']);
+    check("profile/{$spName}: no PHP error", $ppNoPhpError($r), (string) $r['res']['stderr']);
+    $enAnswer = json_decode($fixture, true);
+    $rSv = ms_pp_json($pp, $spName, 'sv');
+    $svAnswer = $rSv['json'];
+    check("profile/{$spName}: X-MS-Locale sv answers JSON", is_array($svAnswer) && is_array($enAnswer), $rSv['body']);
+    if (!is_array($svAnswer) || !is_array($enAnswer)) {
+        continue;
+    }
+    $field = isset($enAnswer['error']) ? 'error' : 'message';
+    $text = $enAnswer[$field] ?? null;
+    $candidates = $secSwedish((string) $text);
+    check("profile/{$spName}: the English text has a catalog key", $candidates !== [], (string) $text);
+    check("profile/{$spName}: the Swedish answer is the catalog text, and it is Swedish", isset($candidates[$svAnswer[$field] ?? '']) && count($candidates) === 1 && array_key_first($candidates) !== $text, json_encode($candidates) . ' vs ' . ($svAnswer[$field] ?? ''));
+    $enRest = $enAnswer;
+    $svRest = $svAnswer;
+    unset($enRest[$field], $svRest[$field]);
+    same("profile/{$spName}: the rest of the answer is language independent", $enRest, $svRest);
+    check("profile/{$spName}: no password, secret, token or recovery code in the answer", !preg_match('/abcdefgh1|probe-password|wrong-password|JBSWY3DPEHPK3PXP|msk_|recovery_codes|manual_key|qr_svg/', $r['body'] . $rSv['body']));
+}
+same('profile: the password length error carries its numbers in Swedish', ['Lösenordet måste vara minst 8 tecken', 'Lösenordet är för långt (högst 256 tecken)'], [ms_pp_json($pp, 'set_password.short', 'sv')['json']['error'] ?? null, ms_pp_json($pp, 'set_password.long', 'sv')['json']['error'] ?? null]);
+same('profile: the access token cap carries its number in Swedish', 'Du har redan 10 åtkomsttoken. Återkalla en för att skapa en ny.', ms_pp_json($pp, 'mcp_token_create.too_many', 'sv')['json']['error'] ?? null);
+same('profile: the per-action origin error is the shared text in Swedish', t('profile.error.invalid_origin', [], 'sv'), ms_pp_json($pp, 'totp_disable.invalid_origin', 'sv')['json']['error'] ?? null);
+same('profile: the access token name error is the shared invalid-request text in Swedish', t('profile.error.invalid_request', [], 'sv'), ms_pp_json($pp, 'mcp_token_create.suspicious', 'sv')['json']['error'] ?? null);
+same('profile: the confirmation failure reuses the shared text in Swedish (set_password and delete_account)', [t('profile.error.confirm_failed', [], 'sv'), t('profile.error.confirm_failed', [], 'sv')], [ms_pp_json($pp, 'set_password.failed', 'sv')['json']['error'] ?? null, ms_pp_json($pp, 'delete_account.failed', 'sv')['json']['error'] ?? null]);
+same('profile: the link-sent message is the same for the password change and the deletion in Swedish', ['Bekräftelselänk skickad till din e-postadress', 'Bekräftelselänk skickad till din e-postadress'], [ms_pp_json($pp, 'set_password.sent', 'sv')['json']['message'] ?? null, ms_pp_json($pp, 'delete_account.sent', 'sv')['json']['message'] ?? null]);
+
+// Scans.
+$secMsKeys = array_values(array_filter($pageMsKeys, static fn(string $k): bool => preg_match('/^profile\.(?:security|apps|twofa|password|agent|delete)\./', $k) === 1));
+check('scan: the Security script uses many msT() keys', count($secMsKeys) >= 70, (string) count($secMsKeys));
+preg_match_all("/(?<![\\w.\$])msT\\('(profile\\.(?:security|apps|twofa|password|agent|delete)\\.[a-z_0-9]+)', '((?:[^'\\\\]|\\\\.)*)'/", $profilePageSrc, $fb, PREG_SET_ORDER);
+$badFallback = [];
+foreach ($fb as [$all, $fbKey, $fbText]) {
+    if (!isset($en[$fbKey]) || $en[$fbKey] !== stripslashes($fbText)) {
+        $badFallback[] = $fbKey;
+    }
+}
+check('scan: every msT() fallback of the Security script is the English catalog text', count($fb) >= 70 && $badFallback === [], implode(', ', $badFallback));
+// The Security, Client Agent and Delete account markup: no literal text outside PHP tags (a command in a <pre> is code, not copy).
+$secMarkup = substr($profilePageSrc, (int) strpos($profilePageSrc, '<section class="ms-settings__section" id="settings-security">'));
+$secMarkup = substr($secMarkup, 0, (int) strpos($secMarkup, '</form>'));
+$secText = trim(preg_replace('/\s+/', ' ', strip_tags(preg_replace(['/<\?php.*?\?>/s', '/<!--.*?-->/s', '/<pre\b.*?<\/pre>/s'], ' ', $secMarkup))));
+check('scan: the Security, Client Agent and Delete markup has no literal text outside PHP tags', $secText === '', $secText);
+check('scan: ... nor a literal title/aria-label/placeholder', !preg_match('/\b(?:title|aria-label|placeholder)="[A-Za-z]/', preg_replace('/<\?php.*?\?>/s', '', $secMarkup)));
+check('scan: ... and the cards use the catalog keys', substr_count($secMarkup, "te('profile.") + substr_count($secMarkup, "tHtml('profile.") >= 80);
+check('scan: the endpoint is a placeholder of the sentence, in both OAuth branches', substr_count($secMarkup, "['endpoint' => \$mcpEndpoint]") === 2 && strpos($secMarkup, "\$mcpEndpoint = ") === false);
+check('scan: no catalog value holds the MCP endpoint, a URL or a number of days', (function () use ($en, $sv): bool {
+    foreach ([$en, $sv] as $catalog) {
+        foreach ($catalog as $key => $value) {
+            if (is_string($value) && preg_match('/^profile\.(?:security|apps|twofa|password|agent|delete)\./', $key) && (stripos($value, '/mcp') !== false || preg_match('~https?://~i', $value) || preg_match('/\d\s*-?\s*(?:day|dag|hour|timm|månad|month)/iu', $value))) {
+                return false;
+            }
+        }
+    }
+    return true;
+})());
+check('scan: the periods in the options come from the helpers, not from the markup', strpos($secMarkup, 'proRememberAllowedDays()') !== false && strpos($secMarkup, 'mcpTokenExpiryChoices()') !== false && strpos($secMarkup, 'PRO_REMEMBER_MAX_AGE_DAYS') !== false);
+// The script: server text goes in as text, never as HTML.
+$secRegion = static function (string $from, string $to) use ($profilePageSrc): string {
+    $start = (int) strpos($profilePageSrc, $from);
+    return substr($profilePageSrc, $start, (int) strpos($profilePageSrc, $to, $start) - $start);
+};
+$secJs = $secRegion("\$('#saveProfilePasswordBtn').on('click'", "\$('#billingPortalBtn').on('click'")
+    . $secRegion("\$('#rotateSigningKeysBtn').on('click'", "\$.post('pro_profile.php', { action: 'get_profile' }")
+    . $secRegion('// Delete account handler', '// Load token initially');
+$htmlLines = [];
+foreach (explode("\n", $secJs) as $line) {
+    if (strpos($line, '.html(') !== false && !preg_match('/\.html\(\'\'\)|\.html\(res\.qr_svg\)/', $line)) {
+        $htmlLines[] = trim($line);
+    }
+}
+check('scan: the Security script uses .html() only for the server-rendered QR code and to clear a box', $htmlLines === [], implode(' | ', array_slice($htmlLines, 0, 3)));
+check('scan: ... the password, signing-key and deletion handlers write their messages with profileAlert()', substr_count($secJs, 'profileAlert(') >= 10 && strpos($secJs, "'<div class=\"alert alert-") === false);
+check('scan: an app\'s own name is put in with .text(), once for the grant row', strpos($secJs, "\$('<div>').text(t.oauth_client_name || t.name || msT('profile.apps.connected_app'") !== false && substr_count($secJs, 't.oauth_client_name') === 1);
+check('scan: the one-time access token is shown with .text() from the create response only', preg_match_all('/\bres\.token\b/', $secJs) === 1 && strpos($secJs, "\$('#connectedAppsNewTokenValue').text(res.token || '')") !== false);
+check('scan: the recovery codes are shown as text nodes and the manual key with .text()', strpos($secJs, "document.createTextNode(c + '\\n')") !== false && strpos($secJs, "\$('#tfaManualKey').text(res.manual_key || '')") !== false && strpos($secJs, '$(\'#tfaQrContainer\').html(res.qr_svg)') !== false);
+// No msT() call gets a token, secret, recovery code, code list, password or the 2FA key as a parameter.
+$jsCalls = [];
+preg_match_all('/(?<![\w.$])msT\(/', $profilePageSrc, $jm, PREG_OFFSET_CAPTURE);
+foreach ($jm[0] as [$call, $offset]) {
+    $depth = 0;
+    $quote = '';
+    $end = $offset;
+    for ($pos = $offset + strlen($call) - 1, $len = strlen($profilePageSrc); $pos < $len; $pos++) {
+        $ch = $profilePageSrc[$pos];
+        if ($quote !== '') {
+            if ($ch === '\\') { $pos++; } elseif ($ch === $quote) { $quote = ''; }
+            continue;
+        }
+        if ($ch === "'" || $ch === '"') { $quote = $ch; continue; }
+        if ($ch === '(') { $depth++; }
+        if ($ch === ')' && --$depth === 0) { $end = $pos; break; }
+    }
+    $jsCalls[] = substr($profilePageSrc, $offset, $end - $offset + 1);
+}
+$jsBad = array_filter($jsCalls, static fn(string $c): bool => (bool) preg_match('/\b(?:token|secret|recovery|codes|password|manual_key)\s*:|res\.token\b|recovery_codes|manual_key|qr_svg|#proPassword|#tfaDisablePasswordInput|#tfaManualKey|#connectedAppsNewTokenValue|\.val\(\)/', $c));
+check('scan: no msT() call is passed a token, secret, recovery code, code list or password', count($jsCalls) > 200 && $jsBad === [], count($jsCalls) . ' ' . implode(' | ', array_map(static fn(string $c): string => substr($c, 0, 80), array_slice($jsBad, 0, 3))));
+// pro_profile.php: no literal user-facing text in the listed actions, and no credential in a t() call.
+$secActions = ['totp_status', 'totp_begin_enroll', 'totp_confirm_enroll', 'totp_disable', 'totp_recovery_regenerate', 'trusted_devices_list', 'trusted_devices_revoke', 'stay_signed_in_list', 'stay_signed_in_set', 'stay_signed_in_revoke', 'mcp_token_list', 'mcp_token_create', 'mcp_token_revoke', 'set_password', 'rotate_signing_keys', 'delete_account'];
+$secCredentialHits = [];
+$secTCalls = 0;
+foreach ($secActions as $action) {
+    // The mails of set_password and delete_account are phase 4 and are not user-interface text.
+    $block = preg_replace('/logMessage\([^;]*;/s', '', $ppCaseBlock($profileSrc, $action));
+    check("scan: pro_profile.php action {$action} has no literal 'error' / 'message' text", $block !== '' && !preg_match("/'(?:error|message)' => ['\"]/", $block), $action);
+    preg_match_all('/(?<![\w>$:.])(?:tHtml|te|t|tp)\(([^;]*?)\)\s*[\],;]/', $block, $tm);
+    foreach ($tm[0] as $tCall) {
+        $secTCalls++;
+        if (preg_match('/[\'"](?:secret|token|recovery|codes|password|manual_key|qr_svg|otpauth_uri)[\'"]\s*=>|\$(?:token|password|recoveryCodes|manualKey|secret|code)\b/', $tCall)) {
+            $secCredentialHits[] = $action . ': ' . substr($tCall, 0, 80);
+        }
+    }
+}
+check('scan: no t(), te() or tHtml() call in the Security actions is passed a token, secret, recovery code, password or key', $secTCalls >= 55 && $secCredentialHits === [], $secTCalls . ' ' . implode(' | ', $secCredentialHits));
+$enrol = $ppCaseBlock($profileSrc, 'totp_begin_enroll');
+$confirmBlock = $ppCaseBlock($profileSrc, 'totp_confirm_enroll');
+$tokenBlock = $ppCaseBlock($profileSrc, 'mcp_token_create');
+check('scan: the TOTP secret, QR data, recovery codes and the access token stay separate fields of the JSON',
+    strpos($enrol, "'manual_key' => \$manualKey") !== false && strpos($enrol, "'qr_svg' => TwoFactorAuth::renderQrSvg(\$otpauthUri)") !== false && strpos($enrol, "'otpauth_uri' => \$otpauthUri") !== false
+    && strpos($confirmBlock, "send_json(['success' => true, 'recovery_codes' => \$recoveryCodes])") !== false
+    && strpos($ppCaseBlock($profileSrc, 'totp_recovery_regenerate'), "send_json(['success' => true, 'recovery_codes' => \$recoveryCodes])") !== false
+    && strpos($tokenBlock, "'token' => \$created['token']") !== false);
+check('scan: the actions use the Security keys', substr_count($profileSrc, "t('profile.twofa.") >= 14 && substr_count($profileSrc, "t('profile.apps.") >= 9 && substr_count($profileSrc, "t('profile.security.") >= 8 && substr_count($profileSrc, "t('profile.password.") >= 6 && substr_count($profileSrc, "t('profile.agent.") >= 2);
+check('scan: the TOTP issuer and account label are not translated (TwoFactorAuth.php has no t() call)', !preg_match("/(?<![\\w>\$:.])t[eH]?\\w*\\('/", (string) file_get_contents($root . '/TwoFactorAuth.php')));
+check('scan: client_agent_manage.php is not translated (epic decision 7)', !preg_match("/(?<![\\w>\$:.])t[eH]?\\w*\\('|i18n/", (string) file_get_contents($root . '/client_agent_manage.php')));
+// The grants test keeps checking that an app's markup name is data: run next to this one.
+check('scan: tests/oauth_grants_test.php still checks the markup name is inserted with .text()', strpos((string) file_get_contents($root . '/tests/oauth_grants_test.php'), '.text(') !== false);
+
+// What the page hands its scripts: every msT() key is covered, and the OAuth sign-in sentences are not among them.
+preg_match('/\$msI18nJs = \[(.*?)\];/s', $profilePageSrc, $jsm);
+preg_match_all("/'([^']+)'/", $jsm[1] ?? '', $jsp);
+$handed = $jsp[1];
+$uncovered = array_filter($pageMsKeys, static fn(string $k): bool => array_filter($handed, static fn(string $p): bool => strncmp($k, $p, strlen($p)) === 0) === []);
+check('scan: every msT() key of the page is covered by a prefix the page hands to its scripts', count($handed) >= 20 && $uncovered === [], implode(', ', $uncovered));
+$handedKeys = array_keys(i18nCatalogSubset($handed, 'en'));
+check('scan: the language JSON does not carry the sign-in sentences of the Connected apps card', array_intersect($handedKeys, ['profile.apps.connect_oauth', 'profile.apps.connect_header', 'profile.apps.desc_oauth', 'profile.apps.grants_empty_oauth', 'profile.apps.connect_tokens']) === []
+    && in_array('profile.apps.revoke', $handedKeys, true) && in_array('profile.apps.grant_meta', $handedKeys, true) && in_array('profile.security.stay_meta', $handedKeys, true));
+foreach (['en' => [false, 'sign in when it asks'], 'sv' => [true, 'logga in när den ber om det']] as $lang => [$svFlag, $needle]) {
+    $off = ms_pp_security_page($pp, 'oauth_off', $svFlag, $svFlag ? 'sv' : '');
+    $on = ms_pp_security_page($pp, 'oauth_on', $svFlag, $svFlag ? 'sv' : '');
+    check("security ({$lang}): with OAuth off the sign-in sentence is nowhere on the page, the language JSON included", strpos($off['body'], $needle) === false && strpos($on['body'], $needle) !== false);
+}
 
 ms_test_cleanup($pp['root']);
 

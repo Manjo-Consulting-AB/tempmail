@@ -416,19 +416,19 @@ try {
             $confirm = $_POST['confirm'] ?? '';
 
             if (empty($password) || $password !== $confirm) {
-                send_json(['success' => false, 'error' => 'Passwords do not match']);
+                send_json(['success' => false, 'error' => t('profile.password.error_mismatch')]);
             }
             if (strlen($password) < 8) {
-                send_json(['success' => false, 'error' => 'Password must be at least 8 characters']);
+                send_json(['success' => false, 'error' => t('profile.password.error_short', ['min' => 8])]);
             }
             if (strlen($password) > 256) {
-                send_json(['success' => false, 'error' => 'Password too long (max 256 characters)']);
+                send_json(['success' => false, 'error' => t('profile.password.error_long', ['max' => 256])]);
             }
 
             // Ensure password_hash column exists
             $colStmt = $pdo->query("SHOW COLUMNS FROM pro_users LIKE 'password_hash'");
             if ($colStmt->rowCount() === 0) {
-                send_json(['success' => false, 'error' => 'Password storage not available on this system']);
+                send_json(['success' => false, 'error' => t('profile.password.error_unavailable')]);
             }
 
             // Create pending change and send confirmation link to the current email address
@@ -454,10 +454,10 @@ try {
                 @mail($to, $subject, $message, $headersStr);
 
                 logMessage('INFO', 'Pending password change created', ['user_id' => $userId]);
-                send_json(['success' => true, 'message' => 'Confirmation link sent to your email address']);
+                send_json(['success' => true, 'message' => t('profile.password.link_sent')]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed creating pending password change', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not create confirmation request']);
+                send_json(['success' => false, 'error' => t('profile.error.confirm_failed')]);
             }
             break;
 
@@ -467,20 +467,20 @@ try {
             // signing keys, breaking their configured mail filtering (CSRF-triggered DoS).
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin rotate_signing_keys request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             require_pro($userId);
             try {
                 $keys = clientBackendRotateUserSigningKeys($userId);
                 if (!$keys) {
-                    send_json(['success' => false, 'error' => 'Could not rotate keys']);
+                    send_json(['success' => false, 'error' => t('profile.agent.error_rotate')]);
                 }
 
                 logMessage('INFO', 'Rotated client signing keys', ['user_id' => $userId, 'key_id' => $keys['key_id'] ?? null]);
-                send_json(['success' => true, 'message' => 'Signing keys rotated', 'key_id' => $keys['key_id'] ?? null]);
+                send_json(['success' => true, 'message' => t('profile.agent.rotated'), 'key_id' => $keys['key_id'] ?? null]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed rotating client signing keys', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not rotate keys']);
+                send_json(['success' => false, 'error' => t('profile.agent.error_rotate')]);
             }
             break;
 
@@ -569,7 +569,7 @@ try {
                 ]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed fetching 2FA status', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not fetch two-factor status']);
+                send_json(['success' => false, 'error' => t('profile.twofa.error_status')]);
             }
             break;
 
@@ -578,15 +578,15 @@ try {
             // like every other state-changing action here, plus a per-user hourly cap
             // so a stolen session can't be used to spam pending secrets/QR renders.
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                send_json(['success' => false, 'error' => 'Method not allowed']);
+                send_json(['success' => false, 'error' => t('profile.error.method_not_allowed')]);
             }
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin totp_begin_enroll request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             try {
                 if (TwoFactorAuth::isEnabledFor($userId)) {
-                    send_json(['success' => false, 'error' => 'Two-factor authentication is already enabled. Disable it first to re-enroll.']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_already_enabled')]);
                 }
 
                 $pdo->exec("CREATE TABLE IF NOT EXISTS two_factor_enroll_requests (
@@ -602,7 +602,7 @@ try {
                 $rl->execute([$userId, $windowMinutes]);
                 if ((int) $rl->fetchColumn() >= $maxRequests) {
                     logMessage('WARNING', '2fa_enroll_rate_limited', ['user_id' => $userId]);
-                    send_json(['success' => false, 'error' => 'Too many enrollment attempts. Please try again later.']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_enroll_limited')]);
                 }
                 $pdo->prepare("INSERT INTO two_factor_enroll_requests (user_id) VALUES (?)")->execute([$userId]);
 
@@ -624,24 +624,24 @@ try {
                 ]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed starting 2FA enrollment', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not start two-factor enrollment']);
+                send_json(['success' => false, 'error' => t('profile.twofa.error_start')]);
             }
             break;
 
         case 'totp_confirm_enroll':
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                send_json(['success' => false, 'error' => 'Method not allowed']);
+                send_json(['success' => false, 'error' => t('profile.error.method_not_allowed')]);
             }
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin totp_confirm_enroll request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             try {
                 $code = trim((string) ($_POST['code'] ?? ''));
                 $ip = getVisitorIp();
 
                 if (TwoFactorAuth::isChallengeBlocked($userId, $ip)) {
-                    send_json(['success' => false, 'error' => 'Too many attempts. Please try again later.']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_too_many')]);
                 }
 
                 $activated = TwoFactorAuth::activate($userId, $code);
@@ -650,7 +650,7 @@ try {
                 if (!$activated) {
                     // Generic error: never reveal whether it was the code, a missing
                     // pending enrollment, or an expired step that failed.
-                    send_json(['success' => false, 'error' => 'Invalid or expired code']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_invalid_code')]);
                 }
 
                 $recoveryCodes = TwoFactorAuth::generateRecoveryCodes($userId);
@@ -659,7 +659,7 @@ try {
                 send_json(['success' => true, 'recovery_codes' => $recoveryCodes]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed confirming 2FA enrollment', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not confirm two-factor enrollment']);
+                send_json(['success' => false, 'error' => t('profile.twofa.error_confirm')]);
             }
             break;
 
@@ -667,11 +667,11 @@ try {
             // Works the same whether the session came from a password login or a
             // magic link — magic link is the recovery path for a lost authenticator.
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                send_json(['success' => false, 'error' => 'Method not allowed']);
+                send_json(['success' => false, 'error' => t('profile.error.method_not_allowed')]);
             }
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin totp_disable request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             try {
                 $storedHash = pro_user_password_hash($userId);
@@ -679,14 +679,14 @@ try {
                     $password = (string) ($_POST['password'] ?? '');
                     if ($password === '' || !password_verify($password, $storedHash)) {
                         logMessage('WARNING', 'Rejected totp_disable with invalid password', ['user_id' => $userId]);
-                        send_json(['success' => false, 'error' => 'Invalid password']);
+                        send_json(['success' => false, 'error' => t('profile.twofa.error_invalid_password')]);
                     }
                 }
                 // No password set: there is no password login to protect, so an
                 // authenticated session alone is enough to disable.
 
                 if (!TwoFactorAuth::isEnabledFor($userId) && TwoFactorAuth::getState($userId) === null) {
-                    send_json(['success' => false, 'error' => 'Two-factor authentication is not enabled']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_not_enabled')]);
                 }
 
                 TwoFactorAuth::disable($userId);
@@ -702,35 +702,35 @@ try {
                 send_json(['success' => true]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed disabling 2FA', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not disable two-factor authentication']);
+                send_json(['success' => false, 'error' => t('profile.twofa.error_disable')]);
             }
             break;
 
         case 'totp_recovery_regenerate':
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                send_json(['success' => false, 'error' => 'Method not allowed']);
+                send_json(['success' => false, 'error' => t('profile.error.method_not_allowed')]);
             }
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin totp_recovery_regenerate request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             try {
                 if (!TwoFactorAuth::isEnabledFor($userId)) {
-                    send_json(['success' => false, 'error' => 'Two-factor authentication is not enabled']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_not_enabled')]);
                 }
 
                 $code = trim((string) ($_POST['code'] ?? ''));
                 $ip = getVisitorIp();
 
                 if (TwoFactorAuth::isChallengeBlocked($userId, $ip)) {
-                    send_json(['success' => false, 'error' => 'Too many attempts. Please try again later.']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_too_many')]);
                 }
 
                 $valid = TwoFactorAuth::verifyForUser($userId, $code);
                 TwoFactorAuth::recordAttempt($userId, $ip, $valid);
 
                 if (!$valid) {
-                    send_json(['success' => false, 'error' => 'Invalid or expired code']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_invalid_code')]);
                 }
 
                 $recoveryCodes = TwoFactorAuth::generateRecoveryCodes($userId);
@@ -741,17 +741,17 @@ try {
                 send_json(['success' => true, 'recovery_codes' => $recoveryCodes]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed regenerating 2FA recovery codes', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not regenerate recovery codes']);
+                send_json(['success' => false, 'error' => t('profile.twofa.error_regenerate')]);
             }
             break;
 
         case 'trusted_devices_list':
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                send_json(['success' => false, 'error' => 'Method not allowed']);
+                send_json(['success' => false, 'error' => t('profile.error.method_not_allowed')]);
             }
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin trusted_devices_list request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             try {
                 $devices = TwoFactorAuth::listTrustedDevices($userId);
@@ -766,17 +766,17 @@ try {
                 }, $devices)]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed listing trusted devices', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not list trusted devices']);
+                send_json(['success' => false, 'error' => t('profile.twofa.error_list_devices')]);
             }
             break;
 
         case 'trusted_devices_revoke':
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                send_json(['success' => false, 'error' => 'Method not allowed']);
+                send_json(['success' => false, 'error' => t('profile.error.method_not_allowed')]);
             }
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin trusted_devices_revoke request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             try {
                 if (!empty($_POST['all'])) {
@@ -786,16 +786,16 @@ try {
 
                 $deviceId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
                 if ($deviceId <= 0) {
-                    send_json(['success' => false, 'error' => 'Invalid device id']);
+                    send_json(['success' => false, 'error' => t('profile.twofa.error_invalid_device')]);
                 }
                 $revoked = TwoFactorAuth::revokeTrustedDevice($userId, $deviceId);
                 if (!$revoked) {
-                    send_json(['success' => false, 'error' => 'Device not found']);
+                    send_json(['success' => false, 'error' => t('profile.security.error_device_not_found')]);
                 }
                 send_json(['success' => true]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed revoking trusted device', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not revoke device']);
+                send_json(['success' => false, 'error' => t('profile.twofa.revoke_failed')]);
             }
             break;
 
@@ -826,7 +826,7 @@ try {
                 ]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed listing stay-signed-in devices', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not list signed-in devices']);
+                send_json(['success' => false, 'error' => t('profile.security.stay_error_list')]);
             }
             break;
 
@@ -835,21 +835,21 @@ try {
             // period; 0 = until the browser is closed, i.e. no token.
             $days = proRememberNormaliseDays($_POST['days'] ?? '');
             if ($days === 0 && (string) ($_POST['days'] ?? '') !== '0') {
-                send_json(['success' => false, 'error' => 'Invalid period']);
+                send_json(['success' => false, 'error' => t('profile.security.stay_error_period')]);
             }
             if (!proRememberAvailable($pdo)) {
-                send_json(['success' => false, 'error' => 'Staying signed in is not available yet']);
+                send_json(['success' => false, 'error' => t('profile.security.stay_error_unavailable')]);
             }
             $tokenId = proRememberIssue($userId, $days);
             if ($days > 0 && $tokenId === null) {
-                send_json(['success' => false, 'error' => 'Could not save the setting']);
+                send_json(['success' => false, 'error' => t('profile.security.stay_save_failed')]);
             }
             send_json(['success' => true, 'current_days' => $days]);
             break;
 
         case 'stay_signed_in_revoke':
             if (!proRememberAvailable($pdo)) {
-                send_json(['success' => false, 'error' => 'Staying signed in is not available yet']);
+                send_json(['success' => false, 'error' => t('profile.security.stay_error_unavailable')]);
             }
             try {
                 $current = proRememberCurrentToken($userId);
@@ -860,7 +860,7 @@ try {
                 }
                 $tokenId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
                 if ($tokenId <= 0 || !proRememberRevoke($pdo, $userId, $tokenId)) {
-                    send_json(['success' => false, 'error' => 'Device not found']);
+                    send_json(['success' => false, 'error' => t('profile.security.error_device_not_found')]);
                 }
                 if ($current && (int) $current['id'] === $tokenId) {
                     proRememberClearCookie();
@@ -869,7 +869,7 @@ try {
                 send_json(['success' => true]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed revoking stay-signed-in device', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not remove device']);
+                send_json(['success' => false, 'error' => t('profile.security.stay_remove_failed')]);
             }
             break;
 
@@ -908,14 +908,14 @@ try {
                 ]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed listing MCP access tokens', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not list access tokens']);
+                send_json(['success' => false, 'error' => t('profile.apps.error_list')]);
             }
             break;
 
         case 'mcp_token_create':
             require_pro($userId);
             if (!mcpTokenAvailable($pdo)) {
-                send_json(['success' => false, 'error' => 'Connected apps are not available yet']);
+                send_json(['success' => false, 'error' => t('profile.apps.error_unavailable')]);
             }
             $rawTokenName = (string) ($_POST['name'] ?? '');
             $suspicious = detectSuspiciousPatterns($rawTokenName);
@@ -925,22 +925,22 @@ try {
                 if ($flagPatterns) {
                     flagMaliciousActivity(getVisitorIp(), 'Suspicious access token name: ' . implode(', ', $flagPatterns)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                 }
-                send_json(['success' => false, 'error' => 'Invalid request']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_request')]);
             }
             // sanitizeString() trims but hands back an empty string for
             // whitespace, and an unlabelled token is one the user cannot
             // recognise in the list later, so require a real name.
             $tokenName = trim($rawTokenName) === '' ? null : sanitizeString($rawTokenName, 64, true);
             if ($tokenName === null) {
-                send_json(['success' => false, 'error' => 'Give the access token a name']);
+                send_json(['success' => false, 'error' => t('profile.apps.error_name_required')]);
             }
             $tokenScope = mcpTokenNormaliseScope($_POST['scopes'] ?? '');
             if ($tokenScope === null) {
-                send_json(['success' => false, 'error' => 'Invalid access level']);
+                send_json(['success' => false, 'error' => t('profile.apps.error_access')]);
             }
             $tokenDays = mcpTokenNormaliseExpiryDays($_POST['expires_days'] ?? '');
             if ($tokenDays === null) {
-                send_json(['success' => false, 'error' => 'Invalid expiry']);
+                send_json(['success' => false, 'error' => t('profile.apps.error_expiry')]);
             }
             try {
                 $created = mcpTokenCreate(
@@ -953,7 +953,7 @@ try {
                 if ($created === null) {
                     send_json([
                         'success' => false,
-                        'error' => 'You already have ' . MCP_TOKEN_MAX_PER_USER . ' access tokens. Revoke one to create another.',
+                        'error' => t('profile.apps.error_too_many', ['max' => MCP_TOKEN_MAX_PER_USER]),
                     ]);
                 }
                 // The id, never the token: the credential is answered to its
@@ -970,7 +970,7 @@ try {
                 ]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed creating MCP access token', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not create the access token']);
+                send_json(['success' => false, 'error' => t('profile.apps.error_create')]);
             }
             break;
 
@@ -978,18 +978,18 @@ try {
             // Deliberately not Pro-gated: revoking is how a credential is taken
             // away, and that must keep working on a degraded account.
             if (!mcpTokenAvailable($pdo)) {
-                send_json(['success' => false, 'error' => 'Connected apps are not available yet']);
+                send_json(['success' => false, 'error' => t('profile.apps.error_unavailable')]);
             }
             $tokenId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
             try {
                 if (!mcpTokenRevoke($pdo, $userId, $tokenId)) {
-                    send_json(['success' => false, 'error' => 'Access token not found']);
+                    send_json(['success' => false, 'error' => t('profile.apps.error_not_found')]);
                 }
                 logMessage('INFO', 'MCP access token revoked', ['user_id' => $userId, 'token_id' => $tokenId]);
                 send_json(['success' => true]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed revoking MCP access token', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not revoke the access token']);
+                send_json(['success' => false, 'error' => t('profile.apps.error_revoke')]);
             }
             break;
 
@@ -1956,10 +1956,10 @@ try {
                 @mail($to, $subject, $message, $headersStr);
 
                 logMessage('INFO', 'Pending account deletion created', ['user_id' => $userId]);
-                send_json(['success' => true, 'message' => 'Confirmation link sent to your email address']);
+                send_json(['success' => true, 'message' => t('profile.password.link_sent')]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed creating pending account deletion', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not create confirmation request']);
+                send_json(['success' => false, 'error' => t('profile.error.confirm_failed')]);
             }
             break;
 

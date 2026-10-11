@@ -40,7 +40,20 @@ function ms_pp_build(string $repoRoot): array
     $config = (string) file_get_contents($root . '/config.php');
     $config = str_replace(
         '$pdo = new PDO(',
-        "final class MsProbePdo extends PDO {\n    public function prepare(string \$query, array \$options = []): PDOStatement|false {\n        return parent::prepare(str_replace(' FOR UPDATE', '', \$query), \$options);\n    }\n}\n\$pdo = new MsProbePdo(",
+        "final class MsProbePdo extends PDO {\n"
+        . "    public function prepare(string \$query, array \$options = []): PDOStatement|false {\n"
+        . "        return parent::prepare(str_replace([' FOR UPDATE', 'DATE_SUB(NOW(), INTERVAL ? MINUTE)'], ['', 'PROBE_MINUTES_AGO(?)'], \$query), \$options);\n    }\n"
+        // TwoFactorAuth / pro_profile.php emit MySQL DDL (ENUM, ENGINE=InnoDB) SQLite cannot parse; the tables exist already.
+        . "    public function exec(string \$statement): int|false {\n"
+        . "        if (preg_match('/^\\\\s*CREATE\\\\s+TABLE\\\\s+IF\\\\s+NOT\\\\s+EXISTS\\\\b/i', \$statement) && stripos(\$statement, 'ENGINE=') !== false) return 0;\n"
+        . "        return parent::exec(\$statement);\n    }\n"
+        // set_password asks MySQL's SHOW COLUMNS and reads rowCount(); SQLite has no such statement.
+        . "    public function query(string \$query, ?int \$fetchMode = null, mixed ...\$args): PDOStatement|false {\n"
+        . "        if (preg_match(\"/^\\\\s*SHOW COLUMNS FROM pro_users LIKE 'password_hash'/i\", \$query)) {\n"
+        . "            \$query = \"UPDATE pro_users SET id = id WHERE id = (SELECT MIN(id) FROM pro_users) AND EXISTS (SELECT 1 FROM pragma_table_info('pro_users') WHERE name = 'password_hash')\";\n"
+        . "        }\n"
+        . "        return \$fetchMode === null ? parent::query(\$query) : parent::query(\$query, \$fetchMode, ...\$args);\n    }\n}\n"
+        . "\$pdo = new MsProbePdo(",
         $config
     );
     $config = str_replace(
@@ -56,6 +69,10 @@ function ms_pp_build(string $repoRoot): array
         . "    putenv('PII_INDEX_KEY=" . MS_AUTH_IDX_KEY . "'); \$_ENV['PII_INDEX_KEY'] = '" . MS_AUTH_IDX_KEY . "';\n"
         . "}\n"
         . "if (!empty(\$MS_EXTRA['referral'])) { \$config['referral'] = ['enabled' => true]; }\n"
+        // Step 6/8: OAuth discovery on (OAUTH_ENABLED; the page also needs oauth_clients, see ms_pp_oauth_on()), the TOTP key and SQLite's stand-in for DATE_SUB.
+        . "if (!empty(\$MS_EXTRA['oauth'])) { \$config['oauth'] = ['enabled' => true]; }\n"
+        . "putenv('TOTP_ENCRYPTION_KEY=" . MS_AUTH_TOTP_KEY . "'); \$_ENV['TOTP_ENCRYPTION_KEY'] = '" . MS_AUTH_TOTP_KEY . "';\n"
+        . "\$pdo->sqliteCreateFunction('PROBE_MINUTES_AGO', static fn(\$m): string => date('Y-m-d H:i:s', time() - (int) \$m * 60));\n"
         // The real helper reads PADDLE_ENVIRONMENT; here no Paddle is configured, so a portal URL cannot be minted.
         . "if (!function_exists('paddleClientSettings')) { function paddleClientSettings(array \$config): array { throw new RuntimeException('PADDLE_ENVIRONMENT is not set'); } }\n";
     file_put_contents($root . '/config.php', $config);
@@ -112,6 +129,7 @@ function ms_pp_reset(array $probe, ?callable $setup = null): void
             $pdo->exec("ALTER TABLE {$table}_gone RENAME TO {$table}");
         }
     }
+    ms_pp_security_drop($pdo);
     $pdo->exec('DROP TABLE IF EXISTS pro_webhook_addresses');
     foreach ([['pro_webhooks', 'include_temporary'], ['temp_emails', 'hooks_paused'], ['pro_users', 'feed_token_hash'], ['pro_users', 'feed_token_enc'], ['temp_emails', 'feed_token_hash'], ['temp_emails', 'feed_token_enc']] as [$table, $column]) {
         if ((int) $pdo->query("SELECT COUNT(*) FROM pragma_table_info('{$table}') WHERE name = '{$column}'")->fetchColumn() === 1) {
@@ -130,6 +148,11 @@ function ms_pp_reset(array $probe, ?callable $setup = null): void
         $pdo->exec("DROP TABLE IF EXISTS {$table}");
     }
     $pdo->exec('UPDATE pro_users SET locale = NULL, bonus_sticky_slots = 0, address_ttl_days = 1, referral_code = NULL, referral_pending_code = NULL');
+    // A case may drop password_hash (set_password's unavailable branch); every request starts with it, unset.
+    if ((int) $pdo->query("SELECT COUNT(*) FROM pragma_table_info('pro_users') WHERE name = 'password_hash'")->fetchColumn() === 0) {
+        $pdo->exec('ALTER TABLE pro_users ADD COLUMN password_hash TEXT NULL');
+    }
+    $pdo->exec('UPDATE pro_users SET password_hash = NULL');
     if ($setup !== null) {
         $setup($pdo, $probe['ids']);
     }
@@ -277,7 +300,7 @@ function ms_pp_run(array $probe, array $request, ?callable $setup = null, array 
 /** One JSON case by name. $locale is sent as X-MS-Locale (and switches Swedish on). */
 function ms_pp_json(array $probe, string $name, ?string $locale = null): array
 {
-    [$post, $user, $setup, $switches] = (ms_pp_json_cases() + ms_pp_automation_json_cases())[$name];
+    [$post, $user, $setup, $switches] = (ms_pp_json_cases() + ms_pp_automation_json_cases() + ms_pp_security_json_cases())[$name];
     $server = $locale !== null ? ['HTTP_X_MS_LOCALE' => $locale] : [];
     $request = [
         'page' => 'pro_profile.php',
@@ -487,4 +510,272 @@ function ms_pp_automation_json_cases(): array
         'webhook_set_filter_mode.failed' => [['action' => 'webhook_set_filter_mode', 'id' => '1', 'filter_mode' => 'paused'], 'trial', $fail('pro_webhooks', 'UPDATE', $hook), []],
         'webhook_deliveries.failed' => [['action' => 'webhook_deliveries'], 'trial', $gone('pro_webhook_deliveries'), []],
     ];
+}
+
+
+// ---------------------------------------------------------------------
+// Epic #428 step 6/8: the Security, Client Agent and Delete account sections.
+// ---------------------------------------------------------------------
+
+/** Removes every table of ms_pp_security_schema() (and oauth_clients); the earlier steps' cases run without them. */
+function ms_pp_security_drop(PDO $pdo): void
+{
+    foreach (['pro_user_totp', 'pro_user_recovery_codes', 'two_factor_attempts', 'pro_trusted_devices', 'two_factor_enroll_requests', 'pro_remember_tokens', 'mcp_access_tokens', 'oauth_clients'] as $table) {
+        $pdo->exec("DROP TABLE IF EXISTS {$table}");
+    }
+}
+
+/**
+ * Wraps a case's setup so the Security tables exist first (the step 4/8 and 5/8
+ * cases run without them, as they were fixtured).
+ */
+function ms_pp_with_security(?callable $setup): callable
+{
+    return static function (PDO $pdo, array $ids) use ($setup): void {
+        ms_pp_security_schema($pdo);
+        if ($setup !== null) {
+            $setup($pdo, $ids);
+        }
+    };
+}
+
+/**
+ * The tables behind the Security cards: 2FA (TwoFactorAuth.php, as the migrations leave them), "Stay signed in"
+ * (migrate_remember_tokens.php) and the MCP tokens with their OAuth columns
+ * (migrate_mcp_tokens.php + migrate_oauth.php). oauth_clients is not here: it is
+ * what switches OAuth discovery on (ms_pp_oauth_on()).
+ */
+function ms_pp_security_schema(PDO $pdo): void
+{
+    ms_pp_security_drop($pdo);
+    foreach ([
+        "CREATE TABLE pro_user_totp (user_id INTEGER PRIMARY KEY, secret_enc TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', last_used_step INTEGER NULL, confirmed_at TEXT NULL, created_at TEXT NULL, updated_at TEXT NULL)",
+        'CREATE TABLE pro_user_recovery_codes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, code_hash TEXT NOT NULL, used_at TEXT NULL, created_at TEXT NULL)',
+        'CREATE TABLE two_factor_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NULL, ip TEXT NOT NULL, success INTEGER NOT NULL DEFAULT 0, attempt_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+        'CREATE TABLE pro_trusted_devices (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, selector TEXT NULL, validator_hash TEXT NULL, label TEXT NULL, created_at TEXT NULL, last_used_at TEXT NULL, expires_at TEXT NULL)',
+        'CREATE TABLE two_factor_enroll_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+        "CREATE TABLE pro_remember_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, selector TEXT NOT NULL, validator_hash TEXT NOT NULL, prev_validator_hash TEXT NULL, rotated_at TEXT NULL, days INTEGER NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, last_used_at TEXT NOT NULL, expires_at TEXT NOT NULL)",
+        "CREATE TABLE mcp_access_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, pro_user_id INTEGER NOT NULL, name TEXT NOT NULL, token_hash TEXT NOT NULL, token_prefix TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT 'read', created_at TEXT NOT NULL, last_used_at TEXT NULL, expires_at TEXT NULL, revoked_at TEXT NULL, oauth_client_id TEXT NULL, refresh_token_hash TEXT NULL, refresh_expires_at TEXT NULL, grant_created_at TEXT NULL, rotated_refresh_hash TEXT NULL, rotated_at TEXT NULL)",
+        'CREATE UNIQUE INDEX uniq_mcp_access_tokens_hash ON mcp_access_tokens (token_hash)',
+    ] as $sql) {
+        $pdo->exec($sql);
+    }
+}
+
+/** oauth_clients, which is all oauthAvailable() looks for: with it and OAUTH_ENABLED, discovery is on. */
+function ms_pp_oauth_on(PDO $pdo): void
+{
+    $pdo->exec('CREATE TABLE oauth_clients (id INTEGER PRIMARY KEY AUTOINCREMENT, client_id TEXT NOT NULL, client_name TEXT NOT NULL, redirect_uris TEXT NOT NULL, created_at TEXT NOT NULL, last_used_at TEXT NULL, registered_ip_hash TEXT NULL)');
+}
+
+/** TwoFactorAuth's own AES-256-GCM of a TOTP secret under the probe's key. */
+function ms_pp_totp_secret_enc(string $plain): string
+{
+    $key = base64_decode(MS_AUTH_TOTP_KEY, true);
+    $iv = random_bytes(openssl_cipher_iv_length('aes-256-gcm'));
+    $tag = '';
+    $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+    return base64_encode($iv . $tag . $cipher);
+}
+
+/** 2FA switched on for $userId, with $codes unused recovery codes and one trusted device (id 7). */
+function ms_pp_totp_on(PDO $pdo, int $userId, int $codes = 2): void
+{
+    $pdo->prepare("INSERT INTO pro_user_totp (user_id, secret_enc, status, confirmed_at) VALUES (?, ?, 'active', '2026-03-04 10:00:00')")
+        ->execute([$userId, ms_pp_totp_secret_enc('JBSWY3DPEHPK3PXP')]);
+    for ($i = 0; $i < $codes; $i++) {
+        $pdo->prepare('INSERT INTO pro_user_recovery_codes (user_id, code_hash) VALUES (?, ?)')->execute([$userId, 'hash' . $i]);
+    }
+    $pdo->prepare("INSERT INTO pro_trusted_devices (id, user_id, selector, validator_hash, label, created_at, last_used_at, expires_at) VALUES (7, ?, 'sel7', 'v', 'Firefox on Linux', '2026-03-05 10:00:00', '2026-03-06 10:00:00', '2099-04-05 10:00:00')")
+        ->execute([$userId]);
+}
+
+/** One OAuth grant (an app that names itself with markup) and one manual access token for $userId. */
+function ms_pp_tokens_on(PDO $pdo, int $userId): void
+{
+    if ((int) $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'oauth_clients'")->fetchColumn() === 0) {
+        ms_pp_oauth_on($pdo);
+    }
+    $pdo->prepare("INSERT INTO oauth_clients (client_id, client_name, redirect_uris, created_at) VALUES ('c1', ?, '[]', '2026-03-01 10:00:00')")->execute(['Probe <b>App</b>']);
+    $ins = $pdo->prepare('INSERT INTO mcp_access_tokens (pro_user_id, name, token_hash, token_prefix, scopes, created_at, last_used_at, expires_at, oauth_client_id, grant_created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $ins->execute([$userId, 'Probe <b>App</b>', hash('sha256', 'a'), 'msk_aaaaaaaa', 'read,write', '2026-03-01 10:00:00', null, '2099-01-01 00:00:00', 'c1', '2026-03-01 10:00:00']);
+    $ins->execute([$userId, 'Laptop', hash('sha256', 'b'), 'msk_bbbbbbbb', 'read', '2026-03-02 10:00:00', '2026-03-03 10:00:00', null, null, null]);
+}
+
+/** A password for $userId, so the 2FA actions that ask for one run their password branch. */
+function ms_pp_password_on(PDO $pdo, int $userId): void
+{
+    $pdo->prepare('UPDATE pro_users SET password_hash = ? WHERE id = ?')->execute([password_hash('probe-password', PASSWORD_DEFAULT), $userId]);
+}
+
+/**
+ * [name => [user key, setup, switches]] for tests/fixtures/i18n/profile.security.<name>.en.html,
+ * which holds the Security, Client Agent and Delete account sections. The cards
+ * that depend on state (2FA, the token and grant lists, the device list) are drawn
+ * by the page's script, so only OAuth discovery and the token table change the
+ * server-rendered markup; the cases with 2FA on and with a grant plus a token
+ * prove it by being the same markup as their plain counterparts.
+ *
+ * @return array<string,array{0:string,1:?callable,2:array<string,mixed>}>
+ */
+function ms_pp_security_page_cases(): array
+{
+    $full = static function (PDO $pdo, array $ids): void {
+        ms_pp_oauth_on($pdo);
+        ms_pp_totp_on($pdo, $ids['trial']);
+        ms_pp_tokens_on($pdo, $ids['trial']);
+    };
+    $fullOff = static function (PDO $pdo, array $ids): void {
+        ms_pp_totp_on($pdo, $ids['trial']);
+        ms_pp_tokens_on($pdo, $ids['trial']);
+        $pdo->exec('DROP TABLE oauth_clients');
+    };
+    $cases = [
+        'oauth_on' => ['trial', static fn(PDO $pdo, array $ids) => ms_pp_oauth_on($pdo), ['oauth' => true]],
+        'oauth_off' => ['trial', null, []],
+        'oauth_on_2fa_tokens' => ['trial', $full, ['oauth' => true]],
+        'oauth_off_2fa_tokens' => ['trial', $fullOff, []],
+        'tokens_unavailable' => ['trial', static fn(PDO $pdo, array $ids) => $pdo->exec('DROP TABLE mcp_access_tokens'), []],
+    ];
+    foreach ($cases as $name => $case) {
+        $cases[$name][1] = ms_pp_with_security($case[1]);
+    }
+    return $cases;
+}
+
+/** The Security, Client Agent and Delete account sections of a rendered profile page ('' when missing). */
+function ms_pp_security_section(string $html): string
+{
+    $start = strpos($html, '<section class="ms-settings__section" id="settings-security">');
+    $delete = strpos($html, 'id="settings-delete"');
+    $end = $delete === false ? false : strpos($html, '</section>', $delete);
+    return $start === false || $end === false ? '' : substr($html, $start, $end + 10 - $start);
+}
+
+/** The Security sections for one case; $svApp offers Swedish in the app area, $acceptLanguage is sent as Accept-Language. */
+function ms_pp_security_page(array $probe, string $name, bool $svApp = false, string $acceptLanguage = ''): array
+{
+    [$user, $setup, $switches] = ms_pp_security_page_cases()[$name];
+    $extra = ['server' => $acceptLanguage !== '' ? ['HTTP_ACCEPT_LANGUAGE' => $acceptLanguage] : [], 'locales' => $svApp ? 'en,sv' : 'en', 'app_sv' => $svApp] + $switches;
+    $r = ms_pp_run($probe, ['page' => 'pro_profile_page.php', 'method' => 'GET', 'user' => $user], $setup, $extra);
+    $r['section'] = ms_pp_security_section($r['body']);
+    return $r;
+}
+
+/**
+ * Every pro_profile.php answer of the Security, 2FA, devices, tokens, password,
+ * signing-key and deletion actions that carries an `error` or a `message`
+ * (tests/fixtures/i18n/profile.<name>.en.json). A failure the code catches is
+ * provoked by dropping a table or adding a trigger (both undone by ms_pp_reset()).
+ * Not reachable here, and so not fixtured: the per-action `Method not allowed`
+ * (the gate at the top answers first), a successful enrolment (MySQL's ON
+ * DUPLICATE KEY UPDATE) and a successful key rotation (needs the key-encryption key).
+ *
+ * @return array<string,array{0:array<string,mixed>,1:?string,2:?callable,3:array<string,mixed>}>
+ */
+function ms_pp_security_json_cases(): array
+{
+    $drop = static fn(string ...$tables): callable => static function (PDO $pdo, array $ids) use ($tables): void {
+        foreach ($tables as $table) {
+            $pdo->exec("DROP TABLE {$table}");
+        }
+    };
+    $fail = static fn(string $table, string $event, ?callable $before = null): callable => static function (PDO $pdo, array $ids) use ($table, $event, $before): void {
+        if ($before !== null) {
+            $before($pdo, $ids);
+        }
+        $pdo->exec("CREATE TRIGGER ms_fail BEFORE {$event} ON {$table} BEGIN SELECT RAISE(ABORT, 'probe failure'); END");
+    };
+    $totp = static fn(PDO $pdo, array $ids) => ms_pp_totp_on($pdo, $ids['trial']);
+    $locked = static function (PDO $pdo, array $ids): void {
+        $ins = $pdo->prepare("INSERT INTO two_factor_attempts (user_id, ip, success, attempt_at) VALUES (?, '10.0.0.9', 0, ?)");
+        for ($i = 0; $i < 5; $i++) {
+            $ins->execute([$ids['trial'], date('Y-m-d H:i:s')]);
+        }
+    };
+    $enrollLimited = static function (PDO $pdo, array $ids): void {
+        $ins = $pdo->prepare('INSERT INTO two_factor_enroll_requests (user_id, requested_at) VALUES (?, ?)');
+        for ($i = 0; $i < 10; $i++) {
+            $ins->execute([$ids['trial'], date('Y-m-d H:i:s')]);
+        }
+    };
+    $remember = static function (PDO $pdo, array $ids): void {
+        $pdo->prepare("INSERT INTO pro_remember_tokens (id, user_id, selector, validator_hash, days, label, created_at, last_used_at, expires_at) VALUES (4, ?, 'sel4', 'v', 7, 'Firefox on Linux', '2026-03-01 10:00:00', '2026-03-02 10:00:00', '2099-03-08 10:00:00')")
+            ->execute([$ids['trial']]);
+    };
+    $noRemember = static fn(PDO $pdo, array $ids) => $pdo->exec('DROP TABLE pro_remember_tokens');
+    $tokens = static function (int $count): callable {
+        return static function (PDO $pdo, array $ids) use ($count): void {
+            $ins = $pdo->prepare("INSERT INTO mcp_access_tokens (pro_user_id, name, token_hash, token_prefix, scopes, created_at) VALUES (?, ?, ?, 'msk_xxxxxxxx', 'read', '2026-03-01 10:00:00')");
+            for ($i = 0; $i < $count; $i++) {
+                $ins->execute([$ids['trial'], 'Token ' . $i, hash('sha256', 't' . $i)]);
+            }
+        };
+    };
+    $create = static fn(array $over): array => $over + ['action' => 'mcp_token_create', 'name' => 'Laptop', 'scopes' => 'read', 'expires_days' => '0'];
+
+    $cases = [
+        'totp_status.failed' => [['action' => 'totp_status'], 'trial', $drop('pro_user_totp'), ['method' => 'GET']],
+        'totp_begin_enroll.invalid_origin' => [['action' => 'totp_begin_enroll'], 'trial', null, ['origin_flip' => true]],
+        'totp_begin_enroll.already_enabled' => [['action' => 'totp_begin_enroll'], 'trial', $totp, []],
+        'totp_begin_enroll.rate_limited' => [['action' => 'totp_begin_enroll'], 'trial', $enrollLimited, []],
+        'totp_begin_enroll.failed' => [['action' => 'totp_begin_enroll'], 'trial', null, []],
+        'totp_confirm_enroll.invalid_origin' => [['action' => 'totp_confirm_enroll', 'code' => '123456'], 'trial', null, ['origin_flip' => true]],
+        'totp_confirm_enroll.blocked' => [['action' => 'totp_confirm_enroll', 'code' => '123456'], 'trial', $locked, []],
+        'totp_confirm_enroll.invalid_code' => [['action' => 'totp_confirm_enroll', 'code' => '123456'], 'trial', null, []],
+        'totp_confirm_enroll.failed' => [['action' => 'totp_confirm_enroll', 'code' => '123456'], 'trial', $drop('pro_user_totp'), []],
+        'totp_disable.invalid_origin' => [['action' => 'totp_disable'], 'trial', null, ['origin_flip' => true]],
+        'totp_disable.invalid_password' => [['action' => 'totp_disable', 'password' => 'wrong-password'], 'trial', static function (PDO $pdo, array $ids): void {
+            ms_pp_password_on($pdo, $ids['trial']);
+            ms_pp_totp_on($pdo, $ids['trial']);
+        }, []],
+        'totp_disable.not_enabled' => [['action' => 'totp_disable'], 'trial', null, []],
+        'totp_disable.failed' => [['action' => 'totp_disable'], 'trial', $drop('pro_user_totp'), []],
+        'totp_recovery_regenerate.invalid_origin' => [['action' => 'totp_recovery_regenerate', 'code' => '123456'], 'trial', null, ['origin_flip' => true]],
+        'totp_recovery_regenerate.not_enabled' => [['action' => 'totp_recovery_regenerate', 'code' => '123456'], 'trial', null, []],
+        'totp_recovery_regenerate.blocked' => [['action' => 'totp_recovery_regenerate', 'code' => '123456'], 'trial', static function (PDO $pdo, array $ids) use ($totp, $locked): void {
+            $totp($pdo, $ids);
+            $locked($pdo, $ids);
+        }, []],
+        'totp_recovery_regenerate.invalid_code' => [['action' => 'totp_recovery_regenerate', 'code' => '123456'], 'trial', $totp, []],
+        'totp_recovery_regenerate.failed' => [['action' => 'totp_recovery_regenerate', 'code' => '123456'], 'trial', $drop('pro_user_totp'), []],
+        'trusted_devices_list.invalid_origin' => [['action' => 'trusted_devices_list'], 'trial', null, ['origin_flip' => true]],
+        'trusted_devices_list.failed' => [['action' => 'trusted_devices_list'], 'trial', $drop('pro_trusted_devices'), []],
+        'trusted_devices_revoke.invalid_origin' => [['action' => 'trusted_devices_revoke', 'id' => '7'], 'trial', null, ['origin_flip' => true]],
+        'trusted_devices_revoke.invalid_id' => [['action' => 'trusted_devices_revoke', 'id' => '0'], 'trial', null, []],
+        'trusted_devices_revoke.not_found' => [['action' => 'trusted_devices_revoke', 'id' => '99'], 'trial', null, []],
+        'trusted_devices_revoke.failed' => [['action' => 'trusted_devices_revoke', 'id' => '7'], 'trial', $drop('pro_trusted_devices'), []],
+        'stay_signed_in_list.failed' => [['action' => 'stay_signed_in_list'], 'trial', static fn(PDO $pdo, array $ids) => $pdo->exec('ALTER TABLE pro_remember_tokens DROP COLUMN label'), []],
+        'stay_signed_in_set.invalid_period' => [['action' => 'stay_signed_in_set', 'days' => '5'], 'trial', null, []],
+        'stay_signed_in_set.unavailable' => [['action' => 'stay_signed_in_set', 'days' => '7'], 'trial', $noRemember, []],
+        'stay_signed_in_set.failed' => [['action' => 'stay_signed_in_set', 'days' => '7'], 'trial', $fail('pro_remember_tokens', 'INSERT'), []],
+        'stay_signed_in_revoke.unavailable' => [['action' => 'stay_signed_in_revoke', 'id' => '4'], 'trial', $noRemember, []],
+        'stay_signed_in_revoke.not_found' => [['action' => 'stay_signed_in_revoke', 'id' => '99'], 'trial', $remember, []],
+        'stay_signed_in_revoke.failed' => [['action' => 'stay_signed_in_revoke', 'id' => '4'], 'trial', $fail('pro_remember_tokens', 'DELETE', $remember), []],
+        'mcp_token_list.failed' => [['action' => 'mcp_token_list'], 'trial', static fn(PDO $pdo, array $ids) => $pdo->exec('ALTER TABLE mcp_access_tokens DROP COLUMN token_prefix'), []],
+        'mcp_token_create.unavailable' => [$create([]), 'trial', $drop('mcp_access_tokens'), []],
+        'mcp_token_create.suspicious' => [$create(['name' => 'myscript']), 'trial', null, []],
+        'mcp_token_create.name_required' => [$create(['name' => '   ']), 'trial', null, []],
+        'mcp_token_create.invalid_access' => [$create(['scopes' => 'admin']), 'trial', null, []],
+        'mcp_token_create.invalid_expiry' => [$create(['expires_days' => '7']), 'trial', null, []],
+        'mcp_token_create.too_many' => [$create([]), 'trial', $tokens(10), []],
+        'mcp_token_create.failed' => [$create([]), 'trial', $fail('mcp_access_tokens', 'INSERT'), []],
+        'mcp_token_revoke.unavailable' => [['action' => 'mcp_token_revoke', 'id' => '1'], 'trial', $drop('mcp_access_tokens'), []],
+        'mcp_token_revoke.not_found' => [['action' => 'mcp_token_revoke', 'id' => '99'], 'trial', null, []],
+        'mcp_token_revoke.failed' => [['action' => 'mcp_token_revoke', 'id' => '1'], 'trial', $fail('mcp_access_tokens', 'UPDATE', $tokens(1)), []],
+        'set_password.mismatch' => [['action' => 'set_password', 'password' => 'abcdefgh1', 'confirm' => 'other'], 'trial', null, []],
+        'set_password.short' => [['action' => 'set_password', 'password' => 'abc', 'confirm' => 'abc'], 'trial', null, []],
+        'set_password.long' => [['action' => 'set_password', 'password' => str_repeat('a', 257), 'confirm' => str_repeat('a', 257)], 'trial', null, []],
+        'set_password.unavailable' => [['action' => 'set_password', 'password' => 'abcdefgh1', 'confirm' => 'abcdefgh1'], 'trial', static fn(PDO $pdo, array $ids) => $pdo->exec('ALTER TABLE pro_users DROP COLUMN password_hash'), []],
+        'set_password.sent' => [['action' => 'set_password', 'password' => 'abcdefgh1', 'confirm' => 'abcdefgh1'], 'trial', null, []],
+        'set_password.failed' => [['action' => 'set_password', 'password' => 'abcdefgh1', 'confirm' => 'abcdefgh1'], 'trial', $fail('pending_profile_changes', 'INSERT'), []],
+        'rotate_signing_keys.invalid_origin' => [['action' => 'rotate_signing_keys'], 'trial', null, ['origin_flip' => true]],
+        'rotate_signing_keys.failed' => [['action' => 'rotate_signing_keys'], 'trial', null, []],
+        'delete_account.sent' => [['action' => 'delete_account'], 'trial', null, []],
+        'delete_account.failed' => [['action' => 'delete_account'], 'trial', $fail('pending_profile_changes', 'INSERT'), []],
+    ];
+    foreach ($cases as $name => $case) {
+        $cases[$name][2] = ms_pp_with_security($case[2]);
+    }
+    return $cases;
 }
