@@ -122,7 +122,7 @@ HTML,
                 'a' => $msT > 0 ? <<<HTML
 <p>Create an account — it starts on Pro for its first {$msT} days. To keep Pro after that, choose a <a href="{$msU('/pricing.php')}">plan</a> while signed in, or redeem a voucher code in your profile; either way, the time is added after the trial ends. Accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
 HTML : <<<HTML
-<p>Create a free account and choose a <a href="{$msU('/pricing.php')}">plan</a> while signed in — or register with a voucher code: pick Pro on the sign-up page and enter the code. Pro accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
+<p>Create a free account and choose a <a href="{$msU('/pricing.php')}">plan</a> while signed in — or register with a voucher code: pick Pro on the sign-up page and enter the code. Accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p>
 HTML,
             ],
             [
@@ -252,7 +252,7 @@ HTML,
             [
                 'q' => 'I didn\'t receive an expected message — what now?',
                 'a' => <<<HTML
-<p>Check the full address you gave out, local part and domain both. For a sticky address, make sure you're signed in to the account that owns it. Then give it a moment and refresh — mail is fetched from the server on a schedule, so a message can take a short while to appear. If it still doesn't arrive, the sender may have delayed or rejected it.</p>
+<p>Check the full address you gave out, local part and domain both. For a sticky address, make sure you're signed in to the account that owns it. Then give it a moment and refresh — mail is stored as soon as the sender's server hands it over, and the inbox picks it up on its next check or when you refresh, though a sender may delay or retry delivery. If it still doesn't arrive, the sender may have delayed or rejected it.</p>
 HTML,
             ],
             [
