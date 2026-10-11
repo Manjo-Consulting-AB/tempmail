@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#FAFAF9">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Your inbox · Mail Shield</title>
+    <link rel="icon" href="/assets/images/favicon.ico?v=1791723855" sizes="32x32">
+    <link rel="icon" href="/assets/images/favicon.svg?v=1791723855" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/images/favicon-180x180.png?v=1791723855">
+    <link rel="manifest" href="/site.webmanifest">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <script>
+    window.tempMailConfig = {
+        domain: 'manjo.me',
+        refreshRate: 10000,
+        maxEmailPreview: 150,
+        urlAddress: null,
+        urlExpiresAt: null,
+        proExpiresAt: null,
+        isProAccount: true    };
+    // Mark this page as served for a logged-in pro user
+    window.tempMailConfig.isPro = true;
+    // Personal-address blacklist (local parts) - keep in sync with server
+    window.personalAddressBlacklist = ["jj","roland"];
+    </script>
+    <link href="assets/css/mailshield-fonts.css?v=1791723855" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=1791723855" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=1791723855" rel="stylesheet">
+</head>
+<body>
+    <div class="main-container">
+        <!-- Header. The nav (#116) carries the identity now, so the old page
+             title and its lead paragraph are gone — the lead was a description
+             of a setting, not a headline. #proExpiryLine comes from
+             partials/nav.php, which the require below renders before the
+             script that writes into it. -->
+        <div class="header">
+            <nav class="ms-appnav" aria-label="Application">
+    <div class="ms-appnav__inner">
+        <a class="ms-logo ms-appnav__logo" href="/pro.php"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+        <button type="button" class="ms-appnav__toggle" id="hamburgerBtn"
+                aria-expanded="false" aria-controls="navbarMenu" aria-label="Menu">
+            <span class="ms-appnav__toggle-line"></span>
+            <span class="ms-appnav__toggle-line"></span>
+            <span class="ms-appnav__toggle-line"></span>
+        </button>
+
+        <div class="ms-appnav__panel" id="navbarMenu">
+            <div class="ms-appnav__links">
+                                <a href="pro.php" class="navbar-link active">Inbox</a>
+                                <a href="blog.php" class="navbar-link">Blog</a>
+                <a href="faq.php" class="navbar-link">FAQ</a>
+
+                                    <a href="client_agent_manage.php" class="navbar-link">Client Agent</a>
+                    <a href="pro_profile_page.php" class="navbar-link">Settings</a>
+                    <a href="pro_contact.php" class="navbar-link">Contact</a>
+                                        <a href="pro_logout.php" class="navbar-link">Log out</a>
+                            </div>
+
+                        <div class="ms-appnav__account">
+                                <span class="ms-appnav__email">Signed in as <span class="ms-appnav__email-addr">alice@example.com</span></span>
+                                <span id="proExpiryLine" class="ms-appnav__status">Pro</span>
+            </div>
+                    </div>
+    </div>
+</nav>
+
+<script>
+(function () {
+    var btn = document.getElementById('hamburgerBtn');
+    var panel = document.getElementById('navbarMenu');
+    if (!btn || !panel) return;
+
+    function isOpen() { return btn.getAttribute('aria-expanded') === 'true'; }
+    function setOpen(open) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        panel.classList.toggle('is-open', open);
+    }
+    function close(moveFocus) {
+        if (!isOpen()) return;
+        setOpen(false);
+        if (moveFocus) btn.focus();
+    }
+
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(true); });
+    // An outside click leaves focus where the user clicked; only Escape pulls it
+    // back to the button.
+    document.addEventListener('click', function (e) {
+        if (!panel.contains(e.target) && !btn.contains(e.target)) close(false);
+    });
+})();
+</script>
+            <script>
+            (function(){
+                try {
+                    var ex = window.tempMailConfig && window.tempMailConfig.proExpiresAt ? window.tempMailConfig.proExpiresAt : null;
+                    if (!(window.tempMailConfig && window.tempMailConfig.isProAccount)) {
+                        document.getElementById('proExpiryLine').textContent = 'Free';
+                        return;
+                    }
+                    if (!ex) {
+                        document.getElementById('proExpiryLine').textContent = 'Pro: Lifetime';
+                        return;
+                    }
+                    var d = new Date(ex + ' UTC');
+                    var dd = String(d.getUTCDate()).padStart(2, '0');
+                    var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+                    var yyyy = d.getUTCFullYear();
+                    var dateOnly = dd + '/' + mm + '/' + yyyy;
+                    var now = new Date();
+                    var diffMs = d - now;
+                    if (diffMs <= 0) {
+                        document.getElementById('proExpiryLine').textContent = 'Pro expired on ' + dateOnly;
+                        document.getElementById('proExpiryLine').style.color = '#ff6b6b';
+                    } else {
+                        document.getElementById('proExpiryLine').textContent = 'Pro expires: ' + dateOnly;
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            })();
+            </script>
+        </div>
+
+        <main class="ms-dash">
+            <h1 class="ms-dash__title">Your inbox</h1>
+
+            <div class="ms-dash__grid">
+                <!-- The inbox is the page, in two boxes: the address header up
+                     here and the message list below it. Kept apart so a phone
+                     can put the rail's address rows — which filter the list —
+                     between them instead of under every message; above 1100px
+                     they are drawn as the single frame they have always been
+                     and the rail sits beside them. The frame, its rows and the
+                     statistics footnote are the ones #117 built for inbox.php. -->
+                <div class="ms-dash__inbox">
+                    <div class="ms-inbox__frame">
+                        
+                        <!-- Initial address generator (visas tills adress är skapad) -->
+                        <div id="initial-generator" class="ms-inbox__empty">
+                            <h2 class="ms-inbox__empty-title">Click to get your timed address</h2>
+                            <button id="generateBtn" class="btn btn-primary btn-lg">
+                                <i class="fas fa-magic" aria-hidden="true"></i> Get Email Address
+                            </button>
+                        </div>
+
+                        <!-- E-postadress display (visas när adress är skapad) -->
+                        <div class="email-container d-none">
+                            <div class="ms-inbox__head">
+                                <div class="ms-inbox__id">
+                                    <p class="ms-eyebrow ms-inbox__label">Your address</p>
+                                    <h2 class="email-address ms-inbox__addr" id="currentEmail" tabindex="0"></h2>
+                                    <p class="ms-inbox__meta">
+                                        <span id="privacyIndicator" class="d-none ms-inbox__privacy"><i class="fas fa-lock" aria-hidden="true"></i> <span id="privacyText">Private</span></span>
+                                        <span class="ms-inbox__validity"><i class="fas fa-clock" aria-hidden="true"></i> <span id="validityText">Valid for 24 hours</span></span>
+                                    </p>
+                                </div>
+
+                                <div class="ms-inbox__actions">
+                                    <button id="copyBtn" class="btn btn-primary">
+                                        <i class="fas fa-copy" aria-hidden="true"></i> Copy address
+                                    </button>
+                                    <button id="refreshBtn" class="btn btn-outline-secondary">
+                                        <i class="fas fa-sync-alt" aria-hidden="true"></i> Refresh
+                                    </button>
+                                    <button id="shareBtn" class="btn btn-outline-secondary">
+                                        <i class="fas fa-share-alt" aria-hidden="true"></i> Share link
+                                    </button>
+                                    <!-- Second way into the generator. It carries the
+                                         other id the inbox script's delegated handler
+                                         answers to ('#generateBtn, #newAddressBtn')
+                                         instead of a second #generateBtn: duplicate ids
+                                         are invalid, and getElementById only ever finds
+                                         the first — the empty state above. -->
+                                    <button id="newAddressBtn" class="btn btn-outline-secondary">
+                                        <i class="fas fa-plus" aria-hidden="true"></i> New address
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- The message list. A box of its own rather than the
+                         lower half of the frame above: the Addresses filter
+                         rows belong between the two on a phone, and above
+                         1100px the two boxes are drawn as the one frame they
+                         have always been. The second `email-container` is not a
+                         duplicate — the inbox script toggles both by class, so
+                         the head above and the list here appear and disappear
+                         together. -->
+                    <div class="ms-dash__messages">
+                        <div class="email-container d-none">
+                            <div class="ms-inbox__listbar">
+                                <div class="ms-inbox__count">
+                                    <span id="emailCount">0</span>
+                                    <span>messages</span>
+                                    <button id="imageToggle" class="btn btn-sm btn-outline-secondary" title="Blockera externa bilder">
+                                        <i class="fas fa-image" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                                <div class="ms-inbox__freshness">
+                                    <span class="status-indicator"><i class="fas fa-circle" aria-hidden="true"></i> Ready</span>
+                                    <span class="ms-inbox__updated">Last updated: <span id="lastUpdate">Never</span></span>
+                                </div>
+                            </div>
+
+                            <!-- Aktivt adressfilter. Raden hålls dold tills
+                                 app.js visar den; adressen skrivs in som text i
+                                 #addressFilterLabel av syncAddressFilterUI(). -->
+                            <div class="ms-inbox__filter" id="addressFilterBar" hidden>
+                                <span class="ms-chip ms-inbox__filter-chip">
+                                    <i class="fas fa-filter" aria-hidden="true"></i>
+                                    <span>Filtered by: <strong id="addressFilterLabel"></strong></span>
+                                </span>
+                                <button type="button" class="ms-address-filter-clear">Clear filter</button>
+                            </div>
+
+                            <!-- E-postlista -->
+                            <div class="email-list" id="emailList">
+                                <!-- E-postmeddelanden läses in här via JavaScript -->
+                            </div>
+                        </div>
+
+                        <!-- Statistik: the signed-in account's own numbers (get_stats in index.php). The system-wide totals live on the landing page. -->
+                        <div class="ms-inbox__stats" id="userStats">
+                            <div class="ms-inbox__stat">
+                                <span class="ms-inbox__stat-n" id="statsEmails">0</span>
+                                <span class="ms-inbox__stat-l">Emails in your inbox</span>
+                            </div>
+                            <div class="ms-inbox__stat">
+                                <span class="ms-inbox__stat-n" id="statsReceived24h">0</span>
+                                <span class="ms-inbox__stat-l">Received last 24 h</span>
+                            </div>
+                            <div class="ms-inbox__stat">
+                                <span class="ms-inbox__stat-n" id="statsAddresses">0</span>
+                                <span class="ms-inbox__stat-l">Active addresses</span>
+                            </div>
+                            <div class="ms-inbox__stat">
+                                <span class="ms-inbox__stat-n" id="statsStorage">&ndash;</span>
+                                <span class="ms-inbox__stat-l">Storage used</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- The rail. Creating and deleting addresses stays on the
+                     profile page (the hint below links there); a row here
+                     filters the inbox on that address instead of navigating. -->
+                <div class="ms-dash__rail">
+                    <section class="ms-rail__group" aria-labelledby="railAddressesTitle">
+                        <h2 class="ms-eyebrow ms-rail__title" id="railAddressesTitle">Addresses</h2>
+                        <ul class="ms-rail__addrs" id="railAddressList" role="list"></ul>
+                        <p class="ms-rail__hint">
+                            Manage your addresses in <a href="pro_profile_page.php">Settings</a>.
+                        </p>
+                    </section>
+
+                    <section class="ms-rail__group" aria-labelledby="railTtlTitle">
+                        <h2 class="ms-eyebrow ms-rail__title" id="railTtlTitle">Default lifetime</h2>
+                        <label class="ms-visually-hidden" for="ttlSelect">Default lifetime</label>
+                        <select id="ttlSelect" class="form-select ms-rail__select">
+                                                            <option value="1" selected>1 day</option>
+                                                            <option value="2" >2 days</option>
+                                                            <option value="3" >3 days</option>
+                                                            <option value="4" >4 days</option>
+                                                            <option value="5" >5 days</option>
+                                                            <option value="6" >6 days</option>
+                                                            <option value="7" >7 days</option>
+                                                    </select>
+                        <div id="ttlMsg"></div>
+                        <p class="ms-rail__hint">Applied to new timed addresses.</p>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- E-post Modal -->
+    <div class="modal fade" id="emailModal" tabindex="-1" aria-labelledby="emailModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-main modal-fullscreen-sm-down">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="emailModalLabel">Email Message</h5>
+                    <div class="d-flex align-items-center">
+                        <button id="modalShowImagesBtn" type="button" class="btn btn-sm btn-outline-secondary me-2" title="Visa bilder i detta meddelande">Visa bilder</button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>From:</strong></div>
+                        <div class="col-sm-9" id="emailFrom"></div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>To:</strong></div>
+                        <div class="col-sm-9" id="emailTo"></div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>Date:</strong></div>
+                        <div class="col-sm-9" id="emailDate"></div>
+                    </div>
+                    <hr>
+                    <div class="email-content" id="emailContent">
+                        <!-- Email content loaded here -->
+                    </div>
+                    <div id="emailAttachments" class="mt-3" style="display:none">
+                        <h6>Attachments</h6>
+                        <!-- Attachment links injected here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="text-center mt-5 py-4">
+        <div class="container">
+            <p class="text-light mb-0">
+                <small>Mail Shield · Operated by Manjo Consulting AB · v </small>
+            </p>
+            <p class="text-light mb-0 mt-1">
+                <small>&copy; 2026 Manjo Consulting AB</small>
+            </p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <script>
+(function () {
+    window.msLocale = document.documentElement.lang || 'en';
+    if (window.jQuery) {
+        window.jQuery.ajaxSetup({ headers: { 'X-MS-Locale': window.msLocale } });
+    }
+})();
+</script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/site-controls.js"></script>
+    <script src="assets/js/app.js?v=1791723855"></script>
+    <script>
+    (function(){
+        function performSaveTtl(ttl) {
+            var $msg = $('#ttlMsg');
+            // Indicate saving (blue)
+            $msg.css('color', '#9ecbff').text('Saving...');
+            // Include currently shown address (if any) so backend can update its expires_at
+            var currentAddress = $('#currentEmail').text().trim();
+            $.post('pro_profile.php', {action: 'update_ttl', ttl: ttl, address: currentAddress}, function(res){
+                if (res && res.success) {
+                    // Show Saved in white for 2 seconds
+                    $msg.css('color', '#fff').text('Saved');
+                    if (res.expires_at) {
+                        // Parse server timestamp (YYYY-MM-DD HH:MM:SS) into JS Date
+                        try {
+                            var parsed = new Date(res.expires_at.replace(' ', 'T'));
+                            if (window.tempMailApp) {
+                                window.tempMailApp.expiresAt = parsed;
+                                if (typeof window.tempMailApp.startValidityCountdown === 'function') {
+                                    window.tempMailApp.startValidityCountdown();
+                                } else if (typeof window.tempMailApp.updateValidityText === 'function') {
+                                    window.tempMailApp.updateValidityText();
+                                } else {
+                                    $('#validityText').text('Valid until ' + res.expires_at);
+                                }
+                            } else {
+                                $('#validityText').text('Valid until ' + res.expires_at);
+                            }
+                        } catch (e) {
+                            $('#validityText').text('Valid until ' + res.expires_at);
+                        }
+                    }
+                    setTimeout(function(){ $msg.text('').css('color', '#9ecbff'); }, 2000);
+                } else {
+                    // Show error externally in red
+                    $msg.css('color', '#ff6b6b').text(res.error || 'Error');
+                }
+            }, 'json').fail(function(){
+                $msg.css('color', '#ff6b6b').text('Request failed');
+            });
+        }
+
+        // Auto-save when dropdown changes
+        $('#ttlSelect').on('change', function(){
+            var ttl = parseInt($(this).val(), 10) || 1;
+            performSaveTtl(ttl);
+        });
+
+        // Personal address functionality moved to profile page; removed from dashboard to avoid duplication.
+    })();
+
+    // The rail's address list. Reads the existing index.php `list_personal`
+    // action — it already returns the account's personal addresses, so no new
+    // endpoint is needed. Each row filters the inbox on that address (handled
+    // by the delegated .ms-rail__addr-link handler in assets/js/app.js); the
+    // profile page stays the only place addresses are created or deleted.
+    (function(){
+        var list = document.getElementById('railAddressList');
+        if (!list) return;
+
+        function esc(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+            });
+        }
+
+        $.post('index.php', { action: 'list_personal' }, function(res){
+            var rows = (res && res.success && res.personal) ? res.personal : [];
+            if (!rows.length) {
+                list.innerHTML = '<li class="ms-rail__empty">No sticky addresses yet</li>';
+                return;
+            }
+            var addresses = [];
+            list.innerHTML = rows.map(function(a){
+                var full = a.full_address || a.address || '';
+                addresses.push(full);
+                return '<li class="ms-rail__addr">' +
+                       '<button type="button" class="ms-rail__addr-link" data-address="' + esc(full) + '"' +
+                       ' title="Show only mail sent to this address">' + esc(full) + '</button>' +
+                       '</li>';
+            }).join('');
+            // The inbox script needs the list to tell an address that belongs
+            // to this account from one that does not, before it applies a
+            // ?filter_address= from the URL. Passing it also applies that
+            // filter, now that the rows above exist to be marked active.
+            if (window.tempMailApp && typeof window.tempMailApp.setKnownPersonalAddresses === 'function') {
+                window.tempMailApp.setKnownPersonalAddresses(addresses);
+            }
+        }, 'json').fail(function(){
+            list.innerHTML = '<li class="ms-rail__empty">Could not load addresses</li>';
+        });
+    })();
+    </script>
+</body>
+</html>

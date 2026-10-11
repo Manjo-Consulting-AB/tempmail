@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.error.', 'app.message.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -2433,6 +2433,98 @@ $aaUsed = array_unique(array_filter(array_merge($am[1], $am[2])));
 check('scan: index.php uses 19 app.error.* / app.message.* keys (16 + 3)', count($aaUsed) === 19, (string) count($aaUsed));
 check("scan: every app.* key index.php's action branch uses exists in lang/en.php and lang/sv.php", array_diff($aaUsed, array_keys($en)) === [] && array_diff($aaUsed, array_keys($sv)) === [], implode(', ', array_diff($aaUsed, array_keys($en))));
 ms_test_cleanup($aa['root']);
+
+// --- Inbox pages (epic #428, step 3/8, part B): inbox.php, pro.php, app.js ----------
+// The real pages run as subprocesses on the sign-in probe docroot (tests/lib/auth_probe.php,
+// ms_app_page()). The English fixtures were rendered from the code as it was before the
+// pages went through te()/tHtml(); inline scripts are compared apart, key by key below.
+// A page takes the account's language, so Swedish is asked for with Accept-Language once
+// '@app' lists it.
+$appProbe = ms_auth_probe_build($root);
+// PHP drops the newline after a closing tag, so runs of whitespace are compared as one space.
+$appNorm = static fn(string $html): string => preg_replace('/\s+/', ' ', authNorm($html));
+$appKeyRe = '/\bapp\.(?:common|inbox|pro|js|error|message)\.[a-z_0-9]+/';
+foreach (ms_app_page_cases() as $name => [$script, $in, $pro, $get, $pend]) {
+    $fixture = $appNorm((string) file_get_contents($fx . 'app_pages.' . $name . '.en.html'));
+    foreach ([false => 'English only', true => 'sv offered but not chosen'] as $svOn => $label) {
+        $r = ms_app_page($appProbe, $script, $in, $pro, $get, $pend, null, (bool) $svOn);
+        check("app page {$name} ({$label}): rendered without PHP errors", $r['html'] !== '' && $r['err'] === '', $r['err']);
+        same("fixture: app page {$name}, {$label}", $fixture, $appNorm($r['html']));
+    }
+    $enPage = ms_app_page($appProbe, $script, $in, $pro, $get, $pend);
+    // Scripts: the four expiry texts reach the inline script in English, and the language JSON is on the page.
+    $pageHasExpiry = strpos($enPage['html'], '"free":"Free"') !== false && strpos($enPage['html'], '"lifetime":"Pro: Lifetime"') !== false
+        && strpos($enPage['html'], '"expired":"Pro expired on {date}"') !== false && strpos($enPage['html'], '"expires":"Pro expires: {date}"') !== false;
+    check("app page {$name}: the expiry line texts are in the script, in English", !$in || $pageHasExpiry);
+    check("app page {$name}: ms-i18n precedes app.js", preg_match('#id="ms-i18n">.*?</script>\s*(?:<script>[^<]*window\.tempMailConfig[^<]*</script>\s*)?<script src="assets/js/app\.js#s', $enPage['html']) === 1);
+    preg_match('#<script type="application/json" id="ms-i18n">(.*?)</script>#s', $enPage['html'], $jm);
+    $jsonCatalog = json_decode($jm[1] ?? '', true);
+    check("app page {$name}: ms-i18n carries the app. keys", is_array($jsonCatalog) && ($jsonCatalog['app.js.generated'] ?? null) === 'New email address generated!' && ($jsonCatalog['app.common.close'] ?? null) === 'Close');
+    // Swedish.
+    $svPage = ms_app_page($appProbe, $script, $in, $pro, $get, $pend, null, true, 'sv-SE,sv;q=0.9');
+    $svNoJson = preg_replace(["#<script type=\"application/json\" id=\"ms-i18n\">.*?</script>#s", "/msT\\('app\\.[a-z_.0-9]+'/"], ['', "msT('"], $svPage['html']);
+    check("sv app page {$name}: rendered without PHP errors", $svPage['html'] !== '' && $svPage['err'] === '', $svPage['err']);
+    check("sv app page {$name}: <html lang=\"sv\">", strpos($svPage['html'], '<html lang="sv">') !== false);
+    check("sv app page {$name}: no raw app. key anywhere but the language JSON", !preg_match($appKeyRe, $svNoJson), (string) (preg_match($appKeyRe, $svNoJson, $km) ? $km[0] : ''));
+    $svJson = null;
+    if (preg_match('#<script type="application/json" id="ms-i18n">(.*?)</script>#s', $svPage['html'], $sm)) {
+        $svJson = json_decode($sm[1], true);
+    }
+    check("sv app page {$name}: ms-i18n is Swedish", is_array($svJson) && ($svJson['app.js.generated'] ?? null) === 'Ny e-postadress skapad!' && ($svJson['app.common.close'] ?? null) === 'Stäng');
+    check("sv app page {$name}: the title is Swedish", strpos($svPage['html'], '<title>Din inkorg · Mail Shield</title>') !== false);
+    check("sv app page {$name}: footer and modal are Swedish", strpos($svPage['html'], 'Drivs av Manjo Consulting AB') !== false && strpos($svPage['html'], '>Bilagor</h6>') !== false && strpos($svPage['html'], 'aria-label="Stäng"') !== false);
+    check("sv app page {$name}: the expiry texts are Swedish in the script", !$in || (strpos($svPage['html'], '"free":"Gratis"') !== false && strpos($svPage['html'], '"expired":"Pro löpte ut {date}"') !== false));
+    check("sv app page {$name}: the list bar is Swedish", strpos($svPage['html'], '>meddelanden</span>') !== false && strpos($svPage['html'], 'Senast uppdaterad: <span id="lastUpdate">Aldrig</span>') !== false);
+    check("sv app page {$name}: ids the scripts and styles depend on survive", strpos($svPage['html'], 'id="proExpiryLine"') !== false && strpos($svPage['html'], 'id="emailList"') !== false && strpos($svPage['html'], 'id="statsStorage"') !== false || !$in);
+}
+$svInbox = ms_app_page($appProbe, 'inbox.php', true, true, [], false, null, true, 'sv');
+check('sv inbox (signed in): the empty state and the lead are Swedish', strpos($svInbox['html'], 'Klicka för att få din Timed-adress') !== false && strpos($svInbox['html'], 'Timed-adresser för Pro-användare.') !== false && strpos($svInbox['html'], 'Hämta e-postadress') !== false);
+check('sv inbox (signed in): the statistics labels are Swedish', strpos($svInbox['html'], 'Meddelanden i din inkorg') !== false && strpos($svInbox['html'], 'Använt lagringsutrymme') !== false);
+$svVisitor = ms_app_page($appProbe, 'inbox.php', false, false, ['address' => 'abcdef0123456789'], false, null, true, 'sv');
+check('sv inbox (signed out): the sign-up prompt is Swedish and keeps its links', strpos($svVisitor['html'], 'Du behöver ett konto för att skapa en Timed-adress') !== false
+    && strpos($svVisitor['html'], 'href="/register.php"') !== false && strpos($svVisitor['html'], '>Har du redan ett konto? Logga in</a>') !== false && strpos($svVisitor['html'], 'Timed-adresser som raderas efter 24 timmar') !== false);
+$svPro = ms_app_page($appProbe, 'pro.php', true, true, [], true, null, true, 'sv');
+check('sv pro.php: pending changes in Swedish with count, times and the unchanged data', strpos($svPro['html'], 'Väntande profiländringar') !== false && strpos($svPro['html'], '>2 väntande</span>') !== false
+    && strpos($svPro['html'], 'Ny e-postadress: new@example.com') !== false && strpos($svPro['html'], 'Begärd: 2099-01-01 10:00:00') !== false && strpos($svPro['html'], 'Skicka bekräftelsemejlet igen') !== false && strpos($svPro['html'], '>update_email</strong>') !== false);
+check('sv pro.php: the rail, the lifetime plurals and the settings link', strpos($svPro['html'], 'Hantera dina adresser under <a href="pro_profile_page.php">Inställningar</a>.') !== false
+    && strpos($svPro['html'], '>1 dag</option>') !== false && strpos($svPro['html'], '>2 dagar</option>') !== false && strpos($svPro['html'], 'Gäller nya Timed-adresser.') !== false);
+check('sv pro.php: the filter bar keeps its label element', strpos($svPro['html'], 'Filtrerad på: <strong id="addressFilterLabel"></strong>') !== false && strpos($svPro['html'], '>Rensa filter</button>') !== false);
+check('sv pro.php: the inline script strings come from the catalog (msT)', strpos($svPro['html'], "msT('app.pro.ttl_saving'") !== false && strpos($svPro['html'], "msT('app.pro.rail_empty'") !== false);
+$svPlain = ms_app_page($appProbe, 'pro.php', true, false, [], false, null, true, 'sv');
+check('sv pro.php (Regular): the expiry text is "Gratis"', strpos($svPlain['html'], '"free":"Gratis"') !== false);
+// Without a language choice and without Swedish enabled the app stays English even if the browser asks for Swedish.
+$enAsked = ms_app_page($appProbe, 'pro.php', true, true, [], false, null, false, 'sv');
+check('pro.php: Accept-Language sv is ignored while the app area is English only', strpos($enAsked['html'], '<html lang="en">') !== false && strpos($enAsked['html'], 'Din inkorg') === false && strpos($enAsked['html'], 'Your inbox') !== false);
+ms_auth_probe_remove($appProbe);
+
+// Scans: the pages, app.js and the catalog agree.
+$inboxSrc = (string) file_get_contents($root . '/inbox.php');
+$proSrc = (string) file_get_contents($root . '/pro.php');
+$appJs = (string) file_get_contents($root . '/assets/js/app.js');
+foreach (['inbox.php' => $inboxSrc, 'pro.php' => $proSrc] as $f => $src) {
+    check("scan: {$f} sets \$msI18nJs = ['app.'] and requires partials/i18n_js.php before app.js", (bool) preg_match("#\\\$msI18nJs = \['app\.'\];\s*require __DIR__ \. '/partials/i18n_js\.php';.*?assets/js/app\.js#s", $src));
+    preg_match_all("/\b(?:te|t|tp|tHtml)\('(app\.[a-z_.0-9]+)'/", $src, $pm);
+    $used = array_unique($pm[1]);
+    check("scan: {$f} uses catalog keys", count($used) >= 20, (string) count($used));
+    check("scan: every key {$f} uses exists in lang/en.php and lang/sv.php", array_diff($used, array_keys($en)) === [] && array_diff($used, array_keys($sv)) === [], implode(', ', array_merge(array_diff($used, array_keys($en)), array_diff($used, array_keys($sv)))));
+    check("scan: {$f} has no lang=\"en\" literal and no Swedish/English text left in visible attributes", !preg_match('/\b(?:title|aria-label|placeholder)="[A-Za-z]/', $src));
+}
+check('scan: assets/js/app.js is covered by the msT() key scan', isset($jsKeys['app.js.generated']) && isset($jsKeys['app.error.generate']) && isset($jsKeys['app.pro.pending_badge']));
+check('scan: app.js defines msT() once, exactly as I18N.md documents it', substr_count($appJs, 'function msT(key, fallback, params)') === 1
+    && strpos($appJs, "JSON.parse(document.getElementById('ms-i18n').textContent)") !== false
+    && strpos($appJs, "return text.replace(/\\{(\\w+)\\}/g, function (m, name) {") !== false);
+check('scan: every escapeHtml() call of app.js is kept (11 before, more now)', substr_count($appJs, 'escapeHtml(') >= 11, (string) substr_count($appJs, 'escapeHtml('));
+check('scan: the sv-SE number and date formatting is untouched', substr_count($appJs, "toLocaleString('sv-SE'") === 2 && substr_count($appJs, "toLocaleDateString('sv-SE'") === 1);
+check('scan: app.js has no showNotification / alert / confirm with a literal text', !preg_match("/(?:showNotification|alert|confirm)\(\s*['\"`]/", $appJs));
+foreach ([[$appJs, 'app.js'], [$proSrc, 'pro.php']] as [$source, $file]) {
+    preg_match_all("/(?<![\\w.\$])msT\\('([^']+)',\\s*'((?:[^'\\\\]|\\\\.)*)'/", $source, $mm, PREG_SET_ORDER);
+    check("{$file}: msT() fallbacks found", count($mm) >= 3, (string) count($mm));
+    foreach ($mm as [, $key, $fallback]) {
+        $value = $en[$key] ?? null;
+        same("{$file}: msT fallback for {$key} is the English catalog value", is_string($value) ? $value : null, stripslashes($fallback));
+    }
+}
+check('scan: assets/js/sw.js is not part of this change (no msT, no app. key)', stripos((string) file_get_contents($root . '/assets/js/sw.js'), 'msT') === false);
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

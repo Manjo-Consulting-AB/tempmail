@@ -86,7 +86,7 @@ function proUserIsSuspended(int $userId): bool {
     $v = $stmt->fetchColumn();
     return $v !== false && $v !== null;
 }
-function proUserIsPro($userId) { return false; }
+function proUserIsPro($userId) { return !empty($GLOBALS['probeRequest']['is_pro']); }
 function isAdminUser($userId) { return false; }
 require_once __DIR__ . '/pii_crypto.php';
 require_once __DIR__ . '/pro_remember.php';
@@ -154,7 +154,7 @@ function ms_auth_probe_build(string $repoRoot): string
 {
     $root = sys_get_temp_dir() . '/ms_auth_probe_' . bin2hex(random_bytes(6));
     mkdir($root);
-    foreach (['register.php', 'pro_login.php', 'pro_logout.php', 'pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php', 'after_login.php', 'i18n.php'] as $file) {
+    foreach (['register.php', 'pro_login.php', 'pro_logout.php', 'pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php', 'after_login.php', 'i18n.php', 'inbox.php', 'pro.php'] as $file) {
         if (!copy($repoRoot . '/' . $file, $root . '/' . $file)) {
             throw new RuntimeException("Could not copy {$file}");
         }
@@ -393,4 +393,65 @@ function ms_auth_json_run(string $root, array $case, ?string $headerLocale, stri
     @unlink($db);
     @unlink($db . '.log');
     return ['body' => trim($run['out']), 'run' => $run, 'ids' => $ids];
+}
+
+
+/**
+ * [fixture name => [script, signed in, Pro, GET, pending changes]] for the inbox pages
+ * (epic #428, step 3/8, part B): inbox.php signed in and signed out with a valid shared
+ * address, pro.php as a Pro and as a Regular account, and pro.php with two pending changes.
+ *
+ * @return array<string,array{0:string,1:bool,2:bool,3:array<string,string>,4:bool}>
+ */
+function ms_app_page_cases(): array
+{
+    return [
+        'inbox.signed_in' => ['inbox.php', true, true, [], false],
+        'inbox.signed_out' => ['inbox.php', false, false, ['address' => 'abcdef0123456789'], false],
+        'pro.pro' => ['pro.php', true, true, [], false],
+        'pro.regular' => ['pro.php', true, false, [], false],
+        'pro.pending' => ['pro.php', true, true, [], true],
+    ];
+}
+
+/**
+ * Renders inbox.php or pro.php of the probe docroot as alice (signed in) or a
+ * visitor. $locale is sent as X-MS-Locale, $acceptLanguage as Accept-Language, and
+ * $svApp offers Swedish in the app area (the '@app' gate).
+ *
+ * @return array{html:string,err:string,log:string}
+ */
+function ms_app_page(string $root, string $script, bool $signedIn, bool $isPro, array $get = [], bool $pending = false, ?string $locale = null, bool $svApp = false, string $acceptLanguage = ''): array
+{
+    [$db, $ids] = ms_auth_probe_db($root, function (PDO $pdo, array $ids) use ($pending): void {
+        $pdo->exec('CREATE TABLE temp_emails (id INTEGER PRIMARY KEY AUTOINCREMENT, unique_address TEXT, expires_at TEXT, pro_user_id INTEGER, is_personal INTEGER DEFAULT 0, created_at TEXT)');
+        $pdo->exec("INSERT INTO temp_emails (unique_address, expires_at) VALUES ('abcdef0123456789', '2099-01-01 00:00:00')");
+        if ($pending) {
+            // pro.php orders and shows created_at, which the auth probe's table does not have.
+            $pdo->exec('ALTER TABLE pending_profile_changes ADD COLUMN created_at TEXT');
+            $ins = $pdo->prepare('INSERT INTO pending_profile_changes (user_id, action, data, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+            $ins->execute([$ids['alice'], 'update_email', json_encode(['new_email' => 'new@example.com']), 't1', '2099-01-02 10:00:00', '2099-01-01 10:00:00']);
+            $ins->execute([$ids['alice'], 'set_password', json_encode([]), 't2', '2099-01-03 10:00:00', '2099-01-01 11:00:00']);
+        }
+    });
+    $request = ['method' => 'GET', 'uri' => '/' . $script, 'get' => $get, 'locales' => $svApp ? 'en,sv' : 'en', 'is_pro' => $isPro, 'app_sv' => $svApp];
+    $server = [];
+    if ($locale !== null) {
+        $server['HTTP_X_MS_LOCALE'] = $locale;
+    }
+    if ($acceptLanguage !== '') {
+        $server['HTTP_ACCEPT_LANGUAGE'] = $acceptLanguage;
+    }
+    if ($server) {
+        $request['server'] = $server;
+    }
+    if ($signedIn) {
+        $id = 'probesess' . bin2hex(random_bytes(4));
+        ms_auth_probe_session($root, $id, ['pro_user_id' => $ids['alice'], 'pro_user_email' => 'alice@example.com']);
+        $request['session_id'] = $id;
+    }
+    $run = ms_auth_probe_run($root, $script, $request, $db);
+    @unlink($db);
+    @unlink($db . '.log');
+    return ['html' => $run['out'], 'err' => $run['err'], 'log' => $run['log']];
 }
