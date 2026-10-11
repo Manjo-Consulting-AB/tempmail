@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
+    <!-- Google Analytics: consent-gated. See partials/analytics.php and
+     assets/js/consent.js — gtag.js is requested only after the visitor
+     accepts the cookie notice this script shows. -->
+<script type="application/json" id="ms-i18n-consent">{"consent.label":"Cookie consent","consent.text":"We use Google Analytics on our public pages to understand how Mail Shield is used.","consent.learn_more":"Learn more","consent.decline":"Decline","consent.accept":"Accept","consent.privacy_url":"\/privacy.php#cookies"}</script>
+<script>window.msAnalyticsId = 'G-BFX6EC3575';</script>
+<script src="/assets/js/consent.js?v=1"></script>
+    <title>Client Agent · Blog · Mail Shield</title>
+    <meta name="description" content="I&#039;ve been using Mail Shield a lot since it was launched, and from the stats I can tell some of you are doing the same. That made me happy, but being force…">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://example.test/blog.php?post=2026-07-02">
+
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="Mail Shield">
+    <meta property="og:title" content="Client Agent · Blog · Mail Shield">
+    <meta property="og:description" content="I&#039;ve been using Mail Shield a lot since it was launched, and from the stats I can tell some of you are doing the same. That made me happy, but being force…">
+    <meta property="og:url" content="https://example.test/blog.php?post=2026-07-02">
+    <meta property="og:image" content="https://example.test/assets/images/og-mailshield.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+        <meta property="article:published_time" content="2026-07-02">
+    
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Client Agent · Blog · Mail Shield">
+    <meta name="twitter:description" content="I&#039;ve been using Mail Shield a lot since it was launched, and from the stats I can tell some of you are doing the same. That made me happy, but being force…">
+    <meta name="twitter:image" content="https://example.test/assets/images/og-mailshield.png">
+
+    <link rel="icon" href="/assets/images/favicon.ico" sizes="32x32">
+    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/images/favicon-180x180.png">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <!-- App-layer dependencies, in the brief §11 order: the bridge loads last and
+         wins. -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/mailshield-fonts.css?v=1" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=1" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=1" rel="stylesheet">
+</head>
+<body>
+<a class="ms-skip" href="#main">Skip to content</a>
+<div class="ms-faq">
+    <header class="ms-faq__bar">
+        <div class="ms-container ms-faq__bar-inner">
+            <a class="ms-logo ms-faq__logo" href="/"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+            <ul class="ms-faq__links">
+                <li><a href="/">Home</a></li>
+                <li><a href="/temporary-email.php">Temporary email</a></li>
+                <li><a href="/faq.php">FAQ</a></li>
+            </ul>
+
+            <div class="ms-faq__actions">
+                                    <a class="ms-faq__login" href="/pro_login.php">Log in</a>
+                    <a class="ms-btn ms-btn--primary" href="/register.php?plan=regular">Create your inbox</a>
+                            </div>
+        </div>
+    </header>
+
+    <main class="ms-faq__main" id="main">
+        <div class="ms-container--narrow">
+                    <article class="ms-blog__post">
+                <p class="ms-blog__back"><a href="/blog.php"><span aria-hidden="true">&larr;</span> All posts</a></p>
+
+                <header class="ms-blog__head">
+                    <h1 class="ms-blog__title">Client Agent</h1>
+                    <time class="ms-blog__date" datetime="2026-07-02">2 July 2026</time>
+                </header>
+
+                <div class="ms-article">
+                    <p>I&#039;ve been using Mail Shield a lot since it was launched, and from the stats I can tell some of you are doing the same. That made me happy, but being forced into just one system bugged me quite a bit once I ended up with more than one mailbox that sometimes needs a bit of spring cleaning. That frustration is what led to the birth of Client Agent.</p>
+<h2>Greylist by default</h2>
+<p>Before I go into how the agent works behind the scenes, let me briefly explain what it does. Once installed, the agent turns any IMAP mailbox into a cleaner and more predictable mailbox by treating every email that isn&#039;t explicitly sorted into a folder, blacklisted, or whitelisted as greylisted.</p>
+<p>A greylisted email only lives in your inbox for the amount of time you decide. You tell the agent that you really love every email from <code>@thisdomain.com</code> or a specific sender, and it keeps its hands off anything from that sender or domain. If you want to blacklist a sender, you can add it to your blacklist in the system and you&#039;ll never see it again.</p>
+<p>That is nice, of course, but blacklisting is easy to do in any mail client. Just mark the sender as spam and you are done.</p>
+<p>The strength of Client Agent is the greylist. Anything that is neither black nor white is grey in the eyes of the system. The agent lets you review those emails and deal with them if you want, but if you leave them sitting in the inbox forever, the agent removes them for you after a while, just like TempMail does.</p>
+<h2>Small spam engine</h2>
+<p>While we&#039;re at it, a small spam engine was added to the agent as well. You can define keywords or phrases you don&#039;t like, and the agent will remove those emails for you. Perfect for those pesky messages you get from different &quot;companies&quot; that are legitimate enough to pass your spam filter but still just try to sell you something you never asked for.</p>
+<p>This feature was built to deal with those 100+ emails a week I get to my company about &quot;We can rebuild your website&quot; or &quot;We design systems and make sure you are #1 on Google&quot;. You probably know the type.</p>
+<p>The nice part is that the rules are local. No central filtering service, no extra copies of your mail going somewhere else, just your own server doing the boring work where it already has the data.</p>
+<h2>Behind the scenes</h2>
+<p>Client Agent is built with privacy in mind, so everything runs on your server. If you want, you can download the agent, review the code to make sure it does exactly what it claims to do, add the configuration files manually, and we would not know a thing about what happens there. It is plain PHP, and it will just keep running quietly on your own box, doing its job.</p>
+<p>If you prefer, you can use the installer instead. That creates the local config, generates the keys, and wires the agent up for you. After that, the backend can push updates when you ask it to.</p>
+<p>That part matters, and it is where the interesting bits start.</p>
+<p>The agent does not trust unsigned updates. Every webhook payload is signed with RSA-SHA256, and the client verifies that signature before it touches a single setting. The payload itself travels over HTTPS, so the transport layer gives you TLS on the wire, while the webhook signature gives you application-level authenticity on top of that. Two locks, not one.</p>
+<p>At rest, the private signing key is encrypted with AES-256-GCM using a KEK that lives far outside the public web root. The KEK is not stored in the same place as the agent runtime, and it is not shipped in the public folder. The point is simple: if somebody gets access to the web root, they should still not get access to the private signing key.</p>
+<p>The database stores the encrypted private key blob, the public key, and a version number for rotation. The public key is safe to expose because that is exactly what the agent needs in order to verify signatures. The private key never leaves the encrypted envelope unless the server-side code that owns the KEK decrypts it for signing.</p>
+<p>We also rotate keys. That is not fancy, it is just good hygiene. If a key is ever exposed, even briefly, you want the blast radius to stay small. Rotation gives you a fresh RSA pair, re-encrypts the private side with the KEK, and bumps the version so the client can track what it is trusting.</p>
+<p>The email filtering rules follow the same pattern. Whitelist, blacklist, and spam filters are pushed to the agent, cached locally, and enforced locally on the mailbox. The server tells the agent what policy to apply; the agent applies it on the machine that actually has the mailbox. That keeps the decision close to the data, which is exactly where it belongs.</p>
+<p>So the short version is this: the agent runs locally, handles your mailbox locally, accepts only signed instructions, and keeps its private key encrypted at rest. That is the whole point.</p>
+<p>I just had to.<br />
+//Tony</p>
+                </div>
+
+                <p class="ms-blog__back ms-blog__back--end"><a href="/"><span aria-hidden="true">&larr;</span> Back to Mail Shield</a></p>
+            </article>
+                </div>
+    </main>
+
+    <footer class="ms-faq__foot">
+        <div class="ms-container">
+            <nav class="ms-faq__foot-links" aria-label="Footer">
+                <a href="/register.php?plan=regular">Create your inbox</a>
+                <a href="/pro_login.php">Log in</a>
+                <a href="/temporary-email.php">Temporary email addresses</a>
+                <a href="/blog.php">Blog</a>
+                <a href="/faq.php">FAQ</a>
+                <button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button>
+            </nav>
+            <p class="ms-faq__foot-legal">&copy; YYYY Manjo Consulting AB <span aria-hidden="true">&middot;</span> Mail Shield vtest</p>
+        </div>
+    </footer>
+</div>
+</body>
+</html>
