@@ -1,0 +1,59 @@
+<a class="ms-skip" href="#main">Skip to content</a>
+<header class="ms-nav" id="ms-nav">
+    <div class="ms-container ms-nav__inner">
+        <a class="ms-logo ms-nav__logo" href="/"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+        <button type="button" class="ms-nav__toggle" id="ms-nav-toggle"
+                aria-expanded="false" aria-controls="ms-nav-panel" aria-label="Menu">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"
+                 fill="none" aria-hidden="true" focusable="false">
+                <path d="M3 6h14M3 10h14M3 14h14" fill="none" stroke="currentColor"
+                      stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+        </button>
+
+        <nav class="ms-nav__panel" id="ms-nav-panel" aria-label="Main" hidden>
+            <ul class="ms-nav__links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#how-it-works">How it works</a></li>
+                <li><a href="/pricing.php">Pricing</a></li>
+                <li><a href="/faq.php">FAQ</a></li>
+            </ul>
+
+            <div class="ms-nav__actions">
+                                    <a class="ms-nav__login" href="/pro_login.php">Log in</a>
+                    <a class="ms-btn ms-btn--primary" href="/register.php?plan=regular">Create your inbox</a>
+                            </div>
+        </nav>
+    </div>
+</header>
+
+<script>
+(function () {
+    var nav = document.getElementById('ms-nav');
+    var btn = document.getElementById('ms-nav-toggle');
+    var panel = document.getElementById('ms-nav-panel');
+    if (!nav || !btn || !panel) return;
+
+    function isOpen() { return btn.getAttribute('aria-expanded') === 'true'; }
+    function setOpen(open) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) { panel.removeAttribute('hidden'); } else { panel.setAttribute('hidden', ''); }
+    }
+    function close(moveFocus) {
+        if (!isOpen()) return;
+        setOpen(false);
+        if (moveFocus) btn.focus();
+    }
+
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(true); });
+    // An outside click leaves focus where the user clicked; only Escape pulls it
+    // back to the button.
+    document.addEventListener('click', function (e) { if (!nav.contains(e.target)) close(false); });
+
+    // Hairline only once the page has left the top of the document.
+    var onScroll = function () { nav.classList.toggle('ms-nav--scrolled', window.scrollY > 0); };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>

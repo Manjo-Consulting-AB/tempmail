@@ -36,34 +36,34 @@ if (function_exists('i18nPageLocales')) {
 ?>
 <footer class="ms-footer">
     <div class="ms-container ms-footer__inner">
-        <p class="ms-footer__trust">Mail Shield is operated by Manjo Consulting AB.</p>
+        <p class="ms-footer__trust"><?php echo te('footer.trust', ['company' => 'Manjo Consulting AB']); ?></p>
 
         <div class="ms-footer__cols">
             <div class="ms-footer__col">
-                <h2 class="ms-footer__heading">Product</h2>
+                <h2 class="ms-footer__heading"><?php echo te('footer.product'); ?></h2>
                 <ul class="ms-footer__links">
-                    <li><a href="/register.php?plan=regular">Create your inbox</a></li>
-                    <li><a href="/pro_login.php">Log in</a></li>
-                    <li><a href="/temporary-email.php">Temporary email addresses</a></li>
-                    <li><a href="/faq.php">FAQ</a></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/register.php?plan=regular')); ?>"><?php echo te('footer.create_inbox'); ?></a></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/pro_login.php')); ?>"><?php echo te('footer.login'); ?></a></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/temporary-email.php')); ?>"><?php echo te('footer.temporary_email'); ?></a></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/faq.php')); ?>"><?php echo te('footer.faq'); ?></a></li>
                 </ul>
             </div>
 
             <div class="ms-footer__col">
-                <h2 class="ms-footer__heading">More</h2>
+                <h2 class="ms-footer__heading"><?php echo te('footer.more'); ?></h2>
                 <ul class="ms-footer__links">
-                    <li><a href="/blog.php">Blog</a></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/blog.php')); ?>"><?php echo te('footer.blog'); ?></a></li>
                 </ul>
             </div>
 
             <div class="ms-footer__col">
-                <h2 class="ms-footer__heading">Legal</h2>
+                <h2 class="ms-footer__heading"><?php echo te('footer.legal'); ?></h2>
                 <ul class="ms-footer__links">
-                    <li><a href="/pricing.php">Pricing</a></li>
-                    <li><a href="/terms.php">Terms of service</a></li>
-                    <li><a href="/privacy.php">Privacy policy</a></li>
-                    <li><a href="/refund-policy.php">Refund policy</a></li>
-                    <li><button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/pricing.php')); ?>"><?php echo te('footer.pricing'); ?></a></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/terms.php')); ?>"><?php echo te('footer.terms'); ?></a></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/privacy.php')); ?>"><?php echo te('footer.privacy'); ?></a></li>
+                    <li><a href="<?php echo $msFooterEsc(i18nUrl('/refund-policy.php')); ?>"><?php echo te('footer.refund'); ?></a></li>
+                    <li><button type="button" class="ms-footer__cookie" data-ms-cookie-settings><?php echo te('footer.cookie_settings'); ?></button></li>
                 </ul>
 <?php if (count($msFooterLocales) > 1) : ?>
                 <nav class="ms-footer__langs" aria-label="<?php echo te('lang.switcher.label'); ?>">

@@ -203,5 +203,140 @@ foreach (array_keys($realPages) as $path) {
     check("scan: translated-pages entry {$path} is a real file", is_file($file));
 }
 
+// --- tHtml() ------------------------------------------------------------------
+i18nSetLocale('en');
+same('tHtml: no markup is the escaped t()', 'Log in', tHtml('nav.login'));
+same('tHtml: $params are escaped', 'Mail Shield is operated by &lt;b&gt;A&amp;B&lt;/b&gt;.', tHtml('footer.trust', ['company' => '<b>A&B</b>']));
+same('tHtml: $html values are inserted raw', 'Mail Shield is operated by <b>X</b>.', tHtml('footer.trust', [], ['company' => '<b>X</b>']));
+same('tHtml: a missing key is shown escaped, never raw', 'a&lt;b', tHtml('a<b'));
+same('tHtml: paired markup', '<a href="/x">a&lt;b</a>', tHtml('{l}a<b{l_end}', [], ['l' => '<a href="/x">', 'l_end' => '</a>']));
+$threw = false;
+try {
+    tHtml('nav.login', ['a' => 1], ['a' => '<i>']);
+} catch (InvalidArgumentException $e) {
+    $threw = true;
+}
+check('tHtml: a key in both arrays throws', $threw);
+
+
+// --- i18nNumber() -------------------------------------------------------------
+$nb = "\u{00A0}";
+same('number: thousands, en', "1{$nb}234{$nb}567", i18nNumber(1234567, 0, 'en'));
+same('number: thousands, sv', "1{$nb}234{$nb}567", i18nNumber(1234567, 0, 'sv'));
+same('number: decimals, en', "1{$nb}234.5", i18nNumber(1234.5, 1, 'en'));
+same('number: decimals, sv', "1{$nb}234,5", i18nNumber(1234.5, 1, 'sv'));
+i18nSetLocale('sv');
+same('number: defaults to this request\'s language', '1,5', i18nNumber(1.5, 1));
+i18nSetLocale('en');
+
+// --- i18nCatalogSubset() ------------------------------------------------------
+$sub = i18nCatalogSubset(['nav.'], 'sv');
+check('subset: only the prefixed keys', $sub !== [] && count(array_filter(array_keys($sub), fn($k) => strncmp($k, 'nav.', 4) !== 0)) === 0);
+same('subset: the Swedish value where one exists', 'Priser', $sub['nav.pricing'] ?? null);
+same('subset: every English key of the prefix is present', count(array_filter(array_keys($en), fn($k) => strncmp($k, 'nav.', 4) === 0)), count($sub));
+same('subset: no prefix, no keys', [], i18nCatalogSubset([]));
+same('subset: English locale gives English', 'Pricing', i18nCatalogSubset(['nav.'], 'en')['nav.pricing'] ?? null);
+
+// --- Key scan -----------------------------------------------------------------
+$scanKeys = static function (string $dir, array $regex, array $skip): array {
+    $found = [];
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $f) {
+        $path = $f->getPathname();
+        $rel = substr($path, strlen($dir) + 1);
+        foreach ($skip as $s) {
+            if (strncmp($rel, $s, strlen($s)) === 0) {
+                continue 2;
+            }
+        }
+        if (!preg_match($regex[0], $path)) {
+            continue;
+        }
+        if (preg_match_all($regex[1], (string) file_get_contents($path), $m)) {
+            foreach ($m[1] as $k) {
+                $found[$k][] = $rel;
+            }
+        }
+    }
+    return $found;
+};
+$phpKeys = $scanKeys($root, ['/\.php$/', '/(?<![\w>$:\\\\])(?:t|te|tp|tHtml)\(\s*\'([^\'$]+)\'/'], ['vendor/', 'tests/', '.git/', 'node_modules/']);
+$missingPhp = array_diff(array_keys($phpKeys), array_keys($en));
+check('scan: every literal t()/te()/tp()/tHtml() key exists in lang/en.php', $missingPhp === [], implode(', ', array_map(fn($k) => $k . ' (' . $phpKeys[$k][0] . ')', $missingPhp)));
+check('scan: the scan found the nav and footer keys', isset($phpKeys['nav.pricing'], $phpKeys['footer.terms']));
+$jsKeys = $scanKeys($root . '/assets/js', ['/\.js$/', '/(?<![\w.$])msT\(\s*[\'"]([^\'"]+)[\'"]/'], []);
+$missingJs = array_diff(array_keys($jsKeys), array_keys($en));
+check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
+
+// --- Swedish completeness by prefix -------------------------------------------
+$svRequiredPrefixes = ['nav.', 'footer.'];
+$sv = i18nCatalog('sv');
+foreach ($svRequiredPrefixes as $prefix) {
+    $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
+    $lack = array_diff($need, array_keys($sv));
+    check("sv complete: every {$prefix} key is translated", $need !== [] && $lack === [], implode(', ', $lack));
+}
+
+// --- Nav and footer: English fixtures, Swedish render -------------------------
+function renderPartial(string $file, bool $signedIn, string $locale, array $enabled): string
+{
+    $GLOBALS['config'] = [
+        'email' => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+        'app' => ['version' => 'test'],
+        'i18n' => ['enabled' => $enabled],
+    ];
+    $config = $GLOBALS['config'];
+    $_SESSION = $signedIn ? ['pro_user_id' => 1, 'pro_user_email' => 'user@example.test'] : [];
+    $msPage = ['path' => '/'];
+    i18nSetLocale($locale);
+    ob_start();
+    require dirname(__DIR__) . '/partials/' . $file;
+    // The year is stored as {year} so a fixture does not expire.
+    return str_replace('&copy; ' . date('Y') . ' ', '&copy; {year} ', (string) ob_get_clean());
+}
+
+$fx = $root . '/tests/fixtures/i18n/';
+same('fixture: public_nav, signed out, English', (string) file_get_contents($fx . 'public_nav.signed_out.en.html'), renderPartial('public_nav.php', false, 'en', $onlyEn));
+same('fixture: public_nav, signed in, English', (string) file_get_contents($fx . 'public_nav.signed_in.en.html'), renderPartial('public_nav.php', true, 'en', $onlyEn));
+same('fixture: public_footer, English', (string) file_get_contents($fx . 'public_footer.en.html'), renderPartial('public_footer.php', false, 'en', $onlyEn));
+
+i18nTranslatedPages(['/' => ['en', 'sv'], '/pricing.php' => ['en', 'sv']]);
+foreach ([['public_nav.php', false], ['public_nav.php', true], ['public_footer.php', false]] as [$file, $in]) {
+    $out = renderPartial($file, $in, 'sv', $both);
+    $outNoScript = preg_replace('#<script\b.*?</script>#s', '', $out); // inline JS has nav.contains()
+    check("sv render {$file}" . ($in ? ' (signed in)' : '') . ': no raw key', !preg_match('/\b(nav|footer)\.[a-z_.]+\b/', $outNoScript));
+    check("sv render {$file}" . ($in ? ' (signed in)' : '') . ': /faq.php stays plain', strpos($out, 'href="/sv/faq.php"') === false);
+}
+$navSv = renderPartial('public_nav.php', false, 'sv', $both);
+check('sv nav: logo points at /sv/', strpos($navSv, 'href="/sv/"') !== false);
+check('sv nav: pricing points at /sv/pricing.php', strpos($navSv, 'href="/sv/pricing.php"') !== false);
+check('sv nav: faq link is plain', strpos($navSv, 'href="/faq.php"') !== false);
+check('sv nav: Swedish text', strpos($navSv, '>Priser</a>') !== false && strpos($navSv, 'aria-label="Meny"') !== false);
+$footSv = renderPartial('public_footer.php', false, 'sv', $both);
+check('sv footer: company name stays literal', strpos($footSv, 'Mail Shield drivs av Manjo Consulting AB.') !== false);
+check('sv footer: pricing points at /sv/pricing.php', strpos($footSv, 'href="/sv/pricing.php"') !== false);
+i18nTranslatedPages($realPages);
+i18nSetLocale('en');
+
+// --- i18n_js.php --------------------------------------------------------------
+function renderJs(array $prefixes): string
+{
+    $msI18nJs = $prefixes;
+    i18nSetLocale('sv');
+    ob_start();
+    require dirname(__DIR__) . '/partials/i18n_js.php';
+    return (string) ob_get_clean();
+}
+same('i18n_js: empty list emits nothing', '', renderJs([]));
+$js = renderJs(['nav.']);
+check('i18n_js: emits the element', strpos($js, '<script type="application/json" id="ms-i18n">') === 0);
+$decoded = json_decode(substr($js, strpos($js, '>') + 1, strrpos($js, '</script>') - strpos($js, '>') - 1), true);
+same('i18n_js: carries the Swedish value', 'Priser', $decoded['nav.pricing'] ?? null);
+check('i18n_js: only the requested prefix', !isset($decoded['footer.terms']));
+i18nSetLocale('en');
+
+// --- .htaccess hides lang/ ----------------------------------------------------
+check('scan: .htaccess blocks lang/ in the existing rule', strpos($htaccess, 'RewriteRule ^(?:vendor|tests|documentaion|client|lang)(?:/|$) - [F,L]') !== false);
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

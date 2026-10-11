@@ -20,12 +20,13 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 #   tests/        - CLI regression suites (no longer deployed, but an older
 #                   upload may still sit on the server since rsync has no --delete)
 #   documentaion/ - internal docs (not deployed either)
+#   lang/         - string catalogs (read from disk by i18n.php, never by URL)
 #   client/       - Client Agent source. Downloads go through
 #                   client_agent_download.php / client_agent_install_download.php
 #                   and the API through client_agent_api.php, all of which
 #                   read client/ from disk; nothing requests client/ by URL.
 # In a per-directory .htaccess the pattern is matched without a leading slash.
-RewriteRule ^(?:vendor|tests|documentaion|client)(?:/|$) - [F,L]
+RewriteRule ^(?:vendor|tests|documentaion|client|lang)(?:/|$) - [F,L]
 
 # OAuth-metadatadokumenten (#331 steg 5/6). En MCP-klient hittar
 # auktoriseringsservern härifrån; oauth_metadata.php svarar med rätt dokument
