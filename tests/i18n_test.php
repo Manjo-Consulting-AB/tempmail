@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -2340,6 +2340,7 @@ ms_auth_probe_remove($authProbe);
 // mailbox_service.php result). The English fixtures were rendered from the code as it
 // was; Swedish is asked for with X-MS-Locale (and Accept-Language) once '@app' lists it.
 require_once $root . '/tests/lib/app_actions_probe.php';
+require_once $root . '/tests/lib/profile_probe.php';
 $aa = ms_aa_build($root);
 $aaParams = ['max' => 10, 'count' => 3, 'reason' => 'boom'];
 // The Swedish text of the catalog entry whose English text is $text.
@@ -2516,7 +2517,7 @@ check('scan: app.js defines msT() once, exactly as I18N.md documents it', substr
 check('scan: every escapeHtml() call of app.js is kept (11 before, more now)', substr_count($appJs, 'escapeHtml(') >= 11, (string) substr_count($appJs, 'escapeHtml('));
 check('scan: the sv-SE number and date formatting is untouched', substr_count($appJs, "toLocaleString('sv-SE'") === 2 && substr_count($appJs, "toLocaleDateString('sv-SE'") === 1);
 check('scan: app.js has no showNotification / alert / confirm with a literal text', !preg_match("/(?:showNotification|alert|confirm)\(\s*['\"`]/", $appJs));
-foreach ([[$appJs, 'app.js'], [$proSrc, 'pro.php']] as [$source, $file]) {
+foreach ([[$appJs, 'app.js'], [$proSrc, 'pro.php'], [(string) file_get_contents($root . '/pro_profile_page.php'), 'pro_profile_page.php']] as [$source, $file]) {
     preg_match_all("/(?<![\\w.\$])msT\\('([^']+)',\\s*'((?:[^'\\\\]|\\\\.)*)'/", $source, $mm, PREG_SET_ORDER);
     check("{$file}: msT() fallbacks found", count($mm) >= 3, (string) count($mm));
     foreach ($mm as [, $key, $fallback]) {
@@ -2525,6 +2526,283 @@ foreach ([[$appJs, 'app.js'], [$proSrc, 'pro.php']] as [$source, $file]) {
     }
 }
 check('scan: assets/js/sw.js is not part of this change (no msT, no app. key)', stripos((string) file_get_contents($root . '/assets/js/sw.js'), 'msT') === false);
+
+// --- Profile A (epic #428, step 4/8): pro_profile_page.php shell, Account, Addresses -------------
+// The real page and the real pro_profile.php run as subprocesses on the profile probe
+// (tests/lib/profile_probe.php). The English fixtures were rendered from the code as it was
+// before the page went through te()/tHtml(); inline scripts are checked by the scans below.
+// The account's language, then Accept-Language, picks the page language once '@app' lists
+// Swedish; an endpoint takes X-MS-Locale.
+$pp = ms_pp_build($root);
+$ppNorm = static fn(string $html): string => trim(preg_replace('/\s+/', ' ', authNorm($html)));
+$ppKeyRe = '/\bprofile\.(?:section|common|account|addresses|hold|error|message)\.[a-z_0-9]+/';
+$ppNoPhpError = static fn(array $r): bool => !preg_match('/^PHP (Warning|Notice|Fatal|Parse|Deprecated)/m', (string) $r['res']['stderr']);
+foreach (array_keys(ms_pp_page_cases()) as $ppName) {
+    $fixture = $ppNorm((string) file_get_contents($fx . "profile.page.{$ppName}.en.html"));
+    $r = ms_pp_page($pp, $ppName);
+    check("profile page {$ppName}: rendered without PHP errors", $r['body'] !== '' && $ppNoPhpError($r), (string) $r['res']['stderr']);
+    same("fixture: profile page {$ppName}, English only", $fixture, $ppNorm($r['body']));
+    // LOCALES_ENABLED has Swedish but the app area is still English: the page is unchanged, no Language card.
+    $rOff = ms_pp_page($pp, $ppName, false, 'sv-SE,sv;q=0.9', 'sv', 'en,sv');
+    same("fixture: profile page {$ppName}, sv enabled but '@app' English only", $fixture, $ppNorm($rOff['body']));
+    check("profile page {$ppName}: no Language card while '@app' is English only", strpos($rOff['body'], 'id="languageCard"') === false && strpos($rOff['body'], 'id="saveLanguageBtn"') === false);
+    check("profile page {$ppName}: the English page carries the language JSON with profile. keys", (bool) preg_match('#id="ms-i18n">\{[^<]*"profile\.hold\.started":"Hold started"#', $r['body']) && strpos($r['body'], '"app.common.expiry_free":"Free"') !== false);
+    // Swedish.
+    $svPg = ms_pp_page($pp, $ppName, true, 'sv-SE,sv;q=0.9');
+    $svNoJson = preg_replace('#<script type="application/json" id="ms-i18n">.*?</script>#s', '', $svPg['body']);
+    $svNoJson = preg_replace("/msT\\('(?:profile|app\\.common)\\.[a-z_.0-9]+'/", "msT('", $svNoJson);
+    check("sv profile page {$ppName}: rendered without PHP errors", $svPg['body'] !== '' && $ppNoPhpError($sv), (string) $svPg['res']['stderr']);
+    check("sv profile page {$ppName}: <html lang=\"sv\">", strpos($svPg['body'], '<html lang="sv">') !== false);
+    check("sv profile page {$ppName}: no raw profile. key anywhere but the language JSON", !preg_match($ppKeyRe, $svNoJson), (string) (preg_match($ppKeyRe, $svNoJson, $km) ? $km[0] : ''));
+    check("sv profile page {$ppName}: the title, heading, rail and section titles are Swedish",
+        strpos($svPg['body'], '<title>Inställningar · Mail Shield</title>') !== false && strpos($svPg['body'], '<h1 class="ms-settings__title">Inställningar</h1>') !== false
+        && strpos($svPg['body'], 'aria-label="Inställningsavsnitt"') !== false && strpos($svPg['body'], 'href="#settings-account" aria-current="location">Konto</a>') !== false
+        && strpos($svPg['body'], '>Säkerhet</a>') !== false && strpos($svPg['body'], '<h2 class="ms-settings__section-title">Radera konto</h2>') !== false);
+    check("sv profile page {$ppName}: the Account and Addresses cards are Swedish",
+        strpos($svPg['body'], '>Timed-adresser är gratis.') !== false && strpos($svPg['body'], '>E-postadress</h3>') !== false && strpos($svPg['body'], '>Spara e-postadress</button>') !== false
+        && strpos($svPg['body'], 'Skapa upp till 10 Sticky-adresser och hantera dem från en och samma inkorg.') !== false && strpos($svPg['body'], 'placeholder="dittnamn"') !== false
+        && strpos($svPg['body'], 'aria-label="adressnamn"') !== false && strpos($svPg['body'], '>Nyligen raderade</h4>') !== false && strpos($svPg['body'], 'reserverad för dig i 6 månader') !== false
+        && strpos($svPg['body'], '>Standardlivslängd</h3>') !== false && strpos($svPg['body'], 'Välj 30 dagar för att behålla e-posten på dina Sticky-adresser i 30 dagar, upp till 4 gånger per år.') !== false
+        && strpos($svPg['body'], 'Regular-konton har en fast livslängd på 24 timmar') !== false && strpos($svPg['body'], '>Starta</button>') !== false && strpos($svPg['body'], '>Avbryt</button>') !== false);
+    check("sv profile page {$ppName}: ids the scripts depend on survive",
+        strpos($svPg['body'], 'id="proProfileAlert"') !== false && strpos($svPg['body'], 'id="saveProfileEmailBtn"') !== false && strpos($svPg['body'], 'id="personalCounterLabel"') !== false
+        && strpos($svPg['body'], 'id="ttlHoldStartBtn"') !== false && strpos($svPg['body'], 'id="ttlProNote"') !== false && strpos($svPg['body'], 'id="upgradeToProSection"') !== false);
+    $svJson = preg_match('#<script type="application/json" id="ms-i18n">(.*?)</script>#s', $svPg['body'], $sm) ? json_decode($sm[1], true) : null;
+    check("sv profile page {$ppName}: ms-i18n is Swedish and carries the expiry texts", is_array($svJson) && ($svJson['profile.hold.started'] ?? null) === 'Pausen har startat'
+        && ($svJson['app.common.expiry_free'] ?? null) === 'Gratis' && ($svJson['profile.addresses.created'] ?? null) === 'Skapad: {address}');
+    check("sv profile page {$ppName}: the Language card is offered, 'follow my browser' selected", strpos($svPg['body'], 'id="languageCard"') !== false && strpos($svPg['body'], '>Följ min webbläsare</option>') !== false
+        && strpos($svPg['body'], '>English</option>') !== false && strpos($svPg['body'], '>Svenska</option>') !== false && strpos($svPg['body'], '<option value="" selected>') !== false);
+}
+$svPro = ms_pp_page($pp, 'pro', true, 'sv');
+check('sv profile page: the Plan card (date in Swedish, billing, link to the Swedish pricing page)', strpos($svPro['body'], 'Du har Pro till 15 juni 2099.') !== false && strpos($svPro['body'], '>Hantera betalning</button>') !== false
+    && strpos($svPro['body'], 'Avsluta din prenumeration, byt betalningssätt eller ladda ner fakturor hos Paddle') !== false
+    && strpos($svPro['body'], 'Behåll Pro: välj en <a href="/sv/pricing.php">plan</a> eller lös in en värdekod.') !== false
+    && strpos($svPro['body'], 'placeholder="Värdekod"') !== false && strpos($svPro['body'], '>Förläng</button>') !== false);
+$svReg = ms_pp_page($pp, 'regular', true, 'sv');
+check('sv profile page (Regular): free plan and upgrade wording', strpos($svReg['body'], 'Du har den kostnadsfria planen.') !== false && strpos($svReg['body'], 'Byt till Pro: välj en <a href="/sv/pricing.php">plan</a> eller lös in en värdekod.') !== false && strpos($svReg['body'], '>Uppgradera</button>') !== false);
+$svLife = ms_pp_page($pp, 'lifetime', true, 'sv');
+$svLifeNoJson = preg_replace('#<script type="application/json" id="ms-i18n">.*?</script>#s', '', $svLife['body']);
+check('sv profile page (Lifetime): "Du har Pro."', strpos($svLifeNoJson, 'Du har Pro.') !== false && strpos($svLifeNoJson, 'Du har Pro till') === false);
+$svRef = ms_pp_page($pp, 'referral', true, 'sv');
+check('sv profile page (referral): the Invite friends card, the invited note and the bonus line, numbers from config', strpos($svRef['body'], '>Bjud in vänner</h3>') !== false
+    && strpos($svRef['body'], 'Inbjuden av en vän: köp en plan på 12 månader före 31 december 2099 och få 15 månader.') !== false
+    && strpos($svRef['body'], 'Ge 3 månader. Få 3 månader. När en vän registrerar sig via din länk och köper en Pro-plan på 12 månader inom 120 dagar får vännen 15 månader Pro – och du får 3 extra månader.') !== false
+    && strpos($svRef['body'], 'aria-label="Din inbjudningslänk"') !== false && strpos($svRef['body'], '>Kopiera länk</button>') !== false
+    && strpos($svRef['body'], 'Registrerade: 0 · Väntar: 0 · Belönade: 0') !== false && strpos($svRef['body'], 'En belöning läggs till 30 dagar efter din väns betalning.') !== false
+    && strpos($svRef['body'], 'Du har 3 bonusadresser från inbjudningar.') !== false);
+$svRefLife = ms_pp_page($pp, 'referral_lifetime', true, 'sv');
+check('sv profile page (referral, Lifetime): the Lifetime wording', strpos($svRefLife['body'], 'du får 3 fler Sticky-adresser, för alltid. Ingen gräns.') !== false);
+// The Language card: the account's own choice is selected.
+$svAcct = ms_pp_page($pp, 'pro', true, '', 'sv');
+check('profile page: an account with locale sv gets Swedish without Accept-Language, and sv is selected', strpos($svAcct['body'], '<html lang="sv">') !== false && strpos($svAcct['body'], '<option value="sv" selected>Svenska</option>') !== false && strpos($svAcct['body'], '<option value="" selected>') === false);
+$enAcct = ms_pp_page($pp, 'pro', true, '', 'en');
+check('profile page: an account that chose English gets English with the card, en selected', strpos($enAcct['body'], '<html lang="en">') !== false && strpos($enAcct['body'], '<option value="en" selected>English</option>') !== false && strpos($enAcct['body'], '>Follow my browser</option>') !== false && strpos($enAcct['body'], '>Save language</button>') !== false);
+$cardOnly = ms_pp_page($pp, 'regular', true, 'en');
+check('profile page: with the app offered in Swedish the English page is the fixture plus the Language card', $ppNorm($cardOnly['body']) !== $ppNorm((string) file_get_contents($fx . 'profile.page.regular.en.html'))
+    && strpos($cardOnly['body'], 'id="languageCard"') !== false && strpos($cardOnly['body'], '<option value="" selected>Follow my browser</option>') !== false
+    && strpos($cardOnly['body'], '>Language</h3>') !== false && strpos($cardOnly['body'], '>The language Mail Shield is shown in.</p>') !== false);
+$noColumn = ms_pp_run($pp, ['page' => 'pro_profile_page.php', 'method' => 'GET', 'user' => 'trial'], static function (PDO $pdo, array $ids): void {
+    $pdo->exec('ALTER TABLE pro_users DROP COLUMN locale');
+}, ['server' => ['HTTP_ACCEPT_LANGUAGE' => 'sv'], 'locales' => 'en,sv', 'app_sv' => true]);
+check('profile page: without the locale column there is no Language card (fail-open) and the page still renders', $noColumn['body'] !== '' && strpos($noColumn['body'], 'id="languageCard"') === false && strpos($noColumn['body'], 'id="saveProfileEmailBtn"') !== false);
+
+// pro_profile.php answers.
+$ppParams = [['max' => 4], ['domain' => 'manjo.me'], ['min' => 1, 'max' => 7]];
+$ppSwedish = function (string $text) use ($en, $ppParams): ?string {
+    foreach ($en as $key => $value) {
+        if (!is_string($value) || (strncmp($key, 'profile.error.', 14) !== 0 && strncmp($key, 'profile.message.', 16) !== 0 && strncmp($key, 'voucher.error.', 14) !== 0 && strncmp($key, 'service.hold.', 13) !== 0)) {
+            continue;
+        }
+        foreach ($ppParams as $params) {
+            if (t($key, $params, 'en') === $text) {
+                return t($key, $params, 'sv');
+            }
+        }
+    }
+    return null;
+};
+foreach (array_keys(ms_pp_json_cases()) as $ppName) {
+    $fixture = trim((string) file_get_contents($fx . "profile.{$ppName}.en.json"));
+    $r = ms_pp_json($pp, $ppName);
+    same("profile/{$ppName}: the English answer equals its fixture", $fixture, $r['body']);
+    check("profile/{$ppName}: no PHP error", $ppNoPhpError($r), (string) $r['res']['stderr']);
+    $enAnswer = json_decode($fixture, true);
+    $rSv = ms_pp_json($pp, $ppName, 'sv');
+    $svAnswer = $rSv['json'];
+    check("profile/{$ppName}: X-MS-Locale sv answers JSON", is_array($svAnswer), $rSv['body']);
+    if (!is_array($svAnswer) || !is_array($enAnswer)) {
+        continue;
+    }
+    $text = $enAnswer['error'] ?? $enAnswer['message'] ?? null;
+    $expected = is_string($text) ? $ppSwedish($text) : null;
+    check("profile/{$ppName}: the English text has a catalog key", $expected !== null, (string) $text);
+    same("profile/{$ppName}: Swedish with X-MS-Locale: sv", $expected, $svAnswer['error'] ?? $svAnswer['message'] ?? null);
+    unset($enAnswer['error'], $enAnswer['message'], $svAnswer['error'], $svAnswer['message']);
+    same("profile/{$ppName}: the rest of the answer is language independent", $enAnswer, $svAnswer);
+}
+same('profile: the hold limit carries its number in Swedish', 'Du har använt alla 4 pauser i år', ms_pp_json($pp, 'retention_hold_start.used_up', 'sv')['json']['error'] ?? null);
+same('profile: the own-domain error carries the domain in Swedish', 'Adresser på manjo.me får inte användas för konton', ms_pp_json($pp, 'update_email.own_domain', 'sv')['json']['error'] ?? null);
+same('profile: the TTL error carries both limits in Swedish', 'Livslängden måste vara mellan 1 och 7', ms_pp_json($pp, 'update_ttl.range', 'sv')['json']['error'] ?? null);
+same('profile: a voucher error is the voucher.error text in Swedish (step 2)', t('voucher.error.invalid_or_expired_code', [], 'sv'), ms_pp_json($pp, 'upgrade_with_voucher.invalid_or_expired_code', 'sv')['json']['error'] ?? null);
+same('profile: X-MS-Locale en keeps an endpoint in English even with Swedish offered', 'Pro required', ms_pp_run($pp, ['page' => 'pro_profile.php', 'method' => 'POST', 'user' => 'regular', 'post' => ['action' => 'update_ttl', 'ttl' => '2']], null,
+    ['server' => ['HTTP_X_MS_LOCALE' => 'en'], 'locales' => 'en,sv', 'app_sv' => true])['json']['error'] ?? null);
+
+// set_locale.
+$ppLocaleDb = static function (string $user) use ($pp) {
+    $pdo = ms_test_refresh_db(ms_test_probe_sqlite($pp['root']));
+    $stmt = $pdo->prepare('SELECT locale FROM pro_users WHERE id = ?');
+    $stmt->execute([$pp['ids'][$user]]);
+    $v = $stmt->fetchColumn();
+    return $v === false ? 'ROW MISSING' : $v;
+};
+$ppSetLocale = static function (string $user, $locale, array $extra = [], ?callable $setup = null, array $request = []) use ($pp): array {
+    return ms_pp_run($pp, $request + ['page' => 'pro_profile.php', 'method' => 'POST', 'user' => $user, 'post' => ['action' => 'set_locale', 'locale' => $locale]], $setup,
+        $extra + ['server' => [], 'locales' => 'en,sv', 'app_sv' => false]);
+};
+$dropColumn = static fn(PDO $pdo, array $ids) => $pdo->exec('ALTER TABLE pro_users DROP COLUMN locale');
+$r = $ppSetLocale('trial', 'sv');
+same('set_locale: sv is stored and answered', ['success' => true, 'locale' => 'sv'], $r['json']);
+same('set_locale: sv is in the database', 'sv', $ppLocaleDb('trial'));
+$r = $ppSetLocale('trial', '', [], static fn(PDO $pdo, array $ids) => $pdo->exec("UPDATE pro_users SET locale = 'sv' WHERE id = " . (int) $ids['trial']));
+same('set_locale: the empty value is NULL ("follow my browser")', ['success' => true, 'locale' => null], $r['json']);
+same('set_locale: NULL in the database', null, $ppLocaleDb('trial'));
+$r = $ppSetLocale('trial', 'en');
+same('set_locale: en is stored when the account chooses it', ['success' => true, 'locale' => 'en'], $r['json']);
+same('set_locale: en in the database', 'en', $ppLocaleDb('trial'));
+$r = $ppSetLocale('regular', 'sv');
+same('set_locale: works for a Regular account (not Pro-gated)', ['success' => true, 'locale' => 'sv'], $r['json']);
+same('set_locale: sv stored for the Regular account', 'sv', $ppLocaleDb('regular'));
+$r = $ppSetLocale('trial', 'xx');
+same('set_locale: an unknown language is refused', ['success' => false, 'error' => 'Invalid language'], $r['json']);
+same('set_locale: ... and nothing is stored', null, $ppLocaleDb('trial'));
+$r = $ppSetLocale('trial', 'sv', ['locales' => 'en']);
+same('set_locale: a language that is not switched on is refused', ['success' => false, 'error' => 'Invalid language'], $r['json']);
+same('set_locale: ... and nothing is stored (disabled)', null, $ppLocaleDb('trial'));
+$r = $ppSetLocale('trial', ['sv']);
+same('set_locale: an array value is refused', ['success' => false, 'error' => 'Invalid language'], $r['json']);
+$r = $ppSetLocale('trial', 'sv', [], null, ['origin' => 'http://evil.test']);
+same('set_locale: a cross-origin request is refused by the gate', ['success' => false, 'error' => 'Forbidden'], $r['json']);
+same('set_locale: ... and nothing is stored (cross-origin)', null, $ppLocaleDb('trial'));
+$r = $ppSetLocale('trial', 'sv', ['origin_flip' => true]);
+same('set_locale: its own origin check refuses too', ['success' => false, 'error' => 'Invalid request origin'], $r['json']);
+same('set_locale: ... and nothing is stored (own check)', null, $ppLocaleDb('trial'));
+$r = $ppSetLocale('trial', 'sv', [], null, ['method' => 'GET', 'post' => [], 'get' => ['action' => 'set_locale', 'locale' => 'sv']]);
+same('set_locale: a GET is refused', ['success' => false, 'error' => 'Method not allowed'], $r['json']);
+same('set_locale: ... and nothing is stored (GET)', null, $ppLocaleDb('trial'));
+$r = $ppSetLocale('trial', 'sv', ['server' => ['HTTP_X_MS_LOCALE' => 'sv'], 'app_sv' => true]);
+same('set_locale: the success answer is the same in any language', ['success' => true, 'locale' => 'sv'], $r['json']);
+$r = $ppSetLocale('trial', 'sv', ['server' => ['HTTP_X_MS_LOCALE' => 'sv'], 'app_sv' => true], $dropColumn);
+same('set_locale: without the locale column it answers "not available yet", translated', ['success' => false, 'error' => 'Det går inte att byta språk ännu'], $r['json']);
+$r = $ppSetLocale('trial', 'sv', [], $dropColumn);
+same('set_locale: ... and in English without a header', ['success' => false, 'error' => 'Changing the language is not available yet'], $r['json']);
+$r = ms_pp_run($pp, ['page' => 'pro_profile.php', 'method' => 'POST', 'user' => null, 'post' => ['action' => 'set_locale', 'locale' => 'sv']], null, ['server' => [], 'locales' => 'en,sv', 'app_sv' => false]);
+same('set_locale: a signed-out request is refused', ['success' => false, 'error' => 'Not authenticated'], $r['json']);
+
+// Scans.
+$profilePageSrc = (string) file_get_contents($root . '/pro_profile_page.php');
+$profileSrc = (string) file_get_contents($root . '/pro_profile.php');
+check('set_locale: the log carries the user id and the language, never an address', (function () use ($profileSrc): bool {
+    $block = substr($profileSrc, (int) strpos($profileSrc, "case 'set_locale':"), 2200);
+    return strpos($block, "logMessage('INFO', 'Account language changed', ['user_id' => \$userId, 'locale' => \$storedLocale])") !== false && stripos($block, 'email') === false;
+})());
+check('scan: pro_profile_page.php requires partials/i18n_js.php with the profile. and expiry prefixes before its first inline script',
+    (bool) preg_match("#\\\$msI18nJs = \['profile\.', 'app\.common\.expiry_'\];\s*require __DIR__ \. '/partials/i18n_js\.php';\s*\?>\s*<script>\s*// msT\(key#s", $profilePageSrc)
+    && strpos($profilePageSrc, 'partials/app_locale_js.php') !== false);
+check('scan: pro_profile_page.php defines msT() once, exactly as I18N.md documents it', substr_count($profilePageSrc, 'function msT(key, fallback, params)') === 1
+    && strpos($profilePageSrc, "JSON.parse(document.getElementById('ms-i18n').textContent)") !== false
+    && strpos($profilePageSrc, "return text.replace(/\\{(\\w+)\\}/g, function (m, name) {") !== false);
+preg_match_all("/(?<![\\w.\$])msT\\('([^']+)'/", $profilePageSrc, $pk);
+$pageMsKeys = array_unique($pk[1]);
+check('scan: pro_profile_page.php uses msT() keys', count($pageMsKeys) >= 45, (string) count($pageMsKeys));
+check('scan: every msT() key of pro_profile_page.php exists in both catalogs and is in a prefix the page hands over',
+    array_diff($pageMsKeys, array_keys($en)) === [] && array_diff($pageMsKeys, array_keys($sv)) === []
+    && array_filter($pageMsKeys, fn($k) => strncmp($k, 'profile.', 8) !== 0 && strncmp($k, 'app.common.expiry_', 18) !== 0) === [],
+    implode(', ', array_merge(array_diff($pageMsKeys, array_keys($en)), array_diff($pageMsKeys, array_keys($sv)))));
+preg_match_all("/\b(?:te|t|tp|tHtml)\('((?:profile|service\.hold)\.[a-z_.0-9]+)'/", $profilePageSrc . $profileSrc, $pm);
+$ppUsed = array_unique($pm[1]);
+check('scan: pro_profile_page.php and pro_profile.php use many profile. keys, all in both catalogs', count($ppUsed) >= 80 && array_diff($ppUsed, array_keys($en)) === [] && array_diff($ppUsed, array_keys($sv)) === [], count($ppUsed) . ' ' . implode(', ', array_diff($ppUsed, array_keys($sv))));
+// No literal text left in the Account and Addresses markup (outside PHP tags), nor in visible attributes.
+$cardsMarkup = substr($profilePageSrc, (int) strpos($profilePageSrc, '<section class="ms-settings__section" id="settings-account">'));
+$cardsMarkup = substr($cardsMarkup, 0, (int) strpos($cardsMarkup, '<section class="ms-settings__section" id="settings-automation">'));
+// The only text outside PHP tags is not copy: the "@" before the domain and the counter's initial "0/10" (script-updated).
+$cardsText = trim(str_replace(['@', '0/10'], '', preg_replace('/\s+/', ' ', strip_tags(preg_replace('/<\?php.*?\?>/s', ' ', $cardsMarkup)))));
+check('scan: the Account and Addresses markup has no literal text outside PHP tags', $cardsText === '', $cardsText);
+check('scan: ... nor a literal title/aria-label/placeholder', !preg_match('/\b(?:title|aria-label|placeholder)="[A-Za-z]/', preg_replace('/<\?php.*?\?>/s', '', $cardsMarkup)));
+$headMarkup = substr($profilePageSrc, (int) strpos($profilePageSrc, '<title>'));
+$headMarkup = substr($headMarkup, 0, (int) strpos($headMarkup, 'id="settings-account"'));
+check('scan: the title, heading and rail have no literal text', trim(preg_replace('/\s+/', ' ', strip_tags(preg_replace(['/<\?php.*?\?>/s', '/<!--.*?-->/s', '/<style>.*?<\/style>/s'], ' ', $headMarkup)))) === '');
+check("scan: the dates are rendered with i18nDate(), not date('j F Y')", substr_count($profilePageSrc, "date('j F Y'") === 0 && substr_count($profilePageSrc, 'i18nDate(') === 2);
+// JS of the cards of this step: messages go in as text; the address list escapes what it writes into HTML.
+$jsStart = (int) strpos($profilePageSrc, "\$('#redeemVoucherBtn').on('click'");
+$jsMine = substr($profilePageSrc, $jsStart, (int) strpos($profilePageSrc, "\$('#saveProfilePasswordBtn')") - $jsStart);
+check('scan: the voucher, email and language handlers put messages in as text (no .html())', strpos($jsMine, '.html(') === false && substr_count($jsMine, 'profileAlert(') >= 8);
+$jsBilling = substr($profilePageSrc, (int) strpos($profilePageSrc, "\$('#billingPortalBtn').on('click'"), 1200);
+check('scan: the billing handler puts messages in as text', strpos($jsBilling, '.html(') === false && strpos($jsBilling, 'profileAlert(') !== false);
+$jsList = substr($profilePageSrc, (int) strpos($profilePageSrc, 'function renderPersonalList('), (int) strpos($profilePageSrc, '// --- Per-address feeds') - (int) strpos($profilePageSrc, 'function renderPersonalList('));
+$unescaped = 0;
+foreach (explode("\n", $jsList) as $line) {
+    // A msT() result concatenated into row HTML must be escaped; .text() / confirm() / alert() calls are not HTML.
+    if (strpos($line, 'msT(') !== false && (strpos($line, "'<") !== false || strpos($line, '.html(') !== false) && strpos($line, 'escapeHtml(msT(') === false) {
+        $unescaped++;
+    }
+}
+check('scan: every msT() text that goes into row HTML in the address list is escaped', $unescaped === 0 && substr_count($jsList, 'escapeHtml(msT(') >= 7, $unescaped . ' ' . substr_count($jsList, 'escapeHtml(msT('));
+// pro_profile.php: the shared errors and the actions of this step have no literal user-facing text.
+$ppCaseBlock = static function (string $src, string $name): string {
+    $start = (int) strpos($src, "case '{$name}':");
+    preg_match("/\\n\\s*case '[a-z_]+':\\n/", $src, $mm, PREG_OFFSET_CAPTURE, $start + 5);
+    return substr($src, $start, isset($mm[0][1]) ? $mm[0][1] - $start : 4000);
+};
+foreach (['get_profile', 'update_email', 'resend_pending_change', 'cancel_pending_change', 'upgrade_with_voucher', 'billing_portal', 'update_ttl', 'retention_hold_start', 'retention_hold_end', 'set_locale', 'get_ttl', 'retention_hold_status'] as $action) {
+    $block = preg_replace('/logMessage\([^;]*;/s', '', $ppCaseBlock($profileSrc, $action));
+    check("scan: pro_profile.php action {$action} has no literal 'error' / 'message' text", $block !== '' && !preg_match("/'(?:error|message)' => ['\"]/", $block), $action);
+}
+$profileTop = substr($profileSrc, 0, (int) strpos($profileSrc, 'function proProfileRetentionStatus'));
+check("scan: pro_profile.php's shared errors at the top are translated", !preg_match("/'error' => '(?:Not authenticated|Forbidden|Pro required)'/", $profileTop) && substr_count($profileTop, "t('profile.error.") >= 4);
+check("scan: pro_profile.php's default case is translated", strpos($profileSrc, "'error' => t('profile.error.unknown_action')") !== false);
+check('scan: upgrade_with_voucher uses t(voucherRedemptionErrorKey(...))', strpos($ppCaseBlock($profileSrc, 'upgrade_with_voucher'), "t(voucherRedemptionErrorKey(\$result['error_code']))") !== false);
+check('scan: the retention-hold actions use i18nServiceError()', substr_count($ppCaseBlock($profileSrc, 'retention_hold_start') . $ppCaseBlock($profileSrc, 'retention_hold_end'), 'i18nServiceError(') === 2);
+check('scan: set_locale is not Pro-gated and not in the read-only list', strpos($ppCaseBlock($profileSrc, 'set_locale'), 'require_pro') === false && !preg_match("/proProfileReadOnlyActions = \[[^\]]*set_locale/s", $profileSrc));
+
+// retention_hold.php: every returned user-facing error has an error_key whose English text is the literal.
+$rhLines = file($root . '/retention_hold.php', FILE_IGNORE_NEW_LINES) ?: [];
+$rhReturns = 0;
+foreach ($rhLines as $n => $line) {
+    if (strpos($line, "'ok' => false") === false || strpos($line, "'error' =>") === false || strpos($line, 'logMessage') !== false || ltrim($line)[0] === '*') {
+        continue;
+    }
+    $rhReturns++;
+    $label = 'scan: retention_hold.php line ' . ($n + 1);
+    if (!preg_match("/'error_key' => '(service\.hold\.[a-z_]+)'/", $line, $km)) {
+        check($label . ' has an error_key', false, trim($line));
+        continue;
+    }
+    check($label . ' has an error_key that exists in lang/en.php and lang/sv.php', isset($en[$km[1]]) && isset($sv[$km[1]]), $km[1]);
+    if (preg_match("/'error' => '([^']*)'(?:,|\])/", $line, $lm)) {
+        same($label . ': t(error_key, [], en) equals the literal', $lm[1], t($km[1], [], 'en'));
+    } elseif (preg_match('/\'error\' => "([^"]*)"/', $line, $lm)) {
+        check($label . ' (a composed message) carries error_params', strpos($line, "'error_params' => ['max' => \$max]") !== false, trim($line));
+        same($label . ': t(error_key, error_params, en) equals the composed literal', str_replace('{$max}', '4', $lm[1]), t($km[1], ['max' => 4], 'en'));
+    }
+}
+check('scan: retention_hold.php returns 5 user-facing errors', $rhReturns === 5, (string) $rhReturns);
+// The service itself, for real: the errors keep their English text and gain their key.
+$rhPdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$rhPdo->exec('CREATE TABLE retention_holds (id INTEGER PRIMARY KEY AUTOINCREMENT, pro_user_id INTEGER NOT NULL, started_at TEXT NOT NULL, ends_at TEXT NOT NULL, ended_at TEXT NULL)');
+$rhPdo->exec('CREATE TABLE temp_emails (id INTEGER PRIMARY KEY AUTOINCREMENT, unique_address TEXT, pro_user_id INTEGER, is_personal INTEGER, expires_at TEXT)');
+$rhPdo->exec('CREATE TABLE stored_emails (id INTEGER PRIMARY KEY AUTOINCREMENT, to_address TEXT, temp_email_id INTEGER, received_at TEXT, expires_at TEXT)');
+require_once $root . '/retention_hold.php';
+retentionHoldStart($rhPdo, 7);
+$second = retentionHoldStart($rhPdo, 7);
+same('service: a second hold keeps its English error', 'A hold is already active', $second['error'] ?? null);
+same('service: ... and carries its key', 'service.hold.already_active', $second['error_key'] ?? null);
+same('service: no params on a message without a value', false, isset($second['error_params']));
+$noneEnded = retentionHoldEnd($rhPdo, 99);
+same('service: ending when none is active keeps its English error and key', ['No active hold', 'service.hold.none_active'], [$noneEnded['error'] ?? null, $noneEnded['error_key'] ?? null]);
+i18nSetLocale('sv');
+same('service: i18nServiceError() translates the hold error', 'En paus är redan aktiv', i18nServiceError($second, 'x'));
+i18nSetLocale('en');
+ms_test_cleanup($pp['root']);
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

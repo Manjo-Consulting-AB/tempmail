@@ -92,6 +92,10 @@ function ms_pp_build(string $repoRoot): array
 function ms_pp_reset(array $probe, ?callable $setup = null): void
 {
     $pdo = ms_test_db(ms_test_probe_sqlite($probe['root']));
+    // A case may drop the locale column (the fail-open path); the next one starts with it again.
+    if ((int) $pdo->query("SELECT COUNT(*) FROM pragma_table_info('pro_users') WHERE name = 'locale'")->fetchColumn() === 0) {
+        $pdo->exec('ALTER TABLE pro_users ADD COLUMN locale TEXT NULL');
+    }
     foreach (['pending_profile_changes', 'retention_holds', 'vouchers', 'redemption_log'] as $table) {
         $pdo->exec("DELETE FROM {$table}");
     }
@@ -265,11 +269,12 @@ function ms_pp_json(array $probe, string $name, ?string $locale = null): array
 
 /**
  * The page for one case. $acceptLanguage is sent as Accept-Language; $svApp
- * offers Swedish in the app area; $locale stores the account's language first.
+ * offers Swedish in the app area; $accountLocale stores the account's language first;
+ * $locales overrides LOCALES_ENABLED (e.g. 'en,sv' with the app area still English).
  *
  * @return array{body:string,json:?array,res:array<string,mixed>}
  */
-function ms_pp_page(array $probe, string $name, bool $svApp = false, string $acceptLanguage = '', ?string $accountLocale = null): array
+function ms_pp_page(array $probe, string $name, bool $svApp = false, string $acceptLanguage = '', ?string $accountLocale = null, ?string $locales = null): array
 {
     [$user, $setup, $switches] = ms_pp_page_cases()[$name];
     $combined = static function (PDO $pdo, array $ids) use ($setup, $accountLocale, $user): void {
@@ -281,6 +286,6 @@ function ms_pp_page(array $probe, string $name, bool $svApp = false, string $acc
         }
     };
     $server = $acceptLanguage !== '' ? ['HTTP_ACCEPT_LANGUAGE' => $acceptLanguage] : [];
-    $extra = ['server' => $server, 'locales' => $svApp ? 'en,sv' : 'en', 'app_sv' => $svApp] + $switches;
+    $extra = ['server' => $server, 'locales' => $locales ?? ($svApp ? 'en,sv' : 'en'), 'app_sv' => $svApp] + $switches;
     return ms_pp_run($probe, ['page' => 'pro_profile_page.php', 'method' => 'GET', 'user' => $user], $combined, $extra);
 }

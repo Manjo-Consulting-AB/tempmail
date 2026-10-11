@@ -18,7 +18,10 @@ declare(strict_types=1);
  * never reads $_SESSION or echoes, so tests/retention_hold_test.php runs them
  * on SQLite. Times are computed in PHP (DateTimeImmutable) rather than with
  * NOW() for the same reason. Write functions return ['ok' => true, ...] or
- * ['ok' => false, 'error' => '<message>'].
+ * ['ok' => false, 'error' => '<message>', 'error_key' => 'service.hold.<name>']
+ * (+ 'error_params' when the message holds a value): the English error stays
+ * as it is, because MCP-style callers pass it on untranslated, and the web
+ * endpoint turns the key into the page's language with i18nServiceError().
  *
  * Pro entitlement is deliberately not checked here — the caller decides that
  * with proUserIsPro(), the same split as mailbox_service.php.
@@ -212,13 +215,13 @@ if (!function_exists('retentionHoldStart')) {
 
             if (retentionHoldActive($pdo, $userId, $now) !== null) {
                 $pdo->rollBack();
-                return ['ok' => false, 'error' => 'A hold is already active'];
+                return ['ok' => false, 'error' => 'A hold is already active', 'error_key' => 'service.hold.already_active'];
             }
 
             $window = retentionHoldWindow($pdo, $userId, $now);
             if ($window['used'] >= $max) {
                 $pdo->rollBack();
-                return ['ok' => false, 'error' => "You have used all {$max} holds for this year"];
+                return ['ok' => false, 'error' => "You have used all {$max} holds for this year", 'error_key' => 'service.hold.used_up', 'error_params' => ['max' => $max]];
             }
 
             $endsAt = $now->modify('+' . $days . ' days')->format('Y-m-d H:i:s');
@@ -236,7 +239,7 @@ if (!function_exists('retentionHoldStart')) {
             if (function_exists('logMessage')) {
                 logMessage('ERROR', 'Retention hold could not be started', ['user_id' => $userId, 'error' => $e->getMessage()]);
             }
-            return ['ok' => false, 'error' => 'Could not start retention hold'];
+            return ['ok' => false, 'error' => 'Could not start retention hold', 'error_key' => 'service.hold.start_failed'];
         }
 
         if (function_exists('logMessage')) {
@@ -263,7 +266,7 @@ if (!function_exists('retentionHoldEnd')) {
         try {
             $active = retentionHoldActive($pdo, $userId, $now);
             if ($active === null) {
-                return ['ok' => false, 'error' => 'No active hold'];
+                return ['ok' => false, 'error' => 'No active hold', 'error_key' => 'service.hold.none_active'];
             }
             $endedAt = $now->format('Y-m-d H:i:s');
             $pdo->prepare("UPDATE retention_holds SET ended_at = ? WHERE id = ? AND ended_at IS NULL")
@@ -272,7 +275,7 @@ if (!function_exists('retentionHoldEnd')) {
             if (function_exists('logMessage')) {
                 logMessage('ERROR', 'Retention hold could not be ended', ['user_id' => $userId, 'error' => $e->getMessage()]);
             }
-            return ['ok' => false, 'error' => 'Could not end retention hold'];
+            return ['ok' => false, 'error' => 'Could not end retention hold', 'error_key' => 'service.hold.end_failed'];
         }
 
         if (function_exists('logMessage')) {

@@ -49,7 +49,7 @@ function send_json($data) {
 }
 
 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
-    echo json_encode(['success' => false, 'error' => 'Not authenticated']);
+    echo json_encode(['success' => false, 'error' => t('profile.error.not_authenticated')]);
     exit;
 }
 
@@ -74,7 +74,7 @@ if (!in_array($action, $proProfileReadOnlyActions, true)) {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
         http_response_code(405);
         header('Allow: POST');
-        send_json(['success' => false, 'error' => 'Method not allowed']);
+        send_json(['success' => false, 'error' => t('profile.error.method_not_allowed')]);
     }
     if (!requireSameOriginRequest()) {
         logMessage('WARNING', 'Cross-origin pro_profile request rejected', [
@@ -82,7 +82,7 @@ if (!in_array($action, $proProfileReadOnlyActions, true)) {
             'action' => is_string($action) ? mb_substr($action, 0, 50) : '',
         ]);
         http_response_code(403);
-        send_json(['success' => false, 'error' => 'Forbidden']);
+        send_json(['success' => false, 'error' => t('profile.error.forbidden')]);
     }
 }
 
@@ -123,7 +123,7 @@ function pro_user_has_password(int $userId): bool {
 function require_pro(int $userId): void {
     if (!proUserIsPro($userId)) {
         logMessage('INFO', 'Pro-only action refused for non-pro account', ['user_id' => $userId]);
-        send_json(['success' => false, 'error' => 'Pro required', 'pro_required' => true]);
+        send_json(['success' => false, 'error' => t('profile.error.pro_required'), 'pro_required' => true]);
     }
 }
 
@@ -229,7 +229,7 @@ try {
             $stmt->execute([$userId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) {
-                    send_json(['success' => false, 'error' => 'User not found']);
+                    send_json(['success' => false, 'error' => t('profile.error.user_not_found')]);
             }
             $profile = [
                 // The owner's own address, decrypted for display ('' + ERROR if it cannot be).
@@ -347,7 +347,7 @@ try {
             // a full account takeover.
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin update_email request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             $rawEmail = $_POST['email'] ?? '';
             // Detect suspicious patterns
@@ -359,29 +359,29 @@ try {
                 if ($flagPatterns) {
                     flagMaliciousActivity(getVisitorIp(), 'Suspicious email update: ' . implode(', ', $flagPatterns)); // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
                 }
-                send_json(['success' => false, 'error' => 'Invalid request']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_request')]);
             }
             $newEmail = sanitizeEmail($rawEmail);
             if (!$newEmail) {
-                send_json(['success' => false, 'error' => 'Invalid email']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_email')]);
             }
             // Disallow using the service's own email domain for account addresses
             $forbiddenDomain = strtolower($config['email']['domain'] ?? 'manjo.me');
             $parts = explode('@', $newEmail);
             $domainPart = isset($parts[1]) ? strtolower($parts[1]) : '';
             if ($domainPart === $forbiddenDomain) {
-                send_json(['success' => false, 'error' => 'Using ' . $forbiddenDomain . ' addresses for accounts is not allowed']);
+                send_json(['success' => false, 'error' => t('profile.error.own_domain', ['domain' => $forbiddenDomain])]);
             }
             // Without the keys the check below would find nothing and the
             // change could never be applied (pii_crypto.php): refuse up front.
             if (!piiEmailRequireKeys('update_email')) {
-                send_json(['success' => false, 'error' => 'Changing the email address is temporarily unavailable']);
+                send_json(['success' => false, 'error' => t('profile.error.email_unavailable')]);
             }
             // Ensure no other pro_user uses this email
             $stmt = $pdo->prepare("SELECT id FROM pro_users WHERE email_hash = ? AND id <> ? LIMIT 1");
             $stmt->execute([piiEmailLookupHash((string) $newEmail), $userId]);
             if ($stmt->fetch()) {
-                send_json(['success' => false, 'error' => 'Email already in use']);
+                send_json(['success' => false, 'error' => t('profile.error.email_in_use')]);
             }
             // Create pending change and send confirmation link to the NEW email address
             try {
@@ -404,10 +404,10 @@ try {
                 @mail($newEmail, $subject, $message, $headersStr);
 
                 logMessage('INFO', 'Pending email change created', ['user_id' => $userId] + emailLogContext((string) $newEmail, null, 'new_email_ref'));
-                send_json(['success' => true, 'message' => 'Confirmation link sent to new email address']);
+                send_json(['success' => true, 'message' => t('profile.message.confirmation_sent')]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed creating pending email change', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not create confirmation request']);
+                send_json(['success' => false, 'error' => t('profile.error.confirm_failed')]);
             }
             break;
 
@@ -493,7 +493,7 @@ try {
             // URL goes back to the browser, never the API key or session.
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin billing_portal request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             require_once __DIR__ . '/paddle_sync.php';
             require_once __DIR__ . '/paddle_api.php';
@@ -501,16 +501,16 @@ try {
                 $portalTarget = paddlePortalTarget($pdo, $userId);
             } catch (Exception $e) {
                 logMessage('ERROR', 'billing_portal: Paddle tables unavailable', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'The billing portal is not available right now.']);
+                send_json(['success' => false, 'error' => t('profile.error.billing_unavailable')]);
             }
             if ($portalTarget === null) {
-                send_json(['success' => false, 'error' => 'There is no subscription or purchase on this account yet.']);
+                send_json(['success' => false, 'error' => t('profile.error.no_subscription')]);
             }
             try {
                 $portalUrl = paddleCreatePortalUrl(paddleServerSettings($config), $portalTarget['customer_id'], $portalTarget['subscription_ids']);
             } catch (Exception $e) {
                 logMessage('ERROR', 'billing_portal: could not create a Paddle portal session', ['user_id' => $userId, 'error' => $e->getMessage()]);
-                send_json(['success' => false, 'error' => 'The billing portal is not available right now. Please try again later.']);
+                send_json(['success' => false, 'error' => t('profile.error.billing_failed')]);
             }
             logMessage('INFO', 'Paddle customer portal session created', ['user_id' => $userId]);
             send_json(['success' => true, 'url' => $portalUrl]);
@@ -523,7 +523,7 @@ try {
             // pro_expires_at (existing, wanted behavior — see #58).
             if (!requireSameOriginRequest()) {
                 logMessage('WARNING', 'Rejected cross-origin upgrade_with_voucher request', ['user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Invalid request origin']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
             }
             try {
                 // Email must come from the session's own account, never from
@@ -531,14 +531,14 @@ try {
                 // against an arbitrary email address instead of their own.
                 $email = proUserEmail($pdo, $userId);
                 if (!$email) {
-                    send_json(['success' => false, 'error' => 'User not found']);
+                    send_json(['success' => false, 'error' => t('profile.error.user_not_found')]);
                 }
 
                 $code = trim((string) ($_POST['code'] ?? ''));
                 $result = redeemVoucherForEmail($email, $code);
 
                 if (!$result['success']) {
-                    send_json(['success' => false, 'error' => voucherRedemptionErrorMessage($result['error_code'])]);
+                    send_json(['success' => false, 'error' => t(voucherRedemptionErrorKey($result['error_code']))]);
                 }
 
                 $s = $pdo->prepare("SELECT pro_expires_at FROM pro_users WHERE id = ? LIMIT 1");
@@ -549,7 +549,7 @@ try {
                 send_json(['success' => true, 'account_type' => 'pro', 'pro_expires_at' => $expiresAt !== false ? $expiresAt : null]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed upgrading account via voucher', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                send_json(['success' => false, 'error' => 'Could not redeem voucher']);
+                send_json(['success' => false, 'error' => t('profile.error.redeem_failed')]);
             }
             break;
 
@@ -996,17 +996,17 @@ try {
         case 'resend_pending_change':
             $pid = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             if ($pid <= 0) {
-                send_json(['success' => false, 'error' => 'Invalid id']);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_id')]);
             }
             try {
                 $stmt = $pdo->prepare("SELECT id, user_id, action, data, used FROM pending_profile_changes WHERE id = ? LIMIT 1");
                 $stmt->execute([$pid]);
                 $pc = $stmt->fetch(PDO::FETCH_ASSOC);
                 if (!$pc || (int)$pc['user_id'] !== $userId) {
-                    send_json(['success' => false, 'error' => 'Pending change not found']);
+                    send_json(['success' => false, 'error' => t('profile.error.pending_not_found')]);
                 }
                 if ((int)$pc['used'] === 1) {
-                    send_json(['success' => false, 'error' => 'Pending change already processed']);
+                    send_json(['success' => false, 'error' => t('profile.error.pending_processed')]);
                 }
 
                 $token = bin2hex(random_bytes(24));
@@ -1027,47 +1027,47 @@ try {
                 if ($action === 'update_email') {
                     $to = $data['new_email'] ?? '';
                     if (!$to) {
-                        send_json(['success' => false, 'error' => 'Pending email address missing']);
+                        send_json(['success' => false, 'error' => t('profile.error.pending_email_missing')]);
                     }
                     $subject = 'Confirm your email change for Mail Shield';
                     $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield email change request.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email.\n\nRegards,\nThe Mail Shield Team";
                     @mail($to, $subject, $message, $headersStr);
-                    send_json(['success' => true, 'message' => 'Confirmation link resent to the new email address']);
+                    send_json(['success' => true, 'message' => t('profile.message.resent_new_email')]);
                 }
 
                 if ($action === 'set_password') {
                     $to = $_SESSION['pro_user_email'] ?? '';
                     if (!$to) {
-                        send_json(['success' => false, 'error' => 'User email not available']);
+                        send_json(['success' => false, 'error' => t('profile.error.user_email_missing')]);
                     }
                     $subject = 'Confirm your password change for Mail Shield';
                     $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield password change request.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe Mail Shield Team";
                     @mail($to, $subject, $message, $headersStr);
-                    send_json(['success' => true, 'message' => 'Confirmation link resent to your email address']);
+                    send_json(['success' => true, 'message' => t('profile.message.resent_your_email')]);
                 }
 
                 if ($action === 'delete_account') {
                     $to = $_SESSION['pro_user_email'] ?? '';
                     if (!$to) {
-                        send_json(['success' => false, 'error' => 'User email not available']);
+                        send_json(['success' => false, 'error' => t('profile.error.user_email_missing')]);
                     }
                     $subject = 'Confirm your account deletion for Mail Shield';
                     $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield account deletion request.\n\nPlease confirm the deletion by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe Mail Shield Team";
                     @mail($to, $subject, $message, $headersStr);
-                    send_json(['success' => true, 'message' => 'Confirmation link resent to your email address']);
+                    send_json(['success' => true, 'message' => t('profile.message.resent_your_email')]);
                 }
 
-                send_json(['success' => false, 'error' => 'Unsupported pending change type']);
+                send_json(['success' => false, 'error' => t('profile.error.pending_unsupported')]);
             } catch (Exception $e) {
                 logMessage('ERROR', 'Failed resending pending profile confirmation', ['error' => $e->getMessage(), 'user_id' => $userId, 'pending_id' => $pid]);
-                send_json(['success' => false, 'error' => 'Could not resend confirmation email']);
+                send_json(['success' => false, 'error' => t('profile.error.resend_failed')]);
             }
             break;
 
             case 'cancel_pending_change':
                 $pid = isset($_POST['id']) ? (int)$_POST['id'] : 0;
                 if ($pid <= 0) {
-                    echo json_encode(['success' => false, 'error' => 'Invalid id']);
+                    echo json_encode(['success' => false, 'error' => t('profile.error.invalid_id')]);
                     exit;
                 }
                 try {
@@ -1075,11 +1075,11 @@ try {
                     $s->execute([$pid]);
                     $p = $s->fetch(PDO::FETCH_ASSOC);
                     if (!$p || (int)$p['user_id'] !== $userId) {
-                        echo json_encode(['success' => false, 'error' => 'Not found']);
+                        echo json_encode(['success' => false, 'error' => t('profile.error.cancel_not_found')]);
                         exit;
                     }
                     if ((int)$p['used'] === 1) {
-                        echo json_encode(['success' => false, 'error' => 'Already processed']);
+                        echo json_encode(['success' => false, 'error' => t('profile.error.cancel_processed')]);
                         exit;
                     }
                     $u = $pdo->prepare("UPDATE pending_profile_changes SET used = 1 WHERE id = ?");
@@ -1088,7 +1088,7 @@ try {
                     echo json_encode(['success' => true]);
                 } catch (Exception $e) {
                     logMessage('ERROR', 'Failed cancelling pending change', ['error' => $e->getMessage(), 'user_id' => $userId]);
-                    echo json_encode(['success' => false, 'error' => 'Could not cancel pending change']);
+                    echo json_encode(['success' => false, 'error' => t('profile.error.cancel_failed')]);
                 }
                 break;
 
@@ -1096,7 +1096,7 @@ try {
             require_pro($userId);
             $ttl = (int)($_POST['ttl'] ?? 0);
             if ($ttl < 1 || $ttl > 7) {
-                echo json_encode(['success' => false, 'error' => 'TTL must be between 1 and 7']);
+                echo json_encode(['success' => false, 'error' => t('profile.error.ttl_range', ['min' => 1, 'max' => 7])]);
                 exit;
             }
             $stmt = $pdo->prepare("UPDATE pro_users SET address_ttl_days = ? WHERE id = ?");
@@ -1164,7 +1164,7 @@ try {
             require_pro($userId);
             $started = retentionHoldStart($pdo, $userId);
             if (!$started['ok']) {
-                send_json(['success' => false, 'error' => $started['error']]);
+                send_json(['success' => false, 'error' => i18nServiceError($started, (string) $started['error'])]);
             }
             send_json([
                 'success' => true,
@@ -1176,9 +1176,40 @@ try {
         case 'retention_hold_end':
             $ended = retentionHoldEnd($pdo, $userId);
             if (!$ended['ok']) {
-                send_json(['success' => false, 'error' => $ended['error']]);
+                send_json(['success' => false, 'error' => i18nServiceError($ended, (string) $ended['error'])]);
             }
             send_json(['success' => true, 'status' => proProfileRetentionStatus($userId)]);
+            break;
+
+        // The account's interface language (epic #428, step 4/8). Not Pro-gated:
+        // the language belongs to the account, not to the plan. '' means "follow
+        // my browser" and is stored as NULL; anything else must be a language
+        // that is switched on (LOCALES_ENABLED). This is the only place 'en' is
+        // ever stored. Fail-open on a database without the column: nothing is
+        // written and the answer says so.
+        case 'set_locale':
+            if (!requireSameOriginRequest()) {
+                logMessage('WARNING', 'Rejected cross-origin set_locale request', ['user_id' => $userId]);
+                send_json(['success' => false, 'error' => t('profile.error.invalid_origin')]);
+            }
+            if (!tableHasColumn('pro_users', 'locale')) {
+                send_json(['success' => false, 'error' => t('profile.error.locale_unavailable')]);
+            }
+            $rawLocale = $_POST['locale'] ?? '';
+            $enabledLocales = $config['i18n']['enabled'] ?? [i18nDefaultLocale()];
+            if (!is_string($rawLocale)
+                || ($rawLocale !== '' && (!in_array($rawLocale, (array) $enabledLocales, true) || !isset(i18nSupportedLocales()[$rawLocale])))) {
+                send_json(['success' => false, 'error' => t('profile.error.invalid_locale')]);
+            }
+            $storedLocale = $rawLocale === '' ? null : $rawLocale;
+            try {
+                $pdo->prepare("UPDATE pro_users SET locale = ? WHERE id = ?")->execute([$storedLocale, $userId]);
+            } catch (Exception $e) {
+                logMessage('ERROR', 'Failed storing the account language', ['user_id' => $userId, 'error' => $e->getMessage()]);
+                send_json(['success' => false, 'error' => t('profile.error.locale_failed')]);
+            }
+            logMessage('INFO', 'Account language changed', ['user_id' => $userId, 'locale' => $storedLocale]);
+            send_json(['success' => true, 'locale' => $storedLocale]);
             break;
 
         case 'webhooks_list':
@@ -1933,7 +1964,7 @@ try {
             break;
 
         default:
-            echo json_encode(['success' => false, 'error' => 'Unknown action']);
+            echo json_encode(['success' => false, 'error' => t('profile.error.unknown_action')]);
             break;
     }
 } catch (Exception $e) {
