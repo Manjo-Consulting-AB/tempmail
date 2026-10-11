@@ -48,7 +48,7 @@ return [
     'lede'        => 'Mail Shield exists to keep your primary address out of places it does not need to be. This page says what we collect to do that, why, how long we keep it, and who else sees it.',
     'description' => 'What personal data Mail Shield collects, why, how long it is kept, and who processes it — including payments handled by Paddle.',
     'path'        => '/privacy.php',
-    'updated'     => '2026-10-10',
+    'updated'     => '2026-10-11',
     'sections'    => [
         [
             'id'      => 'controller',
@@ -60,7 +60,7 @@ return [
             'id'      => 'data',
             'heading' => 'What we collect',
             'html'    => '<h3>Your account</h3>'
-                . '<p>The email address you register with, and a hash of your password — never the password itself. If you turn on two-factor authentication, we store its secret encrypted, and a record of browsers you choose to trust. We record when the account was created and when you last signed in, and your settings: plan, address lifetime, digests and integrations.</p>'
+                . '<p>The email address you register with, and a hash of your password — never the password itself. If you turn on two-factor authentication, we store its secret encrypted, and a record of browsers you choose to trust. We record when the account was created and when you last signed in, and your settings: plan, address lifetime, digests and integrations. If you choose a language, or sign up or sign in on a page in another language, the account stores that language preference.</p>'
                 . '<p>Your registered email address is stored encrypted, and looked up through a keyed hash rather than in plain text.</p>'
                 . '<h3>The mail you receive</h3>'
                 . '<p>Messages sent to your Mail Shield addresses — headers, content and attachments — are stored so that you can read them. People at Mail Shield do not look at your mail as part of running the service, and it is never used for advertising or profiling. It is processed automatically to store it, show it to you and pass it to the integrations you have set up. We only access a specific message when that is needed to investigate abuse or a security incident, to help you when you ask us to, or when the law requires it.</p>'
@@ -70,7 +70,7 @@ return [
                 . '<h3>Invites</h3>'
                 . '<p>When you sign up through an invite link, we store which account invited you and the status of the invite, with its dates and, once you buy Pro, the plan and the Paddle subscription or transaction it concerns. The invite code is kept in a cookie and on your new account until you verify your address. The person who invited you only sees counts, never who you are. The record holds account numbers, not email addresses, and stays when either account is deleted. Every account also has an invite code of its own.</p>'
                 . '<h3>Technical data</h3>'
-                . '<p>Our server logs record events such as sign-ins, errors and suspicious requests, with the IP address involved. Sign-in attempts are recorded to stop password guessing. We do not write your registered email address into the logs.</p>'
+                . '<p>Our server logs record events such as sign-ins, errors and suspicious requests, with the IP address involved. Sign-in attempts are recorded to stop password guessing. We do not write your registered email address into the logs. On the signed-in pages and the inbox, your browser\'s language setting is read to choose the display language; it is not stored.</p>'
                 . '<p>To protect addresses from floods of mail and the service from misuse, we count how many messages, and how many bytes, each address receives, how many addresses are created from each IP address and account, and how many notifications each integration sends. When a limit is reached we pause the address or the integration for a while and tell you, and we keep a record of that step.</p>'
                 . '<h3>Trial record</h3>'
                 . '<p>To give each email address the free Pro trial only once, we keep a keyed hash of the normalised address. It is not linked to your account and cannot be turned back into the address.</p>'
@@ -153,7 +153,7 @@ return [
                 . '<li><strong>Paddle cookies</strong> on the front page, the pricing page and in the checkout.</li>'
                 . '<li><strong>Your cookie choice</strong> itself is remembered in your browser\'s local storage, not a cookie, so we can honour it; it is strictly necessary and is not sent to us.</li>'
                 . '</ul>'
-                . '<p>You can block or delete cookies in your browser. Blocking the session cookie means you cannot sign in.</p>',
+                . '<p>You can block or delete cookies in your browser. Blocking the session cookie means you cannot sign in. No cookie is used for language.</p>',
         ],
         [
             'id'      => 'transfers',
