@@ -41,7 +41,7 @@ return [
     'consent.accept'     => 'Godkänn',
 
     // Landing page: <title>, description
-    'landing.meta.title' => 'Mail Shield — Din inkorg för allt annat',
+    'landing.meta.title' => 'Tillfällig e-postadress – gratis | Mail Shield',
     'landing.meta.description' => 'En separat inkorg för shopping, nyhetsbrev, registreringar och tillfällig e-post. Skapa Sticky-adresser som finns kvar eller Timed-adresser som raderar sig själva, och spara din huvudinkorg till det som är viktigt.',
 
     // Landing page: the product mockup shared by the hero and the addresses section (decorative copy)
@@ -196,8 +196,8 @@ return [
     'landing.plans.pro_8' => 'Agenten, för avsändarregler på din egen e-postserver',
     'landing.plans.pro_9' => 'Sticky-adresser tillhör ditt konto',
     'landing.plans.pro_10' => 'Prioriterad support',
-    'landing.plans.note_trial' => 'Inget kort behövs och inget att säga upp. En provperiod per e-postadress. Efter provperioden fortsätter du med Pro via {plans}en månads-, års- eller engångsplan{plans_end}, eller en presentkod.',
-    'landing.plans.note' => 'Pro är {plans}en månads-, års- eller engångsplan{plans_end}, eller en presentkod.',
+    'landing.plans.note_trial' => 'Inget kort behövs och inget att säga upp. En provperiod per e-postadress. Efter provperioden fortsätter du med Pro via {plans}en månads-, års- eller engångsplan{plans_end}, eller en värdekod.',
+    'landing.plans.note' => 'Pro är {plans}en månads-, års- eller engångsplan{plans_end}, eller en värdekod.',
     'landing.plans.go_to_inbox' => 'Gå till din inkorg',
     'landing.plans.create_inbox' => 'Skapa din inkorg',
     'landing.plans.start_trial' => 'Börja med {days} dagar Pro',
@@ -237,7 +237,7 @@ return [
     'pricing.per_year' => '/ år',
     'pricing.one_time' => 'engångsbelopp',
     'pricing.error' => 'Priserna kunde inte läsas in just nu. Ladda om sidan och försök igen.',
-    'pricing.closed' => 'Betalning online öppnar snart. Tills dess finns Pro med en presentkod.',
+    'pricing.closed' => 'Betalning online öppnar snart. Tills dess finns Pro med en värdekod.',
     'pricing.button.subscribe' => 'Prenumerera',
     'pricing.button.buy' => 'Köp',
     'pricing.link.login_subscribe' => 'Logga in för att prenumerera',

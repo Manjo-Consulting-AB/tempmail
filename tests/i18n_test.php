@@ -1150,5 +1150,15 @@ same('resolve: /sv/temporary-email.php is served once Swedish is on', null, i18n
 same('resolve: ...and redirects while only English is on', '/temporary-email.php', i18nResolveRequest(['REQUEST_URI' => '/sv/temporary-email.php'], $onlyEn));
 i18nSetLocale('en');
 
+// Confirmed Swedish glossary (#416, I18N.md §5): the retired terms never come back.
+$svTermFiles = array_merge([$root . '/lang/sv.php'], glob($root . '/partials/content/*.sv.php') ?: []);
+foreach ($svTermFiles as $svTermFile) {
+    $svTermRaw = (string) file_get_contents($svTermFile);
+    check('glossary: no presentkod or lagringspaus in ' . basename($svTermFile), !preg_match('/presentkod|lagringspaus/i', $svTermRaw));
+}
+foreach ((require $root . '/lang/sv.php') as $svTermKey => $svTermValue) {
+    check("glossary: no retired term in catalog value {$svTermKey}", !preg_match('/presentkod|lagringspaus/i', is_array($svTermValue) ? implode(' ', $svTermValue) : (string) $svTermValue));
+}
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);
