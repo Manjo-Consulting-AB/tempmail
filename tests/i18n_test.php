@@ -912,7 +912,7 @@ foreach ($faqVariants as $name => [$signIn, $trial]) {
     check("faq sv {$name}: stylesheets resolve from the root, not from /sv/", strpos($raw, 'href="/assets/css/style.css"') !== false && strpos($raw, 'href="/assets/css/mailshield.css?v=') !== false && strpos($raw, 'href="assets/') === false);
     check("faq sv {$name}: section anchors stay English", strpos($raw, 'id="accounts"') !== false && strpos($raw, 'href="#automation"') !== false && strpos($raw, 'id="troubleshooting"') !== false);
     check("faq sv {$name}: the pricing link is the Swedish page, app pages stay plain", strpos($raw, 'href="/sv/pricing.php"') !== false && strpos($raw, 'href="/pro_login.php"') !== false && strpos($raw, '/sv/pro_login.php') === false);
-    check("faq sv {$name}: pages not yet in Swedish keep their plain URL", strpos($raw, 'href="/temporary-email.php"') !== false && strpos($raw, 'href="/blog.php"') !== false && strpos($raw, '/sv/blog.php') === false && strpos($raw, '/sv/temporary-email.php') === false);
+    check("faq sv {$name}: pages not yet in Swedish keep their plain URL, translated ones link to /sv/", strpos($raw, 'href="/sv/temporary-email.php"') !== false && strpos($raw, 'href="/temporary-email.php"') === false && strpos($raw, 'href="/blog.php"') !== false && strpos($raw, '/sv/blog.php') === false);
     check("faq sv {$name}: header and footer links go to the Swedish page", strpos($raw, '<li><a href="/sv/">Startsida</a></li>') !== false && strpos($raw, 'href="/sv/faq.php">Vanliga frågor</a>') !== false);
     check("faq sv {$name}: numbers and the domain are the config's (10, 1 to 7, 30 days, 4 times)", strpos($raw, 'upp till 10 Sticky-adresser') !== false && strpos($raw, '1 till 7') !== false && strpos($raw, 'i 30 dagar, upp till 4 gånger per år') !== false && strpos($raw, 'shopping@example.test') !== false);
     check("faq sv {$name}: the trial days are the config's", $trial > 0 ? strpos($raw, "{$trial} dagar Pro") !== false : strpos($raw, 'provperioden') === false);
@@ -940,6 +940,214 @@ $offHtml = faqRender($root, 'en', $onlyEn, false, 60)['raw'];
 check('faq en-only: no hreflang, no og:locale', strpos($offHtml, 'hreflang') === false && strpos($offHtml, 'og:locale') === false);
 same('resolve: /sv/faq.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/faq.php'], $both));
 same('resolve: ...and redirects while only English is on', '/faq.php', i18nResolveRequest(['REQUEST_URI' => '/sv/faq.php'], $onlyEn));
+i18nSetLocale('en');
+
+/**
+ * Renders the real temporary-email.php in a probe docroot (a copy of the page and
+ * what it requires, plus a stub config.php) as a CLI subprocess and returns the
+ * page. $trial is the trial length in days, $signedIn the session flag.
+ */
+function teRender(string $root, string $locale, array $enabled, int $trial, bool $signedIn = false): array
+{
+    static $probe = null;
+    if ($probe === null) {
+        $probe = sys_get_temp_dir() . '/ms_te_probe_' . getmypid();
+        @mkdir($probe, 0777, true);
+        foreach (['temporary-email.php', 'i18n.php'] as $f) {
+            copy($root . '/' . $f, $probe . '/' . $f);
+        }
+        foreach (['partials', 'lang'] as $d) {
+            @mkdir($probe . '/' . $d, 0777, true);
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/' . $d, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $item) {
+                $rel = substr($item->getPathname(), strlen($root) + 1);
+                if ($item->isDir()) {
+                    @mkdir($probe . '/' . $rel, 0777, true);
+                } else {
+                    copy($item->getPathname(), $probe . '/' . $rel);
+                }
+            }
+        }
+        file_put_contents($probe . '/config.php', <<<'PHP'
+<?php
+// Stub config.php for tests/i18n_test.php: just what temporary-email.php and its partials read.
+$config = [
+    'email'  => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+    'app'    => ['version' => 'test'],
+    'trial'  => ['days' => (int) getenv('PROBE_TRIAL')],
+    'i18n'   => ['enabled' => array_values(array_filter(explode(',', (string) getenv('PROBE_ENABLED'))))],
+    'retention_hold' => ['days' => 30, 'max_per_year' => 4],
+];
+$_SERVER['REQUEST_URI'] = (string) getenv('PROBE_URI');
+require_once __DIR__ . '/i18n.php';
+i18nBootstrap($config['i18n'], $_SERVER);
+$pdo = new PDO('sqlite::memory:');
+session_start();
+$_SESSION = getenv('PROBE_SIGNED_IN') === '1' ? ['pro_user_id' => 1] : [];
+function logMessage($level, $message, $context = []) {}
+PHP);
+        register_shutdown_function(static function () use ($probe) {
+            exec('rm -rf ' . escapeshellarg($probe));
+        });
+    }
+    $env = [
+        'PROBE_ENABLED' => implode(',', $enabled),
+        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/temporary-email.php',
+        'PROBE_TRIAL' => (string) $trial,
+        'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
+        'PATH' => (string) getenv('PATH'),
+    ];
+    $proc = proc_open([PHP_BINARY, '-d', 'session.save_path=' . sys_get_temp_dir(), 'temporary-email.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $probe, $env);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    proc_close($proc);
+    return ['raw' => $out, 'err' => $err];
+}
+
+/**
+ * The copyright year changes every January and the Article dates follow the
+ * file's mtime; the fixtures must not. "inLanguage" was added to the JSON-LD
+ * after the fixtures were rendered, so it is removed before the English page is
+ * compared.
+ */
+function teNorm(string $html): string
+{
+    $html = preg_replace('/&copy; \d{4}/', '&copy; YYYY', $html);
+    $html = preg_replace('/"date(Published|Modified)":"[^"]*"/', '"date$1":"DATE"', $html);
+    return str_replace('"inLanguage":"en",', '', $html);
+}
+
+// --- temporary-email.php: English fixtures ------------------------------------
+// Rendered from temporary-email.php before it went through the data file: signed
+// out with the trial, signed out without it, and signed in.
+$teVariants = [
+    'signed_out'         => [60, false],
+    'signed_out_notrial' => [0, false],
+    'signed_in'          => [60, true],
+];
+foreach ($teVariants as $name => [$trial, $signedIn]) {
+    $r = teRender($root, 'en', $onlyEn, $trial, $signedIn);
+    check("temporary-email en {$name}: the page rendered", $r['raw'] !== '', $r['err']);
+    same("fixture: temporary-email.{$name}.en.html", teNorm((string) file_get_contents($fx . "temporary-email.{$name}.en.html")), teNorm($r['raw']));
+}
+
+same('pages: temporary-email.php is offered in Swedish', ['en', 'sv'], $realPages['/temporary-email.php'] ?? null);
+i18nTranslatedPages($realPages);
+
+// The two data files: the same section ids in the same order, the same variables
+// interpolated, the same shape. Loaded the way temporary-email.php does, once per
+// trial branch.
+$teLoad = static function (string $file, int $trial) use ($root): array {
+    $msU = static fn(string $path): string => $path;
+    $msDocDomain = 'example.test';
+    $msDocTrialDays = $trial;
+    $msDocFreeHours = 24;
+    $msDocProMinDays = 1;
+    $msDocProMaxDays = 7;
+    $msDocStickyMax = 10;
+    return require $root . '/partials/content/' . $file;
+};
+$teVars = static function (string $file): array {
+    $src = (string) file_get_contents($file);
+    preg_match_all('/\{?\$(ms[A-Za-z]+)/', preg_replace('#/\*.*?\*/#s', '', $src), $m);
+    $names = array_values(array_unique($m[1]));
+    sort($names);
+    return $names;
+};
+foreach ([60, 0] as $trial) {
+    $label = $trial > 0 ? 'trial' : 'notrial';
+    $enData = $teLoad('temporary-email.en.php', $trial);
+    $svData = $teLoad('temporary-email.sv.php', $trial);
+    same("temporary-email data {$label}: same keys", array_keys($enData), array_keys($svData));
+    same("temporary-email data {$label}: same section ids, same order", array_column($enData['sections'], 'id'), array_column($svData['sections'], 'id'));
+    same("temporary-email data {$label}: the CTA sits after the same section", $enData['cta']['after'], $svData['cta']['after']);
+    $bad = [];
+    foreach (['title', 'description', 'headline', 'lede', 'toc_label', 'toc_eyebrow'] as $k) {
+        if (trim((string) $svData[$k]) === '' || $svData[$k] === $enData[$k]) {
+            $bad[] = $k;
+        }
+    }
+    foreach ($svData['sections'] as $i => $sec) {
+        if (trim($sec['heading']) === '' || trim($sec['html']) === '' || $sec['heading'] === $enData['sections'][$i]['heading'] || $sec['html'] === $enData['sections'][$i]['html']) {
+            $bad[] = "section {$sec['id']}";
+        }
+    }
+    foreach (['line', 'end_line'] as $k) {
+        if ($svData['cta'][$k] === '' || $svData['cta'][$k] === $enData['cta'][$k]) {
+            $bad[] = "cta {$k}";
+        }
+    }
+    check("temporary-email data {$label}: every Swedish field is filled in and translated", $bad === [], implode(', ', $bad));
+    // The same markup skeleton: the same tags in the same order, so the Swedish
+    // page cannot add a list item, a link or a section the English page lacks.
+    $tags = static fn(string $h): array => preg_match_all('/<\/?[a-z]+[^>]*>/', $h, $m) ? array_map(fn($t) => preg_replace('/\s+href="[^"]*"/', '', $t), $m[0]) : [];
+    foreach ($enData['sections'] as $i => $sec) {
+        same("temporary-email data {$label}: section {$sec['id']} has the same markup structure", $tags($sec['html']), $tags($svData['sections'][$i]['html']));
+    }
+}
+same('temporary-email data: the same variables are interpolated', $teVars($root . '/partials/content/temporary-email.en.php'), $teVars($root . '/partials/content/temporary-email.sv.php'));
+foreach (['en', 'sv'] as $code) {
+    $file = $root . "/partials/content/temporary-email.{$code}.php";
+    $src = (string) file_get_contents($file);
+    check("temporary-email data {$code}: guarded like partials/landing", strpos($src, "if (!defined('TEMPMAIL_APP'))") !== false);
+    check("temporary-email data {$code}: links to public pages go through \$msU", !preg_match('#href="/(?:pricing|temporary-email|blog|faq|terms|privacy|refund-policy)(?:\.php)?[^"]*"|href="/"#', $src));
+    // No number of days or hours is written into the copy: the digit next to
+    // dag/day/tim/hour must be a variable. The docblock and comments are dropped first.
+    $code_only = preg_replace('#/\*.*?\*/#s', '', $src);
+    check("temporary-email data {$code}: no digit next to a day/hour word", !preg_match('/\d\s*(?:&ndash;|–|-)?\s*(?:dag|day|tim|hour)/iu', $code_only) && !preg_match('/(?:dag|day|tim|hour)\w*\s*\d/iu', $code_only));
+    check("temporary-email data {$code}: the domain is never written into the copy", stripos($code_only, 'manjo.me') === false && !preg_match('/@[a-z0-9-]+\.[a-z]{2,}/i', preg_replace('/@\{\$msDocDomain\}/', '', $code_only)));
+}
+$teCatalogBad = [];
+foreach (['en' => $en, 'sv' => $sv] as $code => $cat) {
+    foreach ($cat as $key => $value) {
+        if (is_string($value) && preg_match('/\d\s*(?:&ndash;|–|-)?\s*(?:dag|day|tim|hour)/iu', $value)) {
+            $teCatalogBad[] = "{$code}:{$key}";
+        }
+    }
+}
+check('catalogs: no digit next to a day/hour word in any value', $teCatalogBad === [], implode(', ', $teCatalogBad));
+
+// --- temporary-email.php: Swedish render ---------------------------------------
+foreach ($teVariants as $name => [$trial, $signedIn]) {
+    $r = teRender($root, 'sv', $both, $trial, $signedIn);
+    $enR = teRender($root, 'en', $both, $trial, $signedIn);
+    $raw = $r['raw'];
+    check("temporary-email sv {$name}: the page rendered", $raw !== '', $r['err']);
+    check("temporary-email sv {$name}: no raw key, no unfilled placeholder", !preg_match('/(?<![\/\w])(?:nav|footer|landing)\.(?!contains\b)[a-z_.0-9]+\b/', $raw) && !preg_match('/\{[a-z_]+\}/', $raw));
+    check("temporary-email sv {$name}: <html lang=\"sv\">", strpos($raw, '<html lang="sv">') !== false);
+    check("temporary-email sv {$name}: canonical and hreflang", strpos($raw, '<link rel="canonical" href="https://example.test/sv/temporary-email.php">') !== false
+        && strpos($raw, 'hreflang="sv" href="https://example.test/sv/temporary-email.php"') !== false
+        && strpos($raw, 'hreflang="en" href="https://example.test/temporary-email.php"') !== false
+        && strpos($raw, 'hreflang="x-default" href="https://example.test/temporary-email.php"') !== false);
+    check("temporary-email sv {$name}: the primary keyword is in the title, the h1 and the first paragraph", strpos($raw, '<title>Tillfällig e-postadress – ') !== false
+        && strpos($raw, '<h1 class="ms-doc__title">Tillfällig e-postadress</h1>') !== false
+        && preg_match('#<p class="ms-lede ms-doc__lede">[^<]*tillfällig e-postadress#u', $raw) === 1);
+    check("temporary-email sv {$name}: stylesheets resolve from the root, not from /sv/", strpos($raw, 'href="/assets/css/mailshield.css?v=') !== false && strpos($raw, 'href="assets/') === false);
+    check("temporary-email sv {$name}: section anchors stay English", strpos($raw, 'id="what"') !== false && strpos($raw, 'href="#when-not-to-use"') !== false && strpos($raw, 'id="permanent"') !== false);
+    preg_match_all('/<section class="ms-doc__section" id="([^"]+)"/', $raw, $svIds);
+    preg_match_all('/<section class="ms-doc__section" id="([^"]+)"/', $enR['raw'], $enIds);
+    same("temporary-email sv {$name}: the same section ids as English", $enIds[1], $svIds[1]);
+    same("temporary-email sv {$name}: as many links, lists and buttons as English", [substr_count($enR['raw'], '<a '), substr_count($enR['raw'], '<li>'), substr_count($enR['raw'], 'ms-btn ')], [substr_count($raw, '<a '), substr_count($raw, '<li>'), substr_count($raw, 'ms-btn ')]);
+    check("temporary-email sv {$name}: numbers and the domain are the config's (24, 1 to 7, 10)", strpos($raw, '24 timmar') !== false && strpos($raw, '1&ndash;7 dagar') !== false && strpos($raw, '1 till 7 dagar') !== false && strpos($raw, 'upp till 10 Sticky-adresser') !== false && strpos($raw, 'shopping@example.test') !== false);
+    check("temporary-email sv {$name}: the trial branch follows the config", $trial > 0 && !$signedIn ? strpos($raw, "dina första {$trial} dagar ingår Pro, gratis.") !== false : strpos($raw, 'Det tar ungefär en minut, och det är gratis.') !== false);
+    check("temporary-email sv {$name}: the CTA follows the session", $signedIn ? strpos($raw, 'href="/pro.php"') !== false && strpos($raw, 'Gå till din inkorg') !== false : strpos($raw, 'href="/register.php?plan=regular"') !== false && strpos($raw, 'Skapa din inkorg') !== false);
+    check("temporary-email sv {$name}: the landing link goes to the Swedish page", strpos($raw, '<a href="/sv/">Startsidan visar hela bilden</a>') !== false);
+    check("temporary-email sv {$name}: header and footer links go to the Swedish page", strpos($raw, 'href="/sv/temporary-email.php"') !== false && strpos($raw, 'href="/sv/faq.php"') !== false);
+    check("temporary-email sv {$name}: no English page chrome left", strpos($raw, 'Skip to content') === false && strpos($raw, 'On this page') === false && strpos($raw, 'Create your inbox') === false);
+    check("temporary-email sv {$name}: no claim the English page lacks (no comparison, no TempMail)", stripos($raw, 'TempMail') === false && stripos($raw, 'alternativ till') === false);
+    preg_match('#<script type="application/ld\+json">(.*?)</script>#s', $raw, $lm);
+    $ld = json_decode($lm[1] ?? '', true);
+    check("temporary-email sv {$name}: the JSON-LD parses as a Swedish Article", is_array($ld) && ($ld['@type'] ?? '') === 'Article' && ($ld['inLanguage'] ?? '') === 'sv' && ($ld['headline'] ?? '') === 'Tillfällig e-postadress');
+    check("temporary-email sv {$name}: mainEntityOfPage is the Swedish URL", ($ld['mainEntityOfPage'] ?? '') === 'https://example.test/sv/temporary-email.php');
+}
+$teEnLd = json_decode((preg_match('#<script type="application/ld\+json">(.*?)</script>#s', teRender($root, 'en', $both, 60)['raw'], $em) ? $em[1] : ''), true);
+check('temporary-email en: the JSON-LD carries inLanguage en and the English URL', ($teEnLd['inLanguage'] ?? '') === 'en' && ($teEnLd['mainEntityOfPage'] ?? '') === 'https://example.test/temporary-email.php');
+// With Swedish switched off the Swedish URL is not offered and the English page carries no hreflang.
+check('temporary-email en-only: no hreflang, no og:locale', (function () use ($root, $onlyEn) {
+    $h = teRender($root, 'en', $onlyEn, 60)['raw'];
+    return $h !== '' && strpos($h, 'hreflang') === false && strpos($h, 'og:locale') === false;
+})());
+same('resolve: /sv/temporary-email.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/temporary-email.php'], $both));
+same('resolve: ...and redirects while only English is on', '/temporary-email.php', i18nResolveRequest(['REQUEST_URI' => '/sv/temporary-email.php'], $onlyEn));
 i18nSetLocale('en');
 
 echo "\n{$passed} passed, {$failed} failed\n";
