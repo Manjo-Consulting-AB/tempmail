@@ -37,4 +37,10 @@ return [
     'footer.privacy'         => 'Privacy policy',
     'footer.refund'          => 'Refund policy',
     'footer.cookie_settings' => 'Cookie settings',
+
+    'consent.label'      => 'Cookie consent',
+    'consent.text'       => 'We use Google Analytics on our public pages to understand how Mail Shield is used.',
+    'consent.learn_more' => 'Learn more',
+    'consent.decline'    => 'Decline',
+    'consent.accept'     => 'Accept',
 ];
