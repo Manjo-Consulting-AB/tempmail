@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1">
+	<title>Logged out</title>
+	<script>
+		try {
+			// Remove common keys that may contain user-specific data
+			localStorage.removeItem('tempmail_address');
+			localStorage.removeItem('block_images');
+			// Also remove any keys that start with 'tempmail' or 'pro_' to be conservative
+			try {
+				for (var i = localStorage.length - 1; i >= 0; i--) {
+					var key = localStorage.key(i);
+					if (!key) continue;
+					if (/^(tempmail|pro_)/i.test(key) || /block_images/i.test(key)) {
+						localStorage.removeItem(key);
+					}
+				}
+			} catch (inner) {
+				// ignore per-key errors
+			}
+		} catch (e) {
+			// ignore
+			console.warn('Could not clear localStorage during logout', e);
+		}
+
+		// Also clear cookies client-side (non-HttpOnly). Server-side cleared HttpOnly above.
+		(function(){
+			try {
+				var cookies = document.cookie.split(';');
+				for (var i=0;i<cookies.length;i++){
+					var parts = cookies[i].split('=');
+					var name = parts.shift().trim();
+					if (!name) continue;
+					// Expire for path /
+					document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/;';
+					// Try with domain
+					try {
+						var host = window.location.hostname;
+						document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=' + host + ';';
+						// Leading dot
+						document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=.' + host + ';';
+					} catch (ignore) {}
+				}
+			} catch (e) {
+				// ignore
+			}
+		})();
+		// Redirect to public index
+		window.location.replace('index.php');
+	</script>
+	<noscript>
+		<meta http-equiv="refresh" content="0;url=index.php">
+	</noscript>
+</head>
+<body>
+	<p>Signing out… If you are not redirected automatically, <a href="index.php">click here</a>.</p>
+<script>
+(function () {
+    window.msLocale = document.documentElement.lang || 'en';
+    if (window.jQuery) {
+        window.jQuery.ajaxSetup({ headers: { 'X-MS-Locale': window.msLocale } });
+    }
+})();
+</script>
+</body>
+</html>
