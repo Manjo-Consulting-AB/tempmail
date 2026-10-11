@@ -80,7 +80,7 @@ same('split: double slash cannot produce a protocol-relative path', ['sv', '/evi
 same('resolve: CLI has no REQUEST_URI', null, i18nResolveRequest([], $both));
 same('resolve: CLI is English', 'en', i18nLocale());
 same('resolve: plain URL', null, i18nResolveRequest(['REQUEST_URI' => '/terms.php'], $both));
-same('resolve: untranslated /sv/ page redirects to the plain URL', '/terms.php', i18nResolveRequest(['REQUEST_URI' => '/sv/terms.php'], $both));
+same('resolve: untranslated /sv/ page redirects to the plain URL', '/privacy.php', i18nResolveRequest(['REQUEST_URI' => '/sv/privacy.php'], $both));
 same('resolve: ...and stays English', 'en', i18nLocale());
 same('resolve: query string survives the redirect', '/register.php?plan=pro', i18nResolveRequest(['REQUEST_URI' => '/sv/register.php?plan=pro'], $both));
 same('resolve: app page under /sv/ redirects', '/inbox.php?address=abc', i18nResolveRequest(['REQUEST_URI' => '/sv/inbox.php?address=abc'], $both));
@@ -692,7 +692,7 @@ foreach ($pricingVariants as $name => [$in, $co, $prod]) {
     check("pricing sv {$name}: plan names stay Pro and Lifetime", strpos($r['main'], '>Pro</h2>') !== false && strpos($r['main'], '>Lifetime</h2>') !== false);
     check("pricing sv {$name}: numbers still come from the config (10, 1 to 7, 30 days, 4 times)", strpos($r['main'], 'Upp till 10 Sticky-adresser') !== false && strpos($r['main'], 'från 1 till 7 dagar') !== false && strpos($r['main'], 'i 30 dagar, upp till 4 gånger per år') !== false);
     check("pricing sv {$name}: the money-back days are the page's 30", strpos($r['main'], '30 dagars pengarna-tillbaka-garanti') !== false);
-    check("pricing sv {$name}: links to pages not yet in Swedish stay plain, the refund policy goes to /sv/", strpos($r['main'], 'href="/terms.php"') !== false && strpos($r['main'], 'href="/privacy.php"') !== false && strpos($r['main'], 'href="/sv/refund-policy.php"') !== false && strpos($r['main'], '/sv/terms.php') === false);
+    check("pricing sv {$name}: links to pages not yet in Swedish stay plain, the terms and refund policy go to /sv/", strpos($r['main'], 'href="/sv/terms.php"') !== false && strpos($r['main'], 'href="/privacy.php"') !== false && strpos($r['main'], 'href="/sv/refund-policy.php"') !== false && strpos($r['main'], 'href="/terms.php"') === false);
     $cfg = is_array($r['config']) ? $r['config'] : [];
     same("pricing sv {$name}: config perMonth, perYear, locale", ['/ månad', '/ år', 'sv'], [$cfg['perMonth'] ?? null, $cfg['perYear'] ?? null, $cfg['locale'] ?? null]);
     $cfgEn = is_array($enR['config']) ? $enR['config'] : [];
@@ -1569,19 +1569,20 @@ foreach (['terms', 'privacy', 'refund-policy'] as $legalPage) {
 }
 
 same('pages: the refund policy is offered in Swedish', ['en', 'sv'], $realPages['/refund-policy.php'] ?? null);
-check('pages: terms and privacy are still English only', ($realPages['/terms.php'] ?? null) === ['en'] && ($realPages['/privacy.php'] ?? null) === ['en']);
+same('pages: the terms are offered in Swedish', ['en', 'sv'], $realPages['/terms.php'] ?? null);
+check('pages: privacy is still English only', ($realPages['/privacy.php'] ?? null) === ['en']);
 
 // The two content files: the same section ids in the same order, the same
 // 'updated', the same interpolated variables, and no number typed into the prose.
 $legalLoad = static function (string $file) use ($root): array {
-    $f = ['contact' => 'C', 'company_full' => 'CF', 'hosting' => 'H'];
-    $ref = ['hold_days' => 30];
+    $f = ['contact' => 'C', 'company_full' => 'CF', 'hosting' => 'H', 'domain' => 'd', 'trial_days' => 60, 'free_hours' => 24, 'quota_free_mb' => 10, 'quota_pro_mb' => 100, 'delete_days' => 365, 'warn_days' => 335];
+    $ref = ['hold_days' => 30, 'window_days' => 120, 'bonus_months' => 3, 'sticky_bonus' => 3];
     $msU = static fn(string $path): string => $path;
     return require $root . '/partials/content/legal/' . $file;
 };
 $legalVars = static function (string $file): array {
     $src = (string) file_get_contents($file);
-    preg_match_all('/\$(f|ref|msU|guaranteeDays|graceDays)\b(?:\[\'([a-z_]+)\'\])?/', preg_replace('#/\*.*?\*/#s', '', $src), $m, PREG_SET_ORDER);
+    preg_match_all('/\$(f|ref|msU|guaranteeDays|graceDays|proTtlMinDays|proTtlMaxDays|noticeDays|yearPlanMonths|liabilityMonths)\b(?:\[\'([a-z_]+)\'\])?/', preg_replace('#/\*.*?\*/#s', '', $src), $m, PREG_SET_ORDER);
     $out = [];
     foreach ($m as $hit) {
         $out[] = $hit[1] . (isset($hit[2]) && $hit[2] !== '' ? '.' . $hit[2] : '');
@@ -1624,6 +1625,43 @@ foreach ($legalVariants as $name => [$referral, $trial]) {
     })());
     check("legal sv refund-policy {$name}: the facts follow the stub config", strpos($raw, 'support@example.test') !== false && strpos($raw, '30 dagars') !== false);
     check("legal sv refund-policy {$name}: Paddle is named as reseller and Merchant of Record", strpos($raw, 'Paddle.com är Merchant of Record') !== false && strpos($raw, 'återförsäljare') !== false);
+}
+$legalEn = $legalLoad('terms.en.php');
+$legalSv = $legalLoad('terms.sv.php');
+same('terms data: the same section ids in the same order', array_column($legalEn['sections'], 'id'), array_column($legalSv['sections'], 'id'));
+same('terms data: the same updated date, and it is ISO', $legalEn['updated'], $legalSv['updated']);
+check('terms data: updated is a real Y-m-d date', (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $legalEn['updated']) && date('Y-m-d', strtotime($legalEn['updated'])) === $legalEn['updated']);
+same('terms data: the same path', $legalEn['path'], $legalSv['path']);
+same('terms data: the same interpolated variables', $legalVars($root . '/partials/content/legal/terms.en.php'), $legalVars($root . '/partials/content/legal/terms.sv.php'));
+foreach (['en', 'sv'] as $code) {
+    $src = preg_replace('#/\*.*?\*/#s', '', (string) file_get_contents($root . "/partials/content/legal/terms.{$code}.php"));
+    check("terms data {$code}: no number next to a day, month or hour unless it comes from a variable", !preg_match('/\d+[\s-]*(?:dag|day|månad|month|timm|hour)/iu', $src));
+    check("terms data {$code}: links to public pages go through \$msU", !preg_match('#href="/(?:pricing|temporary-email|blog|faq|terms|privacy|terms)(?:\.php)?[^"]*"|href="/"#', $src));
+    check("terms data {$code}: no clause on which language prevails", !preg_match('/prevail|företräde|tolkningsföreträde|authentic/i', $src));
+}
+
+// The Swedish page: language, canonical, hreflang, no raw key, no English chrome.
+foreach ($legalVariants as $name => [$referral, $trial]) {
+    $r = legalRender($root, 'terms.php', 'sv', $both, $referral, $trial);
+    $raw = $r['raw'];
+    check("legal sv terms {$name}: the page rendered", $raw !== '', $r['err']);
+    check("legal sv terms {$name}: lang sv", strpos($raw, '<html lang="sv">') !== false);
+    check("legal sv terms {$name}: the /sv/ canonical", strpos($raw, '<link rel="canonical" href="https://example.test/sv/terms.php">') !== false);
+    check("legal sv terms {$name}: hreflang en, sv and x-default", strpos($raw, 'hreflang="en" href="https://example.test/terms.php"') !== false && strpos($raw, 'hreflang="sv" href="https://example.test/sv/terms.php"') !== false && strpos($raw, 'hreflang="x-default"') !== false);
+    check("legal sv terms {$name}: no raw catalog key", !preg_match('/\blegal\.(?:shell|fact)\./', $raw));
+    check("legal sv terms {$name}: the shell is Swedish", strpos($raw, 'Gäller från 10 oktober 2026') !== false && strpos($raw, 'På den här sidan') !== false && strpos($raw, 'Effective') === false && strpos($raw, 'On this page') === false);
+    check("legal sv terms {$name}: every section id is on the page", (function () use ($raw, $legalSv) {
+        foreach ($legalSv['sections'] as $s) {
+            if (strpos($raw, 'id="' . $s['id'] . '"') === false) {
+                return false;
+            }
+        }
+        return true;
+    })());
+    check("legal sv terms {$name}: the facts follow the stub config", strpos($raw, 'support@example.test') !== false && strpos($raw, 'Användarvillkor') !== false);
+    check("legal sv terms {$name}: the trial paragraph follows the trial setting", ($trial > 0) === (strpos($raw, 'provperiod på ' . $trial . ' dagar') !== false));
+    check("legal sv terms {$name}: the invite section's numbers come from the settings", strpos($raw, 'id="referrals"') !== false);
+    check("legal sv terms {$name}: Paddle is named as reseller and Merchant of Record", strpos($raw, 'Paddle.com är Merchant of Record') !== false && strpos($raw, 'återförsäljare') !== false);
 }
 // Facts in Swedish: the company sentence and the hosting line come from the catalog.
 $legalFactsSv = (static function () use ($root) {

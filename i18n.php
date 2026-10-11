@@ -104,9 +104,9 @@ if (!function_exists('i18nSupportedLocales')) {
             '/blog.php'            => ['en', 'sv'],
             '/register.php'        => ['en'],
             '/pro_login.php'       => ['en'],
-            '/terms.php'           => ['en'],
             '/privacy.php'         => ['en'],
             '/refund-policy.php'   => ['en', 'sv'],
+            '/terms.php'           => ['en', 'sv'],
         ];
     }
 
