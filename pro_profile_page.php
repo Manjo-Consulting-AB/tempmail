@@ -137,6 +137,13 @@ $mcpSignInAvailable = oauthDiscoveryEnabled($pdo);
 // base_url is stored with, and the example cannot go stale if BASE_URL changes.
 $mcpEndpoint = rtrim((string) ($config['email']['base_url'] ?? ''), '/') . '/mcp';
 
+// The "Stay signed in" periods and their cap (pro_remember.php), for the card's options and copy.
+require_once __DIR__ . '/pro_remember.php';
+
+// How long a browser ticked "Remember this browser" at the 2FA prompt skips the code: TwoFactorAuth::TRUSTED_DEVICE_TTL_DAYS
+// (private there), passed to the copy as a number so no catalog value holds it.
+$twofaTrustedDays = 30;
+
 // The Language card (epic #428, step 4/8): shown only when the app area is
 // offered in more than one language (the '@app' gate in i18nTranslatedPages(),
 // still ['en'] until step 7/8) and the locale column exists, so it stays
@@ -444,31 +451,31 @@ $mcpDesktopConfig = '{
 
                         <section class="ms-settings__section" id="settings-security">
                             <h2 class="ms-settings__section-title"><?php echo te('profile.section.security'); ?></h2>
-                            <p class="ms-settings__section-lede">Codes, devices, and how a password sign-in is verified.</p>
+                            <p class="ms-settings__section-lede"><?php echo te('profile.security.lede'); ?></p>
 
                             <div class="ms-card" id="staySignedInCard">
-                                <h3 class="ms-card__title">Stay signed in</h3>
-                                <p class="ms-card__desc">How long this device stays signed in when the browser is closed, for example when your phone closes it in the background. Each visit restarts the period, up to 90 days after you signed in.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.security.stay_title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.security.stay_desc', ['max_days' => PRO_REMEMBER_MAX_AGE_DAYS]); ?></p>
                                 <div id="staySignedInAlert"></div>
-                                <p id="staySignedInUnavailable" class="text-muted d-none">Not available yet.</p>
+                                <p id="staySignedInUnavailable" class="text-muted d-none"><?php echo te('profile.security.not_available'); ?></p>
                                 <div id="staySignedInControls" class="d-none">
                                     <div class="mb-3">
-                                        <label class="form-label" for="staySignedInSelect">Keep this device signed in</label>
+                                        <label class="form-label" for="staySignedInSelect"><?php echo te('profile.security.stay_select_label'); ?></label>
                                         <select id="staySignedInSelect" class="form-select" style="max-width:260px;">
-                                            <option value="0">Until I close the browser</option>
-                                            <option value="1">For 1 day</option>
-                                            <option value="7">For 7 days</option>
-                                            <option value="30">For 30 days</option>
+                                            <option value="0"><?php echo te('profile.security.stay_opt_session'); ?></option>
+<?php foreach (proRememberAllowedDays() as $stayDays): ?>
+                                            <option value="<?php echo (int) $stayDays; ?>"><?php echo te($stayDays === 1 ? 'profile.security.stay_opt_one' : 'profile.security.stay_opt_other', ['count' => $stayDays]); ?></option>
+<?php endforeach; ?>
                                         </select>
-                                        <div class="form-text">Only choose a period on a device that is yours.</div>
+                                        <div class="form-text"><?php echo te('profile.security.stay_help'); ?></div>
                                     </div>
-                                    <button type="button" id="staySignedInSaveBtn" class="btn btn-secondary">Save</button>
+                                    <button type="button" id="staySignedInSaveBtn" class="btn btn-secondary"><?php echo te('profile.security.save'); ?></button>
 
-                                    <h4 class="ms-card__subtitle mt-4">Devices kept signed in</h4>
-                                    <p class="form-text">Removing a device means it has to sign in again the next time its browser is closed. Changing your password or email address removes them all.</p>
-                                    <p id="staySignedInEmpty" class="text-muted d-none">No devices are kept signed in.</p>
+                                    <h4 class="ms-card__subtitle mt-4"><?php echo te('profile.security.stay_devices_title'); ?></h4>
+                                    <p class="form-text"><?php echo te('profile.security.stay_devices_help'); ?></p>
+                                    <p id="staySignedInEmpty" class="text-muted d-none"><?php echo te('profile.security.stay_none'); ?></p>
                                     <ul id="staySignedInList" class="list-group mb-2"></ul>
-                                    <button type="button" id="staySignedInRevokeOthersBtn" class="btn btn-sm btn-outline-danger d-none">Remove all other devices</button>
+                                    <button type="button" id="staySignedInRevokeOthersBtn" class="btn btn-sm btn-outline-danger d-none"><?php echo te('profile.security.stay_remove_others'); ?></button>
                                 </div>
                             </div>
 
@@ -483,58 +490,53 @@ $mcpDesktopConfig = '{
                                  (attacker-controlled) so it is inserted with .text(),
                                  never as markup. -->
                             <div class="ms-card" id="connectedAppsCard">
-                                <h3 class="ms-card__title">Connected apps</h3>
-                                <p class="ms-card__desc">Apps that can reach your mailbox.<?php if ($mcpSignInAvailable): ?> The ones you connected with a sign-in, and the access tokens you created by hand, are both listed here — each limited to the access you allowed.<?php else: ?> The access tokens you created by hand are listed here, each limited to the access you allowed.<?php endif; ?> Revoking one stops it working immediately.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.apps.title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te($mcpSignInAvailable ? 'profile.apps.desc_oauth' : 'profile.apps.desc_tokens'); ?></p>
 <?php if (!$mcpTokensAvailable): ?>
-                                <p class="text-muted" id="connectedAppsUnavailable">Not available yet.</p>
+                                <p class="text-muted" id="connectedAppsUnavailable"><?php echo te('profile.security.not_available'); ?></p>
 <?php else: ?>
                                 <div id="connectedAppsAlert"></div>
 
-<?php if ($mcpSignInAvailable): ?>
-                                <p id="connectedAppsGrantsEmpty" class="text-muted d-none">No apps are connected yet. An app that offers a "Connect" or "Sign in" button appears here once you approve it.</p>
-<?php else: ?>
-                                <p id="connectedAppsGrantsEmpty" class="text-muted d-none">No apps are connected yet.</p>
-<?php endif; ?>
+                                <p id="connectedAppsGrantsEmpty" class="text-muted d-none"><?php echo te($mcpSignInAvailable ? 'profile.apps.grants_empty_oauth' : 'profile.apps.grants_empty_tokens'); ?></p>
                                 <ul id="connectedAppsGrantList" class="list-group mb-2"></ul>
 
-                                <h4 class="ms-card__subtitle mt-4">Access tokens</h4>
-                                <p class="form-text">For apps that ask you to paste a token. Each one is shown once when you create it. Changing your password or email address revokes them all.</p>
+                                <h4 class="ms-card__subtitle mt-4"><?php echo te('profile.apps.tokens_title'); ?></h4>
+                                <p class="form-text"><?php echo te('profile.apps.tokens_help'); ?></p>
 
                                 <div class="mb-3">
-                                    <label class="form-label" for="connectedAppsName">Name</label>
-                                    <input type="text" class="form-control" id="connectedAppsName" maxlength="64" placeholder="For example: Claude Desktop" style="max-width:320px;">
+                                    <label class="form-label" for="connectedAppsName"><?php echo te('profile.apps.name_label'); ?></label>
+                                    <input type="text" class="form-control" id="connectedAppsName" maxlength="64" placeholder="<?php echo te('profile.apps.name_placeholder'); ?>" style="max-width:320px;">
                                 </div>
                                 <div class="mb-3">
-                                    <label class="form-label" for="connectedAppsScope">Access</label>
+                                    <label class="form-label" for="connectedAppsScope"><?php echo te('profile.apps.access_label'); ?></label>
                                     <select id="connectedAppsScope" class="form-select" style="max-width:320px;">
-                                        <option value="read" selected>Read only</option>
-                                        <option value="read,write">Read and change</option>
+                                        <option value="read" selected><?php echo te('profile.apps.scope_read'); ?></option>
+                                        <option value="read,write"><?php echo te('profile.apps.scope_write'); ?></option>
                                     </select>
-                                    <div class="form-text">Read only can see your addresses and messages. Read and change can also create addresses and change settings.</div>
+                                    <div class="form-text"><?php echo te('profile.apps.access_help'); ?></div>
                                 </div>
                                 <div class="mb-3">
-                                    <label class="form-label" for="connectedAppsExpiry">Expires</label>
+                                    <label class="form-label" for="connectedAppsExpiry"><?php echo te('profile.apps.expires_label'); ?></label>
                                     <select id="connectedAppsExpiry" class="form-select" style="max-width:320px;">
-                                        <option value="0" selected>Never</option>
-                                        <option value="30">After 30 days</option>
-                                        <option value="90">After 90 days</option>
-                                        <option value="365">After 365 days</option>
+<?php foreach (mcpTokenExpiryChoices() as $expiryDays): ?>
+                                        <option value="<?php echo (int) $expiryDays; ?>"<?php echo $expiryDays === 0 ? ' selected' : ''; ?>><?php echo $expiryDays === 0 ? te('profile.apps.expires_never') : te('profile.apps.expires_after', ['days' => $expiryDays]); ?></option>
+<?php endforeach; ?>
                                     </select>
                                 </div>
-                                <button type="button" id="connectedAppsCreateBtn" class="btn btn-secondary">Create access token</button>
-                                <div id="connectedAppsProNote" class="form-text text-muted d-none">Creating access tokens requires a Pro account.</div>
+                                <button type="button" id="connectedAppsCreateBtn" class="btn btn-secondary"><?php echo te('profile.apps.create_btn'); ?></button>
+                                <div id="connectedAppsProNote" class="form-text text-muted d-none"><?php echo te('profile.apps.pro_note'); ?></div>
 
                                 <div id="connectedAppsNewToken" class="d-none mt-3">
                                     <div class="alert alert-warning mb-2">
-                                        <strong>Copy this access token now.</strong> It is shown this one time only — if you lose it, revoke it and create another.
+                                        <?php echo tHtml('profile.apps.token_once', [], ['strong' => '<strong>', 'strong_end' => '</strong>']); ?>
                                     </div>
                                     <div class="d-flex align-items-center flex-wrap" style="gap:8px;">
                                         <code id="connectedAppsNewTokenValue" style="word-break:break-all;"></code>
-                                        <button type="button" id="connectedAppsCopyBtn" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                        <button type="button" id="connectedAppsCopyBtn" class="btn btn-sm btn-outline-secondary"><?php echo te('profile.feeds.copy'); ?></button>
                                     </div>
                                 </div>
 
-                                <p id="connectedAppsEmpty" class="text-muted d-none">No access tokens yet.</p>
+                                <p id="connectedAppsEmpty" class="text-muted d-none"><?php echo te('profile.apps.tokens_empty'); ?></p>
                                 <ul id="connectedAppsList" class="list-group mb-2"></ul>
 
                                 <!-- How to connect (#324, #331 step 6). The lead
@@ -548,143 +550,144 @@ $mcpDesktopConfig = '{
                                      can read leaves Mail Shield for whoever runs
                                      that client, so the line that says so sits with
                                      them. -->
-                                <h4 class="ms-card__subtitle mt-4">How to connect</h4>
+<?php /* The endpoint goes into these sentences as a placeholder, never as part of a catalog value. */ ?>
+                                <h4 class="ms-card__subtitle mt-4"><?php echo te('profile.apps.connect_title'); ?></h4>
 <?php if ($mcpSignInAvailable): ?>
-                                <p class="form-text">Add <code><?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?></code> in your app and sign in when it asks &mdash; Claude.ai, a Claude Desktop custom connector and Claude Code all connect that way. Approve the request and the app appears above. Message content the app reads is sent to whoever runs it, so only connect a client you trust.</p>
-                                <p class="form-text">For a client that only accepts a header, give it one of your access tokens instead:</p>
+                                <p class="form-text"><?php echo tHtml('profile.apps.connect_oauth', ['endpoint' => $mcpEndpoint], ['code' => '<code>', 'code_end' => '</code>']); ?></p>
+                                <p class="form-text"><?php echo te('profile.apps.connect_header'); ?></p>
 <?php else: ?>
-                                <p class="form-text">Point your app at <code><?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?></code> and give it one of your access tokens as a bearer token. Message content the app reads is sent to whoever runs it, so only connect a client you trust.</p>
+                                <p class="form-text"><?php echo tHtml('profile.apps.connect_tokens', ['endpoint' => $mcpEndpoint], ['code' => '<code>', 'code_end' => '</code>']); ?></p>
 <?php endif; ?>
-                                <p class="form-text mb-1">Claude Code</p>
+                                <p class="form-text mb-1"><?php echo te('profile.apps.client_claude_code'); ?></p>
                                 <pre class="p-2 border rounded mb-3" style="white-space:pre-wrap; word-break:break-word;"><code>claude mcp add --transport http mailshield <?php echo htmlspecialchars($mcpEndpoint, ENT_QUOTES, 'UTF-8'); ?> --header "Authorization: Bearer &lt;token&gt;"</code></pre>
-                                <p class="form-text mb-1">Claude Desktop &mdash; add to <code>claude_desktop_config.json</code> (needs Node.js)</p>
+                                <p class="form-text mb-1"><?php echo tHtml('profile.apps.client_claude_desktop', [], ['code' => '<code>', 'code_end' => '</code>']); ?></p>
                                 <pre class="p-2 border rounded mb-0" style="white-space:pre-wrap; word-break:break-word;"><code><?php echo htmlspecialchars($mcpDesktopConfig, ENT_QUOTES, 'UTF-8'); ?></code></pre>
-                                <p class="form-text">Replace <code>&lt;token&gt;</code> with the token from the moment you created it.</p>
+                                <p class="form-text"><?php echo tHtml('profile.apps.connect_replace', ['placeholder' => '<token>'], ['code' => '<code>', 'code_end' => '</code>']); ?></p>
 <?php endif; ?>
                             </div>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Two-factor authentication</h3>
-                                <p class="ms-card__desc">A code from your authenticator app, on top of your password.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.twofa.title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.twofa.desc'); ?></p>
                                 <div id="twoFactorSection">
-                                    <p id="tfaStatusLine" class="mb-2">Loading status...</p>
-                                    <p class="form-text">Protects password sign-in with a code from your authenticator app. Email sign-in links already require access to your inbox and keep working as before.</p>
-                                    <p class="form-text">Lost your authenticator? You can always sign in with your email login link instead, then turn off two-factor authentication here.</p>
+                                    <p id="tfaStatusLine" class="mb-2"><?php echo te('profile.twofa.status_loading'); ?></p>
+                                    <p class="form-text"><?php echo te('profile.twofa.help_password'); ?></p>
+                                    <p class="form-text"><?php echo te('profile.twofa.help_lost'); ?></p>
                                     <div id="tfaNoPasswordNote" class="alert alert-info d-none">
-                                        Two-factor authentication only takes effect once you have a password set — <a href="#proPassword">set one below</a> to activate protection after enrolling.
+                                        <?php echo tHtml('profile.twofa.no_password', [], ['link' => '<a href="#proPassword">', 'link_end' => '</a>']); ?>
                                     </div>
                                     <div id="tfaAlert"></div>
 
                                     <div id="tfaDisabledState" class="d-none">
-                                        <button type="button" id="tfaEnableBtn" class="btn btn-primary">Enable 2FA</button>
+                                        <button type="button" id="tfaEnableBtn" class="btn btn-primary"><?php echo te('profile.twofa.enable_btn'); ?></button>
                                     </div>
 
                                     <div id="tfaEnrollStep" class="d-none">
-                                        <p>Scan with 1Password, Authy, Google Authenticator, or a similar app.</p>
+                                        <p><?php echo te('profile.twofa.scan'); ?></p>
                                         <div id="tfaQrContainer" class="mb-2"></div>
                                         <details class="mb-3">
-                                            <summary style="cursor:pointer;">Can't scan?</summary>
+                                            <summary style="cursor:pointer;"><?php echo te('profile.twofa.cant_scan'); ?></summary>
                                             <div class="mt-2 d-flex align-items-center flex-wrap" style="gap:8px;">
                                                 <code id="tfaManualKey"></code>
-                                                <button type="button" id="tfaCopyKeyBtn" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                                <button type="button" id="tfaCopyKeyBtn" class="btn btn-sm btn-outline-secondary"><?php echo te('profile.feeds.copy'); ?></button>
                                             </div>
                                         </details>
                                         <div class="mb-2">
-                                            <label class="form-label" for="tfaCodeInput">Enter the 6-digit code from your app</label>
+                                            <label class="form-label" for="tfaCodeInput"><?php echo te('profile.twofa.code_label'); ?></label>
                                             <input type="text" class="form-control" id="tfaCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
                                         </div>
-                                        <button type="button" id="tfaConfirmBtn" class="btn btn-primary">Confirm and enable</button>
-                                        <button type="button" id="tfaCancelEnrollBtn" class="btn btn-link">Cancel</button>
+                                        <button type="button" id="tfaConfirmBtn" class="btn btn-primary"><?php echo te('profile.twofa.confirm_btn'); ?></button>
+                                        <button type="button" id="tfaCancelEnrollBtn" class="btn btn-link"><?php echo te('profile.common.cancel'); ?></button>
                                     </div>
 
                                     <div id="tfaRecoveryCodesBox" class="d-none">
                                         <div class="alert alert-warning">
-                                            <strong>Save these recovery codes now.</strong> They are shown this one time only. Store them somewhere safe — each one can be used once if you lose access to your authenticator app.
+                                            <?php echo tHtml('profile.twofa.recovery_once', [], ['strong' => '<strong>', 'strong_end' => '</strong>']); ?>
                                         </div>
                                         <pre id="tfaRecoveryCodesList" class="p-3 border rounded" style="white-space:pre-wrap; word-break:break-word;"></pre>
                                         <div class="mb-2">
-                                            <button type="button" id="tfaCopyRecoveryBtn" class="btn btn-sm btn-outline-secondary">Copy all</button>
-                                            <button type="button" id="tfaDownloadRecoveryBtn" class="btn btn-sm btn-outline-secondary">Download as .txt</button>
+                                            <button type="button" id="tfaCopyRecoveryBtn" class="btn btn-sm btn-outline-secondary"><?php echo te('profile.twofa.copy_all'); ?></button>
+                                            <button type="button" id="tfaDownloadRecoveryBtn" class="btn btn-sm btn-outline-secondary"><?php echo te('profile.twofa.download'); ?></button>
                                         </div>
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" type="checkbox" id="tfaSavedCodesCheck">
-                                            <label class="form-check-label" for="tfaSavedCodesCheck">I have saved my codes</label>
+                                            <label class="form-check-label" for="tfaSavedCodesCheck"><?php echo te('profile.twofa.saved_check'); ?></label>
                                         </div>
-                                        <button type="button" id="tfaCloseRecoveryBtn" class="btn btn-primary" disabled>Done</button>
+                                        <button type="button" id="tfaCloseRecoveryBtn" class="btn btn-primary" disabled><?php echo te('profile.twofa.done'); ?></button>
                                     </div>
 
                                     <div id="tfaEnabledState" class="d-none">
                                         <div id="tfaLowCodesWarning" class="alert alert-warning d-none">
-                                            You have <span id="tfaCodesLeftCount"></span> recovery codes left.
-                                            <button type="button" id="tfaRegenBtn" class="btn btn-sm btn-warning ms-2">Generate new codes</button>
+                                            <?php echo tHtml('profile.twofa.low_codes', [], ['count' => '<span id="tfaCodesLeftCount"></span>']); ?>
+                                            <button type="button" id="tfaRegenBtn" class="btn btn-sm btn-warning ms-2"><?php echo te('profile.twofa.regen_btn'); ?></button>
                                         </div>
-                                        <button type="button" id="tfaDisableBtn" class="btn btn-outline-danger">Disable 2FA</button>
+                                        <button type="button" id="tfaDisableBtn" class="btn btn-outline-danger"><?php echo te('profile.twofa.disable_btn'); ?></button>
 
                                         <div id="tfaTrustedDevicesSection" class="mt-4">
-                                            <h4 class="ms-card__subtitle">Trusted devices</h4>
-                                            <p class="form-text">Browsers where you checked "Remember this browser" at sign-in skip the code for 30 days. Revoke a device to require the code there again.</p>
+                                            <h4 class="ms-card__subtitle"><?php echo te('profile.twofa.trusted_title'); ?></h4>
+                                            <p class="form-text"><?php echo te('profile.twofa.trusted_help', ['days' => $twofaTrustedDays]); ?></p>
                                             <div id="tfaTrustedDevicesAlert"></div>
-                                            <p id="tfaTrustedDevicesEmpty" class="text-muted d-none">No trusted devices.</p>
+                                            <p id="tfaTrustedDevicesEmpty" class="text-muted d-none"><?php echo te('profile.twofa.trusted_none'); ?></p>
                                             <ul id="tfaTrustedDevicesList" class="list-group mb-2"></ul>
-                                            <button type="button" id="tfaRevokeAllDevicesBtn" class="btn btn-sm btn-outline-danger d-none">Revoke all</button>
+                                            <button type="button" id="tfaRevokeAllDevicesBtn" class="btn btn-sm btn-outline-danger d-none"><?php echo te('profile.twofa.revoke_all'); ?></button>
                                         </div>
                                     </div>
 
                                     <div id="tfaRegenForm" class="d-none mt-2">
-                                        <label class="form-label" for="tfaRegenCodeInput">Enter a current code to generate new recovery codes</label>
+                                        <label class="form-label" for="tfaRegenCodeInput"><?php echo te('profile.twofa.regen_label'); ?></label>
                                         <input type="text" class="form-control mb-2" id="tfaRegenCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
-                                        <button type="button" id="tfaRegenConfirmBtn" class="btn btn-primary btn-sm">Generate</button>
-                                        <button type="button" id="tfaRegenCancelBtn" class="btn btn-link btn-sm">Cancel</button>
+                                        <button type="button" id="tfaRegenConfirmBtn" class="btn btn-primary btn-sm"><?php echo te('profile.twofa.generate'); ?></button>
+                                        <button type="button" id="tfaRegenCancelBtn" class="btn btn-link btn-sm"><?php echo te('profile.common.cancel'); ?></button>
                                     </div>
 
                                     <div id="tfaDisableForm" class="d-none mt-2">
                                         <div id="tfaDisablePasswordField" class="mb-2">
-                                            <label class="form-label" for="tfaDisablePasswordInput">Enter your password to confirm</label>
+                                            <label class="form-label" for="tfaDisablePasswordInput"><?php echo te('profile.twofa.password_label'); ?></label>
                                             <!-- The width constraint sits on the wrapper, not the
                                                  field: the toggle is positioned against the wrapper,
                                                  so the two have to be the same box. -->
                                             <div class="ms-password-field" style="max-width:260px;">
                                                 <input type="password" class="form-control" id="tfaDisablePasswordInput">
-                                                <button type="button" class="ms-password-toggle" data-target="tfaDisablePasswordInput" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                                <button type="button" class="ms-password-toggle" data-target="tfaDisablePasswordInput" aria-label="<?php echo te('profile.password.show'); ?>" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
                                             </div>
                                         </div>
-                                        <button type="button" id="tfaDisableConfirmBtn" class="btn btn-danger btn-sm">Disable 2FA</button>
-                                        <button type="button" id="tfaDisableCancelBtn" class="btn btn-link btn-sm">Cancel</button>
+                                        <button type="button" id="tfaDisableConfirmBtn" class="btn btn-danger btn-sm"><?php echo te('profile.twofa.disable_btn'); ?></button>
+                                        <button type="button" id="tfaDisableCancelBtn" class="btn btn-link btn-sm"><?php echo te('profile.common.cancel'); ?></button>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Password</h3>
-                                <p class="ms-card__desc">Set one to sign in without waiting for an email link.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.password.title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.password.desc'); ?></p>
                                 <!-- Current-password field removed: users can change password without supplying previous password -->
                                 <div class="mb-3">
-                                    <label class="form-label">New password</label>
+                                    <label class="form-label"><?php echo te('profile.password.new_label'); ?></label>
                                     <div class="ms-password-field">
                                         <input type="password" class="form-control" id="proPassword" />
-                                        <button type="button" class="ms-password-toggle" data-target="proPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                        <button type="button" class="ms-password-toggle" data-target="proPassword" aria-label="<?php echo te('profile.password.show'); ?>" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
                                     </div>
                                 </div>
                                 <div class="mb-3">
-                                    <label class="form-label">Confirm password</label>
+                                    <label class="form-label"><?php echo te('profile.password.confirm_label'); ?></label>
                                     <div class="ms-password-field">
                                         <input type="password" class="form-control" id="proPasswordConfirm" />
-                                        <button type="button" class="ms-password-toggle" data-target="proPasswordConfirm" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                        <button type="button" class="ms-password-toggle" data-target="proPasswordConfirm" aria-label="<?php echo te('profile.password.show'); ?>" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
                                     </div>
                                 </div>
-                                <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
+                                <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary"><?php echo te('profile.password.set_btn'); ?></button>
                             </div>
                         </section>
 
                         <section class="ms-settings__section" id="settings-agent">
                             <h2 class="ms-settings__section-title"><?php echo te('profile.section.agent'); ?></h2>
-                            <p class="ms-settings__section-lede">Keys for the agent you run on your own mail server.</p>
+                            <p class="ms-settings__section-lede"><?php echo te('profile.agent.lede'); ?></p>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Client signing keys</h3>
-                                <p class="ms-card__desc">The agent verifies signed list-sync payloads against these keys. Rotate them if one may have leaked.</p>
-                                <button type="button" id="rotateSigningKeysBtn" class="btn btn-primary">Rotate signing keys</button>
-                                <div id="signingKeysProNote" class="form-text text-muted d-none">Client signing keys require a Pro account.</div>
+                                <h3 class="ms-card__title"><?php echo te('profile.agent.title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.agent.desc'); ?></p>
+                                <button type="button" id="rotateSigningKeysBtn" class="btn btn-primary"><?php echo te('profile.agent.rotate_btn'); ?></button>
+                                <div id="signingKeysProNote" class="form-text text-muted d-none"><?php echo te('profile.agent.pro_note'); ?></div>
                             </div>
                         </section>
 
@@ -692,9 +695,9 @@ $mcpDesktopConfig = '{
                             <h2 class="ms-settings__section-title"><?php echo te('profile.section.delete'); ?></h2>
 
                             <div class="ms-card">
-                                <p class="ms-card__desc">Permanently delete your account and all associated Pro settings. This cannot be undone.</p>
-                                <p class="ms-card__desc">A confirmation email with a deletion link is sent to your address first, so nothing happens until you click it.</p>
-                                <button type="button" id="deleteAccountBtn" class="btn btn-danger">Delete account</button>
+                                <p class="ms-card__desc"><?php echo te('profile.delete.desc_permanent'); ?></p>
+                                <p class="ms-card__desc"><?php echo te('profile.delete.desc_email'); ?></p>
+                                <button type="button" id="deleteAccountBtn" class="btn btn-danger"><?php echo te('profile.delete.btn'); ?></button>
                             </div>
                         </section>
                     </form>
@@ -708,10 +711,20 @@ $mcpDesktopConfig = '{
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- NOTE: app.js is intentionally NOT included here to avoid auto-refresh email polling -->
 <?php
-// The scripts' own strings (partials/i18n_js.php, read by msT() below): this page's
-// profile.* keys, which the Automation and Security cards of the later steps share, and
-// the four expiry-line texts the app pages use (app.common.expiry_*).
-$msI18nJs = ['profile.', 'app.common.expiry_'];
+// The scripts' own strings (partials/i18n_js.php, read by msT() below): the groups of
+// profile.* keys the cards' scripts use, and the four expiry-line texts the app pages use
+// (app.common.expiry_*). profile.apps.* is listed key group by key group: its sentences
+// are drawn on the server, both OAuth branches of "How to connect" among them, and with
+// OAuth off the page must not carry the sign-in wording at all, not even in this JSON.
+$msI18nJs = [
+    'profile.common.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'profile.automation.',
+    'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.security.', 'profile.twofa.',
+    'profile.password.', 'profile.agent.', 'profile.delete.',
+    'profile.apps.scope_', 'profile.apps.used_', 'profile.apps.expiry_', 'profile.apps.grant_meta', 'profile.apps.token_meta',
+    'profile.apps.connected_app', 'profile.apps.token_default_name', 'profile.apps.revoke', 'profile.apps.name_required',
+    'profile.apps.created', 'profile.apps.error_create',
+    'app.common.expiry_',
+];
 require __DIR__ . '/partials/i18n_js.php';
 ?>
     <script>
@@ -926,21 +939,21 @@ require __DIR__ . '/partials/i18n_js.php';
                 e.preventDefault();
                 var password = $('#proPassword').val();
                 var confirm = $('#proPasswordConfirm').val();
-                $('#proProfileAlert').html('<div class="alert alert-info">Saving password...</div>');
+                profileAlert('info', msT('profile.password.saving', 'Saving password...'));
                 $.post('pro_profile.php', { action: 'set_password', password: password, confirm: confirm }, function(res){
                     if (res && res.success) {
-                        $('#proProfileAlert').html('');
+                        $('#proProfileAlert').empty();
                         $('#proPassword').val('');
                         $('#proPasswordConfirm').val('');
                         $('#saveProfilePasswordBtn')
                             .removeClass('btn-secondary')
                             .addClass('btn-success')
-                            .text('Verification email sent');
+                            .text(msT('profile.password.sent_btn', 'Verification email sent'));
                     } else {
-                        $('#proProfileAlert').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Failed to set password') + '</div>');
+                        profileAlert('danger', res && res.error ? res.error : msT('profile.password.failed', 'Failed to set password'));
                     }
                 }, 'json').fail(function(){
-                    $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+                    profileAlert('danger', msT('profile.common.network_error', 'Network error'));
                 });
             });
 
@@ -966,25 +979,25 @@ require __DIR__ . '/partials/i18n_js.php';
 
                 if (st.enabled) {
                     var left = parseInt(st.recovery_codes_left || 0, 10);
-                    var text = 'Active';
+                    var text = msT('profile.twofa.status_active', 'Active');
                     if (st.confirmed_at) {
                         var d = new Date(st.confirmed_at + ' UTC');
                         var dd = String(d.getUTCDate()).padStart(2, '0');
                         var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
                         var yyyy = d.getUTCFullYear();
-                        text += ' since ' + dd + '/' + mm + '/' + yyyy;
+                        text = msT('profile.twofa.status_active_since', 'Active since {date}', { date: dd + '/' + mm + '/' + yyyy });
                     }
-                    text += ' — ' + left + (left === 1 ? ' recovery code left' : ' recovery codes left');
-                    $('#tfaStatusLine').text(text);
+                    var codesLeft = left === 1 ? msT('profile.twofa.codes_one', '{count} recovery code left', { count: left }) : msT('profile.twofa.codes_other', '{count} recovery codes left', { count: left });
+                    $('#tfaStatusLine').text(msT('profile.twofa.status_join', '{status} — {left}', { status: text, left: codesLeft }));
                     $('#tfaCodesLeftCount').text(left);
                     $('#tfaLowCodesWarning').toggleClass('d-none', left > 3);
                     $('#tfaEnabledState').removeClass('d-none');
                     tfaLoadTrustedDevices();
                 } else if (st.pending) {
-                    $('#tfaStatusLine').text('Setup started, not yet confirmed');
+                    $('#tfaStatusLine').text(msT('profile.twofa.status_pending', 'Setup started, not yet confirmed'));
                     $('#tfaDisabledState').removeClass('d-none');
                 } else {
-                    $('#tfaStatusLine').text('Disabled');
+                    $('#tfaStatusLine').text(msT('profile.twofa.status_disabled', 'Disabled'));
                     $('#tfaDisabledState').removeClass('d-none');
                 }
             }
@@ -994,15 +1007,15 @@ require __DIR__ . '/partials/i18n_js.php';
                     if (res && res.success) {
                         tfaRenderStatus(res);
                     } else {
-                        $('#tfaStatusLine').text('Could not load status');
+                        $('#tfaStatusLine').text(msT('profile.twofa.status_failed', 'Could not load status'));
                     }
                 }, 'json').fail(function(){
-                    $('#tfaStatusLine').text('Network error loading status');
+                    $('#tfaStatusLine').text(msT('profile.twofa.status_network', 'Network error loading status'));
                 });
             }
 
             $('#tfaEnableBtn').on('click', function(){
-                tfaAlert('info', 'Starting setup...');
+                tfaAlert('info', msT('profile.twofa.starting', 'Starting setup...'));
                 $.post('pro_profile.php', { action: 'totp_begin_enroll' }, function(res){
                     if (res && res.success) {
                         $('#tfaAlert').empty();
@@ -1013,22 +1026,22 @@ require __DIR__ . '/partials/i18n_js.php';
                             $('#tfaQrContainer').html(res.qr_svg);
                             $('#tfaEnrollStep details').prop('open', false);
                         } else {
-                            $('#tfaQrContainer').empty().append($('<p>').addClass('text-muted').text('QR code unavailable — enter the key manually below.'));
+                            $('#tfaQrContainer').empty().append($('<p>').addClass('text-muted').text(msT('profile.twofa.qr_unavailable', 'QR code unavailable — enter the key manually below.')));
                             $('#tfaEnrollStep details').prop('open', true);
                         }
                         $('#tfaManualKey').text(res.manual_key || '');
                         $('#tfaCodeInput').val('').trigger('focus');
                     } else {
-                        tfaAlert('danger', (res && res.error) ? res.error : 'Could not start setup');
+                        tfaAlert('danger', (res && res.error) ? res.error : msT('profile.twofa.start_failed', 'Could not start setup'));
                     }
-                }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+                }, 'json').fail(function(){ tfaAlert('danger', msT('profile.common.network_error', 'Network error')); });
             });
 
             $('#tfaCopyKeyBtn').on('click', function(){
                 var key = ($('#tfaManualKey').text() || '').replace(/\s+/g, '');
                 if (!key) return;
                 navigator.clipboard && navigator.clipboard.writeText(key).catch(function(){
-                    alert('Could not copy to clipboard');
+                    alert(msT('profile.feeds.copy_failed', 'Could not copy to clipboard'));
                 });
             });
 
@@ -1043,8 +1056,8 @@ require __DIR__ . '/partials/i18n_js.php';
 
             $('#tfaConfirmBtn').on('click', function(){
                 var code = ($('#tfaCodeInput').val() || '').trim();
-                if (!code) { tfaAlert('danger', 'Enter the 6-digit code'); return; }
-                tfaAlert('info', 'Confirming...');
+                if (!code) { tfaAlert('danger', msT('profile.twofa.enter_code', 'Enter the 6-digit code')); return; }
+                tfaAlert('info', msT('profile.twofa.confirming', 'Confirming...'));
                 $.post('pro_profile.php', { action: 'totp_confirm_enroll', code: code }, function(res){
                     if (res && res.success) {
                         $('#tfaAlert').empty();
@@ -1054,9 +1067,9 @@ require __DIR__ . '/partials/i18n_js.php';
                         $('#tfaQrContainer').empty();
                         tfaShowRecoveryCodes(res.recovery_codes || []);
                     } else {
-                        tfaAlert('danger', (res && res.error) ? res.error : 'Could not confirm code');
+                        tfaAlert('danger', (res && res.error) ? res.error : msT('profile.twofa.confirm_failed', 'Could not confirm code'));
                     }
-                }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+                }, 'json').fail(function(){ tfaAlert('danger', msT('profile.common.network_error', 'Network error')); });
             });
 
             function tfaShowRecoveryCodes(codes) {
@@ -1077,7 +1090,7 @@ require __DIR__ . '/partials/i18n_js.php';
                 var codes = $('#tfaRecoveryCodesBox').data('codes') || [];
                 if (!codes.length) return;
                 navigator.clipboard && navigator.clipboard.writeText(codes.join('\n')).catch(function(){
-                    alert('Could not copy to clipboard');
+                    alert(msT('profile.feeds.copy_failed', 'Could not copy to clipboard'));
                 });
             });
 
@@ -1113,8 +1126,8 @@ require __DIR__ . '/partials/i18n_js.php';
 
             $('#tfaRegenConfirmBtn').on('click', function(){
                 var code = ($('#tfaRegenCodeInput').val() || '').trim();
-                if (!code) { tfaAlert('danger', 'Enter a current code'); return; }
-                tfaAlert('info', 'Generating new codes...');
+                if (!code) { tfaAlert('danger', msT('profile.twofa.enter_current', 'Enter a current code')); return; }
+                tfaAlert('info', msT('profile.twofa.regenerating', 'Generating new codes...'));
                 $.post('pro_profile.php', { action: 'totp_recovery_regenerate', code: code }, function(res){
                     if (res && res.success) {
                         $('#tfaAlert').empty();
@@ -1123,9 +1136,9 @@ require __DIR__ . '/partials/i18n_js.php';
                         $('#tfaEnabledState').addClass('d-none');
                         tfaShowRecoveryCodes(res.recovery_codes || []);
                     } else {
-                        tfaAlert('danger', (res && res.error) ? res.error : 'Could not generate new codes');
+                        tfaAlert('danger', (res && res.error) ? res.error : msT('profile.twofa.regen_failed', 'Could not generate new codes'));
                     }
-                }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+                }, 'json').fail(function(){ tfaAlert('danger', msT('profile.common.network_error', 'Network error')); });
             });
 
             $('#tfaDisableBtn').on('click', function(){
@@ -1145,17 +1158,17 @@ require __DIR__ . '/partials/i18n_js.php';
                 if (tfaState.has_password) {
                     post.password = $('#tfaDisablePasswordInput').val();
                 }
-                tfaAlert('info', 'Disabling...');
+                tfaAlert('info', msT('profile.twofa.disabling', 'Disabling...'));
                 $.post('pro_profile.php', post, function(res){
                     if (res && res.success) {
                         $('#tfaDisableForm').addClass('d-none');
                         $('#tfaDisablePasswordInput').val('');
-                        tfaAlert('success', 'Two-factor authentication disabled');
+                        tfaAlert('success', msT('profile.twofa.disabled', 'Two-factor authentication disabled'));
                         tfaLoadStatus();
                     } else {
-                        tfaAlert('danger', (res && res.error) ? res.error : 'Could not disable two-factor authentication');
+                        tfaAlert('danger', (res && res.error) ? res.error : msT('profile.twofa.error_disable', 'Could not disable two-factor authentication'));
                     }
-                }, 'json').fail(function(){ tfaAlert('danger', 'Network error'); });
+                }, 'json').fail(function(){ tfaAlert('danger', msT('profile.common.network_error', 'Network error')); });
             });
 
             function tfaFormatDate(s) {
@@ -1175,15 +1188,17 @@ require __DIR__ . '/partials/i18n_js.php';
                 devices.forEach(function(dev){
                     var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
                     var $info = $('<div>');
-                    $info.append($('<div>').text(dev.label || 'Unknown device'));
+                    $info.append($('<div>').text(dev.label || msT('profile.security.unknown_device', 'Unknown device')));
                     $info.append(
                         $('<div>').addClass('text-muted small').text(
-                            'Added ' + tfaFormatDate(dev.created_at) +
-                            ' — last used ' + tfaFormatDate(dev.last_used_at) +
-                            ' — expires ' + tfaFormatDate(dev.expires_at)
+                            msT('profile.twofa.device_meta', 'Added {created} — last used {used} — expires {expires}', {
+                                created: tfaFormatDate(dev.created_at),
+                                used: tfaFormatDate(dev.last_used_at),
+                                expires: tfaFormatDate(dev.expires_at)
+                            })
                         )
                     );
-                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text('Revoke').data('id', dev.id);
+                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text(msT('profile.apps.revoke', 'Revoke')).data('id', dev.id);
                     $li.append($info).append($btn);
                     $list.append($li);
                 });
@@ -1199,28 +1214,28 @@ require __DIR__ . '/partials/i18n_js.php';
 
             $('#tfaTrustedDevicesList').on('click', 'button', function(){
                 var id = $(this).data('id');
-                if (!window.confirm('Revoke this trusted device? The next sign-in from it will require a code again.')) return;
+                if (!window.confirm(msT('profile.twofa.revoke_confirm', 'Revoke this trusted device? The next sign-in from it will require a code again.'))) return;
                 $.post('pro_profile.php', { action: 'trusted_devices_revoke', id: id }, function(res){
                     if (res && res.success) {
                         tfaLoadTrustedDevices();
                     } else {
-                        $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text((res && res.error) ? res.error : 'Could not revoke device'));
+                        $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text((res && res.error) ? res.error : msT('profile.twofa.revoke_failed', 'Could not revoke device')));
                     }
                 }, 'json').fail(function(){
-                    $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text('Network error'));
+                    $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text(msT('profile.common.network_error', 'Network error')));
                 });
             });
 
             $('#tfaRevokeAllDevicesBtn').on('click', function(){
-                if (!window.confirm('Revoke all trusted devices? Every browser will require a code again at next sign-in.')) return;
+                if (!window.confirm(msT('profile.twofa.revoke_all_confirm', 'Revoke all trusted devices? Every browser will require a code again at next sign-in.'))) return;
                 $.post('pro_profile.php', { action: 'trusted_devices_revoke', all: 1 }, function(res){
                     if (res && res.success) {
                         tfaLoadTrustedDevices();
                     } else {
-                        $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text((res && res.error) ? res.error : 'Could not revoke devices'));
+                        $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text((res && res.error) ? res.error : msT('profile.twofa.revoke_all_failed', 'Could not revoke devices')));
                     }
                 }, 'json').fail(function(){
-                    $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text('Network error'));
+                    $('#tfaTrustedDevicesAlert').empty().append($('<div>').addClass('alert alert-danger').text(msT('profile.common.network_error', 'Network error')));
                 });
             });
 
@@ -1232,7 +1247,7 @@ require __DIR__ . '/partials/i18n_js.php';
             }
 
             function staySignedInPeriod(days) {
-                return days === 1 ? '1 day' : days + ' days';
+                return days === 1 ? msT('profile.hold.day_one', '{count} day', { count: days }) : msT('profile.hold.day_other', '{count} days', { count: days });
             }
 
             function staySignedInRender(res) {
@@ -1251,19 +1266,21 @@ require __DIR__ . '/partials/i18n_js.php';
                 devices.forEach(function(dev){
                     var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
                     var $info = $('<div>');
-                    var $name = $('<div>').text(dev.label || 'Unknown device');
+                    var $name = $('<div>').text(dev.label || msT('profile.security.unknown_device', 'Unknown device'));
                     if (dev.is_current) {
-                        $name.append(' ').append($('<span>').addClass('badge bg-secondary').text('This device'));
+                        $name.append(' ').append($('<span>').addClass('badge bg-secondary').text(msT('profile.security.stay_this_device', 'This device')));
                     }
                     $info.append($name);
                     $info.append(
                         $('<div>').addClass('text-muted small').text(
-                            staySignedInPeriod(dev.days) +
-                            ' — last used ' + tfaFormatDate(dev.last_used_at) +
-                            ' — until ' + tfaFormatDate(dev.expires_at)
+                            msT('profile.security.stay_meta', '{period} — last used {used} — until {until}', {
+                                period: staySignedInPeriod(dev.days),
+                                used: tfaFormatDate(dev.last_used_at),
+                                until: tfaFormatDate(dev.expires_at)
+                            })
                         )
                     );
-                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text('Remove').data('id', dev.id);
+                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text(msT('profile.security.remove', 'Remove')).data('id', dev.id);
                     $li.append($info).append($btn);
                     $list.append($li);
                 });
@@ -1281,35 +1298,35 @@ require __DIR__ . '/partials/i18n_js.php';
                 var days = $('#staySignedInSelect').val();
                 $.post('pro_profile.php', { action: 'stay_signed_in_set', days: days }, function(res){
                     if (res && res.success) {
-                        staySignedInAlert('success', days === '0' ? 'This device signs out when the browser is closed.' : 'This device stays signed in for ' + staySignedInPeriod(parseInt(days, 10)) + '.');
+                        staySignedInAlert('success', days === '0' ? msT('profile.security.stay_saved_session', 'This device signs out when the browser is closed.') : msT('profile.security.stay_saved_days', 'This device stays signed in for {period}.', { period: staySignedInPeriod(parseInt(days, 10)) }));
                         staySignedInLoad();
                     } else {
-                        staySignedInAlert('danger', (res && res.error) ? res.error : 'Could not save the setting');
+                        staySignedInAlert('danger', (res && res.error) ? res.error : msT('profile.security.stay_save_failed', 'Could not save the setting'));
                     }
-                }, 'json').fail(function(){ staySignedInAlert('danger', 'Network error'); });
+                }, 'json').fail(function(){ staySignedInAlert('danger', msT('profile.common.network_error', 'Network error')); });
             });
 
             $('#staySignedInList').on('click', 'button', function(){
                 var id = $(this).data('id');
-                if (!window.confirm('Remove this device? It will have to sign in again the next time its browser is closed.')) return;
+                if (!window.confirm(msT('profile.security.stay_confirm_remove', 'Remove this device? It will have to sign in again the next time its browser is closed.'))) return;
                 $.post('pro_profile.php', { action: 'stay_signed_in_revoke', id: id }, function(res){
                     if (res && res.success) {
                         staySignedInLoad();
                     } else {
-                        staySignedInAlert('danger', (res && res.error) ? res.error : 'Could not remove device');
+                        staySignedInAlert('danger', (res && res.error) ? res.error : msT('profile.security.stay_remove_failed', 'Could not remove device'));
                     }
-                }, 'json').fail(function(){ staySignedInAlert('danger', 'Network error'); });
+                }, 'json').fail(function(){ staySignedInAlert('danger', msT('profile.common.network_error', 'Network error')); });
             });
 
             $('#staySignedInRevokeOthersBtn').on('click', function(){
-                if (!window.confirm('Remove all other devices? They will have to sign in again the next time their browser is closed.')) return;
+                if (!window.confirm(msT('profile.security.stay_confirm_remove_others', 'Remove all other devices? They will have to sign in again the next time their browser is closed.'))) return;
                 $.post('pro_profile.php', { action: 'stay_signed_in_revoke', others: 1 }, function(res){
                     if (res && res.success) {
                         staySignedInLoad();
                     } else {
-                        staySignedInAlert('danger', (res && res.error) ? res.error : 'Could not remove devices');
+                        staySignedInAlert('danger', (res && res.error) ? res.error : msT('profile.security.stay_remove_all_failed', 'Could not remove devices'));
                     }
-                }, 'json').fail(function(){ staySignedInAlert('danger', 'Network error'); });
+                }, 'json').fail(function(){ staySignedInAlert('danger', msT('profile.common.network_error', 'Network error')); });
             });
 
             staySignedInLoad();
@@ -1320,7 +1337,7 @@ require __DIR__ . '/partials/i18n_js.php';
             }
 
             function connectedAppsScopeLabel(scopes) {
-                return scopes === 'read,write' ? 'Read and change' : 'Read only';
+                return scopes === 'read,write' ? msT('profile.apps.scope_write', 'Read and change') : msT('profile.apps.scope_read', 'Read only');
             }
 
             function connectedAppsRender(res) {
@@ -1338,12 +1355,14 @@ require __DIR__ . '/partials/i18n_js.php';
                 grants.forEach(function(t){
                     var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
                     var $info = $('<div>');
-                    $info.append($('<div>').text(t.oauth_client_name || t.name || 'Connected app'));
-                    var meta = connectedAppsScopeLabel(t.scopes) +
-                        ' — connected ' + tfaFormatDate(t.grant_created_at || t.created_at) +
-                        ' — ' + (t.last_used_at ? 'last used ' + tfaFormatDate(t.last_used_at) : 'never used');
+                    $info.append($('<div>').text(t.oauth_client_name || t.name || msT('profile.apps.connected_app', 'Connected app')));
+                    var meta = msT('profile.apps.grant_meta', '{scope} — connected {date} — {used}', {
+                        scope: connectedAppsScopeLabel(t.scopes),
+                        date: tfaFormatDate(t.grant_created_at || t.created_at),
+                        used: t.last_used_at ? msT('profile.apps.used_last', 'last used {date}', { date: tfaFormatDate(t.last_used_at) }) : msT('profile.apps.used_never', 'never used')
+                    });
                     $info.append($('<div>').addClass('text-muted small').text(meta));
-                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text('Revoke').data('id', t.id).data('grant', true);
+                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text(msT('profile.apps.revoke', 'Revoke')).data('id', t.id).data('grant', true);
                     $li.append($info).append($btn);
                     $grantList.append($li);
                 });
@@ -1353,16 +1372,22 @@ require __DIR__ . '/partials/i18n_js.php';
                 manual.forEach(function(t){
                     var $li = $('<li>').addClass('list-group-item d-flex justify-content-between align-items-center flex-wrap');
                     var $info = $('<div>');
-                    $info.append($('<div>').text(t.name || 'Access token'));
-                    var meta = connectedAppsScopeLabel(t.scopes) +
-                        ' — created ' + tfaFormatDate(t.created_at) +
-                        ' — ' + (t.last_used_at ? 'last used ' + tfaFormatDate(t.last_used_at) : 'never used') +
-                        ' — ' + (t.expires_at ? (t.expired ? 'expired ' : 'expires ') + tfaFormatDate(t.expires_at) : 'no expiry');
+                    $info.append($('<div>').text(t.name || msT('profile.apps.token_default_name', 'Access token')));
+                    var expiry = msT('profile.apps.expiry_none', 'no expiry');
+                    if (t.expires_at) {
+                        expiry = t.expired ? msT('profile.apps.expiry_expired', 'expired {date}', { date: tfaFormatDate(t.expires_at) }) : msT('profile.apps.expiry_expires', 'expires {date}', { date: tfaFormatDate(t.expires_at) });
+                    }
+                    var meta = msT('profile.apps.token_meta', '{scope} — created {created} — {used} — {expiry}', {
+                        scope: connectedAppsScopeLabel(t.scopes),
+                        created: tfaFormatDate(t.created_at),
+                        used: t.last_used_at ? msT('profile.apps.used_last', 'last used {date}', { date: tfaFormatDate(t.last_used_at) }) : msT('profile.apps.used_never', 'never used'),
+                        expiry: expiry
+                    });
                     $info.append($('<div>').addClass('text-muted small').text(meta));
                     // The prefix is the identifier the user sees in the list; the
                     // rest of the token exists only in the database as a hash.
                     $info.append($('<div>').addClass('text-muted small').append($('<code>').text(t.token_prefix + '…')));
-                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text('Revoke').data('id', t.id);
+                    var $btn = $('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-danger').text(msT('profile.apps.revoke', 'Revoke')).data('id', t.id);
                     $li.append($info).append($btn);
                     $list.append($li);
                 });
@@ -1379,7 +1404,7 @@ require __DIR__ . '/partials/i18n_js.php';
             $('#connectedAppsCreateBtn').on('click', function(){
                 var name = $.trim($('#connectedAppsName').val() || '');
                 if (!name) {
-                    connectedAppsAlert('danger', 'Give the access token a name.');
+                    connectedAppsAlert('danger', msT('profile.apps.name_required', 'Give the access token a name.'));
                     return;
                 }
                 var $btn = $(this).prop('disabled', true);
@@ -1396,14 +1421,14 @@ require __DIR__ . '/partials/i18n_js.php';
                         $('#connectedAppsNewTokenValue').text(res.token || '');
                         $('#connectedAppsNewToken').removeClass('d-none');
                         $('#connectedAppsName').val('');
-                        connectedAppsAlert('success', 'Access token created. Copy it now — it is not shown again.');
+                        connectedAppsAlert('success', msT('profile.apps.created', 'Access token created. Copy it now — it is not shown again.'));
                         connectedAppsLoad();
                     } else {
-                        connectedAppsAlert('danger', (res && res.error) ? res.error : 'Could not create the access token');
+                        connectedAppsAlert('danger', (res && res.error) ? res.error : msT('profile.apps.error_create', 'Could not create the access token'));
                     }
                 }, 'json').fail(function(){
                     $btn.prop('disabled', false);
-                    connectedAppsAlert('danger', 'Network error');
+                    connectedAppsAlert('danger', msT('profile.common.network_error', 'Network error'));
                 });
             });
 
@@ -1421,17 +1446,17 @@ require __DIR__ . '/partials/i18n_js.php';
                 var id = $(this).data('id');
                 var isGrant = $(this).data('grant') === true;
                 var question = isGrant
-                    ? 'Revoke this connection? The app loses access immediately and has to be approved again.'
-                    : 'Revoke this access token? Any app using it stops working immediately.';
+                    ? msT('profile.apps.revoke_confirm_grant', 'Revoke this connection? The app loses access immediately and has to be approved again.')
+                    : msT('profile.apps.revoke_confirm_token', 'Revoke this access token? Any app using it stops working immediately.');
                 if (!window.confirm(question)) return;
                 $.post('pro_profile.php', { action: 'mcp_token_revoke', id: id }, function(res){
                     if (res && res.success) {
-                        connectedAppsAlert('success', isGrant ? 'Connection revoked.' : 'Access token revoked.');
+                        connectedAppsAlert('success', isGrant ? msT('profile.apps.revoked_grant', 'Connection revoked.') : msT('profile.apps.revoked_token', 'Access token revoked.'));
                         connectedAppsLoad();
                     } else {
-                        connectedAppsAlert('danger', (res && res.error) ? res.error : 'Could not revoke it');
+                        connectedAppsAlert('danger', (res && res.error) ? res.error : msT('profile.apps.revoke_failed', 'Could not revoke it'));
                     }
-                }, 'json').fail(function(){ connectedAppsAlert('danger', 'Network error'); });
+                }, 'json').fail(function(){ connectedAppsAlert('danger', msT('profile.common.network_error', 'Network error')); });
             });
 
             // Nothing to load when the schema is missing: the card rendered its
@@ -1462,18 +1487,18 @@ require __DIR__ . '/partials/i18n_js.php';
 
             $('#rotateSigningKeysBtn').on('click', function(e){
                 e.preventDefault();
-                if (!window.confirm('Rotate client signing keys now?')) {
+                if (!window.confirm(msT('profile.agent.rotate_confirm', 'Rotate client signing keys now?'))) {
                     return;
                 }
-                $('#proProfileAlert').html('<div class="alert alert-info">Rotating signing keys...</div>');
+                profileAlert('info', msT('profile.agent.rotating', 'Rotating signing keys...'));
                 $.post('pro_profile.php', { action: 'rotate_signing_keys' }, function(res){
                     if (res && res.success) {
-                        $('#proProfileAlert').html('<div class="alert alert-success">' + (res.message || 'Signing keys rotated') + '</div>');
+                        profileAlert('success', res.message || msT('profile.agent.rotated', 'Signing keys rotated'));
                     } else {
-                        $('#proProfileAlert').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Failed to rotate signing keys') + '</div>');
+                        profileAlert('danger', res && res.error ? res.error : msT('profile.agent.rotate_failed', 'Failed to rotate signing keys'));
                     }
                 }, 'json').fail(function(){
-                    $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+                    profileAlert('danger', msT('profile.common.network_error', 'Network error'));
                 });
             });
 
@@ -2546,18 +2571,18 @@ require __DIR__ . '/partials/i18n_js.php';
 
             // Delete account handler
             $('#deleteAccountBtn').on('click', function(){
-                if (!confirm('Delete account? This will permanently remove your Pro account and cannot be undone. Continue?')) return;
+                if (!confirm(msT('profile.delete.confirm', 'Delete account? This will permanently remove your Pro account and cannot be undone. Continue?'))) return;
                 var $btn = $(this).prop('disabled', true);
                 $.post('pro_profile.php', { action: 'delete_account' }, function(r){
                     if (r && r.success) {
                         // Indicate mail sent and disable button
-                        $btn.text('Mail sent').removeClass('btn-danger').addClass('btn-success').prop('disabled', true);
-                        $('#proProfileAlert').html('<div class="alert alert-success">A confirmation link has been sent to your email. Click the link to complete account deletion.</div>');
+                        $btn.text(msT('profile.delete.mail_sent_btn', 'Mail sent')).removeClass('btn-danger').addClass('btn-success').prop('disabled', true);
+                        profileAlert('success', msT('profile.delete.sent', 'A confirmation link has been sent to your email. Click the link to complete account deletion.'));
                     } else {
                         $btn.prop('disabled', false);
-                        $('#proProfileAlert').html('<div class="alert alert-danger">' + (r && r.error ? r.error : 'Failed to create deletion request') + '</div>');
+                        profileAlert('danger', r && r.error ? r.error : msT('profile.delete.failed', 'Failed to create deletion request'));
                     }
-                }, 'json').fail(function(){ $btn.prop('disabled', false); $('#proProfileAlert').html('<div class="alert alert-danger">Request failed</div>'); });
+                }, 'json').fail(function(){ $btn.prop('disabled', false); profileAlert('danger', msT('profile.common.request_failed', 'Request failed')); });
             });
 
             // Load token initially
@@ -2666,7 +2691,7 @@ require __DIR__ . '/partials/i18n_js.php';
                 }
 
                 btn.setAttribute('aria-pressed', String(masked));
-                btn.setAttribute('aria-label', masked ? 'Hide password' : 'Show password');
+                btn.setAttribute('aria-label', masked ? msT('profile.password.hide', 'Hide password') : msT('profile.password.show', 'Show password'));
             });
         });
     })();
