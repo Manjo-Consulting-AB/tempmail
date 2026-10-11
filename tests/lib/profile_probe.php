@@ -48,6 +48,8 @@ function ms_pp_build(string $repoRoot): array
         "function requireSameOriginRequest(): bool {\n    global \$config;\n    static \$calls = 0;\n    \$calls++;\n    if (!empty(\$GLOBALS['MS_EXTRA']['origin_flip']) && \$calls > 1) return false;",
         $config
     );
+    // The harness stub accepts every URL; this one refuses a loopback host, like the real check, and gives a port.
+    $config = str_replace("function resolveUrlToPublicTarget(...\$args) { return ['ip' => '127.0.0.1', 'host' => 'localhost']; }\n", "function resolveUrlToPublicTarget(\$url, ...\$rest) { \$h = parse_url(\$url, PHP_URL_HOST); return in_array(\$h, ['127.0.0.1', 'localhost'], true) ? null : ['ip' => \$h, 'host' => \$h, 'port' => 443]; }\n", $config);
     $config .= "\n// Profile probe (tests/lib/profile_probe.php).\n"
         . "if (empty(\$MS_EXTRA['nokeys'])) {\n"
         . "    putenv('PII_ENCRYPTION_KEY=" . MS_AUTH_ENC_KEY . "'); \$_ENV['PII_ENCRYPTION_KEY'] = '" . MS_AUTH_ENC_KEY . "';\n"
@@ -64,6 +66,11 @@ function ms_pp_build(string $repoRoot): array
         'ALTER TABLE pro_users ADD COLUMN email_hash TEXT NULL',
         'ALTER TABLE pro_users ADD COLUMN locale TEXT NULL',
         'ALTER TABLE pro_users ADD COLUMN password_hash TEXT NULL',
+        'ALTER TABLE pro_users ADD COLUMN digest_enabled INTEGER NOT NULL DEFAULT 0',
+        'ALTER TABLE pro_users ADD COLUMN digest_frequency_days INTEGER NULL',
+        'ALTER TABLE pro_users ADD COLUMN digest_last_sent TEXT NULL',
+        'ALTER TABLE pro_users ADD COLUMN digest_hour INTEGER NULL',
+        'ALTER TABLE pro_users ADD COLUMN digest_tz TEXT NULL',
         'ALTER TABLE pro_users ADD COLUMN referral_code TEXT NULL',
         'ALTER TABLE pro_users ADD COLUMN referral_pending_code TEXT NULL',
         'ALTER TABLE pro_users ADD COLUMN bonus_sticky_slots INTEGER NOT NULL DEFAULT 0',
@@ -96,6 +103,26 @@ function ms_pp_reset(array $probe, ?callable $setup = null): void
     if ((int) $pdo->query("SELECT COUNT(*) FROM pragma_table_info('pro_users') WHERE name = 'locale'")->fetchColumn() === 0) {
         $pdo->exec('ALTER TABLE pro_users ADD COLUMN locale TEXT NULL');
     }
+    // Step 5/8 cases break and extend the schema; every request starts from the seeded one.
+    foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'ms_fail%'")->fetchAll(PDO::FETCH_COLUMN) as $trigger) {
+        $pdo->exec('DROP TRIGGER IF EXISTS ' . $trigger);
+    }
+    foreach (['pro_webhooks', 'pro_webhook_deliveries'] as $table) {
+        if ((int) $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{$table}_gone'")->fetchColumn() === 1) {
+            $pdo->exec("ALTER TABLE {$table}_gone RENAME TO {$table}");
+        }
+    }
+    $pdo->exec('DROP TABLE IF EXISTS pro_webhook_addresses');
+    foreach ([['pro_webhooks', 'include_temporary'], ['temp_emails', 'hooks_paused'], ['pro_users', 'feed_token_hash'], ['pro_users', 'feed_token_enc'], ['temp_emails', 'feed_token_hash'], ['temp_emails', 'feed_token_enc']] as [$table, $column]) {
+        if ((int) $pdo->query("SELECT COUNT(*) FROM pragma_table_info('{$table}') WHERE name = '{$column}'")->fetchColumn() === 1) {
+            $pdo->exec("ALTER TABLE {$table} DROP COLUMN {$column}");
+        }
+    }
+    foreach (['pro_webhook_deliveries', 'pro_webhooks'] as $table) {
+        $pdo->exec("DELETE FROM {$table}");
+        $pdo->exec("DELETE FROM sqlite_sequence WHERE name = '{$table}'");
+    }
+    $pdo->exec('DELETE FROM temp_emails WHERE is_personal = 1');
     foreach (['pending_profile_changes', 'retention_holds', 'vouchers', 'redemption_log'] as $table) {
         $pdo->exec("DELETE FROM {$table}");
     }
@@ -250,7 +277,7 @@ function ms_pp_run(array $probe, array $request, ?callable $setup = null, array 
 /** One JSON case by name. $locale is sent as X-MS-Locale (and switches Swedish on). */
 function ms_pp_json(array $probe, string $name, ?string $locale = null): array
 {
-    [$post, $user, $setup, $switches] = ms_pp_json_cases()[$name];
+    [$post, $user, $setup, $switches] = (ms_pp_json_cases() + ms_pp_automation_json_cases())[$name];
     $server = $locale !== null ? ['HTTP_X_MS_LOCALE' => $locale] : [];
     $request = [
         'page' => 'pro_profile.php',
@@ -288,4 +315,176 @@ function ms_pp_page(array $probe, string $name, bool $svApp = false, string $acc
     $server = $acceptLanguage !== '' ? ['HTTP_ACCEPT_LANGUAGE' => $acceptLanguage] : [];
     $extra = ['server' => $server, 'locales' => $locales ?? ($svApp ? 'en,sv' : 'en'), 'app_sv' => $svApp] + $switches;
     return ms_pp_run($probe, ['page' => 'pro_profile_page.php', 'method' => 'GET', 'user' => $user], $combined, $extra);
+}
+
+/** The per-hook routing schema (migrate_webhook_addresses.php) on top of the probe's pre-migration one. */
+function ms_pp_routing_on(PDO $pdo): void
+{
+    $pdo->exec(ms_test_webhook_address_schema());
+}
+
+/** feed_token_hash / feed_token_enc on both tables (migrate_feed_token_encryption.php). */
+function ms_pp_feed_columns_on(PDO $pdo): void
+{
+    foreach (['pro_users', 'temp_emails'] as $table) {
+        $pdo->exec("ALTER TABLE {$table} ADD COLUMN feed_token_hash TEXT NULL");
+        $pdo->exec("ALTER TABLE {$table} ADD COLUMN feed_token_enc TEXT NULL");
+    }
+}
+
+/** One Sticky address of the trial account, with the fixed id 900 the cases post. */
+function ms_pp_sticky_address(PDO $pdo, array $ids): void
+{
+    $id = ms_test_seed_address($pdo, 'mine', ['pro_user_id' => $ids['trial'], 'is_personal' => 1]);
+    $pdo->exec('UPDATE temp_emails SET id = 900 WHERE id = ' . (int) $id);
+}
+
+/**
+ * Epic #428 step 5/8: the Automation section. [name => [user key, setup, switches]]
+ * for tests/fixtures/i18n/profile.automation.<name>.en.html, which holds just the
+ * <section id="settings-automation"> of the page (the hook list itself is drawn by
+ * the page's script from webhooks_list, so the markup is the same with or without
+ * hooks; the second case proves that and seeds a generic and a Pushover hook).
+ *
+ * @return array<string,array{0:string,1:?callable,2:array<string,mixed>}>
+ */
+function ms_pp_automation_page_cases(): array
+{
+    return [
+        'none' => ['trial', static fn(PDO $pdo, array $ids) => ms_pp_routing_on($pdo), []],
+        'hooks' => ['trial', static function (PDO $pdo, array $ids): void {
+            ms_pp_routing_on($pdo);
+            ms_test_seed_webhook($pdo, $ids['trial'], 'generic', 'all', 'My endpoint');
+            ms_test_seed_webhook($pdo, $ids['trial'], 'pushover', 'all', 'My phone');
+        }, []],
+    ];
+}
+
+/** The <section id="settings-automation"> of a rendered profile page ('' when it is missing). */
+function ms_pp_automation_section(string $html): string
+{
+    $start = strpos($html, '<section class="ms-settings__section" id="settings-automation">');
+    $end = $start === false ? false : strpos($html, '</section>', $start);
+    return $start === false || $end === false ? '' : substr($html, $start, $end + 10 - $start);
+}
+
+/** The Automation section for one case; $svApp offers Swedish in the app area, $acceptLanguage is sent as Accept-Language. */
+function ms_pp_automation_page(array $probe, string $name, bool $svApp = false, string $acceptLanguage = ''): array
+{
+    [$user, $setup, $switches] = ms_pp_automation_page_cases()[$name];
+    $extra = ['server' => $acceptLanguage !== '' ? ['HTTP_ACCEPT_LANGUAGE' => $acceptLanguage] : [], 'locales' => $svApp ? 'en,sv' : 'en', 'app_sv' => $svApp] + $switches;
+    $r = ms_pp_run($probe, ['page' => 'pro_profile_page.php', 'method' => 'GET', 'user' => $user], $setup, $extra);
+    $r['section'] = ms_pp_automation_section($r['body']);
+    return $r;
+}
+
+/**
+ * Every pro_profile.php answer of the Automation actions that carries an `error`
+ * or a `message` (tests/fixtures/i18n/profile.<name>.en.json). A failure the code
+ * catches is provoked with a trigger or a renamed table (both undone by
+ * ms_pp_reset()). The creating cases all stop before the INSERT, so no test
+ * delivery is ever sent.
+ *
+ * @return array<string,array{0:array<string,mixed>,1:?string,2:?callable,3:array<string,mixed>}>
+ */
+function ms_pp_automation_json_cases(): array
+{
+    $routing = static fn(PDO $pdo, array $ids) => ms_pp_routing_on($pdo);
+    $hook = static function (PDO $pdo, array $ids): void {
+        ms_pp_routing_on($pdo);
+        ms_test_seed_webhook($pdo, $ids['trial'], 'generic', 'all', 'My endpoint');
+    };
+    $address = static fn(PDO $pdo, array $ids) => ms_pp_sticky_address($pdo, $ids);
+    $routedAddress = static function (PDO $pdo, array $ids): void {
+        ms_pp_routing_on($pdo);
+        ms_pp_sticky_address($pdo, $ids);
+    };
+    $feedAddress = static function (PDO $pdo, array $ids): void {
+        ms_pp_feed_columns_on($pdo);
+        ms_pp_sticky_address($pdo, $ids);
+    };
+    $fail = static fn(string $table, string $event, ?callable $before = null): callable => static function (PDO $pdo, array $ids) use ($table, $event, $before): void {
+        if ($before !== null) {
+            $before($pdo, $ids);
+        }
+        $pdo->exec("CREATE TRIGGER ms_fail BEFORE {$event} ON {$table} BEGIN SELECT RAISE(ABORT, 'probe failure'); END");
+    };
+    $gone = static fn(string $table): callable => static function (PDO $pdo, array $ids) use ($table): void {
+        $pdo->exec("ALTER TABLE {$table} RENAME TO {$table}_gone");
+    };
+    $feedCols = static fn(PDO $pdo, array $ids) => ms_pp_feed_columns_on($pdo);
+    $feedCorrupt = static function (PDO $pdo, array $ids): void {
+        ms_pp_feed_columns_on($pdo);
+        $pdo->prepare("UPDATE pro_users SET feed_token_hash = 'h', feed_token_enc = 'not-a-valid-ciphertext' WHERE id = ?")->execute([$ids['trial']]);
+    };
+    $addressCorrupt = static function (PDO $pdo, array $ids): void {
+        ms_pp_feed_columns_on($pdo);
+        ms_pp_sticky_address($pdo, $ids);
+        $pdo->exec("UPDATE temp_emails SET feed_token_hash = 'h', feed_token_enc = 'not-a-valid-ciphertext' WHERE id = 900");
+    };
+    $create = static fn(array $over): array => $over + ['action' => 'webhook_create', 'name' => 'x', 'url' => 'https://8.8.8.8/hook', 'kind' => 'generic'];
+
+    return [
+        'get_digest_settings.user_not_found' => [['action' => 'get_digest_settings'], 'ghost', null, []],
+        'update_digest_settings.ttl_one' => [['action' => 'update_digest_settings', 'digest_enabled' => '1', 'digest_frequency_days' => '1'], 'trial', null, []],
+        'update_digest_settings.frequency' => [['action' => 'update_digest_settings', 'digest_enabled' => '0', 'digest_frequency_days' => '3'], 'trial', null, []],
+        'update_digest_settings.hour' => [['action' => 'update_digest_settings', 'digest_enabled' => '0', 'digest_frequency_days' => '1', 'digest_hour' => '24'], 'trial', null, []],
+        'update_digest_settings.timezone' => [['action' => 'update_digest_settings', 'digest_enabled' => '0', 'digest_frequency_days' => '1', 'digest_tz' => 'Mars/Olympus'], 'trial', null, []],
+        'webhooks_list.failed' => [['action' => 'webhooks_list'], 'trial', $gone('pro_webhooks'), []],
+        'webhook_set_addresses.invalid_origin' => [['action' => 'webhook_set_addresses', 'id' => '1'], 'trial', $hook, ['origin_flip' => true]],
+        'webhook_set_addresses.unavailable' => [['action' => 'webhook_set_addresses', 'id' => '1'], 'trial', null, []],
+        'webhook_set_addresses.invalid_id' => [['action' => 'webhook_set_addresses', 'id' => '0'], 'trial', $routing, []],
+        'webhook_set_addresses.invalid_request' => [['action' => 'webhook_set_addresses', 'id' => '1', 'address_ids' => 'x'], 'trial', $hook, []],
+        'webhook_set_addresses.too_many' => [['action' => 'webhook_set_addresses', 'id' => '1', 'address_ids' => range(1, 51)], 'trial', $hook, []],
+        'webhook_set_addresses.not_found' => [['action' => 'webhook_set_addresses', 'id' => '99'], 'trial', $hook, []],
+        'webhook_set_addresses.address_not_found' => [['action' => 'webhook_set_addresses', 'id' => '1', 'address_ids' => ['999']], 'trial', $hook, []],
+        'webhook_set_addresses.failed' => [['action' => 'webhook_set_addresses', 'id' => '1', 'address_ids' => []], 'trial', $fail('pro_webhooks', 'UPDATE', $hook), []],
+        'feed_get_token.unavailable' => [['action' => 'feed_get_token'], 'trial', $feedCols, []],
+        'feed_get_token.undecryptable' => [['action' => 'feed_get_token'], 'trial', $feedCorrupt, []],
+        'feed_get_token.failed' => [['action' => 'feed_get_token'], 'trial', $fail('pro_users', 'UPDATE'), []],
+        'feed_regenerate.unavailable' => [['action' => 'feed_regenerate'], 'trial', $feedCols, []],
+        'feed_regenerate.failed' => [['action' => 'feed_regenerate'], 'trial', $fail('pro_users', 'UPDATE'), []],
+        'address_feed_get_token.invalid' => [['action' => 'address_feed_get_token', 'id' => '0'], 'trial', $feedCols, []],
+        'address_feed_get_token.not_found' => [['action' => 'address_feed_get_token', 'id' => '999'], 'trial', $feedCols, []],
+        'address_feed_get_token.unavailable' => [['action' => 'address_feed_get_token', 'id' => '900'], 'trial', $feedAddress, []],
+        'address_feed_get_token.undecryptable' => [['action' => 'address_feed_get_token', 'id' => '900'], 'trial', $addressCorrupt, []],
+        'address_feed_get_token.failed' => [['action' => 'address_feed_get_token', 'id' => '900'], 'trial', $fail('temp_emails', 'UPDATE', $address), []],
+        'address_feed_regenerate.invalid' => [['action' => 'address_feed_regenerate', 'id' => '0'], 'trial', $feedCols, []],
+        'address_feed_regenerate.not_found' => [['action' => 'address_feed_regenerate', 'id' => '999'], 'trial', $feedCols, []],
+        'address_feed_regenerate.unavailable' => [['action' => 'address_feed_regenerate', 'id' => '900'], 'trial', $feedAddress, []],
+        'address_feed_regenerate.failed' => [['action' => 'address_feed_regenerate', 'id' => '900'], 'trial', $fail('temp_emails', 'UPDATE', $address), []],
+        'address_feed_disable.invalid' => [['action' => 'address_feed_disable', 'id' => '0'], 'trial', null, []],
+        'address_feed_disable.not_found' => [['action' => 'address_feed_disable', 'id' => '999'], 'trial', null, []],
+        'address_feed_disable.failed' => [['action' => 'address_feed_disable', 'id' => '900'], 'trial', $fail('temp_emails', 'UPDATE', $address), []],
+        'address_hooks_pause.invalid_origin' => [['action' => 'address_hooks_pause', 'id' => '900'], 'trial', $routedAddress, ['origin_flip' => true]],
+        'address_hooks_pause.unavailable' => [['action' => 'address_hooks_pause', 'id' => '900'], 'trial', $address, []],
+        'address_hooks_pause.invalid' => [['action' => 'address_hooks_pause', 'id' => '0'], 'trial', $routing, []],
+        'address_hooks_pause.not_found' => [['action' => 'address_hooks_pause', 'id' => '999'], 'trial', $routing, []],
+        'address_hooks_resume.failed' => [['action' => 'address_hooks_resume', 'id' => '900'], 'trial', $fail('temp_emails', 'UPDATE', $routedAddress), []],
+        'webhook_create.suspicious' => [$create(['name' => 'myscript']), 'trial', null, []],
+        'webhook_create.secret_too_long' => [$create(['secret' => str_repeat('s', 101)]), 'trial', null, []],
+        'webhook_create.url_required' => [$create(['url' => '']), 'trial', null, []],
+        'webhook_create.invalid_url' => [$create(['url' => 'not a url']), 'trial', null, []],
+        'webhook_create.https_only' => [$create(['url' => 'http://8.8.8.8/hook']), 'trial', null, []],
+        'webhook_create.not_public' => [$create(['url' => 'https://127.0.0.1/hook']), 'trial', null, []],
+        'webhook_create.invalid_kind' => [$create(['kind' => 'other']), 'trial', null, []],
+        'webhook_create.config_too_large' => [$create(['config' => '{"a":"' . str_repeat('x', 4100) . '"}']), 'trial', null, []],
+        'webhook_create.invalid_json' => [$create(['config' => '{bad']), 'trial', null, []],
+        'webhook_create.not_object' => [$create(['config' => '[1,2]']), 'trial', null, []],
+        'webhook_create.header_reserved' => [$create(['config' => '{"headers":{"Host":"x"}}']), 'trial', null, []],
+        'webhook_create.header_name' => [$create(['config' => '{"headers":{"Bad Name":"x"}}']), 'trial', null, []],
+        'webhook_create.headers_not_object' => [$create(['config' => '{"headers":"x"}']), 'trial', null, []],
+        'webhook_create.pushover_config' => [$create(['kind' => 'pushover', 'config' => '{"token":"t"}']), 'trial', null, []],
+        'webhook_create.secrets_unavailable' => [$create(['secret' => 'abc']), 'trial', null, []],
+        'webhook_create.credentials_unavailable' => [$create(['kind' => 'pushover', 'config' => '{"token":"t","user":"u"}']), 'trial', null, []],
+        'webhook_create.failed' => [$create([]), 'trial', $fail('pro_webhooks', 'INSERT'), []],
+        'webhook_delete.invalid_id' => [['action' => 'webhook_delete', 'id' => '0'], 'trial', null, []],
+        'webhook_delete.not_found' => [['action' => 'webhook_delete', 'id' => '99'], 'trial', $hook, []],
+        'webhook_delete.failed' => [['action' => 'webhook_delete', 'id' => '1'], 'trial', $fail('pro_webhooks', 'DELETE', $hook), []],
+        'webhook_set_filter_mode.invalid_id' => [['action' => 'webhook_set_filter_mode', 'id' => '0', 'filter_mode' => 'all'], 'trial', null, []],
+        'webhook_set_filter_mode.invalid_mode' => [['action' => 'webhook_set_filter_mode', 'id' => '1', 'filter_mode' => 'x'], 'trial', null, []],
+        'webhook_set_filter_mode.not_found' => [['action' => 'webhook_set_filter_mode', 'id' => '99', 'filter_mode' => 'paused'], 'trial', $hook, []],
+        'webhook_set_filter_mode.failed' => [['action' => 'webhook_set_filter_mode', 'id' => '1', 'filter_mode' => 'paused'], 'trial', $fail('pro_webhooks', 'UPDATE', $hook), []],
+        'webhook_deliveries.failed' => [['action' => 'webhook_deliveries'], 'trial', $gone('pro_webhook_deliveries'), []],
+    ];
 }

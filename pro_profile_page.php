@@ -356,88 +356,88 @@ $mcpDesktopConfig = '{
 
                         <section class="ms-settings__section" id="settings-automation">
                             <h2 class="ms-settings__section-title"><?php echo te('profile.section.automation'); ?></h2>
-                            <p class="ms-settings__section-lede">Send your mail onward as it arrives, or read it somewhere else entirely.</p>
+                            <p class="ms-settings__section-lede"><?php echo te('profile.automation.lede'); ?></p>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Webhooks</h3>
-                                <p class="ms-card__desc">POST every incoming message as JSON to your own endpoint, or push it to your phone with Pushover.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.webhooks.title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.webhooks.desc'); ?></p>
                                 <div class="row">
                                     <div class="col-md-6">
-                                        <label class="form-label">Name (optional)</label>
-                                        <input id="whName" class="form-control" placeholder="My Pushover" />
+                                        <label class="form-label"><?php echo te('profile.webhooks.name_label'); ?></label>
+                                        <input id="whName" class="form-control" placeholder="<?php echo te('profile.webhooks.name_placeholder_pushover'); ?>" />
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label">Kind</label>
+                                        <label class="form-label"><?php echo te('profile.webhooks.kind_label'); ?></label>
                                         <select id="whKind" class="form-select">
-                                            <option value="generic">Generic (POST JSON)</option>
-                                            <option value="pushover">Pushover</option>
+                                            <option value="generic"><?php echo te('profile.webhooks.kind_generic'); ?></option>
+                                            <option value="pushover"><?php echo te('profile.webhooks.kind_pushover'); ?></option>
                                         </select>
                                     </div>
                                 </div>
                                 <div class="mb-2 mt-2">
-                                    <label class="form-label">URL / Endpoint</label>
+                                    <label class="form-label"><?php echo te('profile.webhooks.url_label'); ?></label>
                                     <input id="whUrl" class="form-control" placeholder="https://example.com/webhook" />
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label">Config (JSON)</label>
+                                    <label class="form-label"><?php echo te('profile.webhooks.config_label'); ?></label>
                                     <input id="whConfig" class="form-control" placeholder='{"token":"...","user":"..."}' />
-                                    <div class="form-text">A JSON object, sent as-is. Pushover: every key goes to the Pushover API — <code>token</code> and <code>user</code> are required, add e.g. <code>device</code>, <code>sound</code> or <code>priority</code>. Generic: the keys are merged into the JSON body and replace ours where the names match, except <code>headers</code>, an object sent as HTTP headers, e.g. <code>{"headers":{"Authorization":"Bearer ..."}}</code>.</div>
+                                    <div class="form-text"><?php echo tHtml('profile.webhooks.config_help', [], ['code' => '<code>', 'code_end' => '</code>', 'example' => '<code>{"headers":{"Authorization":"Bearer ..."}}</code>']); ?></div>
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label">Secret (optional)</label>
-                                    <input id="whSecret" class="form-control" placeholder="Optional signing secret" />
-                                    <div class="form-text">If set, requests will include header <code>X-TempMail-Signature</code> with sha256 HMAC.</div>
+                                    <label class="form-label"><?php echo te('profile.webhooks.secret_label'); ?></label>
+                                    <input id="whSecret" class="form-control" placeholder="<?php echo te('profile.webhooks.secret_placeholder'); ?>" />
+                                    <div class="form-text"><?php echo tHtml('profile.webhooks.secret_help', [], ['code' => '<code>', 'code_end' => '</code>']); ?></div>
                                 </div>
                                 <div class="mb-2">
-                                    <button id="whCreateBtn" class="btn btn-primary">Create webhook</button>
+                                    <button id="whCreateBtn" class="btn btn-primary"><?php echo te('profile.webhooks.create_btn'); ?></button>
                                 </div>
-                                <div id="whProNote" class="form-text text-muted d-none">Webhooks require a Pro account.</div>
+                                <div id="whProNote" class="form-text text-muted d-none"><?php echo te('profile.webhooks.pro_note'); ?></div>
                                 <div id="whMsg" class="mt-2"></div>
 
-                                <h4 class="ms-card__subtitle">Your webhooks</h4>
+                                <h4 class="ms-card__subtitle"><?php echo te('profile.webhooks.list_title'); ?></h4>
                                 <div id="webhookList"></div>
                             </div>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">RSS feed</h3>
-                                <p class="ms-card__desc">A private RSS feed covering <strong>all</strong> of your addresses, read in any feed reader. For a feed limited to one address, use the RSS button on that address under Sticky addresses.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.feeds.title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo tHtml('profile.feeds.desc', [], ['strong' => '<strong>', 'strong_end' => '</strong>']); ?></p>
                                 <div class="input-group">
-                                    <input type="text" id="feedUrlInput" class="form-control" placeholder="(loading...)" readonly />
-                                    <div class="btn-group btn-group-sm" role="group" aria-label="Feed actions">
-                                        <button id="copyFeedToken" class="btn btn-sm btn-outline-secondary">Copy</button>
-                                        <button id="openFeedBtn" class="btn btn-sm btn-outline-secondary">Open</button>
-                                        <button id="regenFeedToken" class="btn btn-sm btn-danger">Regenerate</button>
+                                    <input type="text" id="feedUrlInput" class="form-control" placeholder="<?php echo te('profile.feeds.url_loading'); ?>" readonly />
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="<?php echo te('profile.feeds.actions_label'); ?>">
+                                        <button id="copyFeedToken" class="btn btn-sm btn-outline-secondary"><?php echo te('profile.feeds.copy'); ?></button>
+                                        <button id="openFeedBtn" class="btn btn-sm btn-outline-secondary"><?php echo te('profile.feeds.open'); ?></button>
+                                        <button id="regenFeedToken" class="btn btn-sm btn-danger"><?php echo te('profile.feeds.regenerate'); ?></button>
                                     </div>
                                 </div>
-                                <div class="form-text">Keep the token part of the URL secret. Subscribe using the full URL shown above.</div>
-                                <div id="feedProNote" class="form-text text-muted d-none">The RSS feed requires a Pro account.</div>
+                                <div class="form-text"><?php echo te('profile.feeds.help'); ?></div>
+                                <div id="feedProNote" class="form-text text-muted d-none"><?php echo te('profile.feeds.pro_note'); ?></div>
                             </div>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Digest emails</h3>
-                                <p class="ms-card__desc">A periodic summary of what arrived, sent to your real inbox.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.digest.title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.digest.desc'); ?></p>
                                 <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" id="digestEnabled" />
-                                    <label class="form-check-label" for="digestEnabled">Enable digest emails</label>
+                                    <label class="form-check-label" for="digestEnabled"><?php echo te('profile.digest.enable'); ?></label>
                                 </div>
                                 <div class="mt-3">
-                                    <label class="form-label">Frequency (days)</label>
+                                    <label class="form-label"><?php echo te('profile.digest.frequency_label'); ?></label>
                                     <select id="digestFrequency" class="form-select" style="width:150px;">
                                     </select>
                                 </div>
                                 <div class="mt-3 d-flex flex-wrap" style="gap:12px; align-items:center;">
                                     <div>
-                                        <label class="form-label mb-1">Send time (hour)</label>
+                                        <label class="form-label mb-1"><?php echo te('profile.digest.hour_label'); ?></label>
                                         <select id="digestHour" class="form-select" style="width:120px;"></select>
                                     </div>
                                     <div>
-                                        <label class="form-label mb-1">Timezone</label>
+                                        <label class="form-label mb-1"><?php echo te('profile.digest.tz_label'); ?></label>
                                         <select id="digestTz" class="form-select" style="min-width:220px;"></select>
                                     </div>
                                 </div>
-                                <div id="digestNote" class="form-text text-muted">Digests will be sent at most once per 24 hours and no more frequently than 1 day. Frequency cannot exceed address TTL - 1 day.</div>
+                                <div id="digestNote" class="form-text text-muted"><?php echo te('profile.digest.note', ['hours' => 24, 'days' => 1]); ?></div>
                                 <div class="mt-2 alert alert-info p-2" style="font-size:0.95rem;">
-                                    Tip: To help ensure digest emails reach your inbox, add <strong>noreply@<?php echo htmlspecialchars($config['email']['domain']); ?></strong> to your address book or trusted senders list (this reduces the chance of digests being marked as spam).
+                                    <?php echo tHtml('profile.digest.tip', ['domain' => $config['email']['domain']], ['strong' => '<strong>', 'strong_end' => '</strong>']); ?>
                                 </div>
                             </div>
                         </section>
@@ -819,7 +819,7 @@ require __DIR__ . '/partials/i18n_js.php';
                 // Digest emails: Pro-only regardless of TTL
                 $('#digestEnabled').prop('checked', false).prop('disabled', true);
                 $('#digestFrequency, #digestHour, #digestTz').prop('disabled', true);
-                $('#digestNote').text('Digest emails require a Pro account.');
+                $('#digestNote').text(msT('profile.digest.pro_required', 'Digest emails require a Pro account.'));
 
                 // Personal addresses: creation is Pro-only (list/delete stay available)
                 $('#personalLocal').prop('disabled', true);
@@ -1524,7 +1524,7 @@ require __DIR__ . '/partials/i18n_js.php';
                 var $sel = $('#digestFrequency');
                 $sel.empty();
                 for (var i = 1; i <= maxAllowed; i++) {
-                    var opt = $('<option/>').attr('value', i).text(i + (i === 1 ? ' day' : ' days'));
+                    var opt = $('<option/>').attr('value', i).text(i === 1 ? msT('profile.hold.day_one', '{count} day', { count: i }) : msT('profile.hold.day_other', '{count} days', { count: i }));
                     if (i === freq) opt.attr('selected', 'selected');
                     $sel.append(opt);
                 }
@@ -1563,7 +1563,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     // Disable controls when TTL is 1 day
                     $('#digestEnabled').prop('checked', false).prop('disabled', true);
                     $sel.prop('disabled', true);
-                    $('#digestNote').text('Digests are not available when address TTL is 1 day.');
+                    $('#digestNote').text(msT('profile.digest.ttl_one_note', 'Digests are not available when address TTL is {days} day.', { days: 1 }));
                 }
 
                 // Autosave handlers
@@ -1574,7 +1574,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     var tz = $('#digestTz').val() || '';
                     $.post('pro_profile.php', { action: 'update_digest_settings', digest_enabled: en, digest_frequency_days: fq, digest_hour: hour, digest_tz: tz }, function(r){
                         if (!r || !r.success) {
-                            alert('Could not update digest settings: ' + (r && r.error ? r.error : 'Unknown'));
+                            alert(msT('profile.digest.update_settings_failed', 'Could not update digest settings: {error}', { error: (r && r.error ? r.error : msT('profile.digest.unknown', 'Unknown')) }));
                         }
                     }, 'json');
                 });
@@ -1586,7 +1586,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     var tz = $('#digestTz').val() || '';
                     $.post('pro_profile.php', { action: 'update_digest_settings', digest_enabled: en, digest_frequency_days: fq, digest_hour: hour, digest_tz: tz }, function(r){
                         if (!r || !r.success) {
-                            alert('Could not update digest frequency: ' + (r && r.error ? r.error : 'Unknown'));
+                            alert(msT('profile.digest.update_frequency_failed', 'Could not update digest frequency: {error}', { error: (r && r.error ? r.error : msT('profile.digest.unknown', 'Unknown')) }));
                         }
                     }, 'json');
                 });
@@ -1599,7 +1599,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     var tz = $('#digestTz').val() || '';
                     $.post('pro_profile.php', { action: 'update_digest_settings', digest_enabled: en, digest_frequency_days: fq, digest_hour: hour, digest_tz: tz }, function(r){
                         if (!r || !r.success) {
-                            alert('Could not update digest schedule: ' + (r && r.error ? r.error : 'Unknown'));
+                            alert(msT('profile.digest.update_schedule_failed', 'Could not update digest schedule: {error}', { error: (r && r.error ? r.error : msT('profile.digest.unknown', 'Unknown')) }));
                         }
                     }, 'json');
                 });
@@ -1633,7 +1633,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     var hooksButton = '';
                     if (hasAnyWebhook && hookRoutingAvailable) {
                         hooksButton = '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__hooks'+(hooksPaused ? '' : ' is-on')+(addressHasLinkedHook(it.id) ? '' : ' d-none')+'" aria-pressed="'+(hooksPaused ? 'true' : 'false')+'" title="'+escapeHtml(addressHooksTitle(hooksPaused))+'"'+(isProAccount ? '' : ' disabled')+'>\n'
-                        + '                                                <i class="fas '+(hooksPaused ? 'fa-bell-slash' : 'fa-bell')+'" aria-hidden="true"></i> <span class="ms-address-row__hooks-state">'+(hooksPaused ? 'Hooks paused' : 'Hooks on')+'</span>\n'
+                        + '                                                <i class="fas '+(hooksPaused ? 'fa-bell-slash' : 'fa-bell')+'" aria-hidden="true"></i> <span class="ms-address-row__hooks-state">'+escapeHtml(hooksPaused ? msT('profile.automation.hooks_paused', 'Hooks paused') : msT('profile.automation.hooks_on', 'Hooks on'))+'</span>\n'
                         + '                                            </button>\n';
                     }
                     // Set by the abuse guard (abuse_guard.php) while mail to
@@ -1650,8 +1650,8 @@ require __DIR__ . '/partials/i18n_js.php';
                         + '                                            <strong>'+escapeHtml(it.full_address)+'</strong>\n'
                         + '                                        </div>\n'
                         + '                                        <div class="d-flex align-items-center ms-address-row__actions">\n'
-                        + '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__feed'+(feedOn ? ' is-on' : '')+'" aria-expanded="false" aria-controls="addressFeedPanel'+escapeHtml(it.id)+'" title="RSS feed for this address"'+(isProAccount ? '' : ' disabled')+'>\n'
-                        + '                                                <i class="fas fa-rss" aria-hidden="true"></i> <span class="ms-address-row__feed-state">'+(feedOn ? 'RSS on' : 'RSS')+'</span>\n'
+                        + '                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-address-row__feed'+(feedOn ? ' is-on' : '')+'" aria-expanded="false" aria-controls="addressFeedPanel'+escapeHtml(it.id)+'" title="'+escapeHtml(msT('profile.feeds.row_title', 'RSS feed for this address'))+'"'+(isProAccount ? '' : ' disabled')+'>\n'
+                        + '                                                <i class="fas fa-rss" aria-hidden="true"></i> <span class="ms-address-row__feed-state">'+escapeHtml(feedOn ? msT('profile.feeds.row_rss_on', 'RSS on') : msT('profile.feeds.row_rss', 'RSS'))+'</span>\n'
                         + '                                            </button>\n'
                         + hooksButton
                         + '                                            <button class="btn btn-sm btn-danger personal-delete" data-id="'+escapeHtml(it.id)+'" title="'+escapeHtml(msT('profile.addresses.delete_title', 'Delete'))+'">\n'
@@ -1724,21 +1724,21 @@ require __DIR__ . '/partials/i18n_js.php';
             function setAddressFeedState($row, on) {
                 $row.find('.ms-address-row__feed')
                     .toggleClass('is-on', !!on)
-                    .find('.ms-address-row__feed-state').text(on ? 'RSS on' : 'RSS');
+                    .find('.ms-address-row__feed-state').text(on ? msT('profile.feeds.row_rss_on', 'RSS on') : msT('profile.feeds.row_rss', 'RSS'));
             }
 
             function renderAddressFeedPanel($panel, addressId, token) {
                 var inputId = 'addressFeedUrl' + addressId;
                 $panel.html(
                     '<div class="ms-address-feed__url">'
-                  +     '<label class="form-label ms-address-feed__label" for="' + escapeHtml(inputId) + '">Feed URL for this address</label>'
+                  +     '<label class="form-label ms-address-feed__label" for="' + escapeHtml(inputId) + '">' + escapeHtml(msT('profile.feeds.panel_label', 'Feed URL for this address')) + '</label>'
                   +     '<input type="text" id="' + escapeHtml(inputId) + '" class="form-control form-control-sm ms-address-feed__input" value="' + escapeHtml(buildFeedUrl(token)) + '" readonly>'
                   + '</div>'
                   + '<div class="ms-address-feed__actions">'
-                  +     '<button type="button" class="btn btn-sm btn-outline-secondary ms-address-feed__copy">Copy</button>'
-                  +     '<button type="button" class="btn btn-sm btn-outline-secondary ms-address-feed__open">Open</button>'
-                  +     '<button type="button" class="btn btn-sm btn-danger ms-address-feed__regen">Regenerate</button>'
-                  +     '<button type="button" class="btn btn-sm btn-outline-danger ms-address-feed__off">Turn off</button>'
+                  +     '<button type="button" class="btn btn-sm btn-outline-secondary ms-address-feed__copy">' + escapeHtml(msT('profile.feeds.copy', 'Copy')) + '</button>'
+                  +     '<button type="button" class="btn btn-sm btn-outline-secondary ms-address-feed__open">' + escapeHtml(msT('profile.feeds.open', 'Open')) + '</button>'
+                  +     '<button type="button" class="btn btn-sm btn-danger ms-address-feed__regen">' + escapeHtml(msT('profile.feeds.regenerate', 'Regenerate')) + '</button>'
+                  +     '<button type="button" class="btn btn-sm btn-outline-danger ms-address-feed__off">' + escapeHtml(msT('profile.feeds.turn_off', 'Turn off')) + '</button>'
                   + '</div>'
                 );
             }
@@ -1761,7 +1761,7 @@ require __DIR__ . '/partials/i18n_js.php';
                 $btn.attr('aria-expanded', 'true');
                 $panel.removeClass('d-none');
                 if ($panel.data('loaded')) return;
-                $panel.html('<p class="form-text text-muted mb-0">Loading feed URL...</p>');
+                $panel.html('<p class="form-text text-muted mb-0">' + escapeHtml(msT('profile.feeds.panel_loading', 'Loading feed URL...')) + '</p>');
                 $.post('pro_profile.php', { action: 'address_feed_get_token', id: $row.data('id') }, function(res){
                     if (res && res.success) {
                         renderAddressFeedPanel($panel, $row.data('id'), res.token);
@@ -1770,10 +1770,10 @@ require __DIR__ . '/partials/i18n_js.php';
                         // the row can now show the feed as on.
                         setAddressFeedState($row, true);
                     } else {
-                        $panel.html('<p class="text-danger small mb-0">' + escapeHtml((res && res.error) ? res.error : 'Could not load the feed URL') + '</p>');
+                        $panel.html('<p class="text-danger small mb-0">' + escapeHtml((res && res.error) ? res.error : msT('profile.feeds.panel_load_failed', 'Could not load the feed URL')) + '</p>');
                     }
                 }, 'json').fail(function(){
-                    $panel.html('<p class="text-danger small mb-0">Request failed</p>');
+                    $panel.html('<p class="text-danger small mb-0">' + escapeHtml(msT('profile.common.request_failed', 'Request failed')) + '</p>');
                 });
             });
 
@@ -1790,7 +1790,7 @@ require __DIR__ . '/partials/i18n_js.php';
 
             $(document).on('click', '.ms-address-feed__regen', function(e){
                 e.stopPropagation();
-                if (!confirm('Regenerating this feed token will invalidate existing subscriptions. Continue?')) return;
+                if (!confirm(msT('profile.feeds.address_regen_confirm', 'Regenerating this feed token will invalidate existing subscriptions. Continue?'))) return;
                 var $btn = $(this).prop('disabled', true);
                 var $row = $btn.closest('.ms-address-row');
                 $.post('pro_profile.php', { action: 'address_feed_regenerate', id: $row.data('id') }, function(res){
@@ -1799,14 +1799,14 @@ require __DIR__ . '/partials/i18n_js.php';
                         $row.find('.ms-address-feed__input').val(buildFeedUrl(res.token));
                         setAddressFeedState($row, true);
                     } else {
-                        alert((res && res.error) ? res.error : 'Failed to regenerate token');
+                        alert((res && res.error) ? res.error : msT('profile.feeds.regen_failed', 'Failed to regenerate token'));
                     }
-                }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+                }, 'json').fail(function(){ $btn.prop('disabled', false); alert(msT('profile.common.request_failed', 'Request failed')); });
             });
 
             $(document).on('click', '.ms-address-feed__off', function(e){
                 e.stopPropagation();
-                if (!confirm('Turning off this feed will invalidate existing subscriptions. Continue?')) return;
+                if (!confirm(msT('profile.feeds.turn_off_confirm', 'Turning off this feed will invalidate existing subscriptions. Continue?'))) return;
                 var $btn = $(this).prop('disabled', true);
                 var $row = $btn.closest('.ms-address-row');
                 $.post('pro_profile.php', { action: 'address_feed_disable', id: $row.data('id') }, function(res){
@@ -1817,9 +1817,9 @@ require __DIR__ . '/partials/i18n_js.php';
                         collapseAddressFeedPanel($row);
                         setAddressFeedState($row, false);
                     } else {
-                        alert((res && res.error) ? res.error : 'Failed to turn off feed');
+                        alert((res && res.error) ? res.error : msT('profile.feeds.turn_off_failed', 'Failed to turn off feed'));
                     }
-                }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+                }, 'json').fail(function(){ $btn.prop('disabled', false); alert(msT('profile.common.request_failed', 'Request failed')); });
             });
 
             // --- Per-address hook pause (#251 step 5). One control per address,
@@ -1864,8 +1864,8 @@ require __DIR__ . '/partials/i18n_js.php';
 
             function addressHooksTitle(paused) {
                 return paused
-                    ? 'Hooks are paused for this address. Click to start them.'
-                    : 'Hooks are active for this address. Click to pause them.';
+                    ? msT('profile.automation.hooks_title_paused', 'Hooks are paused for this address. Click to start them.')
+                    : msT('profile.automation.hooks_title_active', 'Hooks are active for this address. Click to pause them.');
             }
 
             // aria-pressed tracks the *paused* state, which is what the button
@@ -1876,7 +1876,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     .toggleClass('is-on', !isPaused)
                     .attr('aria-pressed', isPaused ? 'true' : 'false')
                     .attr('title', addressHooksTitle(isPaused));
-                $btn.find('.ms-address-row__hooks-state').text(isPaused ? 'Hooks paused' : 'Hooks on');
+                $btn.find('.ms-address-row__hooks-state').text(isPaused ? msT('profile.automation.hooks_paused', 'Hooks paused') : msT('profile.automation.hooks_on', 'Hooks on'));
                 // The icon carries the same state as the label, so it flips with
                 // it — a slashed bell beside "Hooks paused", a plain one beside
                 // "Hooks on".
@@ -1911,12 +1911,12 @@ require __DIR__ . '/partials/i18n_js.php';
                         renderWebhooks(lastWebhooks);
                     } else {
                         setAddressHooksState($row, wasPaused);
-                        alert((res && res.error) ? res.error : 'Could not update the hooks for this address');
+                        alert((res && res.error) ? res.error : msT('profile.automation.hooks_update_failed', 'Could not update the hooks for this address'));
                     }
                 }, 'json').fail(function(){
                     $btn.prop('disabled', false);
                     setAddressHooksState($row, wasPaused);
-                    alert('Request failed');
+                    alert(msT('profile.common.request_failed', 'Request failed'));
                 });
             });
 
@@ -2167,7 +2167,7 @@ require __DIR__ . '/partials/i18n_js.php';
             function renderWebhooks(items) {
                 var $c = $('#webhookList');
                 if (!items || items.length === 0) {
-                    $c.html('<p class="text-muted">No webhooks configured.</p>');
+                    $c.html('<p class="text-muted">' + escapeHtml(msT('profile.webhooks.none', 'No webhooks configured.')) + '</p>');
                     return;
                 }
                 var html = '<div class="list-group">';
@@ -2175,11 +2175,11 @@ require __DIR__ . '/partials/i18n_js.php';
                     var cfg = w.config ? JSON.stringify(w.config) : '';
                     var isPaused = w.filter_mode === 'paused';
                     var statusBadge = isPaused
-                        ? '<span class="badge bg-warning text-dark ms-2">Paused</span>'
-                        : '<span class="badge bg-success ms-2">Active</span>';
+                        ? '<span class="badge bg-warning text-dark ms-2">' + escapeHtml(msT('profile.webhooks.badge_paused', 'Paused')) + '</span>'
+                        : '<span class="badge bg-success ms-2">' + escapeHtml(msT('profile.webhooks.badge_active', 'Active')) + '</span>';
                     var pauseBtn = isPaused
-                        ? '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+escapeHtml(w.id)+'" data-mode="all" title="Resume webhook" aria-label="Resume webhook"><i class="fas fa-play text-success"></i></button>'
-                        : '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+escapeHtml(w.id)+'" data-mode="paused" title="Pause webhook" aria-label="Pause webhook"><i class="fas fa-pause text-warning"></i></button>';
+                        ? '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+escapeHtml(w.id)+'" data-mode="all" title="' + escapeHtml(msT('profile.webhooks.resume_title', 'Resume webhook')) + '" aria-label="' + escapeHtml(msT('profile.webhooks.resume_title', 'Resume webhook')) + '"><i class="fas fa-play text-success"></i></button>'
+                        : '<button class="btn btn-sm btn-outline-secondary wh-toggle-pause" data-id="'+escapeHtml(w.id)+'" data-mode="paused" title="' + escapeHtml(msT('profile.webhooks.pause_title', 'Pause webhook')) + '" aria-label="' + escapeHtml(msT('profile.webhooks.pause_title', 'Pause webhook')) + '"><i class="fas fa-pause text-warning"></i></button>';
                     // The routing group is the item's third child, not a wrapper
                     // around the other two: style.css styles `.me-3` and
                     // `.btn-group` as *direct* children of `#webhookList
@@ -2190,12 +2190,12 @@ require __DIR__ . '/partials/i18n_js.php';
                     // in mailshield.css.
                     html += '<div class="list-group-item d-flex justify-content-between align-items-start">'
                         + '<div class="me-3"><strong>' + escapeHtml(w.name || ('#'+w.id)) + '</strong>' + statusBadge + '<div class="text-muted small">' + escapeHtml(w.kind) + ' — ' + escapeHtml(w.url) + '</div>'
-                        + (cfg ? '<div class="text-muted small">Config: ' + escapeHtml(cfg) + '</div>' : '')
+                        + (cfg ? '<div class="text-muted small">' + escapeHtml(msT('profile.webhooks.config_line', 'Config: {config}', { config: cfg })) + '</div>' : '')
                         + '</div>'
                         + '<div class="btn-group">'
                         + pauseBtn
-                        + '<button class="btn btn-sm btn-outline-secondary wh-deliveries" data-id="'+escapeHtml(w.id)+'">Deliveries</button>'
-                        + '<button class="btn btn-sm btn-danger wh-delete" data-id="'+escapeHtml(w.id)+'" title="Delete webhook" aria-label="Delete webhook"><i class="fas fa-trash"></i></button>'
+                        + '<button class="btn btn-sm btn-outline-secondary wh-deliveries" data-id="'+escapeHtml(w.id)+'">' + escapeHtml(msT('profile.webhooks.deliveries_btn', 'Deliveries')) + '</button>'
+                        + '<button class="btn btn-sm btn-danger wh-delete" data-id="'+escapeHtml(w.id)+'" title="' + escapeHtml(msT('profile.webhooks.delete_title', 'Delete webhook')) + '" aria-label="' + escapeHtml(msT('profile.webhooks.delete_title', 'Delete webhook')) + '"><i class="fas fa-trash"></i></button>'
                         + '</div>'
                         + (hookRoutingAvailable ? renderHookRouting(w) : '')
                         + '</div>';
@@ -2204,7 +2204,7 @@ require __DIR__ . '/partials/i18n_js.php';
                 if (!hookRoutingAvailable) {
                     // One line for the whole page rather than one per hook: the
                     // migration is an account-wide fact, not a per-hook one.
-                    html += '<p class="text-muted small mb-0 mt-2">Address routing is not available yet.</p>';
+                    html += '<p class="text-muted small mb-0 mt-2">' + escapeHtml(msT('profile.webhooks.routing_unavailable', 'Address routing is not available yet.')) + '</p>';
                 }
                 $c.html(html);
             }
@@ -2222,9 +2222,9 @@ require __DIR__ . '/partials/i18n_js.php';
                 // nothing.
                 var anyLinked = false;
                 var out = '<fieldset class="ms-hook-routing" data-hook="'+escapeHtml(w.id)+'">'
-                    + '<legend class="ms-hook-routing__legend">Triggers for</legend>';
+                    + '<legend class="ms-hook-routing__legend">' + escapeHtml(msT('profile.webhooks.triggers_for', 'Triggers for')) + '</legend>';
                 if (personalAddresses.length === 0) {
-                    out += '<p class="form-text text-muted mb-0">No sticky addresses yet.</p>';
+                    out += '<p class="form-text text-muted mb-0">' + escapeHtml(msT('profile.addresses.list_empty', 'No sticky addresses yet.')) + '</p>';
                 } else {
                     personalAddresses.forEach(function(a){
                         var boxId = 'hookAddr' + escapeHtml(w.id) + '_' + escapeHtml(a.id);
@@ -2239,7 +2239,7 @@ require __DIR__ . '/partials/i18n_js.php';
                         out += '<div class="form-check">'
                             + '<input class="form-check-input ms-hook-routing__addr" type="checkbox" id="'+boxId+'" value="'+escapeHtml(a.id)+'"'+(on ? ' checked' : '')+(isProAccount ? '' : ' disabled')+'>'
                             + '<label class="form-check-label" for="'+boxId+'">'+escapeHtml(a.full_address)
-                            + (a.hooks_paused ? ' <span class="ms-hook-routing__paused">(hooks paused)</span>' : '')
+                            + (a.hooks_paused ? ' <span class="ms-hook-routing__paused">' + escapeHtml(msT('profile.webhooks.hooks_paused_hint', '(hooks paused)')) + '</span>' : '')
                             + '</label>'
                             + '</div>';
                     });
@@ -2247,9 +2247,9 @@ require __DIR__ . '/partials/i18n_js.php';
                 var tempId = 'hookTemp' + escapeHtml(w.id);
                 out += '<div class="form-check">'
                     + '<input class="form-check-input ms-hook-routing__temp" type="checkbox" id="'+tempId+'"'+(w.include_temporary ? ' checked' : '')+(isProAccount ? '' : ' disabled')+'>'
-                    + '<label class="form-check-label" for="'+tempId+'">Timed addresses</label>'
+                    + '<label class="form-check-label" for="'+tempId+'">' + escapeHtml(msT('profile.webhooks.timed_addresses', 'Timed addresses')) + '</label>'
                     + '</div>'
-                    + '<p class="ms-hook-routing__empty'+((anyLinked || w.include_temporary) ? ' d-none' : '')+'">This hook is not triggered for any address.</p>'
+                    + '<p class="ms-hook-routing__empty'+((anyLinked || w.include_temporary) ? ' d-none' : '')+'">' + escapeHtml(msT('profile.webhooks.not_triggered', 'This hook is not triggered for any address.')) + '</p>'
                     + '</fieldset>';
                 return out;
             }
@@ -2264,9 +2264,9 @@ require __DIR__ . '/partials/i18n_js.php';
                         // config, which can hold a Pushover token and user key.
                         syncAddressHooksControl(lastWebhooks.length > 0);
                     } else {
-                        $('#webhookList').html('<p class="text-danger">Could not load webhooks</p>');
+                        $('#webhookList').html('<p class="text-danger">' + escapeHtml(msT('profile.webhooks.load_failed', 'Could not load webhooks')) + '</p>');
                     }
-                }).fail(function(){ $('#webhookList').html('<p class="text-danger">Request failed</p>'); });
+                }).fail(function(){ $('#webhookList').html('<p class="text-danger">' + escapeHtml(msT('profile.common.request_failed', 'Request failed')) + '</p>'); });
             }
 
             // --- Per-hook address routing (#251 step 5). One change saves the
@@ -2303,14 +2303,19 @@ require __DIR__ . '/partials/i18n_js.php';
                     } else {
                         $box.prop('checked', !$box.prop('checked'));
                         $group.find('input').prop('disabled', !isProAccount);
-                        alert((res && res.error) ? res.error : 'Could not save the address selection');
+                        alert((res && res.error) ? res.error : msT('profile.webhooks.selection_failed', 'Could not save the address selection'));
                     }
                 }, 'json').fail(function(){
                     $box.prop('checked', !$box.prop('checked'));
                     $group.find('input').prop('disabled', !isProAccount);
-                    alert('Request failed');
+                    alert(msT('profile.common.request_failed', 'Request failed'));
                 });
             });
+
+            // One line in the webhook form's message area, set as text: it may be a server message.
+            function whSay(cls, text) {
+                $('#whMsg').empty().append($('<div></div>').addClass(cls).text(text));
+            }
 
             $('#whCreateBtn').on('click', function(){
                 var name = $('#whName').val().trim();
@@ -2318,24 +2323,24 @@ require __DIR__ . '/partials/i18n_js.php';
                 var kind = $('#whKind').val();
                 var config = $('#whConfig').val().trim();
                 var secret = $('#whSecret').val().trim();
-                if (!url) { $('#whMsg').html('<div class="text-danger">URL is required</div>'); return; }
+                if (!url) { whSay('text-danger', msT('profile.webhooks.error_url_required', 'URL is required')); return; }
                 var post = { action: 'webhook_create', name: name, url: url, kind: kind };
                 if (config) post.config = config;
                 if (secret) post.secret = secret;
                 $('#whCreateBtn').prop('disabled', true);
-                $('#whMsg').html('<div class="text-info">Creating...</div>');
+                whSay('text-info', msT('profile.addresses.creating', 'Creating...'));
                 $.post('pro_profile.php', post, function(r){
                     $('#whCreateBtn').prop('disabled', false);
                     if (r && r.success) {
-                        $('#whMsg').html('<div class="text-success">Created</div>');
+                        whSay('text-success', msT('profile.webhooks.created', 'Created'));
                         $('#whName,#whUrl,#whConfig,#whSecret').val('');
                         loadWebhooks();
                     } else {
-                        $('#whMsg').html('<div class="text-danger">'+escapeHtml(r && r.error ? r.error : 'Failed')+'</div>');
+                        whSay('text-danger', r && r.error ? r.error : msT('profile.webhooks.failed', 'Failed'));
                     }
                 }, 'json').fail(function(xhr, status, err){
                     $('#whCreateBtn').prop('disabled', false);
-                    var msg = 'Request failed';
+                    var msg = msT('profile.common.request_failed', 'Request failed');
                     try {
                         console.error('webhook_create failed', status, err, xhr && xhr.status, xhr && xhr.responseText);
                         var resp = (xhr && xhr.responseText) ? xhr.responseText : null;
@@ -2346,13 +2351,13 @@ require __DIR__ . '/partials/i18n_js.php';
                                 if (j && j.error) msg = j.error;
                             } catch (e) {
                                 // Not JSON — include a short snippet
-                                msg = 'Request failed: ' + (resp.length > 200 ? resp.substring(0,200) + '...' : resp);
+                                msg = msT('profile.webhooks.request_failed_detail', 'Request failed: {detail}', { detail: (resp.length > 200 ? resp.substring(0,200) + '...' : resp) });
                             }
                         }
                     } catch (e) {
                         // ignore
                     }
-                    $('#whMsg').html('<div class="text-danger">'+ $('<div>').text(msg).html() +'</div>');
+                    whSay('text-danger', msg);
                 });
             });
 
@@ -2366,25 +2371,33 @@ require __DIR__ . '/partials/i18n_js.php';
                     if (r && r.success) {
                         loadWebhooks();
                     } else {
-                        alert(r && r.error ? r.error : 'Failed to update webhook');
+                        alert(r && r.error ? r.error : msT('profile.webhooks.update_failed', 'Failed to update webhook'));
                     }
-                }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+                }, 'json').fail(function(){ $btn.prop('disabled', false); alert(msT('profile.common.request_failed', 'Request failed')); });
             });
 
             $(document).on('click', '.wh-delete', function(){
                 var id = $(this).data('id');
                 if (!id) return;
-                if (!confirm('Delete webhook?')) return;
+                if (!confirm(msT('profile.webhooks.delete_confirm', 'Delete webhook?'))) return;
                 var $btn = $(this).prop('disabled', true);
                 $.post('pro_profile.php', { action: 'webhook_delete', id: id }, function(r){
                     $btn.prop('disabled', false);
                     if (r && r.success) {
                         loadWebhooks();
                     } else {
-                        alert(r && r.error ? r.error : 'Failed to delete');
+                        alert(r && r.error ? r.error : msT('profile.addresses.delete_failed', 'Failed to delete'));
                     }
-                }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+                }, 'json').fail(function(){ $btn.prop('disabled', false); alert(msT('profile.common.request_failed', 'Request failed')); });
             });
+
+            // The stored status word is shown in the page's language; the stored and API
+            // value is never changed, and a word without a text is shown as it is.
+            function deliveryStatusLabel(status) {
+                var known = { pending: 'pending', succeeded: 'succeeded', success: 'success', failed: 'failed' };
+                var word = String(status);
+                return Object.prototype.hasOwnProperty.call(known, word) ? msT('profile.webhooks.status_' + word, word) : word;
+            }
 
             $(document).on('click', '.wh-deliveries', function(){
                 var id = $(this).data('id');
@@ -2394,21 +2407,21 @@ require __DIR__ . '/partials/i18n_js.php';
                     $btn.prop('disabled', false);
                     if (r && r.success) {
                         var out = '<div class="small">';
-                        if (!r.deliveries || r.deliveries.length === 0) out += 'No deliveries yet.';
+                        if (!r.deliveries || r.deliveries.length === 0) out += escapeHtml(msT('profile.webhooks.deliveries_none', 'No deliveries yet.'));
                         else {
                             r.deliveries.forEach(function(d){
-                                out += '<div class="mb-2">['+escapeHtml(d.status)+'] attempts='+escapeHtml(d.attempts)+' created='+escapeHtml(d.created_at)+'<div class="text-muted small">error: '+escapeHtml(d.last_error||'')+'</div></div>';
+                                out += '<div class="mb-2">' + escapeHtml(msT('profile.webhooks.delivery_line', '[{status}] attempts={attempts} created={created}', { status: deliveryStatusLabel(d.status), attempts: d.attempts, created: d.created_at })) + '<div class="text-muted small">' + escapeHtml(msT('profile.webhooks.delivery_error', 'error: {error}', { error: d.last_error || '' })) + '</div></div>';
                             });
                         }
                         out += '</div>';
                         // Show in modal-like alert
-                        var $w = $('<div class="alert alert-secondary mt-2" id="whDeliveriesBox">'+out+'<div class="mt-2"><button class="btn btn-sm btn-secondary" id="whDeliveriesClose">Close</button></div></div>');
+                        var $w = $('<div class="alert alert-secondary mt-2" id="whDeliveriesBox">'+out+'<div class="mt-2"><button class="btn btn-sm btn-secondary" id="whDeliveriesClose">' + escapeHtml(msT('profile.webhooks.close', 'Close')) + '</button></div></div>');
                         $('#webhookList').prepend($w);
                         $('#whDeliveriesClose').on('click', function(){ $w.remove(); });
                     } else {
-                        alert(r && r.error ? r.error : 'Failed to fetch deliveries');
+                        alert(r && r.error ? r.error : msT('profile.webhooks.deliveries_failed', 'Failed to fetch deliveries'));
                     }
-                }).fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+                }).fail(function(){ $btn.prop('disabled', false); alert(msT('profile.common.request_failed', 'Request failed')); });
             });
 
             // Initial load
@@ -2422,7 +2435,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     if (k === 'pushover') {
                         // Set placeholder for pushover (do not set .val())
                         if (!curNameVal) {
-                            $('#whName').attr('placeholder', 'My Pushover');
+                            $('#whName').attr('placeholder', msT('profile.webhooks.name_placeholder_pushover', 'My Pushover'));
                         }
                         $('#whUrl').val('https://api.pushover.net/1/messages.json');
                         // Pretty-print JSON config
@@ -2433,7 +2446,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     } else {
                         // Generic (or other) kind: set placeholder to 'My webhook' when name not filled
                         if (!curNameVal) {
-                            $('#whName').attr('placeholder', 'My webhook');
+                            $('#whName').attr('placeholder', msT('profile.webhooks.name_placeholder_generic', 'My webhook'));
                         }
                         // Clear kind-specific fields if they appear to be pushover defaults
                         if ($('#whUrl').val() === 'https://api.pushover.net/1/messages.json') {
@@ -2462,17 +2475,17 @@ require __DIR__ . '/partials/i18n_js.php';
             // Flash a short-lived "Copied" note directly after $anchor.
             function flashCopied($anchor) {
                 $anchor.parent().find('.feed-copied').remove();
-                var $msg = $('<div class="feed-copied text-success small ms-2">Copied</div>');
+                var $msg = $('<div class="feed-copied text-success small ms-2"></div>').text(msT('profile.account.invite_copied', 'Copied'));
                 $anchor.after($msg);
                 setTimeout(function(){ $msg.fadeOut(300, function(){ $(this).remove(); }); }, 1500);
             }
 
             function copyFeedUrl(url, $anchor) {
                 if (!url) return;
-                if (!navigator.clipboard) { alert('Could not copy to clipboard'); return; }
+                if (!navigator.clipboard) { alert(msT('profile.feeds.copy_failed', 'Could not copy to clipboard')); return; }
                 navigator.clipboard.writeText(url).then(function(){
                     flashCopied($anchor);
-                }).catch(function(){ alert('Could not copy to clipboard'); });
+                }).catch(function(){ alert(msT('profile.feeds.copy_failed', 'Could not copy to clipboard')); });
             }
 
             function openFeedUrl(url) {
@@ -2502,10 +2515,10 @@ require __DIR__ . '/partials/i18n_js.php';
                         $('#feedUrlInput').val(feedUrl);
                         $('#openFeedBtn').attr('data-feed', feedUrl);
                     } else {
-                        $('#feedUrlInput').val('Unavailable');
+                        $('#feedUrlInput').val(msT('profile.feeds.unavailable', 'Unavailable'));
                         $('#openFeedBtn').removeAttr('data-feed');
                     }
-                }, 'json').fail(function(){ $('#feedUrlInput').val('Request failed'); $('#openFeedBtn').removeAttr('data-feed'); });
+                }, 'json').fail(function(){ $('#feedUrlInput').val(msT('profile.common.request_failed', 'Request failed')); $('#openFeedBtn').removeAttr('data-feed'); });
             }
 
             $('#copyFeedToken').on('click', function(){
@@ -2517,7 +2530,7 @@ require __DIR__ . '/partials/i18n_js.php';
             });
 
             $('#regenFeedToken').on('click', function(){
-                if (!confirm('Regenerating the feed token will invalidate existing subscriptions. Continue?')) return;
+                if (!confirm(msT('profile.feeds.regen_confirm', 'Regenerating the feed token will invalidate existing subscriptions. Continue?'))) return;
                 var $btn = $(this).prop('disabled', true);
                 $.post('pro_profile.php', { action: 'feed_regenerate' }, function(r){
                     $btn.prop('disabled', false);
@@ -2526,9 +2539,9 @@ require __DIR__ . '/partials/i18n_js.php';
                         $('#feedUrlInput').val(feedUrl);
                         $('#openFeedBtn').attr('data-feed', feedUrl);
                     } else {
-                        alert(r && r.error ? r.error : 'Failed to regenerate token');
+                        alert(r && r.error ? r.error : msT('profile.feeds.regen_failed', 'Failed to regenerate token'));
                     }
-                }, 'json').fail(function(){ $btn.prop('disabled', false); alert('Request failed'); });
+                }, 'json').fail(function(){ $btn.prop('disabled', false); alert(msT('profile.common.request_failed', 'Request failed')); });
             });
 
             // Delete account handler

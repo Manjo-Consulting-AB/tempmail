@@ -1,0 +1,87 @@
+<section class="ms-settings__section" id="settings-automation">
+                            <h2 class="ms-settings__section-title">Automation</h2>
+                            <p class="ms-settings__section-lede">Send your mail onward as it arrives, or read it somewhere else entirely.</p>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Webhooks</h3>
+                                <p class="ms-card__desc">POST every incoming message as JSON to your own endpoint, or push it to your phone with Pushover.</p>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Name (optional)</label>
+                                        <input id="whName" class="form-control" placeholder="My Pushover" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Kind</label>
+                                        <select id="whKind" class="form-select">
+                                            <option value="generic">Generic (POST JSON)</option>
+                                            <option value="pushover">Pushover</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="mb-2 mt-2">
+                                    <label class="form-label">URL / Endpoint</label>
+                                    <input id="whUrl" class="form-control" placeholder="https://example.com/webhook" />
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label">Config (JSON)</label>
+                                    <input id="whConfig" class="form-control" placeholder='{"token":"...","user":"..."}' />
+                                    <div class="form-text">A JSON object, sent as-is. Pushover: every key goes to the Pushover API — <code>token</code> and <code>user</code> are required, add e.g. <code>device</code>, <code>sound</code> or <code>priority</code>. Generic: the keys are merged into the JSON body and replace ours where the names match, except <code>headers</code>, an object sent as HTTP headers, e.g. <code>{"headers":{"Authorization":"Bearer ..."}}</code>.</div>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label">Secret (optional)</label>
+                                    <input id="whSecret" class="form-control" placeholder="Optional signing secret" />
+                                    <div class="form-text">If set, requests will include header <code>X-TempMail-Signature</code> with sha256 HMAC.</div>
+                                </div>
+                                <div class="mb-2">
+                                    <button id="whCreateBtn" class="btn btn-primary">Create webhook</button>
+                                </div>
+                                <div id="whProNote" class="form-text text-muted d-none">Webhooks require a Pro account.</div>
+                                <div id="whMsg" class="mt-2"></div>
+
+                                <h4 class="ms-card__subtitle">Your webhooks</h4>
+                                <div id="webhookList"></div>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">RSS feed</h3>
+                                <p class="ms-card__desc">A private RSS feed covering <strong>all</strong> of your addresses, read in any feed reader. For a feed limited to one address, use the RSS button on that address under Sticky addresses.</p>
+                                <div class="input-group">
+                                    <input type="text" id="feedUrlInput" class="form-control" placeholder="(loading...)" readonly />
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Feed actions">
+                                        <button id="copyFeedToken" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                        <button id="openFeedBtn" class="btn btn-sm btn-outline-secondary">Open</button>
+                                        <button id="regenFeedToken" class="btn btn-sm btn-danger">Regenerate</button>
+                                    </div>
+                                </div>
+                                <div class="form-text">Keep the token part of the URL secret. Subscribe using the full URL shown above.</div>
+                                <div id="feedProNote" class="form-text text-muted d-none">The RSS feed requires a Pro account.</div>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Digest emails</h3>
+                                <p class="ms-card__desc">A periodic summary of what arrived, sent to your real inbox.</p>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="digestEnabled" />
+                                    <label class="form-check-label" for="digestEnabled">Enable digest emails</label>
+                                </div>
+                                <div class="mt-3">
+                                    <label class="form-label">Frequency (days)</label>
+                                    <select id="digestFrequency" class="form-select" style="width:150px;">
+                                    </select>
+                                </div>
+                                <div class="mt-3 d-flex flex-wrap" style="gap:12px; align-items:center;">
+                                    <div>
+                                        <label class="form-label mb-1">Send time (hour)</label>
+                                        <select id="digestHour" class="form-select" style="width:120px;"></select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label mb-1">Timezone</label>
+                                        <select id="digestTz" class="form-select" style="min-width:220px;"></select>
+                                    </div>
+                                </div>
+                                <div id="digestNote" class="form-text text-muted">Digests will be sent at most once per 24 hours and no more frequently than 1 day. Frequency cannot exceed address TTL - 1 day.</div>
+                                <div class="mt-2 alert alert-info p-2" style="font-size:0.95rem;">
+                                    Tip: To help ensure digest emails reach your inbox, add <strong>noreply@manjo.me</strong> to your address book or trusted senders list (this reduces the chance of digests being marked as spam).
+                                </div>
+                            </div>
+                        </section>
