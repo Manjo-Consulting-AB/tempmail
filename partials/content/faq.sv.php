@@ -54,9 +54,9 @@ HTML,
             [
                 'q' => 'Kostar det något?',
                 'a' => $msT > 0 ? <<<HTML
-<p>Ett gratiskonto kostar ingenting och kräver inget kort, och varje nytt konto börjar med <strong>{$msT} dagar Pro</strong> utan kostnad. Därefter stannar du kvar på Pro med <a href="{$msU('/pricing.php')}">en månads-, års- eller engångsplan</a>, eller en presentkod.</p>
+<p>Ett gratiskonto kostar ingenting och kräver inget kort, och varje nytt konto börjar med <strong>{$msT} dagar Pro</strong> utan kostnad. Därefter stannar du kvar på Pro med <a href="{$msU('/pricing.php')}">en månads-, års- eller engångsplan</a>, eller en värdekod.</p>
 HTML : <<<HTML
-<p>Ett gratiskonto kostar ingenting och kräver inget kort. Pro är <a href="{$msU('/pricing.php')}">en månads-, års- eller engångsplan</a>, eller en presentkod.</p>
+<p>Ett gratiskonto kostar ingenting och kräver inget kort. Pro är <a href="{$msU('/pricing.php')}">en månads-, års- eller engångsplan</a>, eller en värdekod.</p>
 HTML,
             ],
         ],
@@ -78,7 +78,7 @@ HTML : ''),
                 'a' => <<<HTML
 <p>Varje nytt konto får Pro under sina första {$msT} dagar, från det att du bekräftar din e-postadress. Du behöver inte ange något kort och det finns inget att säga upp.</p>
 <p>Provperioden gäller en gång per e-postadress. Om du raderar ditt konto och registrerar dig igen med samma adress fortsätter klockan att gå från din första registrering – den börjar inte om.</p>
-<p>När provperioden tar slut fortsätter ditt konto som ett gratiskonto. Automatiseringen stängs av, och Sticky-adresser – med e-posten i dem – raderas 7 dagar senare, så flytta först det du fortfarande behöver. För att stanna kvar på Pro väljer du någon av våra <a href="{$msU('/pricing.php')}">planer</a>, eller löser in en presentkod i din profil.</p>
+<p>När provperioden tar slut fortsätter ditt konto som ett gratiskonto. Automatiseringen stängs av, och Sticky-adresser – med e-posten i dem – raderas 7 dagar senare, så flytta först det du fortfarande behöver. För att stanna kvar på Pro väljer du någon av våra <a href="{$msU('/pricing.php')}">planer</a>, eller löser in en värdekod i din profil.</p>
 HTML,
             ]] : []),
             [
@@ -91,9 +91,9 @@ HTML,
             [
                 'q' => 'Hur skaffar jag ett Pro-konto?',
                 'a' => $msT > 0 ? <<<HTML
-<p>Skapa ett konto – det börjar med Pro under sina första {$msT} dagar. För att behålla Pro efter det väljer du en <a href="{$msU('/pricing.php')}">plan</a> medan du är inloggad, eller löser in en presentkod i din profil; i båda fallen läggs tiden till efter att provperioden tagit slut. Konton loggar in med en inloggningslänk (magic link) som skickas till deras e-post, och kan frivilligt ange ett lösenord i sin profil.</p>
+<p>Skapa ett konto – det börjar med Pro under sina första {$msT} dagar. För att behålla Pro efter det väljer du en <a href="{$msU('/pricing.php')}">plan</a> medan du är inloggad, eller löser in en värdekod i din profil; i båda fallen läggs tiden till efter att provperioden tagit slut. Konton loggar in med en inloggningslänk (magic link) som skickas till deras e-post, och kan frivilligt ange ett lösenord i sin profil.</p>
 HTML : <<<HTML
-<p>Skapa ett gratiskonto och välj en <a href="{$msU('/pricing.php')}">plan</a> medan du är inloggad – eller registrera dig med en presentkod: välj Pro på registreringssidan och ange koden. Pro-konton loggar in med en inloggningslänk (magic link) som skickas till deras e-post, och kan frivilligt ange ett lösenord i sin profil.</p>
+<p>Skapa ett gratiskonto och välj en <a href="{$msU('/pricing.php')}">plan</a> medan du är inloggad – eller registrera dig med en värdekod: välj Pro på registreringssidan och ange koden. Pro-konton loggar in med en inloggningslänk (magic link) som skickas till deras e-post, och kan frivilligt ange ett lösenord i sin profil.</p>
 HTML,
             ],
             [
@@ -112,8 +112,8 @@ HTML,
             [
                 'q' => 'Kan jag spara min e-post längre?',
                 'a' => <<<HTML
-<p>Ja, med Pro. Upp till {$msHoldMax} gånger per år kan du hålla tillbaka städningen: e-post på dina Sticky-adresser som annars skulle raderas sparas i {$msHoldDays} dagar från den dag den kom, i stället för de vanliga 1 till 7. Starta en lagringspaus genom att välja {$msHoldDays} dagar under <strong>Profil &rarr; Standardlivslängd</strong>.</p>
-<p>Om du avslutar en lagringspaus i förtid ligger den e-post som redan förlängts kvar. Timed-adresser påverkas inte – de löper ut enligt schemat och tar sina meddelanden med sig. Gränsen för din brevlådas lagringsutrymme gäller fortfarande, och när den nås tas den äldsta e-posten bort först.</p>
+<p>Ja, med Pro. Upp till {$msHoldMax} gånger per år kan du hålla tillbaka städningen: e-post på dina Sticky-adresser som annars skulle raderas sparas i {$msHoldDays} dagar från den dag den kom, i stället för de vanliga 1 till 7. Starta <strong>Pausa radering</strong> genom att välja {$msHoldDays} dagar under <strong>Profil &rarr; Standardlivslängd</strong>.</p>
+<p>Om du avslutar pausen i raderingen i förtid ligger den e-post som redan förlängts kvar. Timed-adresser påverkas inte – de löper ut enligt schemat och tar sina meddelanden med sig. Gränsen för din brevlådas lagringsutrymme gäller fortfarande, och när den nås tas den äldsta e-posten bort först.</p>
 HTML,
             ],
         ],
