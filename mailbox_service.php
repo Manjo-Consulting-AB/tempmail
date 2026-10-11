@@ -80,7 +80,7 @@ function mailboxCreationLimited(PDO $pdo, string $kind, int $userId, string $ip)
                 }
             }
         }
-        return ['ok' => false, 'error' => 'Too many new addresses in a short time. Please try again later.', 'rate_limited' => true];
+        return ['ok' => false, 'error' => 'Too many new addresses in a short time. Please try again later.', 'error_key' => 'service.mailbox.rate_limited', 'rate_limited' => true];
     } catch (Throwable $e) {
         logMessage('ERROR', 'Address creation rate limit check failed, allowing the request', ['error' => $e->getMessage()]);
         return ['ok' => true];
@@ -160,7 +160,7 @@ function mailboxListAddresses(PDO $pdo, int $userId): array
 
         return ['ok' => true, 'personal' => $list, 'cooldown' => $cooldown, 'temporary' => $timed];
     } catch (Exception $e) {
-        return ['ok' => false, 'error' => 'Failed to list sticky addresses'];
+        return ['ok' => false, 'error' => 'Failed to list sticky addresses', 'error_key' => 'service.mailbox.list_failed'];
     }
 }
 
@@ -179,32 +179,32 @@ function mailboxCreateSticky(PDO $pdo, int $userId, string $rawLocal, string $ip
     $suspicious = function_exists('detectSuspiciousPatterns') ? detectSuspiciousPatterns($rawLocal) : [];
     if (!empty($suspicious)) {
         logMessage('WARNING', 'Suspicious create_personal input', ['patterns' => $suspicious, 'user_id' => $userId]);
-        return ['ok' => false, 'error' => 'Invalid request'];
+        return ['ok' => false, 'error' => 'Invalid request', 'error_key' => 'service.mailbox.invalid_request'];
     }
 
     $local = function_exists('sanitizeLocalPart') ? sanitizeLocalPart($rawLocal, 3, 64) : null;
     if (!$local) {
-        return ['ok' => false, 'error' => 'Invalid local part'];
+        return ['ok' => false, 'error' => 'Invalid local part', 'error_key' => 'service.mailbox.invalid_local_part'];
     }
 
     // A new address must also be a valid unquoted dot-atom: no
     // leading/trailing ".", "-" or "_" and no "..". Only creation is
     // checked; existing addresses keep receiving mail.
     if (!isValidNewLocalPartSyntax($local)) {
-        return ['ok' => false, 'error' => 'Invalid local part'];
+        return ['ok' => false, 'error' => 'Invalid local part', 'error_key' => 'service.mailbox.invalid_local_part'];
     }
 
     // Role, system and brand names (postmaster@, admin@, noreply@ ...) may
     // not be claimed - see reserved_local_parts.php.
     if (isReservedLocalPart($local)) {
         logMessage('INFO', 'create_personal denied: reserved local part', ['user_id' => $userId, 'local' => $local]);
-        return ['ok' => false, 'error' => 'This local part is not allowed'];
+        return ['ok' => false, 'error' => 'This local part is not allowed', 'error_key' => 'service.mailbox.local_part_reserved'];
     }
 
     $stmt = $pdo->prepare("SELECT id FROM temp_emails WHERE unique_address = ? LIMIT 1");
     $stmt->execute([$local]);
     if ($stmt->fetch()) {
-        return ['ok' => false, 'error' => 'Address already taken'];
+        return ['ok' => false, 'error' => 'Address already taken', 'error_key' => 'service.mailbox.address_taken'];
     }
 
     // A recently released personal address is reserved for its last owner
@@ -216,11 +216,11 @@ function mailboxCreateSticky(PDO $pdo, int $userId, string $rawLocal, string $ip
             $holder = addressCooldownHolder($pdo, $local);
         } catch (Exception $e) {
             logMessage('ERROR', 'Could not check address cool-off', ['error' => $e->getMessage()]);
-            return ['ok' => false, 'error' => 'Could not create address'];
+            return ['ok' => false, 'error' => 'Could not create address', 'error_key' => 'service.mailbox.create_failed'];
         }
         if ($holder !== null && $holder !== $userId) {
             logMessage('INFO', 'create_personal denied: address in cool-off', ['user_id' => $userId, 'local' => $local]);
-            return ['ok' => false, 'error' => 'Address already taken'];
+            return ['ok' => false, 'error' => 'Address already taken', 'error_key' => 'service.mailbox.address_taken'];
         }
     }
 
@@ -234,11 +234,11 @@ function mailboxCreateSticky(PDO $pdo, int $userId, string $rawLocal, string $ip
             $cntRow = $cntStmt->fetch(PDO::FETCH_ASSOC);
             $existingCount = (int)($cntRow['cnt'] ?? 0);
             if ($existingCount >= $cap) {
-                return ['ok' => false, 'error' => 'Maximum of ' . $cap . ' sticky addresses allowed'];
+                return ['ok' => false, 'error' => 'Maximum of ' . $cap . ' sticky addresses allowed', 'error_key' => 'service.mailbox.sticky_cap', 'error_params' => ['max' => $cap]];
             }
         } catch (Exception $e) {
             logMessage('WARNING', 'Could not verify personal address count', ['error' => $e->getMessage()]);
-            return ['ok' => false, 'error' => 'Could not verify address quota'];
+            return ['ok' => false, 'error' => 'Could not verify address quota', 'error_key' => 'service.mailbox.quota_check_failed'];
         }
     }
 
@@ -255,7 +255,7 @@ function mailboxCreateSticky(PDO $pdo, int $userId, string $rawLocal, string $ip
         if (!createDirectAdminForwarder($local)) {
             $pdo->prepare("DELETE FROM temp_emails WHERE unique_address = ? AND pro_user_id = ? AND is_personal = 1")
                 ->execute([$local, $userId]);
-            return ['ok' => false, 'error' => 'Mail delivery could not be set up for this address, so it was not created. Please try again in a moment.'];
+            return ['ok' => false, 'error' => 'Mail delivery could not be set up for this address, so it was not created. Please try again in a moment.', 'error_key' => 'service.mailbox.delivery_setup_sticky'];
         }
         // The owner has taken the address back: the reservation ends.
         if ($hasCooldowns) {
@@ -271,7 +271,7 @@ function mailboxCreateSticky(PDO $pdo, int $userId, string $rawLocal, string $ip
         return ['ok' => true, 'address' => $local, 'full_address' => $local . '@' . (string)($config['email']['domain'] ?? ''), 'expires_at' => $expiresAt];
     } catch (Exception $e) {
         logMessage('ERROR', 'Failed creating personal address', ['error' => $e->getMessage()]);
-        return ['ok' => false, 'error' => 'Could not create address'];
+        return ['ok' => false, 'error' => 'Could not create address', 'error_key' => 'service.mailbox.create_failed'];
     }
 }
 
@@ -284,7 +284,7 @@ function mailboxCreateSticky(PDO $pdo, int $userId, string $rawLocal, string $ip
 function mailboxDeleteSticky(PDO $pdo, int $userId, int $id): array
 {
     if ($id <= 0) {
-        return ['ok' => false, 'error' => 'Invalid id'];
+        return ['ok' => false, 'error' => 'Invalid id', 'error_key' => 'service.mailbox.invalid_id'];
     }
     try {
         // Ensure the address belongs to this pro user and is a personal
@@ -294,7 +294,7 @@ function mailboxDeleteSticky(PDO $pdo, int $userId, int $id): array
         $stmt->execute([$id, $userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) {
-            return ['ok' => false, 'error' => 'Address not found or not owned by user'];
+            return ['ok' => false, 'error' => 'Address not found or not owned by user', 'error_key' => 'service.mailbox.not_owned'];
         }
         $id = (int)$row['id'];
         $unique = $row['unique_address'];
@@ -327,7 +327,7 @@ function mailboxDeleteSticky(PDO $pdo, int $userId, int $id): array
             $pdo->rollBack();
         }
         logMessage('ERROR', 'Failed deleting personal address', ['error' => $e->getMessage()]);
-        return ['ok' => false, 'error' => 'Delete failed'];
+        return ['ok' => false, 'error' => 'Delete failed', 'error_key' => 'service.mailbox.delete_failed'];
     }
 }
 
@@ -353,7 +353,7 @@ function mailboxDeleteTimed(PDO $pdo, int $userId, string $local): array
 {
     $local = strtolower(trim($local));
     if ($local === '' || strlen($local) > 64 || !preg_match('/^[a-z0-9._-]+$/', $local)) {
-        return ['ok' => false, 'error' => 'Address not found'];
+        return ['ok' => false, 'error' => 'Address not found', 'error_key' => 'service.mailbox.address_not_found'];
     }
 
     try {
@@ -361,7 +361,7 @@ function mailboxDeleteTimed(PDO $pdo, int $userId, string $local): array
         $stmt->execute([$local, $userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) {
-            return ['ok' => false, 'error' => 'Address not found'];
+            return ['ok' => false, 'error' => 'Address not found', 'error_key' => 'service.mailbox.address_not_found'];
         }
         $id = (int)$row['id'];
         $unique = (string)$row['unique_address'];
@@ -387,7 +387,7 @@ function mailboxDeleteTimed(PDO $pdo, int $userId, string $local): array
             $pdo->rollBack();
         }
         logMessage('ERROR', 'Failed deleting Timed address', ['error' => $e->getMessage()]);
-        return ['ok' => false, 'error' => 'Delete failed'];
+        return ['ok' => false, 'error' => 'Delete failed', 'error_key' => 'service.mailbox.delete_failed'];
     }
 }
 
@@ -471,7 +471,7 @@ function mailboxCreateTimed(PDO $pdo, int $userId): array
     }
 
     if (!$saved) {
-        return ['ok' => false, 'error' => 'Mail delivery could not be set up for a new address, so none was created. Please try again in a moment.'];
+        return ['ok' => false, 'error' => 'Mail delivery could not be set up for a new address, so none was created. Please try again in a moment.', 'error_key' => 'service.mailbox.delivery_setup_timed'];
     }
 
     unlinkAttachmentFiles($replacedAttachmentFiles);
@@ -499,7 +499,7 @@ function mailboxListMessages(PDO $pdo, int $userId, string $local, int $limit = 
     // resolve to an address of this account.
     $local = strtolower(trim($local));
     if ($local === '' || strlen($local) > 64 || !preg_match('/^[a-z0-9._-]+$/', $local)) {
-        return ['ok' => false, 'error' => 'Invalid address'];
+        return ['ok' => false, 'error' => 'Invalid address', 'error_key' => 'service.mailbox.invalid_address'];
     }
 
     $owner = $pdo->prepare("SELECT pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1");
@@ -508,7 +508,7 @@ function mailboxListMessages(PDO $pdo, int $userId, string $local, int $limit = 
     if (!$ownerRow || (int)($ownerRow['pro_user_id'] ?? 0) !== $userId) {
         // Another user's address (or a missing one) answers the same
         // "not found", so ids and local parts reveal nothing.
-        return ['ok' => false, 'error' => 'Address not found'];
+        return ['ok' => false, 'error' => 'Address not found', 'error_key' => 'service.mailbox.address_not_found'];
     }
 
     $fullAddress = $local . '@' . (string)($config['email']['domain'] ?? '');
@@ -535,7 +535,7 @@ function mailboxListMessages(PDO $pdo, int $userId, string $local, int $limit = 
         $emails = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
         logMessage('ERROR', 'mailboxListMessages failed', ['error' => $e->getMessage(), 'user_id' => $userId]);
-        return ['ok' => false, 'error' => 'Could not list messages'];
+        return ['ok' => false, 'error' => 'Could not list messages', 'error_key' => 'service.mailbox.list_messages_failed'];
     }
 
     require_once __DIR__ . '/email_html_sanitizer.php';
@@ -558,19 +558,19 @@ function mailboxGetMessage(PDO $pdo, int $userId, int $emailId): array
     global $config;
 
     if ($emailId <= 0) {
-        return ['ok' => false, 'error' => 'Message not found'];
+        return ['ok' => false, 'error' => 'Message not found', 'error_key' => 'service.mailbox.message_not_found'];
     }
 
     $stmt = $pdo->prepare("SELECT * FROM stored_emails WHERE id = ?");
     $stmt->execute([$emailId]);
     $email = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$email) {
-        return ['ok' => false, 'error' => 'Message not found'];
+        return ['ok' => false, 'error' => 'Message not found', 'error_key' => 'service.mailbox.message_not_found'];
     }
 
     $toLocal = explode('@', (string)($email['to_address'] ?? ''))[0] ?? '';
     if ($toLocal === '') {
-        return ['ok' => false, 'error' => 'Message not found'];
+        return ['ok' => false, 'error' => 'Message not found', 'error_key' => 'service.mailbox.message_not_found'];
     }
     $owner = $pdo->prepare("SELECT pro_user_id FROM temp_emails WHERE unique_address = ? LIMIT 1");
     $owner->execute([$toLocal]);
@@ -579,7 +579,7 @@ function mailboxGetMessage(PDO $pdo, int $userId, int $emailId): array
         // Same "not found" whether the message belongs to someone else or
         // the id does not exist: stored_emails.id is a bare sequential
         // integer, so this must never confirm that a given id exists.
-        return ['ok' => false, 'error' => 'Message not found'];
+        return ['ok' => false, 'error' => 'Message not found', 'error_key' => 'service.mailbox.message_not_found'];
     }
 
     $isExpired = false;
@@ -596,7 +596,7 @@ function mailboxGetMessage(PDO $pdo, int $userId, int $emailId): array
         }
     }
     if ($isExpired) {
-        return ['ok' => false, 'error' => 'Message expired'];
+        return ['ok' => false, 'error' => 'Message expired', 'error_key' => 'service.mailbox.message_expired'];
     }
 
     try {

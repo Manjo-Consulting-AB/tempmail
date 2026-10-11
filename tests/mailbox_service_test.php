@@ -96,6 +96,12 @@ function stickyLimitFor(int $userId): ?int {
     }
 }
 
+/** The English part of a service result: error_key / error_params (epic #428 step 3/8) are asserted by tests/i18n_test.php. */
+function ms_mbx_plain(array $result): array {
+    unset($result['error_key'], $result['error_params']);
+    return $result;
+}
+
 function logMessage($level, $message, $context = null) {
     $GLOBALS['ms_test_logs'][] = ['level' => (string) $level, 'message' => (string) $message, 'context' => $context];
     return true;
@@ -274,20 +280,20 @@ ms_test_same('A3. create: full_address carries the domain', 'alice.sticky@' . MS
 ms_test_check('A4. create: the row exists, owned by alice', (int) (ms_mbx_address_row($pdo, 'alice.sticky')['pro_user_id'] ?? 0) === $alice);
 
 $r = mailboxCreateSticky($pdo, $bob, 'postmaster');
-ms_test_same('A5. create: a reserved local part is refused', ['ok' => false, 'error' => 'This local part is not allowed'], $r);
+ms_test_same('A5. create: a reserved local part is refused', ['ok' => false, 'error' => 'This local part is not allowed'], ms_mbx_plain($r));
 ms_test_same('A6. create: no row for it', null, ms_mbx_address_row($pdo, 'postmaster'));
 
 $r = mailboxCreateSticky($pdo, $bob, '.leading-dot');
-ms_test_same('A7. create: invalid syntax is refused', ['ok' => false, 'error' => 'Invalid local part'], $r);
+ms_test_same('A7. create: invalid syntax is refused', ['ok' => false, 'error' => 'Invalid local part'], ms_mbx_plain($r));
 
 $r = mailboxCreateSticky($pdo, $bob, 'alice.sticky');
-ms_test_same('A8. create: a taken address is refused', ['ok' => false, 'error' => 'Address already taken'], $r);
+ms_test_same('A8. create: a taken address is refused', ['ok' => false, 'error' => 'Address already taken'], ms_mbx_plain($r));
 
 // Cool-off: bob may not take an address alice just released; alice may.
 $r = mailboxDeleteSticky($pdo, $alice, (int) ms_mbx_address_row($pdo, 'alice.sticky')['id']);
 ms_test_same('A9. delete: succeeds', true, $r['ok'] ?? null);
 $r = mailboxCreateSticky($pdo, $bob, 'alice.sticky');
-ms_test_same('A10. create: someone else\'s cool-off answers the same "taken"', ['ok' => false, 'error' => 'Address already taken'], $r);
+ms_test_same('A10. create: someone else\'s cool-off answers the same "taken"', ['ok' => false, 'error' => 'Address already taken'], ms_mbx_plain($r));
 $r = mailboxCreateSticky($pdo, $alice, 'alice.sticky');
 ms_test_same('A11. create: the owner takes its own reservation back', true, $r['ok'] ?? null);
 
@@ -297,7 +303,7 @@ for ($i = 1; $i <= 9; $i++) {
     ms_test_check("A12.$i. create: address " . ($i + 1) . " of 10 succeeds", $r['ok'] ?? false);
 }
 $r = mailboxCreateSticky($pdo, $alice, 'alice.cap10');
-ms_test_same('A13. create: the 11th sticky address is refused', ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'], $r);
+ms_test_same('A13. create: the 11th sticky address is refused', ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'], ms_mbx_plain($r));
 ms_test_same('A14. create: and creates no row', null, ms_mbx_address_row($pdo, 'alice.cap10'));
 
 // Referral bonus slots (epic #387): the cap is 10 plus pro_users.bonus_sticky_slots.
@@ -313,9 +319,9 @@ for ($i = 1; $i <= 13; $i++) {
     ms_test_check("A14c.$i. create: address $i of 13 succeeds with 3 bonus slots", $r['ok'] ?? false);
 }
 $r = mailboxCreateSticky($pdo, $carol, 'carol.cap14');
-ms_test_same('A14d. create: the 14th is refused', ['ok' => false, 'error' => 'Maximum of 13 sticky addresses allowed'], $r);
+ms_test_same('A14d. create: the 14th is refused', ['ok' => false, 'error' => 'Maximum of 13 sticky addresses allowed'], ms_mbx_plain($r));
 $r = mailboxCreateSticky($pdo, $alice, 'alice.cap10');
-ms_test_same('A14e. create: an account with 0 bonus slots is still refused at its 11th', ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'], $r);
+ms_test_same('A14e. create: an account with 0 bonus slots is still refused at its 11th', ['ok' => false, 'error' => 'Maximum of 10 sticky addresses allowed'], ms_mbx_plain($r));
 
 // The mirror above must match the shipped function body in config.php.
 $msNorm = static function (string $src): ?string {
@@ -331,7 +337,7 @@ ms_test_check('A14f. config.php defines stickyLimitFor() identically to the mirr
 // A failed forwarder rolls the creation back.
 $GLOBALS['ms_mbx_forwarder_fails'] = true;
 $r = mailboxCreateSticky($pdo, $bob, 'bob.nowhere');
-ms_test_same('A15. create: a failed forwarder is refused', ['ok' => false, 'error' => 'Mail delivery could not be set up for this address, so it was not created. Please try again in a moment.'], $r);
+ms_test_same('A15. create: a failed forwarder is refused', ['ok' => false, 'error' => 'Mail delivery could not be set up for this address, so it was not created. Please try again in a moment.'], ms_mbx_plain($r));
 ms_test_same('A16. create: and leaves no row', null, ms_mbx_address_row($pdo, 'bob.nowhere'));
 $GLOBALS['ms_mbx_forwarder_fails'] = false;
 
@@ -341,14 +347,14 @@ $bobSticky = mailboxCreateSticky($pdo, $bob, 'bob.sticky');
 $bobStickyId = (int) ms_mbx_address_row($pdo, 'bob.sticky')['id'];
 
 $r = mailboxDeleteSticky($pdo, $alice, $bobStickyId);
-ms_test_same('A17. delete: another user\'s id answers "not found"', ['ok' => false, 'error' => 'Address not found or not owned by user'], $r);
+ms_test_same('A17. delete: another user\'s id answers "not found"', ['ok' => false, 'error' => 'Address not found or not owned by user'], ms_mbx_plain($r));
 ms_test_check('A18. delete: and the row survives', ms_mbx_address_row($pdo, 'bob.sticky') !== null);
 
 $r = mailboxDeleteSticky($pdo, $bob, 999999);
-ms_test_same('A19. delete: a missing id answers "not found"', ['ok' => false, 'error' => 'Address not found or not owned by user'], $r);
+ms_test_same('A19. delete: a missing id answers "not found"', ['ok' => false, 'error' => 'Address not found or not owned by user'], ms_mbx_plain($r));
 
 $r = mailboxDeleteSticky($pdo, $bob, 0);
-ms_test_same('A20. delete: id 0 is refused before any lookup', ['ok' => false, 'error' => 'Invalid id'], $r);
+ms_test_same('A20. delete: id 0 is refused before any lookup', ['ok' => false, 'error' => 'Invalid id'], ms_mbx_plain($r));
 
 $r = mailboxDeleteSticky($pdo, $bob, $bobStickyId);
 ms_test_same('A21. delete: the owner succeeds', ['ok' => true, 'deleted_address' => 'bob.sticky'], $r);
@@ -435,13 +441,13 @@ ms_test_same('A47. list messages: one message', 1, count($r['emails'] ?? []));
 ms_test_same('A48. list messages: the list carries no raw body_html', null, $r['emails'][0]['body_html']);
 
 $r = mailboxListMessages($pdo, $bob, 'carol.mail');
-ms_test_same('A49. list messages: another user\'s address answers "not found"', ['ok' => false, 'error' => 'Address not found'], $r);
+ms_test_same('A49. list messages: another user\'s address answers "not found"', ['ok' => false, 'error' => 'Address not found'], ms_mbx_plain($r));
 
 $r = mailboxListMessages($pdo, $carol, 'doesnotexist');
-ms_test_same('A50. list messages: a missing address answers the same "not found"', ['ok' => false, 'error' => 'Address not found'], $r);
+ms_test_same('A50. list messages: a missing address answers the same "not found"', ['ok' => false, 'error' => 'Address not found'], ms_mbx_plain($r));
 
 $r = mailboxListMessages($pdo, $carol, 'not valid!!');
-ms_test_same('A51. list messages: invalid syntax is refused before any lookup', ['ok' => false, 'error' => 'Invalid address'], $r);
+ms_test_same('A51. list messages: invalid syntax is refused before any lookup', ['ok' => false, 'error' => 'Invalid address'], ms_mbx_plain($r));
 
 $r = mailboxGetMessage($pdo, $carol, $msgId);
 ms_test_same('A52. get message: the owner sees it', true, $r['ok'] ?? null);
@@ -450,20 +456,20 @@ ms_test_check('A54. get message: the attachment carries a signed download_url', 
 ms_test_check('A55. get message: body_html is purified or dropped, never the raw markup', ($r['email']['body_html'] ?? null) !== '<p>Hi</p>' || $r['email']['body_html'] === null);
 
 $r = mailboxGetMessage($pdo, $bob, $msgId);
-ms_test_same('A56. get message: another user\'s message answers "not found"', ['ok' => false, 'error' => 'Message not found'], $r);
+ms_test_same('A56. get message: another user\'s message answers "not found"', ['ok' => false, 'error' => 'Message not found'], ms_mbx_plain($r));
 
 $r = mailboxGetMessage($pdo, $carol, 999999);
-ms_test_same('A57. get message: a missing id answers the same "not found"', ['ok' => false, 'error' => 'Message not found'], $r);
+ms_test_same('A57. get message: a missing id answers the same "not found"', ['ok' => false, 'error' => 'Message not found'], ms_mbx_plain($r));
 
 $r = mailboxGetMessage($pdo, $carol, 0);
-ms_test_same('A58. get message: id 0 is refused before any lookup', ['ok' => false, 'error' => 'Message not found'], $r);
+ms_test_same('A58. get message: id 0 is refused before any lookup', ['ok' => false, 'error' => 'Message not found'], ms_mbx_plain($r));
 
 $expiredId = ms_mbx_seed_message($pdo, $carolMailId, 'carol.mail@' . MS_TEST_EMAIL_DOMAIN, [
     'subject' => 'Old',
     'expires_at' => date('Y-m-d H:i:s', time() - 3600),
 ]);
 $r = mailboxGetMessage($pdo, $carol, $expiredId);
-ms_test_same('A59. get message: an expired message is refused', ['ok' => false, 'error' => 'Message expired'], $r);
+ms_test_same('A59. get message: an expired message is refused', ['ok' => false, 'error' => 'Message expired'], ms_mbx_plain($r));
 
 // =====================================================================
 ms_test_section('B. the creation rate limit shares its buckets with index.php');
