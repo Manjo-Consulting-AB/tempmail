@@ -326,9 +326,9 @@ class TempMailApp {
                 const res = await $.post('pro_profile.php', { action: 'update_email', email }, null, 'json');
                 if (res.success) {
                     var msg = res.message || msT('app.js.profile_email_sent', 'Confirmation link sent to the new email address');
-                    $('#proProfileAlert').html('<div class="alert alert-success">' + msg + '</div>');
+                    $('#proProfileAlert').html('<div class="alert alert-success">' + this.escapeHtml(msg) + '</div>');
                 } else {
-                    $('#proProfileAlert').html('<div class="alert alert-danger">' + (res.error || msT('app.error.failed', 'Failed')) + '</div>');
+                    $('#proProfileAlert').html('<div class="alert alert-danger">' + this.escapeHtml(res.error || msT('app.error.failed', 'Failed')) + '</div>');
                 }
             } catch (err) {
                 $('#proProfileAlert').html('<div class="alert alert-danger">' + this.escapeHtml(msT('app.error.network', 'Network error')) + '</div>');
@@ -348,7 +348,7 @@ class TempMailApp {
                     $('#proPassword').val('');
                     $('#proPasswordConfirm').val('');
                 } else {
-                    $('#proProfileAlert').html('<div class="alert alert-danger">' + (res.error || msT('app.error.failed', 'Failed')) + '</div>');
+                    $('#proProfileAlert').html('<div class="alert alert-danger">' + this.escapeHtml(res.error || msT('app.error.failed', 'Failed')) + '</div>');
                 }
             } catch (err) {
                 $('#proProfileAlert').html('<div class="alert alert-danger">' + this.escapeHtml(msT('app.error.network', 'Network error')) + '</div>');
