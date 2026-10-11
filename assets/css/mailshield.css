@@ -863,8 +863,37 @@ a:hover {
 }
 
 /* The Legal column lists the three policy pages above the copyright line. */
-.ms-footer__links + .ms-footer__legal {
+.ms-footer__links + .ms-footer__legal,
+.ms-footer__langs + .ms-footer__legal {
     margin-top: var(--ms-space-4);
+}
+
+/* Language switcher (partials/public_footer.php, i18n.php): rendered only when
+   the page exists in more than one language. One link per language, each in
+   its own language; the current one is marked with aria-current. */
+.ms-footer__langs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ms-space-3);
+    margin-top: var(--ms-space-4);
+    font-size: var(--ms-fs-sm);
+}
+
+.ms-footer__langs a {
+    color: var(--ms-text-muted);
+}
+
+.ms-footer__langs a:hover,
+.ms-footer__langs a[aria-current="true"] {
+    color: var(--ms-text);
+}
+
+@media (max-width: 767px) {
+    .ms-footer__langs a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2.75rem;
+    }
 }
 
 /* ==========================================================================

@@ -50,6 +50,16 @@ RewriteRule ^favicon\.ico$ assets/images/favicon.ico [L]
 # /sitemap.xml serveras av sitemap.php (genererad, se sitemap.php)
 RewriteRule ^sitemap\.xml$ sitemap.php [L]
 
+# Gränssnittsspråk (i18n.php, documentaion/I18N.md). /sv/ och /sv/<sida>.php
+# serveras av samma fil som den engelska sidan; i18nBootstrap() läser prefixet
+# ur REQUEST_URI och skickar en 302 till den vanliga adressen när sidan inte
+# finns på det språket (inte översatt, eller språket är avslaget). Bara de
+# språkkoder koden stöder (i18nSupportedLocales(), utom engelska) står här, så
+# inget annat på sajten kan tas för ett prefix — lägg till koden här när ett
+# språk läggs till.
+RewriteRule ^(sv)/?$ index.php [L]
+RewriteRule ^(sv)/([A-Za-z0-9_-]+\.php)$ $2 [L,QSA]
+
 # MCP-endpointen (#321). /mcp är adressen användarna får och den som står i
 # klienternas konfiguration; mcp.php är filen som svarar.
 RewriteRule ^mcp/?$ mcp.php [L]

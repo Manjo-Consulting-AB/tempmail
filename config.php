@@ -241,6 +241,9 @@ if (PHP_SAPI === 'cli') {
 loadEnvironmentVariables($environment);
 
 // Grundkonfiguration som delas mellan miljöer
+// Interface languages: i18nParseEnabled() is used in $baseConfig below.
+require_once __DIR__ . '/i18n.php';
+
 $baseConfig = [
     'email' => [
         'domain' => $_ENV['EMAIL_DOMAIN'] ?? 'manjo.me',
@@ -441,6 +444,13 @@ $baseConfig = [
     // the mail domain; org_number and vat_number are left out of the copy while
     // they are empty. The VAT number is the international form of the Swedish
     // org number (SE + the ten digits + 01).
+    // Interface languages (i18n.php, documentaion/I18N.md). English is always
+    // on; LOCALES_ENABLED (comma-separated, e.g. "en,sv") switches others on.
+    // A public page is offered in a language only once i18nTranslatedPages()
+    // lists it, so switching a language on never exposes untranslated pages.
+    'i18n' => [
+        'enabled' => i18nParseEnabled((string)($_ENV['LOCALES_ENABLED'] ?? 'en')),
+    ],
     'legal' => [
         'company' => 'Manjo Consulting AB',
         'org_number' => (string)($_ENV['LEGAL_ORG_NUMBER'] ?? '556813-8464'),
@@ -562,6 +572,10 @@ function generateSignedAttachmentUrl(int $attachmentId, ?int $ttlSeconds = null,
 
 // Expose which source determined the environment for runtime checks
 $config['env_source'] = $env_source;
+
+// The language of this request, from its /<locale>/ URL prefix (i18n.php).
+// A prefix the page is not offered in redirects to the plain URL. No-op on CLI.
+i18nBootstrap($config['i18n'], $_SERVER);
 
 /**
  * Kända engångs-/tempmail-domäner som blockeras vid självbetjäningsregistrering

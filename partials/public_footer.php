@@ -23,6 +23,16 @@ $msFooterVersion = (string) ($config['app']['version'] ?? '');
 $msFooterEsc = function ($value): string {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 };
+
+// Language switcher (i18n.php): the languages this page is offered in, shown
+// only when there is more than one. Each link is the same page in that
+// language — never a cookie or a redirect, so every version keeps its own URL.
+$msFooterLocales = [];
+if (function_exists('i18nPageLocales')) {
+    $msFooterEnabled = $config['i18n']['enabled'] ?? ['en'];
+    $msFooterPath    = (string) ($msPage['path'] ?? '/');
+    $msFooterLocales = i18nPageLocales($msFooterPath, $msFooterEnabled);
+}
 ?>
 <footer class="ms-footer">
     <div class="ms-container ms-footer__inner">
@@ -55,6 +65,15 @@ $msFooterEsc = function ($value): string {
                     <li><a href="/refund-policy.php">Refund policy</a></li>
                     <li><button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button></li>
                 </ul>
+<?php if (count($msFooterLocales) > 1) : ?>
+                <nav class="ms-footer__langs" aria-label="<?php echo te('lang.switcher.label'); ?>">
+                    <?php foreach ($msFooterLocales as $msFooterCode) : ?>
+                        <a href="<?php echo $msFooterEsc(i18nUrl($msFooterPath, $msFooterCode, $msFooterEnabled)); ?>"
+                           hreflang="<?php echo $msFooterEsc($msFooterCode); ?>"
+                           lang="<?php echo $msFooterEsc($msFooterCode); ?>"<?php echo $msFooterCode === i18nLocale() ? ' aria-current="true"' : ''; ?>><?php echo $msFooterEsc(i18nSupportedLocales()[$msFooterCode] ?? $msFooterCode); ?></a>
+                    <?php endforeach; ?>
+                </nav>
+<?php endif; ?>
                 <p class="ms-footer__legal">&copy; <?php echo $msFooterEsc($msFooterYear); ?> Manjo Consulting AB &middot; Mail Shield v<?php echo $msFooterEsc($msFooterVersion); ?></p>
             </div>
         </div>
