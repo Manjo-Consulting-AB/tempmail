@@ -1,0 +1,180 @@
+<section class="ms-settings__section" id="settings-security">
+                            <h2 class="ms-settings__section-title">Security</h2>
+                            <p class="ms-settings__section-lede">Codes, devices, and how a password sign-in is verified.</p>
+
+                            <div class="ms-card" id="staySignedInCard">
+                                <h3 class="ms-card__title">Stay signed in</h3>
+                                <p class="ms-card__desc">How long this device stays signed in when the browser is closed, for example when your phone closes it in the background. Each visit restarts the period, up to 90 days after you signed in.</p>
+                                <div id="staySignedInAlert"></div>
+                                <p id="staySignedInUnavailable" class="text-muted d-none">Not available yet.</p>
+                                <div id="staySignedInControls" class="d-none">
+                                    <div class="mb-3">
+                                        <label class="form-label" for="staySignedInSelect">Keep this device signed in</label>
+                                        <select id="staySignedInSelect" class="form-select" style="max-width:260px;">
+                                            <option value="0">Until I close the browser</option>
+                                            <option value="1">For 1 day</option>
+                                            <option value="7">For 7 days</option>
+                                            <option value="30">For 30 days</option>
+                                        </select>
+                                        <div class="form-text">Only choose a period on a device that is yours.</div>
+                                    </div>
+                                    <button type="button" id="staySignedInSaveBtn" class="btn btn-secondary">Save</button>
+
+                                    <h4 class="ms-card__subtitle mt-4">Devices kept signed in</h4>
+                                    <p class="form-text">Removing a device means it has to sign in again the next time its browser is closed. Changing your password or email address removes them all.</p>
+                                    <p id="staySignedInEmpty" class="text-muted d-none">No devices are kept signed in.</p>
+                                    <ul id="staySignedInList" class="list-group mb-2"></ul>
+                                    <button type="button" id="staySignedInRevokeOthersBtn" class="btn btn-sm btn-outline-danger d-none">Remove all other devices</button>
+                                </div>
+                            </div>
+
+                            <!-- Connected apps: apps connected through the OAuth
+                                 consent page (#331) and personal access tokens for
+                                 the MCP server (mcp_tokens.php, #320). A token value
+                                 is rendered once, from the create response, and never
+                                 fetched again — nothing on the server can show it a
+                                 second time, so a lost token is revoked and replaced.
+                                 Both groups are filled from mcp_token_list and told
+                                 apart by its is_oauth flag; an app's name is its own
+                                 (attacker-controlled) so it is inserted with .text(),
+                                 never as markup. -->
+                            <div class="ms-card" id="connectedAppsCard">
+                                <h3 class="ms-card__title">Connected apps</h3>
+                                <p class="ms-card__desc">Apps that can reach your mailbox. The access tokens you created by hand are listed here, each limited to the access you allowed. Revoking one stops it working immediately.</p>
+                                <p class="text-muted" id="connectedAppsUnavailable">Not available yet.</p>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Two-factor authentication</h3>
+                                <p class="ms-card__desc">A code from your authenticator app, on top of your password.</p>
+                                <div id="twoFactorSection">
+                                    <p id="tfaStatusLine" class="mb-2">Loading status...</p>
+                                    <p class="form-text">Protects password sign-in with a code from your authenticator app. Email sign-in links already require access to your inbox and keep working as before.</p>
+                                    <p class="form-text">Lost your authenticator? You can always sign in with your email login link instead, then turn off two-factor authentication here.</p>
+                                    <div id="tfaNoPasswordNote" class="alert alert-info d-none">
+                                        Two-factor authentication only takes effect once you have a password set — <a href="#proPassword">set one below</a> to activate protection after enrolling.
+                                    </div>
+                                    <div id="tfaAlert"></div>
+
+                                    <div id="tfaDisabledState" class="d-none">
+                                        <button type="button" id="tfaEnableBtn" class="btn btn-primary">Enable 2FA</button>
+                                    </div>
+
+                                    <div id="tfaEnrollStep" class="d-none">
+                                        <p>Scan with 1Password, Authy, Google Authenticator, or a similar app.</p>
+                                        <div id="tfaQrContainer" class="mb-2"></div>
+                                        <details class="mb-3">
+                                            <summary style="cursor:pointer;">Can't scan?</summary>
+                                            <div class="mt-2 d-flex align-items-center flex-wrap" style="gap:8px;">
+                                                <code id="tfaManualKey"></code>
+                                                <button type="button" id="tfaCopyKeyBtn" class="btn btn-sm btn-outline-secondary">Copy</button>
+                                            </div>
+                                        </details>
+                                        <div class="mb-2">
+                                            <label class="form-label" for="tfaCodeInput">Enter the 6-digit code from your app</label>
+                                            <input type="text" class="form-control" id="tfaCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
+                                        </div>
+                                        <button type="button" id="tfaConfirmBtn" class="btn btn-primary">Confirm and enable</button>
+                                        <button type="button" id="tfaCancelEnrollBtn" class="btn btn-link">Cancel</button>
+                                    </div>
+
+                                    <div id="tfaRecoveryCodesBox" class="d-none">
+                                        <div class="alert alert-warning">
+                                            <strong>Save these recovery codes now.</strong> They are shown this one time only. Store them somewhere safe — each one can be used once if you lose access to your authenticator app.
+                                        </div>
+                                        <pre id="tfaRecoveryCodesList" class="p-3 border rounded" style="white-space:pre-wrap; word-break:break-word;"></pre>
+                                        <div class="mb-2">
+                                            <button type="button" id="tfaCopyRecoveryBtn" class="btn btn-sm btn-outline-secondary">Copy all</button>
+                                            <button type="button" id="tfaDownloadRecoveryBtn" class="btn btn-sm btn-outline-secondary">Download as .txt</button>
+                                        </div>
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tfaSavedCodesCheck">
+                                            <label class="form-check-label" for="tfaSavedCodesCheck">I have saved my codes</label>
+                                        </div>
+                                        <button type="button" id="tfaCloseRecoveryBtn" class="btn btn-primary" disabled>Done</button>
+                                    </div>
+
+                                    <div id="tfaEnabledState" class="d-none">
+                                        <div id="tfaLowCodesWarning" class="alert alert-warning d-none">
+                                            You have <span id="tfaCodesLeftCount"></span> recovery codes left.
+                                            <button type="button" id="tfaRegenBtn" class="btn btn-sm btn-warning ms-2">Generate new codes</button>
+                                        </div>
+                                        <button type="button" id="tfaDisableBtn" class="btn btn-outline-danger">Disable 2FA</button>
+
+                                        <div id="tfaTrustedDevicesSection" class="mt-4">
+                                            <h4 class="ms-card__subtitle">Trusted devices</h4>
+                                            <p class="form-text">Browsers where you checked "Remember this browser" at sign-in skip the code for 30 days. Revoke a device to require the code there again.</p>
+                                            <div id="tfaTrustedDevicesAlert"></div>
+                                            <p id="tfaTrustedDevicesEmpty" class="text-muted d-none">No trusted devices.</p>
+                                            <ul id="tfaTrustedDevicesList" class="list-group mb-2"></ul>
+                                            <button type="button" id="tfaRevokeAllDevicesBtn" class="btn btn-sm btn-outline-danger d-none">Revoke all</button>
+                                        </div>
+                                    </div>
+
+                                    <div id="tfaRegenForm" class="d-none mt-2">
+                                        <label class="form-label" for="tfaRegenCodeInput">Enter a current code to generate new recovery codes</label>
+                                        <input type="text" class="form-control mb-2" id="tfaRegenCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" style="max-width:160px;">
+                                        <button type="button" id="tfaRegenConfirmBtn" class="btn btn-primary btn-sm">Generate</button>
+                                        <button type="button" id="tfaRegenCancelBtn" class="btn btn-link btn-sm">Cancel</button>
+                                    </div>
+
+                                    <div id="tfaDisableForm" class="d-none mt-2">
+                                        <div id="tfaDisablePasswordField" class="mb-2">
+                                            <label class="form-label" for="tfaDisablePasswordInput">Enter your password to confirm</label>
+                                            <!-- The width constraint sits on the wrapper, not the
+                                                 field: the toggle is positioned against the wrapper,
+                                                 so the two have to be the same box. -->
+                                            <div class="ms-password-field" style="max-width:260px;">
+                                                <input type="password" class="form-control" id="tfaDisablePasswordInput">
+                                                <button type="button" class="ms-password-toggle" data-target="tfaDisablePasswordInput" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                            </div>
+                                        </div>
+                                        <button type="button" id="tfaDisableConfirmBtn" class="btn btn-danger btn-sm">Disable 2FA</button>
+                                        <button type="button" id="tfaDisableCancelBtn" class="btn btn-link btn-sm">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Password</h3>
+                                <p class="ms-card__desc">Set one to sign in without waiting for an email link.</p>
+                                <!-- Current-password field removed: users can change password without supplying previous password -->
+                                <div class="mb-3">
+                                    <label class="form-label">New password</label>
+                                    <div class="ms-password-field">
+                                        <input type="password" class="form-control" id="proPassword" />
+                                        <button type="button" class="ms-password-toggle" data-target="proPassword" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Confirm password</label>
+                                    <div class="ms-password-field">
+                                        <input type="password" class="form-control" id="proPasswordConfirm" />
+                                        <button type="button" class="ms-password-toggle" data-target="proPasswordConfirm" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                    </div>
+                                </div>
+                                <button type="button" id="saveProfilePasswordBtn" class="btn btn-secondary">Set password</button>
+                            </div>
+                        </section>
+
+                        <section class="ms-settings__section" id="settings-agent">
+                            <h2 class="ms-settings__section-title">Client Agent</h2>
+                            <p class="ms-settings__section-lede">Keys for the agent you run on your own mail server.</p>
+
+                            <div class="ms-card">
+                                <h3 class="ms-card__title">Client signing keys</h3>
+                                <p class="ms-card__desc">The agent verifies signed list-sync payloads against these keys. Rotate them if one may have leaked.</p>
+                                <button type="button" id="rotateSigningKeysBtn" class="btn btn-primary">Rotate signing keys</button>
+                                <div id="signingKeysProNote" class="form-text text-muted d-none">Client signing keys require a Pro account.</div>
+                            </div>
+                        </section>
+
+                        <section class="ms-settings__section" id="settings-delete">
+                            <h2 class="ms-settings__section-title">Delete account</h2>
+
+                            <div class="ms-card">
+                                <p class="ms-card__desc">Permanently delete your account and all associated Pro settings. This cannot be undone.</p>
+                                <p class="ms-card__desc">A confirmation email with a deletion link is sent to your address first, so nothing happens until you click it.</p>
+                                <button type="button" id="deleteAccountBtn" class="btn btn-danger">Delete account</button>
+                            </div>
+                        </section>
