@@ -30,5 +30,24 @@ if (!defined('TEMPMAIL_APP')) {
 <!-- Google Analytics: consent-gated. See partials/analytics.php and
      assets/js/consent.js — gtag.js is requested only after the visitor
      accepts the cookie notice this script shows. -->
+<?php
+// The one documented exception to "one #ms-i18n element per page"
+// (documentaion/I18N.md): this partial is included by pages that carry their
+// own <head>, so the notice's strings travel with it. Emits nothing when
+// i18n.php is not loaded.
+if (function_exists('i18nCatalogSubset')) {
+    $msConsentStrings = i18nCatalogSubset(['consent.']);
+    $msConsentStrings['consent.privacy_url'] = function_exists('i18nUrl')
+        ? i18nUrl('/privacy.php') . '#cookies'
+        : '/privacy.php#cookies';
+    $msConsentJson = json_encode(
+        $msConsentStrings,
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE
+    );
+    if (is_string($msConsentJson)) {
+        echo '<script type="application/json" id="ms-i18n-consent">' . $msConsentJson . '</script>' . "\n";
+    }
+}
+?>
 <script>window.msAnalyticsId = 'G-BFX6EC3575';</script>
 <script src="/assets/js/consent.js?v=<?php echo @filemtime(__DIR__ . '/../assets/js/consent.js') ?: 1; ?>"></script>

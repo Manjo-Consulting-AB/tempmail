@@ -33,4 +33,10 @@ return [
     'footer.privacy'         => 'Integritetspolicy',
     'footer.refund'          => 'Återbetalningspolicy',
     'footer.cookie_settings' => 'Cookie-inställningar',
+
+    'consent.label'      => 'Cookie-samtycke',
+    'consent.text'       => 'Vi använder Google Analytics på våra publika sidor för att förstå hur Mail Shield används.',
+    'consent.learn_more' => 'Läs mer',
+    'consent.decline'    => 'Avböj',
+    'consent.accept'     => 'Godkänn',
 ];

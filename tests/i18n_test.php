@@ -265,11 +265,12 @@ $missingPhp = array_diff(array_keys($phpKeys), array_keys($en));
 check('scan: every literal t()/te()/tp()/tHtml() key exists in lang/en.php', $missingPhp === [], implode(', ', array_map(fn($k) => $k . ' (' . $phpKeys[$k][0] . ')', $missingPhp)));
 check('scan: the scan found the nav and footer keys', isset($phpKeys['nav.pricing'], $phpKeys['footer.terms']));
 $jsKeys = $scanKeys($root . '/assets/js', ['/\.js$/', '/(?<![\w.$])msT\(\s*[\'"]([^\'"]+)[\'"]/'], []);
-$missingJs = array_diff(array_keys($jsKeys), array_keys($en));
+// consent.privacy_url is not a catalog key: partials/analytics.php adds it to the JSON (a URL, not copy).
+$missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_url']);
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -334,6 +335,48 @@ $decoded = json_decode(substr($js, strpos($js, '>') + 1, strrpos($js, '</script>
 same('i18n_js: carries the Swedish value', 'Priser', $decoded['nav.pricing'] ?? null);
 check('i18n_js: only the requested prefix', !isset($decoded['footer.terms']));
 i18nSetLocale('en');
+
+// --- analytics.php: the consent strings ---------------------------------------
+if (!defined('TEMPMAIL_APP')) {
+    define('TEMPMAIL_APP', true);
+}
+function renderAnalytics(string $locale, array $enabled): string
+{
+    $GLOBALS['config'] = [
+        'email' => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+        'i18n' => ['enabled' => $enabled],
+    ];
+    $_SERVER['REQUEST_URI'] = '/';
+    i18nSetLocale($locale);
+    ob_start();
+    require dirname(__DIR__) . '/partials/analytics.php';
+    return (string) ob_get_clean();
+}
+$consentRe = '#<script type="application/json" id="ms-i18n-consent">(.*?)</script>\n#s';
+$normMtime = static fn(string $h): string => preg_replace('/consent\.js\?v=\d+/', 'consent.js?v={mtime}', $h);
+$anEn = renderAnalytics('en', $onlyEn);
+check('analytics en: exactly one consent element', preg_match_all($consentRe, $anEn) === 1);
+same('fixture: analytics.php, English, minus the consent block', (string) file_get_contents($fx . 'analytics.en.html'), $normMtime(preg_replace($consentRe, '', $anEn)));
+preg_match($consentRe, $anEn, $m);
+$consentEn = json_decode($m[1] ?? '', true);
+check('analytics en: JSON parses', is_array($consentEn));
+same('analytics en: accept value', 'Accept', $consentEn['consent.accept'] ?? null);
+same('analytics en: privacy url', '/privacy.php#cookies', $consentEn['consent.privacy_url'] ?? null);
+same('analytics en: text is today\'s literal', 'We use Google Analytics on our public pages to understand how Mail Shield is used.', $consentEn['consent.text'] ?? null);
+i18nTranslatedPages(['/' => ['en', 'sv'], '/privacy.php' => ['en', 'sv']]);
+preg_match($consentRe, renderAnalytics('sv', $both), $m);
+$consentSv = json_decode($m[1] ?? '', true);
+check('analytics sv: JSON parses', is_array($consentSv));
+same('analytics sv: accept value', 'Godkänn', $consentSv['consent.accept'] ?? null);
+same('analytics sv: privacy url follows the translated page', '/sv/privacy.php#cookies', $consentSv['consent.privacy_url'] ?? null);
+i18nTranslatedPages($realPages);
+preg_match($consentRe, renderAnalytics('sv', $both), $m);
+$consentSv = json_decode($m[1] ?? '', true);
+same('analytics sv: privacy url stays English until privacy is translated', '/privacy.php#cookies', $consentSv['consent.privacy_url'] ?? null);
+i18nSetLocale('en');
+$consentJs = (string) file_get_contents($root . '/assets/js/consent.js');
+check('scan: consent.js has no innerHTML built from msT()', !preg_match('/innerHTML[^;]*msT\(/s', $consentJs) && strpos($consentJs, 'innerHTML') === false);
+check('scan: consent.js reads #ms-i18n-consent', strpos($consentJs, 'ms-i18n-consent') !== false);
 
 // --- .htaccess hides lang/ ----------------------------------------------------
 check('scan: .htaccess blocks lang/ in the existing rule', strpos($htaccess, 'RewriteRule ^(?:vendor|tests|documentaion|client|lang)(?:/|$) - [F,L]') !== false);

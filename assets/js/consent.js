@@ -29,6 +29,20 @@
         return;
     }
 
+    // Strings come from #ms-i18n-consent (partials/analytics.php); the English
+    // literals are the fallback when the element or a key is missing.
+    var msI18n = null;
+    function msT(key, fallback) {
+        if (msI18n === null) {
+            try {
+                msI18n = JSON.parse(document.getElementById('ms-i18n-consent').textContent);
+            } catch (e) {
+                msI18n = {};
+            }
+        }
+        return (msI18n && typeof msI18n[key] === 'string') ? msI18n[key] : fallback;
+    }
+
     var gtagLoaded = false;
     var banner = null;
 
@@ -131,17 +145,38 @@
         banner.className = 'ms-consent';
         banner.id = 'ms-consent';
         banner.setAttribute('role', 'region');
-        banner.setAttribute('aria-label', 'Cookie consent');
+        banner.setAttribute('aria-label', msT('consent.label', 'Cookie consent'));
         banner.hidden = true;
-        banner.innerHTML =
-            '<div class="ms-consent__inner">' +
-                '<p class="ms-consent__text">We use Google Analytics on our public pages to understand how Mail Shield is used. ' +
-                    '<a href="/privacy.php#cookies">Learn more</a>.</p>' +
-                '<div class="ms-consent__actions">' +
-                    '<button type="button" class="ms-btn ms-btn--secondary ms-consent__btn" data-ms-consent="decline">Decline</button>' +
-                    '<button type="button" class="ms-btn ms-btn--secondary ms-consent__btn" data-ms-consent="accept">Accept</button>' +
-                '</div>' +
-            '</div>';
+
+        // Built with createElement/textContent: the strings are never parsed as HTML.
+        var inner = document.createElement('div');
+        inner.className = 'ms-consent__inner';
+
+        var text = document.createElement('p');
+        text.className = 'ms-consent__text';
+        text.appendChild(document.createTextNode(
+            msT('consent.text', 'We use Google Analytics on our public pages to understand how Mail Shield is used.') + ' '
+        ));
+        var link = document.createElement('a');
+        link.setAttribute('href', msT('consent.privacy_url', '/privacy.php#cookies'));
+        link.textContent = msT('consent.learn_more', 'Learn more');
+        text.appendChild(link);
+        text.appendChild(document.createTextNode('.'));
+
+        var actions = document.createElement('div');
+        actions.className = 'ms-consent__actions';
+        [['decline', msT('consent.decline', 'Decline')], ['accept', msT('consent.accept', 'Accept')]].forEach(function (def) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'ms-btn ms-btn--secondary ms-consent__btn';
+            button.setAttribute('data-ms-consent', def[0]);
+            button.textContent = def[1];
+            actions.appendChild(button);
+        });
+
+        inner.appendChild(text);
+        inner.appendChild(actions);
+        banner.appendChild(inner);
 
         document.body.appendChild(banner);
 
