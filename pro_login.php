@@ -93,7 +93,7 @@ $msTitle    = 'Log in · Mail Shield';
 $msDesc     = 'Log in to Mail Shield with a magic link sent to your email address, or with your password if you have set one.';
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
 <head>
 
     <meta charset="UTF-8">
@@ -243,6 +243,7 @@ $msDesc     = 'Log in to Mail Shield with a magic link sent to your email addres
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     $(function(){

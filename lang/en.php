@@ -280,4 +280,23 @@ return [
     'faq.foot.blog' => 'Blog',
     'faq.foot.faq' => 'FAQ',
     'faq.foot.cookie_settings' => 'Cookie settings',
+
+    // App navigation (partials/nav.php)
+    'appnav.label'         => 'Application',
+    'appnav.menu'          => 'Menu',
+    'appnav.home'          => 'Home',
+    'appnav.inbox'         => 'Inbox',
+    'appnav.blog'          => 'Blog',
+    'appnav.faq'           => 'FAQ',
+    'appnav.client_agent'  => 'Client Agent',
+    'appnav.settings'      => 'Settings',
+    'appnav.pending'       => 'pending changes',
+    'appnav.contact'       => 'Contact',
+    'appnav.admin'         => 'Admin',
+    'appnav.logout'        => 'Log out',
+    'appnav.signup'        => 'Sign up',
+    'appnav.pro'           => 'Pro',
+    'appnav.signed_in_as'  => 'Signed in as',
+    'appnav.type_pro'      => 'Pro',
+    'appnav.type_free'     => 'Free',
 ];

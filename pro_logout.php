@@ -8,6 +8,9 @@
  */
 require_once __DIR__ . '/config.php';
 session_start();
+if (function_exists('i18nUseAppLocale')) {
+    i18nUseAppLocale($pdo, isset($_SESSION['pro_user_id']) ? (int) $_SESSION['pro_user_id'] : null, $_SERVER, $config['i18n'] ?? []);
+}
 // End "stay signed in" on this device: its token is removed server-side, not
 // only its cookie (pro_remember.php).
 proRememberForgetCurrent();
@@ -48,7 +51,7 @@ if (!empty($_COOKIE) && is_array($_COOKIE)) {
 header('Content-Type: text/html; charset=utf-8');
 ?>
 <!doctype html>
-<html lang="en">
+<html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
 <head>
 
 	<meta charset="utf-8">
@@ -107,5 +110,6 @@ header('Content-Type: text/html; charset=utf-8');
 </head>
 <body>
 	<p>Signing out… If you are not redirected automatically, <a href="index.php">click here</a>.</p>
+<?php require __DIR__ . '/partials/app_locale_js.php'; ?>
 </body>
 </html>

@@ -51,7 +51,7 @@ $msDesc     = $msTrialDays > 0
     : 'Create a free Mail Shield account and get a separate inbox for the email you don\'t want in your primary one. Sticky and timed addresses, with automatic clean-up.';
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
 <head>
 
     <meta charset="UTF-8">
@@ -155,6 +155,7 @@ $msDesc     = $msTrialDays > 0
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     $(function(){
