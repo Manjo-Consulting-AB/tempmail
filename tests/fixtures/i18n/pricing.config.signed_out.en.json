@@ -1,0 +1,24 @@
+{
+    "environment": "sandbox",
+    "token": "test_probe_token",
+    "country": null,
+    "email": null,
+    "userId": null,
+    "checkoutEnabled": false,
+    "successUrl": "https://example.test/welcome.php",
+    "tiers": [
+        {
+            "name": "Pro",
+            "priceId": {
+                "month": "pri_01m3a6bdv26jf8dw0z8b8xp81k",
+                "year": "pri_01m3a6bdzwq8enav6qbvdme5db"
+            }
+        },
+        {
+            "name": "Lifetime",
+            "priceId": {
+                "once": "pri_01m3a6j2gy3f6bkqaf6jpysdrc"
+            }
+        }
+    ]
+}

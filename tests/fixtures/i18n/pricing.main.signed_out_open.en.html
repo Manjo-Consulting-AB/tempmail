@@ -1,0 +1,65 @@
+<main id="main">
+    <section class="ms-section ms-pricing">
+        <div class="ms-container">
+            <h1 class="ms-h1">Plans and pricing</h1>
+            <p class="ms-lede ms-pricing__lede">Subscribe monthly or yearly, or pay once for good. Prices are shown in your local currency, including any tax that applies where you are.</p>
+
+            <div class="ms-pricing__toggle" role="group" aria-label="Billing period">
+                <button type="button" class="ms-pricing__period" data-period="month" aria-pressed="true">Monthly</button>
+                <button type="button" class="ms-pricing__period" data-period="year" aria-pressed="false">Yearly</button>
+            </div>
+
+            <p class="ms-pricing__error" id="ms-pricing-error" role="alert" hidden>Prices could not be loaded right now. Please reload the page to try again.</p>
+
+            <div class="ms-pricing__grid">
+                                    <div class="ms-card ms-pricing__card ms-pricing__card--featured">
+                        <div class="ms-plans__head">
+                            <h2 class="ms-h3">Pro</h2>
+                                                            <span class="ms-chip">Most useful</span>
+                                                    </div>
+                        <p class="ms-plans__summary">Your second inbox, with the wiring.</p>
+
+                        <p class="ms-pricing__price" aria-live="polite">
+                            <span class="ms-pricing__amount" data-tier="0">&hellip;</span>
+                            <span class="ms-pricing__per" data-per>/ month</span>
+                        </p>
+
+                                                    <a class="ms-btn ms-btn--primary ms-pricing__subscribe-link"
+                               href="/pro_login.php">Log in to subscribe</a>
+                        
+                        <ul class="ms-plans__list">
+                                                            <li>Up to 10 sticky addresses</li>
+                                                            <li>Timed address lifetime configurable from 1 to 7 days</li>
+                                                            <li>Keep mail for 30 days, up to 4 times a year</li>
+                                                            <li>RSS, webhooks, Pushover and digest emails</li>
+                                                            <li>External mailboxes and the Agent</li>
+                                                            <li>Priority support</li>
+                                                    </ul>
+                    </div>
+                                    <div class="ms-card ms-pricing__card">
+                        <div class="ms-plans__head">
+                            <h2 class="ms-h3">Lifetime</h2>
+                                                    </div>
+                        <p class="ms-plans__summary">Pro, paid once.</p>
+
+                        <p class="ms-pricing__price" aria-live="polite">
+                            <span class="ms-pricing__amount" data-tier="1">&hellip;</span>
+                            <span class="ms-pricing__per">one-time</span>
+                        </p>
+
+                                                    <a class="ms-btn ms-btn--secondary ms-pricing__subscribe-link"
+                               href="/pro_login.php">Log in to buy</a>
+                        
+                        <ul class="ms-plans__list">
+                                                            <li>Everything in Pro</li>
+                                                            <li>One payment — no subscription to renew</li>
+                                                    </ul>
+                    </div>
+                            </div>
+
+                            <p class="ms-plans__note">You need a Mail Shield account to subscribe, so the plan lands on the right inbox. No account yet? <a href="/register.php?plan=regular">Create one for free</a>, then come back here.</p>
+                        <p class="ms-plans__note">Payments are handled by Paddle, our reseller and Merchant of Record, which also sends your receipt. Every payment comes with a 30-day money-back guarantee.</p>
+            <p class="ms-plans__note">By buying you accept our <a href="/terms.php">terms of service</a>. See also our <a href="/privacy.php">privacy policy</a> and <a href="/refund-policy.php">refund policy</a>.</p>
+        </div>
+    </section>
+</main>

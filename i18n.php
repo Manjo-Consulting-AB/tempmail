@@ -89,7 +89,7 @@ if (!function_exists('i18nSupportedLocales')) {
         return $pages ?? [
             '/'                    => ['en', 'sv'],
             '/temporary-email.php' => ['en'],
-            '/pricing.php'         => ['en'],
+            '/pricing.php'         => ['en', 'sv'],
             '/faq.php'             => ['en'],
             '/blog.php'            => ['en'],
             '/register.php'        => ['en'],
@@ -372,6 +372,18 @@ if (!function_exists('i18nSupportedLocales')) {
         $locale = $locale ?? i18nLocale();
         $decimalSeparator = ($locale === 'sv') ? ',' : '.';
         return number_format($n, max(0, $decimals), $decimalSeparator, "\u{00A0}");
+    }
+
+    /**
+     * A date as "j F Y" in this request's language ("5 March 2026",
+     * "5 mars 2026"), with the month names from the catalog keys
+     * date.month.1 … date.month.12. English equals date('j F Y', $timestamp).
+     */
+    function i18nDate(int $timestamp, ?string $locale = null): string
+    {
+        $locale = $locale ?? i18nLocale();
+        $monthKey = 'date.month.' . (int) date('n', $timestamp);
+        return date('j', $timestamp) . ' ' . t($monthKey, [], $locale) . ' ' . date('Y', $timestamp);
     }
 
     /**
