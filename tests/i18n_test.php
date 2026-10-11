@@ -381,5 +381,85 @@ check('scan: consent.js reads #ms-i18n-consent', strpos($consentJs, 'ms-i18n-con
 // --- .htaccess hides lang/ ----------------------------------------------------
 check('scan: .htaccess blocks lang/ in the existing rule', strpos($htaccess, 'RewriteRule ^(?:vendor|tests|documentaion|client|lang)(?:/|$) - [F,L]') !== false);
 
+// --- Landing page partials: English fixtures, Swedish render --------------------
+// Each variant is [signed in, trial days, MCP sign-in offered]. The fixtures were
+// rendered from the code as it was before the landing page went through t().
+if (!defined('TEMPMAIL_APP')) {
+    define('TEMPMAIL_APP', true);
+}
+if (!function_exists('getStats')) {
+    // The query getStats() in config.php runs, against the test's own $pdo.
+    function getStats()
+    {
+        global $pdo;
+        $stats = [];
+        foreach ($pdo->query('SELECT stat_name, stat_value FROM email_stats') as $row) {
+            $stats[$row['stat_name']] = (int) $row['stat_value'];
+        }
+        return $stats;
+    }
+}
+
+function landingVariants(): array
+{
+    return [
+        'hero'         => ['signed_out' => [false, 60, false], 'signed_in' => [true, 60, false], 'signed_out_notrial' => [false, 0, false]],
+        'problem'      => ['' => [false, 60, false]],
+        'how_it_works' => ['' => [false, 60, false]],
+        'addresses'    => ['signed_out' => [false, 60, false], 'signed_out_notrial' => [false, 0, false]],
+        'temporary'    => ['' => [false, 60, false]],
+        'automation'   => ['signin' => [false, 60, true], 'token' => [false, 60, false], 'token_notrial' => [false, 0, false]],
+        'cleanup'      => ['' => [false, 60, false]],
+        'external'     => ['' => [false, 60, false]],
+        'stats'        => ['' => [false, 60, false]],
+        'plans'        => ['signed_out' => [false, 60, false], 'signed_out_signin' => [false, 60, true], 'signed_in' => [true, 60, false], 'signed_out_notrial' => [false, 0, false]],
+        'cta'          => ['signed_out' => [false, 60, false], 'signed_in' => [true, 60, false], 'signed_out_notrial' => [false, 0, false]],
+    ];
+}
+
+function landingStatsPdo(array $rows): PDO
+{
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $pdo->exec('CREATE TABLE email_stats (stat_name TEXT PRIMARY KEY, stat_value INTEGER NOT NULL DEFAULT 0)');
+    foreach ($rows as $name => $value) {
+        $pdo->prepare('INSERT INTO email_stats (stat_name, stat_value) VALUES (?, ?)')->execute([$name, $value]);
+    }
+    return $pdo;
+}
+
+function renderLanding(string $section, array $variant, string $locale, array $enabled, ?array $statsRows = null): string
+{
+    [$signedIn, $trialDays, $mcpSignIn] = $variant;
+    $GLOBALS['config'] = [
+        'email' => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+        'trial' => ['days' => $trialDays],
+        'i18n' => ['enabled' => $enabled],
+    ];
+    $config = $GLOBALS['config'];
+    $domain = 'example.test';
+    $msMcpSignIn = $mcpSignIn;
+    $GLOBALS['pdo'] = landingStatsPdo($statsRows ?? ['emails_processed' => 1234567, 'emails_created' => 89012, 'attachments_processed' => 345]);
+    $_SESSION = $signedIn ? ['pro_user_id' => 1] : [];
+    i18nSetLocale($locale);
+    ob_start();
+    require dirname(__DIR__) . '/partials/landing/' . $section . '.php';
+    return (string) ob_get_clean();
+}
+
+function landingFixtureName(string $section, string $variant): string
+{
+    return 'landing.' . $section . ($variant === '' ? '' : '.' . $variant) . '.en.html';
+}
+
+i18nTranslatedPages($realPages);
+foreach (landingVariants() as $section => $variants) {
+    foreach ($variants as $name => $v) {
+        $file = landingFixtureName($section, $name);
+        same("fixture: {$file}", (string) file_get_contents($fx . $file), renderLanding($section, $v, 'en', $onlyEn));
+    }
+}
+i18nSetLocale('en');
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);
