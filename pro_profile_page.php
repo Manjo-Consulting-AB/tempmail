@@ -2436,7 +2436,7 @@ require __DIR__ . '/partials/i18n_js.php';
                             $('#whName').attr('placeholder', 'My webhook');
                         }
                         // Clear kind-specific fields if they appear to be pushover defaults
-                        if ($('#whUrl').val().indexOf('pushover.net') !== -1) {
+                        if ($('#whUrl').val() === 'https://api.pushover.net/1/messages.json') {
                             $('#whUrl').val('');
                         }
                         var cfg = ($('#whConfig').val() || '').trim();
