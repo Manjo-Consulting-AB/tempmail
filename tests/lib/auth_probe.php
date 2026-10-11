@@ -154,7 +154,7 @@ function ms_auth_probe_build(string $repoRoot): string
 {
     $root = sys_get_temp_dir() . '/ms_auth_probe_' . bin2hex(random_bytes(6));
     mkdir($root);
-    foreach (['register.php', 'pro_login.php', 'pro_logout.php', 'pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php', 'after_login.php', 'i18n.php', 'inbox.php', 'pro.php'] as $file) {
+    foreach (['register.php', 'pro_login.php', 'pro_logout.php', 'pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php', 'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php', 'after_login.php', 'i18n.php', 'inbox.php', 'pro.php', 'pro_contact.php', 'welcome.php'] as $file) {
         if (!copy($repoRoot . '/' . $file, $root . '/' . $file)) {
             throw new RuntimeException("Could not copy {$file}");
         }

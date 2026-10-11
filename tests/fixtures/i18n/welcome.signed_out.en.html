@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
+    <title>Thank you · Mail Shield</title>
+    <meta name="description" content="Your Mail Shield payment went through.">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="canonical" href="https://example.test/welcome.php">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mail Shield">
+    <meta property="og:title" content="Thank you · Mail Shield">
+    <meta property="og:description" content="Your Mail Shield payment went through.">
+    <meta property="og:url" content="https://example.test/welcome.php">
+    <meta property="og:image" content="https://example.test/assets/images/og-mailshield.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Thank you · Mail Shield">
+    <meta name="twitter:description" content="Your Mail Shield payment went through.">
+    <meta name="twitter:image" content="https://example.test/assets/images/og-mailshield.png">
+
+    <link rel="icon" href="/assets/images/favicon.ico?v=1791758589" sizes="32x32">
+    <link rel="icon" href="/assets/images/favicon.svg?v=1791758589" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/images/favicon-180x180.png?v=1791758589">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <!-- Marketing pages load these two stylesheets only (brief §11). -->
+    <link rel="stylesheet" href="/assets/css/mailshield-fonts.css?v=1791758589">
+    <link rel="stylesheet" href="/assets/css/mailshield.css?v=1791758589">
+</head>
+<body>
+<div class="ms-page">
+<a class="ms-skip" href="#main">Skip to content</a>
+<header class="ms-nav" id="ms-nav">
+    <div class="ms-container ms-nav__inner">
+        <a class="ms-logo ms-nav__logo" href="/"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+        <button type="button" class="ms-nav__toggle" id="ms-nav-toggle"
+                aria-expanded="false" aria-controls="ms-nav-panel" aria-label="Menu">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"
+                 fill="none" aria-hidden="true" focusable="false">
+                <path d="M3 6h14M3 10h14M3 14h14" fill="none" stroke="currentColor"
+                      stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+        </button>
+
+        <nav class="ms-nav__panel" id="ms-nav-panel" aria-label="Main" hidden>
+            <ul class="ms-nav__links">
+                <li><a href="/#features">Features</a></li>
+                <li><a href="/#how-it-works">How it works</a></li>
+                <li><a href="/pricing.php">Pricing</a></li>
+                <li><a href="/faq.php">FAQ</a></li>
+            </ul>
+
+            <div class="ms-nav__actions">
+                                    <a class="ms-nav__login" href="/pro_login.php">Log in</a>
+                    <a class="ms-btn ms-btn--primary" href="/register.php?plan=regular">Create your inbox</a>
+                            </div>
+        </nav>
+    </div>
+</header>
+
+<script>
+(function () {
+    var nav = document.getElementById('ms-nav');
+    var btn = document.getElementById('ms-nav-toggle');
+    var panel = document.getElementById('ms-nav-panel');
+    if (!nav || !btn || !panel) return;
+
+    function isOpen() { return btn.getAttribute('aria-expanded') === 'true'; }
+    function setOpen(open) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) { panel.removeAttribute('hidden'); } else { panel.setAttribute('hidden', ''); }
+    }
+    function close(moveFocus) {
+        if (!isOpen()) return;
+        setOpen(false);
+        if (moveFocus) btn.focus();
+    }
+
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(true); });
+    // An outside click leaves focus where the user clicked; only Escape pulls it
+    // back to the button.
+    document.addEventListener('click', function (e) { if (!nav.contains(e.target)) close(false); });
+
+    // Hairline only once the page has left the top of the document.
+    var onScroll = function () { nav.classList.toggle('ms-nav--scrolled', window.scrollY > 0); };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>
+<main id="main">
+    <section class="ms-section">
+        <div class="ms-container--narrow">
+            <h1 class="ms-h1">Thank you for your purchase</h1>
+            <p class="ms-lede ms-welcome__body">Your payment went through. A receipt is on its way to your email from Paddle, which handles payments for Mail Shield.</p>
+
+            <div class="ms-welcome__actions">
+                                    <a class="ms-btn ms-btn--primary ms-btn--lg" href="/pro_login.php">Log in</a>
+                    <a class="ms-btn ms-btn--secondary ms-btn--lg" href="/register.php?plan=regular">Create your inbox</a>
+                            </div>
+        </div>
+    </section>
+</main>
+<footer class="ms-footer">
+    <div class="ms-container ms-footer__inner">
+        <p class="ms-footer__trust">Mail Shield is operated by Manjo Consulting AB.</p>
+
+        <div class="ms-footer__cols">
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">Product</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/register.php?plan=regular">Create your inbox</a></li>
+                    <li><a href="/pro_login.php">Log in</a></li>
+                    <li><a href="/temporary-email.php">Temporary email addresses</a></li>
+                    <li><a href="/faq.php">FAQ</a></li>
+                </ul>
+            </div>
+
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">More</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/blog.php">Blog</a></li>
+                </ul>
+            </div>
+
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">Legal</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/pricing.php">Pricing</a></li>
+                    <li><a href="/terms.php">Terms of service</a></li>
+                    <li><a href="/privacy.php">Privacy policy</a></li>
+                    <li><a href="/refund-policy.php">Refund policy</a></li>
+                    <li><button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button></li>
+                </ul>
+                <p class="ms-footer__legal">&copy; 2026 Manjo Consulting AB &middot; Mail Shield v</p>
+            </div>
+        </div>
+    </div>
+</footer>
+</div><!-- /.ms-page -->
+</body>
+</html>

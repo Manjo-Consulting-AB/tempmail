@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Connect this app? · Mail Shield</title>
+    <link rel="icon" href="/assets/images/favicon.ico?v=1791758589" sizes="32x32">
+    <link rel="icon" href="/assets/images/favicon.svg?v=1791758589" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/images/favicon-180x180.png?v=1791758589">
+    <link rel="manifest" href="/site.webmanifest">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/mailshield-fonts.css?v=1791758589" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=1791758589" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=1791758589" rel="stylesheet">
+</head>
+<body>
+    <div class="ms-auth">
+        <header class="ms-auth__bar">
+            <div class="ms-auth__bar-inner">
+                <a class="ms-logo" href="/"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>            </div>
+        </header>
+
+        <main class="ms-auth__main">
+            <div class="ms-card ms-auth__card">
+                <h1 class="ms-auth__title">Connect this app?</h1><p class="ms-auth__sub">An app on your computer or phone is asking to use your Mail Shield account.</p><div class="ms-grant__app"><p class="ms-grant__app-name">&ldquo;Example App&rdquo;</p><p class="ms-grant__app-note">This is the name the app gives itself. Mail Shield has not checked who it is.</p><p class="ms-grant__app-host">It sends you back to <code>example.com</code> when you are done.</p></div><form method="post" action=""><input type="hidden" name="csrf" value="ed1879b2964fc578ff3ba8ba3e1b1488eb13260d2b14c771eb7eb4e028baa85b"><fieldset class="ms-grant__scopes"><legend class="ms-visually-hidden">What the app may do</legend><label class="ms-grant__scope"><input type="radio" name="scope" value="mcp:read" checked><span><span class="ms-grant__scope-title">Read only</span><span class="ms-grant__scope-detail">See your addresses and read your messages.</span></span></label><label class="ms-grant__scope"><input type="radio" name="scope" value="mcp:read mcp:write"><span><span class="ms-grant__scope-title">Read and change</span><span class="ms-grant__scope-detail">Also create and delete your addresses.</span></span></label></fieldset><p class="ms-grant__notice">Anything this app reads is sent to whoever runs it, outside Mail Shield. Only connect an app you trust.</p><div class="ms-grant__actions"><button type="submit" name="decision" value="cancel" class="btn btn-outline-secondary">Cancel</button><button type="submit" name="decision" value="allow" class="btn btn-primary">Allow</button></div></form>            </div>
+        </main>
+
+        <footer class="ms-auth__foot">
+            <p><a href="/">&larr; Back to Mail Shield</a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; 2026 Manjo Consulting AB</span></p>
+        </footer>
+    </div>
+<script>
+(function () {
+    window.msLocale = document.documentElement.lang || 'en';
+    if (window.jQuery) {
+        window.jQuery.ajaxSetup({ headers: { 'X-MS-Locale': window.msLocale } });
+    }
+})();
+</script>
+</body>
+</html>
+    
