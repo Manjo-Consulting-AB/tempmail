@@ -91,7 +91,7 @@ if (!function_exists('i18nSupportedLocales')) {
             '/temporary-email.php' => ['en', 'sv'],
             '/pricing.php'         => ['en', 'sv'],
             '/faq.php'             => ['en', 'sv'],
-            '/blog.php'            => ['en'],
+            '/blog.php'            => ['en', 'sv'],
             '/register.php'        => ['en'],
             '/pro_login.php'       => ['en'],
             '/terms.php'           => ['en'],
