@@ -1739,8 +1739,9 @@ foreach ((require $root . '/lang/sv.php') as $svTermKey => $svTermValue) {
 // =============================================================================
 
 // --- '@app' gate ---------------------------------------------------------------
-same("pages: '@app' is English only until the app is translated", ['en'], $realPages['@app'] ?? null);
-same("pages: '@app' is a pseudo-entry, i18nPageLocales() reads it as given", ['en'], i18nPageLocales('@app', $both));
+same("pages: '@app' offers Swedish now that every app page is translated (step 7/8)", ['en', 'sv'], $realPages['@app'] ?? null);
+same("pages: '@app' is a pseudo-entry, i18nPageLocales() reads it as given", ['en', 'sv'], i18nPageLocales('@app', $both));
+same("pages: '@app' still yields to LOCALES_ENABLED=en", ['en'], i18nPageLocales('@app', $onlyEn));
 i18nTranslatedPages(['@app' => ['en', 'sv']]);
 same("pages: '@app' overridden to en+sv", ['en', 'sv'], i18nPageLocales('@app', $both));
 same("pages: '@app' overridden, LOCALES_ENABLED=en still wins", ['en'], i18nPageLocales('@app', $onlyEn));
@@ -3545,6 +3546,15 @@ foreach (['inbox.php' => ['inbox.php', 'Din inkorg'], 'pro.php' => ['pro.php', '
     $c = ms_app_page($lp, $gscript, true, true, [], false, null, true, $lpSv, 'en,sv');
     $d = ms_app_page($lp, $gscript, true, true, [], false, null, true, '', 'en,sv');
     check("app page {$gname}: account sv gives Swedish, account en gives English, NULL follows Accept-Language", strpos($a['html'], '<html lang="sv">') !== false && strpos($a['html'], $gneedle) !== false && strpos($b['html'], '<html lang="en">') !== false && strpos($c['html'], '<html lang="sv">') !== false && strpos($d['html'], '<html lang="en">') !== false);
+}
+// The list the site ships (no probe forces the gate): Swedish where LOCALES_ENABLED has it, English otherwise.
+foreach (['inbox.php', 'pro.php', 'pro_contact.php'] as $gscript) {
+    $real = ms_app_page($lp, $gscript, true, true, [], false, null, null, $lpSv, 'en,sv');
+    $realEn = ms_app_page($lp, $gscript, true, true, [], false, null, null, $lpSv, 'en');
+    $realAcc = ms_app_page($lp, $gscript, true, true, [], false, null, null, '', 'en,sv', 'sv');
+    check("app page {$gscript}: with the shipped '@app' and LOCALES_ENABLED=en,sv the browser's Swedish applies", strpos($real['html'], '<html lang="sv">') !== false, $real['err']);
+    check("app page {$gscript}: with the shipped '@app' and LOCALES_ENABLED=en it is English", strpos($realEn['html'], '<html lang="en">') !== false);
+    check("app page {$gscript}: with the shipped '@app' an account with locale sv gets Swedish", strpos($realAcc['html'], '<html lang="sv">') !== false);
 }
 ms_auth_probe_remove($lp);
 

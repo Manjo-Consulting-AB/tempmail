@@ -96,7 +96,7 @@ if (!function_exists('i18nSupportedLocales')) {
             $pages = $override;
         }
         return $pages ?? [
-            '@app'                 => ['en'],
+            '@app'                 => ['en', 'sv'],
             '/'                    => ['en', 'sv'],
             '/temporary-email.php' => ['en', 'sv'],
             '/pricing.php'         => ['en', 'sv'],
