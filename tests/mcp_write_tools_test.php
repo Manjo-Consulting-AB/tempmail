@@ -288,13 +288,16 @@ function ms_mwt_stop_server(array $server): void
 // ---------------------------------------------------------------------
 
 /** @return array{status:int, body:string} */
-function ms_mwt_post(int $port, ?string $token, array $payload): array
+function ms_mwt_post(int $port, ?string $token, array $payload, array $extraHeaders = []): array
 {
     $headers = "Content-Type: application/json\r\n"
         . 'Origin: ' . MS_TEST_ORIGIN . "\r\n"
         . "Accept: application/json, text/event-stream\r\n";
     if ($token !== null) {
         $headers .= 'Authorization: Bearer ' . $token . "\r\n";
+    }
+    foreach ($extraHeaders as $name => $value) {
+        $headers .= $name . ': ' . $value . "\r\n";
     }
     $context = stream_context_create(['http' => [
         'method' => 'POST',
@@ -327,14 +330,14 @@ function ms_mwt_json(string $label, array $response): ?array
 }
 
 /** Call one tool and return its `result`, or null (with a failing check). */
-function ms_mwt_call_tool(int $port, string $token, string $name, array $arguments = [], $id = 1): ?array
+function ms_mwt_call_tool(int $port, string $token, string $name, array $arguments = [], $id = 1, array $extraHeaders = []): ?array
 {
     $response = ms_mwt_post($port, $token, [
         'jsonrpc' => '2.0',
         'id' => $id,
         'method' => 'tools/call',
         'params' => ['name' => $name, 'arguments' => $arguments],
-    ]);
+    ], $extraHeaders);
     $body = ms_mwt_json("{$name}: the answer is JSON", $response);
     if ($body === null || !isset($body['result'])) {
         ms_test_check("{$name}: the answer carries a result", false, 'body: ' . substr($response['body'], 0, 200));
@@ -566,6 +569,11 @@ ms_test_same('2o. ... and the reservation ended', 0, ms_mwt_count($pdo, 'SELECT 
 $result = ms_mwt_call_tool($port, $tokenCarol, 'create_sticky_address', ['local_part' => 'carol.one-more'], 10);
 ms_test_same('2p. the 11th sticky address is refused', 'Maximum of 10 sticky addresses allowed', ms_mwt_error_text($result));
 ms_test_same('2q. ... and no row is created', null, ms_mwt_address_row($pdo, 'carol.one-more'));
+
+// Epic #428 step 3/8: the service now carries error_key, but MCP never translates - a client asking
+// for Swedish (Accept-Language, X-MS-Locale) still gets the English sentence.
+$result = ms_mwt_call_tool($port, $tokenCarol, 'create_sticky_address', ['local_part' => 'carol.one-more'], 10, ['Accept-Language' => 'sv-SE,sv;q=0.9', 'X-MS-Locale' => 'sv']);
+ms_test_same('2q2. the cap answers in English to a client that asked for Swedish', 'Maximum of 10 sticky addresses allowed', ms_mwt_error_text($result));
 
 $result = ms_mwt_call_tool($port, $tokenAlice, 'create_sticky_address', [], 11);
 ms_test_same('2r. a missing local_part is refused', true, $result['isError'] ?? null);

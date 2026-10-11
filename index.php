@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'action' => mb_substr($rawAction, 0, 200),
             'ip' => getVisitorIp()
         ]);
-        echo json_encode(['success' => false, 'error' => 'Ogiltig förfrågan']);
+        echo json_encode(['success' => false, 'error' => t('app.error.invalid_request')]);
         exit;
     }
     
@@ -78,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
         ]);
         http_response_code(403);
-        echo json_encode(['success' => false, 'error' => 'Forbidden']);
+        echo json_encode(['success' => false, 'error' => t('app.error.forbidden')]);
         exit;
     }
 
@@ -96,10 +96,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = function_exists('getVisitorIp') ? (string)getVisitorIp() : (string)($_SERVER['REMOTE_ADDR'] ?? '');
         $result = mailboxCreationLimited($pdo, $kind, $userId, $ip);
         if (!$result['ok']) {
-            echo json_encode(['success' => false, 'error' => $result['error'], 'rate_limited' => true]);
+            echo json_encode(['success' => false, 'error' => i18nServiceError($result, (string) $result['error']), 'rate_limited' => true]);
             return true;
         }
         return false;
+    };
+
+    // A refusal raised as an exception: the log keeps the English text, the answer is in the
+    // request's language ($answerError), and a message nothing translated falls through as is.
+    $answerError = null;
+    $appError = static function (string $key) use (&$answerError): Exception {
+        $answerError = t($key);
+        return new Exception(t($key, [], 'en'));
     };
 
     try {
@@ -108,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Returnera expires_at för given adress
                 $address = $_POST['address'] ?? '';
                 if (!$address || !isValidAddress($address)) {
-                    echo json_encode(['success' => false, 'error' => 'Ogiltig adress']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.invalid_address')]);
                     break;
                 }
                 $stmt = $pdo->prepare("SELECT expires_at FROM temp_emails WHERE unique_address = ?");
@@ -117,14 +125,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($row && $row['expires_at']) {
                     echo json_encode(['success' => true, 'expires_at' => $row['expires_at']]);
                 } else {
-                    echo json_encode(['success' => false, 'error' => 'Adress hittades inte']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.address_not_found')]);
                 }
                 break;
             case 'check_address_owner':
                 // Quick owner check for client-side privacy: returns owner_pro_user_id (or null) and is_owner flag
                 $address = trim($_POST['address'] ?? '');
                 if (!$address || !isValidAddress($address)) {
-                    echo json_encode(['success' => false, 'error' => 'Ogiltig adress']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.invalid_address')]);
                     break;
                 }
                 try {
@@ -167,7 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 } catch (Exception $e) {
                     logMessage('ERROR', 'Failed checking address owner', ['error' => $e->getMessage(), 'address' => $address]);
-                    echo json_encode(['success' => false, 'error' => 'Could not check address owner']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.owner_check_failed')]);
                 }
                 break;
             case 'create_personal':
@@ -175,19 +183,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Session auth and Pro-gating stay here (mailbox_service.php never
                 // reads the session); everything else is mailboxCreateSticky() (#319).
                 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
-                    echo json_encode(['success' => false, 'error' => 'Not authenticated']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.not_authenticated')]);
                     break;
                 }
                 if (!proUserIsPro((int)$_SESSION['pro_user_id'])) {
                     logMessage('INFO', 'create_personal denied: not a Pro account', ['user_id' => $_SESSION['pro_user_id']]);
-                    echo json_encode(['success' => false, 'error' => 'Pro required', 'pro_required' => true]);
+                    echo json_encode(['success' => false, 'error' => t('app.error.pro_required'), 'pro_required' => true]);
                     break;
                 }
                 $rawLocal = $_POST['local'] ?? '';
                 $creatorIp = function_exists('getVisitorIp') ? (string)getVisitorIp() : (string)($_SERVER['REMOTE_ADDR'] ?? '');
                 $stickyResult = mailboxCreateSticky($pdo, (int)$_SESSION['pro_user_id'], (string)$rawLocal, $creatorIp);
                 if (!$stickyResult['ok']) {
-                    $stickyResponse = ['success' => false, 'error' => $stickyResult['error']];
+                    $stickyResponse = ['success' => false, 'error' => i18nServiceError($stickyResult, (string) $stickyResult['error'])];
                     if (!empty($stickyResult['rate_limited'])) {
                         $stickyResponse['rate_limited'] = true;
                     }
@@ -205,12 +213,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Avsiktligt inte Pro-gated: ett degraderat konto måste kunna se
                 // sina personliga adresser under grace-perioden.
                 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
-                    echo json_encode(['success' => false, 'error' => 'Not authenticated']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.not_authenticated')]);
                     break;
                 }
                 $listResult = mailboxListAddresses($pdo, (int)$_SESSION['pro_user_id']);
                 if (!$listResult['ok']) {
-                    echo json_encode(['success' => false, 'error' => $listResult['error']]);
+                    echo json_encode(['success' => false, 'error' => i18nServiceError($listResult, (string) $listResult['error'])]);
                     break;
                 }
                 echo json_encode(['success' => true, 'personal' => $listResult['personal'], 'cooldown' => $listResult['cooldown']]);
@@ -219,12 +227,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Avsiktligt inte Pro-gated: att kunna ta bort sina egna adresser
                 // ska aldrig kräva Pro.
                 if (!isset($_SESSION['pro_user_id']) || !$_SESSION['pro_user_id']) {
-                    echo json_encode(['success' => false, 'error' => 'Not authenticated']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.not_authenticated')]);
                     break;
                 }
                 $deleteResult = mailboxDeleteSticky($pdo, (int)$_SESSION['pro_user_id'], (int)($_POST['id'] ?? 0));
                 if (!$deleteResult['ok']) {
-                    echo json_encode(['success' => false, 'error' => $deleteResult['error']]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+                    echo json_encode(['success' => false, 'error' => i18nServiceError($deleteResult, (string) $deleteResult['error'])]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                     break;
                 }
                 echo json_encode(['success' => true, 'deleted_address' => $deleteResult['deleted_address']]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
@@ -239,6 +247,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // one Timed address, replacing any existing one.
                     $timedResult = mailboxCreateTimed($pdo, $proUserId);
                     if (!$timedResult['ok']) {
+                        // The log keeps the service's English text, the answer follows the request's language.
+                        $answerError = i18nServiceError($timedResult, (string) $timedResult['error']);
                         throw new Exception($timedResult['error']);
                     }
                     echo json_encode([
@@ -277,7 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 } else {
                     unset($GLOBALS['__custom_expires_at']);
-                    throw new Exception('Mail delivery could not be set up for a new address, so none was created. Please try again in a moment.');
+                    throw $appError('app.error.delivery_setup_new');
                 }
                 break;
                 
@@ -289,7 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // built below still adds all the account's addresses.
                 $accountInbox = $address === '' && !empty($_SESSION['pro_user_id']);
                 if (!$accountInbox && (!$address || !isValidAddress($address))) {
-                    throw new Exception('Ogiltig adress');
+                    throw $appError('app.error.invalid_address');
                 }
 
                 // Check if this address is marked as personal - only personal addresses require authentication
@@ -306,7 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'owner_id' => $ownerId,
                             'requester_id' => $currentUserId ?: 'anonymous'
                         ]);
-                        throw new Exception('Authentication required to access this sticky address');
+                        throw $appError('app.error.sticky_access');
                     }
                 }
                 
@@ -377,7 +387,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Empty address = the signed-in account's own inbox (see get_emails)
                 $accountInbox = $address === '' && !empty($_SESSION['pro_user_id']);
                 if (!$accountInbox && (!$address || !isValidAddress($address))) {
-                    throw new Exception('Ogiltig adress');
+                    throw $appError('app.error.invalid_address');
                 }
 
                 // Check if this address is marked as personal - only personal addresses require authentication
@@ -395,7 +405,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'owner_id' => $ownerId,
                             'requester_id' => $currentUserId ?: 'anonymous'
                         ]);
-                        throw new Exception('Authentication required to access this sticky address');
+                        throw $appError('app.error.sticky_access');
                     }
                 }
 
@@ -438,7 +448,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => true, 'has_new' => $hasNew, 'latest_id' => $latest, 'count' => $cnt]); // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                 } catch (Exception $e) {
                     logMessage('WARNING', 'has_new_emails check failed', ['error' => $e->getMessage(), 'address' => $address]);
-                    echo json_encode(['success' => false, 'error' => 'Could not check for new emails']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.new_emails_check_failed')]);
                 }
                 break;
                 
@@ -446,7 +456,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Kör IMAP-hämtning direkt med Production PHP IMAP-processor
                 $address = $_POST['address'] ?? '';
                 if (!$address || !isValidAddress($address)) {
-                    throw new Exception('Ogiltig adress');
+                    throw $appError('app.error.invalid_address');
                 }
 
                 // Check if this address is marked as personal - only personal addresses require authentication
@@ -464,7 +474,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'owner_id' => $ownerId,
                             'requester_id' => $currentUserId ?: 'anonymous'
                         ]);
-                        throw new Exception('Authentication required to access this sticky address');
+                        throw $appError('app.error.sticky_access');
                     }
                 }
 
@@ -552,8 +562,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 
                 $message = $imapSuccess 
-                    ? ($newEmailsFromImap > 0 ? "Hämtade $newEmailsFromImap nya e-postmeddelanden" : "Inga nya e-postmeddelanden hittades")
-                    : "IMAP-hämtning misslyckades: $imapMessage";
+                    ? ($newEmailsFromImap > 0 ? t('app.message.refresh_new', ['count' => $newEmailsFromImap]) : t('app.message.refresh_none'))
+                    : t('app.message.refresh_failed', ['reason' => $imapMessage]);
                     
                 echo json_encode([ // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
                     'success' => true,
@@ -568,7 +578,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Hämta specifikt e-postmeddelande
                 $emailId = (int)($_POST['email_id'] ?? 0);
                 if (!$emailId) {
-                    throw new Exception('Ogiltigt e-post ID');
+                    throw $appError('app.error.invalid_email_id');
                 }
                 
                     // Fetch the email including possible expires_at
@@ -595,7 +605,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         'owner_id' => $ownerId,
                                         'requester_id' => $currentUserId ?: 'anonymous'
                                     ]);
-                                    throw new Exception('Authentication required to access this sticky address');
+                                    throw $appError('app.error.sticky_access');
                                 }
                             }
                         }
@@ -610,12 +620,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 'email_id' => $emailId,
                                 'to_address' => $email['to_address']
                             ]);
-                            throw new Exception('Authentication required to access this email');
+                            throw $appError('app.error.email_access');
                         }
                     }
 
                     if (!$email) {
-                        throw new Exception('E-postmeddelandet hittades inte');
+                        throw $appError('app.error.email_not_found');
                     }
 
                     // Determine if the message has expired.
@@ -638,7 +648,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     if ($isExpired) {
                         // Do not reveal expired message contents
-                        echo json_encode(['success' => false, 'error' => 'E-postmeddelandet har förfallit']);
+                        echo json_encode(['success' => false, 'error' => t('app.error.email_expired')]);
                         break;
                     }
 
@@ -812,7 +822,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // landing page (partials/landing/stats.php), not here.
                 $statsUserId = (int)($_SESSION['pro_user_id'] ?? 0);
                 if ($statsUserId <= 0) {
-                    echo json_encode(['success' => false, 'error' => 'Not signed in']);
+                    echo json_encode(['success' => false, 'error' => t('app.error.not_signed_in')]);
                     break;
                 }
                 echo json_encode([
@@ -822,7 +832,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             default:
-                throw new Exception('Okänd åtgärd');
+                throw $appError('app.error.unknown_action');
         }
     } catch (Exception $e) {
         logMessage('WARNING', 'AJAX request failed', [
@@ -833,7 +843,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         echo json_encode([
             'success' => false,
-            'error' => $e->getMessage()
+            'error' => $answerError ?? $e->getMessage()
         ]);
     }
     exit;

@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.error.', 'app.message.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -2333,6 +2333,106 @@ foreach (['register.php', 'pro_login.php'] as $page) {
 }
 check('scan: the sign-in area logs no locale beside an address', !preg_match('/logMessage\([^;]*locale[^;]*email/i', $authPhp));
 ms_auth_probe_remove($authProbe);
+
+// --- Inbox actions (epic #428, step 3/8, part A) --------------------------------
+// index.php's JSON actions: every answer carrying an `error` or a `message` goes through
+// the catalog (t('app.error.*') / t('app.message.*'), or i18nServiceError() for a
+// mailbox_service.php result). The English fixtures were rendered from the code as it
+// was; Swedish is asked for with X-MS-Locale (and Accept-Language) once '@app' lists it.
+require_once $root . '/tests/lib/app_actions_probe.php';
+$aa = ms_aa_build($root);
+$aaParams = ['max' => 10, 'count' => 3, 'reason' => 'boom'];
+// The Swedish text of the catalog entry whose English text is $text.
+$aaSwedish = function (string $text) use ($en, $aaParams): ?string {
+    foreach ($en as $key => $value) {
+        if (strncmp($key, 'app.error.', 10) !== 0 && strncmp($key, 'app.message.', 12) !== 0 && strncmp($key, 'service.mailbox.', 16) !== 0) {
+            continue;
+        }
+        if (is_string($value) && t($key, $aaParams, 'en') === $text) {
+            return t($key, $aaParams, 'sv');
+        }
+    }
+    return null;
+};
+foreach (array_keys(ms_aa_cases()) as $aaName) {
+    $fixture = (string) file_get_contents($fx . "app_actions.{$aaName}.en.json");
+    $r = ms_aa_run($aa, $aaName);
+    same("actions/{$aaName}: the English answer equals its fixture", trim($fixture), $r['body']);
+    check("actions/{$aaName}: no PHP error", !preg_match('/^PHP (Warning|Notice|Fatal|Parse|Deprecated)/m', (string) $r['res']['stderr']), (string) $r['res']['stderr']);
+    $enAnswer = json_decode($fixture, true);
+    $rSv = ms_aa_run($aa, $aaName, 'sv');
+    $svAnswer = $rSv['json'];
+    check("actions/{$aaName}: X-MS-Locale sv answers JSON", is_array($svAnswer), $rSv['body']);
+    if (!is_array($svAnswer) || !is_array($enAnswer)) {
+        continue;
+    }
+    $text = $enAnswer['error'] ?? $enAnswer['message'] ?? null;
+    $expected = is_string($text) ? $aaSwedish($text) : null;
+    check("actions/{$aaName}: the English text has a catalog key", $expected !== null, (string) $text);
+    same("actions/{$aaName}: Swedish with X-MS-Locale: sv", $expected, $svAnswer['error'] ?? $svAnswer['message'] ?? null);
+    unset($enAnswer['error'], $enAnswer['message'], $svAnswer['error'], $svAnswer['message']);
+    same("actions/{$aaName}: the rest of the answer is language independent", $enAnswer, $svAnswer);
+}
+$r = ms_aa_run($aa, 'get_stats.not_signed_in', null, 'sv-SE,sv;q=0.9');
+same('actions: a signed-out visitor gets Swedish from Accept-Language', 'Du är inte inloggad', $r['json']['error'] ?? null);
+$r = ms_aa_run($aa, 'create_personal.cap', 'sv');
+same('actions: the cap message carries its number in Swedish', 'Högst 10 Sticky-adresser tillåts', $r['json']['error'] ?? null);
+$r = ms_aa_run($aa, 'create_personal.cap', 'en');
+same('actions: X-MS-Locale en answers English', 'Maximum of 10 sticky addresses allowed', $r['json']['error'] ?? null);
+
+// The service itself: a real mailboxCreateSticky() that hits the cap, on SQLite.
+file_put_contents($aa['root'] . '/svc_cap.php', '<?php chdir(__DIR__); require __DIR__ . "/config.php"; require __DIR__ . "/mailbox_service.php";'
+    . ' echo json_encode(mailboxCreateSticky($pdo, (int) $argv[1], "onemore", "127.0.0.1"));');
+$proc = proc_open([PHP_BINARY, '-d', 'display_errors=0', $aa['root'] . '/svc_cap.php', (string) $aa['ids']['capper']], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $aa['root'],
+    ['PROBE_SQLITE' => ms_test_probe_sqlite($aa['root']), 'PATH' => (string) (getenv('PATH') ?: '/usr/bin:/bin')]);
+$svcOut = (string) stream_get_contents($pipes[1]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+proc_close($proc);
+$cap = json_decode(trim($svcOut), true) ?: [];
+same('service: the cap keeps its English error', 'Maximum of 10 sticky addresses allowed', $cap['error'] ?? null);
+same('service: the cap carries its key', 'service.mailbox.sticky_cap', $cap['error_key'] ?? null);
+same('service: the cap carries its params', ['max' => 10], $cap['error_params'] ?? null);
+same('service: t(error_key, error_params, en) equals the English error', $cap['error'] ?? null, t((string) ($cap['error_key'] ?? ''), (array) ($cap['error_params'] ?? []), 'en'));
+i18nSetLocale('sv');
+same('service: i18nServiceError() translates the cap', 'Högst 10 Sticky-adresser tillåts', i18nServiceError($cap, 'x'));
+i18nSetLocale('en');
+
+// Scan: every returned `'error' => '<literal>'` in mailbox_service.php has an error_key whose English text is that literal.
+$svcLines = file($root . '/mailbox_service.php', FILE_IGNORE_NEW_LINES) ?: [];
+$svcReturns = 0;
+foreach ($svcLines as $n => $line) {
+    if (strpos($line, "'ok' => false") === false || strpos($line, "'error' =>") === false || strpos($line, 'logMessage') !== false || ltrim($line)[0] === '*') {
+        continue;
+    }
+    $svcReturns++;
+    $label = 'scan: mailbox_service.php line ' . ($n + 1);
+    if (!preg_match("/'error_key' => '(service\.mailbox\.[a-z_]+)'/", $line, $km)) {
+        check($label . ' has an error_key', false, trim($line));
+        continue;
+    }
+    check($label . ' has an error_key that exists in lang/en.php', isset($en[$km[1]]), $km[1]);
+    if (preg_match("/'error' => '([^']*)'(?:,|\])/", $line, $lm)) {
+        same($label . ': t(error_key, [], en) equals the literal', $lm[1], t($km[1], [], 'en'));
+    } else {
+        check($label . ' (a composed message) carries error_params', strpos($line, "'error_params' =>") !== false, trim($line));
+    }
+}
+check('scan: mailbox_service.php returns 28 user-facing errors', $svcReturns === 28, (string) $svcReturns);
+
+// Scan: no literal user-facing text left in index.php's action branch.
+$indexSrc = (string) file_get_contents($root . '/index.php');
+$actionBranch = substr($indexSrc, (int) strpos($indexSrc, "if (\$_SERVER['REQUEST_METHOD'] === 'POST')"));
+$actionBranch = substr($actionBranch, 0, (int) strpos($actionBranch, '// Shared inbox links used to be read'));
+check("scan: index.php's action branch has no literal 'error' => '...'", !preg_match("/'error' => ['\"]/", preg_replace('/logMessage\([^;]*;/s', '', $actionBranch)));
+check("scan: index.php's action branch has no literal throw new Exception('...')", !preg_match("/throw new Exception\(['\"]/", $actionBranch));
+check("scan: index.php's action branch has no literal 'message' => '...'", !preg_match("/'message' => ['\"]/", $actionBranch));
+check("scan: index.php's action branch echoes no service error untranslated", !preg_match("/'error' => \\\$\w+Result\['error'\]/", $actionBranch));
+preg_match_all("/\bt\('(app\.(?:error|message)\.[a-z_]+)'|\\\$appError\('(app\.error\.[a-z_]+)'\)/", $actionBranch, $am);
+$aaUsed = array_unique(array_filter(array_merge($am[1], $am[2])));
+check('scan: index.php uses 19 app.error.* / app.message.* keys (16 + 3)', count($aaUsed) === 19, (string) count($aaUsed));
+check("scan: every app.* key index.php's action branch uses exists in lang/en.php and lang/sv.php", array_diff($aaUsed, array_keys($en)) === [] && array_diff($aaUsed, array_keys($sv)) === [], implode(', ', array_diff($aaUsed, array_keys($en))));
+ms_test_cleanup($aa['root']);
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);
