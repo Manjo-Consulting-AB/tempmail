@@ -13,6 +13,11 @@
  *     inbox.php, pro_contact.php and pro_profile_page.php.
  *   - #hamburgerBtn / #navbarMenu.
  *
+ * Every visible string goes through te()/t() under `appnav.`. The language is
+ * set by the page (i18nUseAppLocale()); admin pages never set it, so their copy
+ * of this nav stays English. In English every href is exactly what it always
+ * was; in another language links to public pages go through i18nUrl().
+ *
  * The links carry the legacy `navbar-link` class because tm_nav_active()
  * returns it; the new look is applied by the `ms-appnav` rules in
  * assets/css/mailshield.css, scoped so they outrank assets/css/style.css
@@ -51,7 +56,7 @@ $msNavEmail    = trim((string) ($_SESSION['pro_user_email'] ?? ''));
 $msNavType     = '';
 if ($msNavSignedIn && function_exists('proUserIsPro')) {
     try {
-        $msNavType = proUserIsPro((int) $_SESSION['pro_user_id']) ? 'Pro' : 'Free';
+        $msNavType = proUserIsPro((int) $_SESSION['pro_user_id']) ? t('appnav.type_pro') : t('appnav.type_free');
     } catch (Throwable $e) {
         $msNavType = '';
     }
@@ -66,16 +71,22 @@ $msNavAdminActive = in_array($current, ['log_viewer.php', 'abuse_admin.php', 'vo
 $msNavEsc = function ($value): string {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 };
+// A link to a public page: exactly today's value in the default language,
+// otherwise the page in this request's language when it is offered in it
+// (i18nUrl() leaves any other page on its plain path).
+$msNavHref = function (string $file, string $default): string {
+    return i18nLocale() === i18nDefaultLocale() ? $default : i18nUrl('/' . $file);
+};
 ?>
-<nav class="ms-appnav" aria-label="Application">
+<nav class="ms-appnav" aria-label="<?php echo te('appnav.label'); ?>">
     <div class="ms-appnav__inner">
         <?php echo ms_logo([
-            'href'  => $msNavSignedIn ? '/pro.php' : '/',
+            'href'  => $msNavSignedIn ? '/pro.php' : $msNavHref('index.php', '/'),
             'class' => 'ms-appnav__logo',
         ]); ?>
 
         <button type="button" class="ms-appnav__toggle" id="hamburgerBtn"
-                aria-expanded="false" aria-controls="navbarMenu" aria-label="Menu">
+                aria-expanded="false" aria-controls="navbarMenu" aria-label="<?php echo te('appnav.menu'); ?>">
             <span class="ms-appnav__toggle-line"></span>
             <span class="ms-appnav__toggle-line"></span>
             <span class="ms-appnav__toggle-line"></span>
@@ -84,31 +95,31 @@ $msNavEsc = function ($value): string {
         <div class="ms-appnav__panel" id="navbarMenu">
             <div class="ms-appnav__links">
                 <?php if ($msNavSignedIn) : ?>
-                <a href="pro.php" class="<?php echo tm_nav_active('pro.php', $current); ?>">Inbox</a>
+                <a href="pro.php" class="<?php echo tm_nav_active('pro.php', $current); ?>"><?php echo te('appnav.inbox'); ?></a>
                 <?php else: ?>
-                <a href="index.php" class="<?php echo tm_nav_active('index.php', $current); ?>">Home</a>
+                <a href="<?php echo $msNavEsc($msNavHref('index.php', 'index.php')); ?>" class="<?php echo tm_nav_active('index.php', $current); ?>"><?php echo te('appnav.home'); ?></a>
                 <?php endif; ?>
-                <a href="blog.php" class="<?php echo tm_nav_active('blog.php', $current); ?>">Blog</a>
-                <a href="faq.php" class="<?php echo tm_nav_active('faq.php', $current); ?>">FAQ</a>
+                <a href="<?php echo $msNavEsc($msNavHref('blog.php', 'blog.php')); ?>" class="<?php echo tm_nav_active('blog.php', $current); ?>"><?php echo te('appnav.blog'); ?></a>
+                <a href="<?php echo $msNavEsc($msNavHref('faq.php', 'faq.php')); ?>" class="<?php echo tm_nav_active('faq.php', $current); ?>"><?php echo te('appnav.faq'); ?></a>
 
                 <?php if ($msNavSignedIn) : ?>
-                    <a href="client_agent_manage.php" class="<?php echo tm_nav_active('client_agent_manage.php', $current); ?>">Client Agent</a>
-                    <a href="pro_profile_page.php" class="<?php echo tm_nav_active('pro_profile_page.php', $current); ?>">Settings<?php if ($pendingChangeCount > 0) : ?><span class="ms-appnav__count"><?php echo (int) $pendingChangeCount; ?><span class="ms-visually-hidden"> pending changes</span></span><?php endif; ?></a>
-                    <a href="pro_contact.php" class="<?php echo tm_nav_active('pro_contact.php', $current); ?>">Contact</a>
+                    <a href="client_agent_manage.php" class="<?php echo tm_nav_active('client_agent_manage.php', $current); ?>"><?php echo te('appnav.client_agent'); ?></a>
+                    <a href="pro_profile_page.php" class="<?php echo tm_nav_active('pro_profile_page.php', $current); ?>"><?php echo te('appnav.settings'); ?><?php if ($pendingChangeCount > 0) : ?><span class="ms-appnav__count"><?php echo (int) $pendingChangeCount; ?><span class="ms-visually-hidden"> <?php echo te('appnav.pending'); ?></span></span><?php endif; ?></a>
+                    <a href="pro_contact.php" class="<?php echo tm_nav_active('pro_contact.php', $current); ?>"><?php echo te('appnav.contact'); ?></a>
                     <?php if ($msNavAdmin) : ?>
-                    <a href="log_viewer.php" class="<?php echo $msNavAdminActive ? 'navbar-link active' : 'navbar-link'; ?>"<?php echo $msNavAdminActive ? ' aria-current="page"' : ''; ?>>Admin</a>
+                    <a href="log_viewer.php" class="<?php echo $msNavAdminActive ? 'navbar-link active' : 'navbar-link'; ?>"<?php echo $msNavAdminActive ? ' aria-current="page"' : ''; ?>><?php echo te('appnav.admin'); ?></a>
                     <?php endif; ?>
-                    <a href="pro_logout.php" class="navbar-link">Log out</a>
+                    <a href="pro_logout.php" class="navbar-link"><?php echo te('appnav.logout'); ?></a>
                 <?php else: ?>
-                    <a href="register.php" class="<?php echo tm_nav_active('register.php', $current); ?>">Sign up</a>
-                    <a href="pro_login.php" class="<?php echo tm_nav_active('pro_login.php', $current); ?>">Pro</a>
+                    <a href="<?php echo $msNavEsc($msNavHref('register.php', 'register.php')); ?>" class="<?php echo tm_nav_active('register.php', $current); ?>"><?php echo te('appnav.signup'); ?></a>
+                    <a href="<?php echo $msNavEsc($msNavHref('pro_login.php', 'pro_login.php')); ?>" class="<?php echo tm_nav_active('pro_login.php', $current); ?>"><?php echo te('appnav.pro'); ?></a>
                 <?php endif; ?>
             </div>
 
             <?php if ($msNavSignedIn) : ?>
             <div class="ms-appnav__account">
                 <?php if ($msNavEmail !== '') : ?>
-                <span class="ms-appnav__email">Signed in as <span class="ms-appnav__email-addr"><?php echo $msNavEsc($msNavEmail); ?></span></span>
+                <span class="ms-appnav__email"><?php echo te('appnav.signed_in_as'); ?> <span class="ms-appnav__email-addr"><?php echo $msNavEsc($msNavEmail); ?></span></span>
                 <?php endif; ?>
                 <span id="proExpiryLine" class="ms-appnav__status"><?php echo $msNavEsc($msNavType); ?></span>
             </div>

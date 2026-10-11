@@ -41,7 +41,7 @@ $msLegalDoc = [
     'lede'        => 'Mail Shield exists to keep your primary address out of places it does not need to be. This page says what we collect to do that, why, how long we keep it, and who else sees it.',
     'description' => 'What personal data Mail Shield collects, why, how long it is kept, and who processes it — including payments handled by Paddle.',
     'path'        => '/privacy.php',
-    'updated'     => '10 October 2026',
+    'updated'     => '2026-10-10',
     'sections'    => [
         [
             'id'      => 'controller',

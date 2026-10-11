@@ -550,6 +550,13 @@ function send_2fa_recovery_code_used_email($userId) {
 // innan pro_login.php hunnit rendera sin HTML-sida.
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === realpath(__FILE__)):
 
+// The page that called says which language it is in (X-MS-Locale); a link opened
+// from a mail has no such header and follows the browser. No session is open yet
+// on these paths, so there is no account language to consult.
+if (function_exists('i18nUseAppLocale')) {
+    i18nUseAppLocale($pdo, null, $_SERVER, $config['i18n'] ?? [], true);
+}
+
 // Endpoint: begär inloggningslänk
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'request_login_link') {
     $email = trim($_POST['email'] ?? '');
