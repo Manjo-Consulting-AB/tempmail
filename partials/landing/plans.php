@@ -68,6 +68,10 @@ require_once __DIR__ . '/../../pricing_helpers.php';
 // Null unless this is production with a monthly price: the card then stays
 // price-free and no third-party script is loaded.
 $msPlansPrice = pricingLandingConfig($config);
+if ($msPlansPrice !== null) {
+    // landing-price.js fills {price} in this; the wording is the page's language.
+    $msPlansPrice['fromTemplate'] = t('landing.plans.from_price');
+}
 
 $msPlansSignedIn = !empty($_SESSION['pro_user_id']);
 $msPlansTrialDays = $msPlansSignedIn ? 0 : max(0, (int) ($config['trial']['days'] ?? 0));
@@ -90,70 +94,84 @@ $msPlansHoldMax  = max(1, (int) ($config['retention_hold']['max_per_year'] ?? 4)
 // The MCP bullet names the sign-in only while OAuth discovery is on, like the
 // AI assistants card in automation.php; index.php sets $msMcpSignIn.
 $msPlansMcpText = !empty($msMcpSignIn)
-    ? 'Let your AI assistant handle your mail &mdash; connect Claude or another MCP client by signing in'
-    : 'Let your AI assistant handle your mail &mdash; connect Claude or another MCP client with an access token';
+    ? te('landing.plans.pro_6_signin')
+    : te('landing.plans.pro_6_token');
+
+// Numbers the bullets state, passed as placeholders so no catalog value carries
+// one: the sticky cap (index.php `case 'create_personal'`), a free Timed address'
+// 24 hours and the 1 to 7 days a Pro account can configure (`case 'generate'`).
+$msPlansStickyMax = 10;
+$msPlansFreeHours = 24;
+$msPlansTtlMin = 1;
+$msPlansTtlMax = 7;
+
+// The two links in the notes under the cards, built from literals and escaped values.
+$msPlansLinks = [
+    'plans'     => '<a href="' . htmlspecialchars(i18nUrl('/pricing.php'), ENT_QUOTES, 'UTF-8') . '">',
+    'plans_end' => '</a>',
+];
 ?>
 <section class="ms-section" id="plans">
     <div class="ms-container">
-        <h2 class="ms-h2">Free and Pro</h2>
+        <h2 class="ms-h2"><?php echo te('landing.plans.title'); ?></h2>
         <?php if ($msPlansTrialDays > 0) : ?>
-            <p class="ms-plans__body">Every new account starts with <?php echo $msPlansTrialDays; ?> days of Pro, free &mdash; sticky addresses and automation included. When the trial ends, you keep a free account, or stay on Pro.</p>
+            <p class="ms-plans__body"><?php echo te('landing.plans.body_trial', ['days' => $msPlansTrialDays]); ?></p>
         <?php else : ?>
-            <p class="ms-plans__body">A free account gives you a timed address. Pro adds sticky addresses and the tools to route and automate the mail they receive.</p>
+            <p class="ms-plans__body"><?php echo te('landing.plans.body'); ?></p>
         <?php endif; ?>
 
         <div class="ms-plans__grid">
             <div class="ms-card ms-plans__card">
                 <div class="ms-plans__head">
-                    <h3 class="ms-h3">Free</h3>
+                    <h3 class="ms-h3"><?php echo te('landing.plans.free_title'); ?></h3>
                 </div>
-                <p class="ms-plans__summary">Timed addresses, in a real inbox.</p>
-                <p class="ms-plans__price"><span class="ms-plans__amount">No cost</span> No card needed</p>
+                <p class="ms-plans__summary"><?php echo te('landing.plans.free_summary'); ?></p>
+                <p class="ms-plans__price"><span class="ms-plans__amount"><?php echo te('landing.plans.free_amount'); ?></span> <?php echo te('landing.plans.free_nocard'); ?></p>
 
                 <ul class="ms-plans__list">
-                    <li>One timed address at a time</li>
-                    <li>Addresses and messages deleted after 24 hours</li>
-                    <li><?php echo $msPlansQuotaFree; ?> MB of mail storage &mdash; the oldest mail makes room for new</li>
-                    <li>Read your mail on the web</li>
-                    <li>Signed, time-limited attachment links</li>
+                    <li><?php echo te('landing.plans.free_1'); ?></li>
+                    <li><?php echo te('landing.plans.free_2', ['hours' => $msPlansFreeHours]); ?></li>
+                    <li><?php echo te('landing.plans.free_3', ['mb' => $msPlansQuotaFree]); ?></li>
+                    <li><?php echo te('landing.plans.free_4'); ?></li>
+                    <li><?php echo te('landing.plans.free_5'); ?></li>
                 </ul>
             </div>
 
             <div class="ms-card ms-plans__card ms-plans__card--pro">
                 <div class="ms-plans__head">
-                    <h3 class="ms-h3">Pro</h3>
-                    <span class="ms-chip"><?php echo $msPlansTrialDays > 0 ? 'First ' . $msPlansTrialDays . ' days free' : 'Most useful'; ?></span>
+                    <h3 class="ms-h3"><?php echo te('landing.plans.pro_title'); ?></h3>
+                    <span class="ms-chip"><?php echo $msPlansTrialDays > 0 ? te('landing.plans.chip_trial', ['days' => $msPlansTrialDays]) : te('landing.plans.chip'); ?></span>
                 </div>
-                <p class="ms-plans__summary">Your second inbox, with the wiring.</p>
-                <p class="ms-plans__price"><span class="ms-plans__amount"<?php echo $msPlansPrice !== null ? ' data-landing-price' : ''; ?>>Monthly, yearly or once</span> <a href="/pricing.php">See prices</a></p>
+                <p class="ms-plans__summary"><?php echo te('landing.plans.pro_summary'); ?></p>
+                <p class="ms-plans__price"><span class="ms-plans__amount"<?php echo $msPlansPrice !== null ? ' data-landing-price' : ''; ?>><?php echo te('landing.plans.price_fallback'); ?></span> <a href="<?php echo htmlspecialchars(i18nUrl('/pricing.php'), ENT_QUOTES, 'UTF-8'); ?>"><?php echo te('landing.plans.see_prices'); ?></a></p>
 
                 <ul class="ms-plans__list">
-                    <li>Up to 10 sticky addresses</li>
-                    <li>Timed address lifetime configurable from 1 to 7 days</li>
-                    <li>Keep mail for <?php echo $msPlansHoldDays; ?> days, up to <?php echo $msPlansHoldMax; ?> times a year</li>
-                    <li><?php echo $msPlansQuotaPro; ?> MB of mail storage<?php echo $msPlansQuotaRatio > 1 ? ' &mdash; ' . $msPlansQuotaRatio . '&times; Free' : ''; ?></li>
-                    <li>Incoming mail is cleaned up automatically according to your retention settings</li>
+                    <li><?php echo te('landing.plans.pro_1', ['max' => $msPlansStickyMax]); ?></li>
+                    <li><?php echo te('landing.plans.pro_2', ['min' => $msPlansTtlMin, 'max' => $msPlansTtlMax]); ?></li>
+                    <li><?php echo te('landing.plans.pro_3', ['days' => $msPlansHoldDays, 'max' => $msPlansHoldMax]); ?></li>
+                    <li><?php echo $msPlansQuotaRatio > 1 ? te('landing.plans.pro_4_ratio', ['mb' => $msPlansQuotaPro, 'ratio' => $msPlansQuotaRatio]) : te('landing.plans.pro_4', ['mb' => $msPlansQuotaPro]); ?></li>
+                    <li><?php echo te('landing.plans.pro_5'); ?></li>
                     <li><?php echo $msPlansMcpText; ?></li>
-                    <li>RSS, webhooks, Pushover and digest emails</li>
-                    <li>The Agent, for sender rules on your own mail server</li>
-                    <li>Sticky addresses belong to your account</li>
-                    <li>Priority support</li>
+                    <li><?php echo te('landing.plans.pro_7'); ?></li>
+                    <li><?php echo te('landing.plans.pro_8'); ?></li>
+                    <li><?php echo te('landing.plans.pro_9'); ?></li>
+                    <li><?php echo te('landing.plans.pro_10'); ?></li>
                 </ul>
             </div>
         </div>
 
         <?php if ($msPlansTrialDays > 0) : ?>
-            <p class="ms-plans__note">No card needed, and nothing to cancel. One trial per email address. After the trial, stay on Pro with a <a href="/pricing.php">monthly, yearly or one-time plan</a>, or a voucher code.</p>
+            <p class="ms-plans__note"><?php echo tHtml('landing.plans.note_trial', [], $msPlansLinks); ?></p>
         <?php else : ?>
-            <p class="ms-plans__note">Pro is a <a href="/pricing.php">monthly, yearly or one-time plan</a>, or a voucher code.</p>
+            <p class="ms-plans__note"><?php echo tHtml('landing.plans.note', [], $msPlansLinks); ?></p>
         <?php endif; ?>
 
         <div class="ms-plans__actions">
             <?php if ($msPlansSignedIn) : ?>
-                <a class="ms-btn ms-btn--primary ms-btn--lg" href="/pro.php">Go to your inbox</a>
+                <a class="ms-btn ms-btn--primary ms-btn--lg" href="/pro.php"><?php echo te('landing.plans.go_to_inbox'); ?></a>
             <?php else : ?>
-                <a class="ms-btn ms-btn--primary ms-btn--lg" href="/register.php?plan=regular"><?php echo $msPlansTrialDays > 0 ? 'Start with ' . $msPlansTrialDays . ' days of Pro' : 'Create your inbox'; ?></a>
-                <a class="ms-btn ms-btn--secondary ms-btn--lg" href="/register.php?plan=pro">Get Pro with a code</a>
+                <a class="ms-btn ms-btn--primary ms-btn--lg" href="<?php echo htmlspecialchars(i18nUrl('/register.php?plan=regular'), ENT_QUOTES, 'UTF-8'); ?>"><?php echo $msPlansTrialDays > 0 ? te('landing.plans.start_trial', ['days' => $msPlansTrialDays]) : te('landing.plans.create_inbox'); ?></a>
+                <a class="ms-btn ms-btn--secondary ms-btn--lg" href="<?php echo htmlspecialchars(i18nUrl('/register.php?plan=pro'), ENT_QUOTES, 'UTF-8'); ?>"><?php echo te('landing.plans.get_pro'); ?></a>
             <?php endif; ?>
         </div>
     </div>

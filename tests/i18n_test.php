@@ -270,7 +270,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -380,6 +380,200 @@ check('scan: consent.js reads #ms-i18n-consent', strpos($consentJs, 'ms-i18n-con
 
 // --- .htaccess hides lang/ ----------------------------------------------------
 check('scan: .htaccess blocks lang/ in the existing rule', strpos($htaccess, 'RewriteRule ^(?:vendor|tests|documentaion|client|lang)(?:/|$) - [F,L]') !== false);
+
+// --- Landing page partials: English fixtures, Swedish render --------------------
+// Each variant is [signed in, trial days, MCP sign-in offered]. The fixtures were
+// rendered from the code as it was before the landing page went through t().
+if (!defined('TEMPMAIL_APP')) {
+    define('TEMPMAIL_APP', true);
+}
+if (!function_exists('getStats')) {
+    // The query getStats() in config.php runs, against the test's own $pdo.
+    function getStats()
+    {
+        global $pdo;
+        $stats = [];
+        foreach ($pdo->query('SELECT stat_name, stat_value FROM email_stats') as $row) {
+            $stats[$row['stat_name']] = (int) $row['stat_value'];
+        }
+        return $stats;
+    }
+}
+
+function landingVariants(): array
+{
+    return [
+        'hero'         => ['signed_out' => [false, 60, false], 'signed_in' => [true, 60, false], 'signed_out_notrial' => [false, 0, false]],
+        'problem'      => ['' => [false, 60, false]],
+        'how_it_works' => ['' => [false, 60, false]],
+        'addresses'    => ['signed_out' => [false, 60, false], 'signed_out_notrial' => [false, 0, false]],
+        'temporary'    => ['' => [false, 60, false]],
+        'automation'   => ['signin' => [false, 60, true], 'token' => [false, 60, false], 'token_notrial' => [false, 0, false]],
+        'cleanup'      => ['' => [false, 60, false]],
+        'external'     => ['' => [false, 60, false]],
+        'stats'        => ['' => [false, 60, false]],
+        'plans'        => ['signed_out' => [false, 60, false], 'signed_out_signin' => [false, 60, true], 'signed_in' => [true, 60, false], 'signed_out_notrial' => [false, 0, false]],
+        'cta'          => ['signed_out' => [false, 60, false], 'signed_in' => [true, 60, false], 'signed_out_notrial' => [false, 0, false]],
+    ];
+}
+
+function landingStatsPdo(array $rows): PDO
+{
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $pdo->exec('CREATE TABLE email_stats (stat_name TEXT PRIMARY KEY, stat_value INTEGER NOT NULL DEFAULT 0)');
+    foreach ($rows as $name => $value) {
+        $pdo->prepare('INSERT INTO email_stats (stat_name, stat_value) VALUES (?, ?)')->execute([$name, $value]);
+    }
+    return $pdo;
+}
+
+function renderLanding(string $section, array $variant, string $locale, array $enabled, ?array $statsRows = null): string
+{
+    [$signedIn, $trialDays, $mcpSignIn] = $variant;
+    $GLOBALS['config'] = [
+        'email' => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+        'trial' => ['days' => $trialDays],
+        'i18n' => ['enabled' => $enabled],
+    ];
+    $config = $GLOBALS['config'];
+    $domain = 'example.test';
+    $msMcpSignIn = $mcpSignIn;
+    $GLOBALS['pdo'] = landingStatsPdo($statsRows ?? ['emails_processed' => 1234567, 'emails_created' => 89012, 'attachments_processed' => 345]);
+    $_SESSION = $signedIn ? ['pro_user_id' => 1] : [];
+    i18nSetLocale($locale);
+    ob_start();
+    require dirname(__DIR__) . '/partials/landing/' . $section . '.php';
+    return (string) ob_get_clean();
+}
+
+/**
+ * The spellings the catalog changed and the browser reads the same: te() escapes
+ * an apostrophe as &#039; where the old markup had a bare one, and a catalog
+ * value holds the character where the old markup had &mdash; or &times;.
+ * Everything else must match byte for byte.
+ */
+function landingNorm(string $html): string
+{
+    return strtr($html, ['&#039;' => "'", '&mdash;' => '—', '&times;' => '×']);
+}
+
+function landingFixtureName(string $section, string $variant): string
+{
+    return 'landing.' . $section . ($variant === '' ? '' : '.' . $variant) . '.en.html';
+}
+
+i18nTranslatedPages($realPages);
+foreach (landingVariants() as $section => $variants) {
+    foreach ($variants as $name => $v) {
+        $file = landingFixtureName($section, $name);
+        same("fixture: {$file}", landingNorm((string) file_get_contents($fx . $file)), landingNorm(renderLanding($section, $v, 'en', $onlyEn)));
+    }
+}
+i18nSetLocale('en');
+
+// --- Landing page in Swedish ----------------------------------------------------
+same('pages: the landing page is offered in Swedish', ['en', 'sv'], $realPages['/'] ?? null);
+same('resolve: /sv/ is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/'], $both));
+same('resolve: ...and sets Swedish', 'sv', i18nLocale());
+same('resolve: /sv/ redirects to / while only English is on', '/', i18nResolveRequest(['REQUEST_URI' => '/sv/'], $onlyEn));
+i18nSetLocale('en');
+
+$svAll = '';
+foreach (landingVariants() as $section => $variants) {
+    foreach ($variants as $name => $v) {
+        $label = "landing {$section}" . ($name === '' ? '' : " ({$name})");
+        $svOut = renderLanding($section, $v, 'sv', $both);
+        $enOut = renderLanding($section, $v, 'en', $both);
+        $svAll .= $svOut;
+        check("sv render {$label}: no raw key", !preg_match('/\blanding\.[a-z_.]+\b/', $svOut));
+        check("sv render {$label}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $svOut));
+        check("sv render {$label}: differs from English", $svOut !== $enOut);
+        preg_match_all('/[A-Za-z0-9._-]+@([A-Za-z0-9.-]+)/', $svOut, $mm);
+        check("sv render {$label}: every example address is on the configured domain", array_unique($mm[1]) === [] || array_unique($mm[1]) === ['example.test'], implode(',', array_unique($mm[1])));
+        check("sv render {$label}: no hard-coded manjo.me", stripos($svOut, 'manjo.me') === false);
+        check("sv render {$label}: Swedish links stay on pages that exist in Swedish", strpos($svOut, 'href="/sv/pricing.php"') === false && strpos($svOut, 'href="/sv/register.php') === false);
+    }
+}
+check('sv render: the lang attribute is not hard-coded in a partial', strpos($svAll, 'lang="en"') === false);
+check('sv render: Swedish copy is present', strpos($svAll, 'Din inkorg för allt annat.') !== false && strpos($svAll, 'Sticky-adresser') !== false && strpos($svAll, 'Timed-adresser') !== false);
+check('sv render: product name stays Mail Shield', strpos($svAll, 'Mail Shield') !== false);
+check('sv render: numbers come from $config (60 days, 10 sticky, 24 hours)', strpos($svAll, '60 dagar') !== false && strpos($svAll, 'upp till 10 Sticky') !== false && strpos($svAll, '24 timmar') !== false);
+$statsSv = renderLanding('stats', [false, 60, false], 'sv', $both);
+check('sv stats: numbers through i18nNumber (no-break space)', strpos($statsSv, "1\u{00A0}234\u{00A0}567") !== false);
+same('stats: nothing at all when every figure is zero', '', renderLanding('stats', [false, 60, false], 'en', $onlyEn, ['emails_processed' => 0]));
+$planSv = renderLanding('plans', [false, 60, false], 'sv', $both);
+check('sv plans: pricing and register links stay plain until those pages are translated', strpos($planSv, 'href="/pricing.php"') !== false && strpos($planSv, 'href="/register.php?plan=pro"') !== false);
+i18nTranslatedPages(['/' => ['en', 'sv'], '/pricing.php' => ['en', 'sv'], '/register.php' => ['en', 'sv'], '/temporary-email.php' => ['en', 'sv']]);
+$planSv = renderLanding('plans', [false, 60, false], 'sv', $both);
+check('sv plans: ...and follow them once translated', strpos($planSv, 'href="/sv/pricing.php"') !== false && strpos($planSv, 'href="/sv/register.php?plan=pro"') !== false);
+check('sv hero: sign-up link follows the translated register page', strpos(renderLanding('hero', [false, 60, false], 'sv', $both), 'href="/sv/register.php?plan=regular"') !== false);
+check('sv how it works: temporary-email link follows the translated page', strpos(renderLanding('how_it_works', [false, 60, false], 'sv', $both), 'href="/sv/temporary-email.php"') !== false);
+check('hero: the in-page anchor is kept', strpos(renderLanding('hero', [false, 60, false], 'sv', $both), 'href="#how-it-works"') !== false);
+i18nTranslatedPages($realPages);
+i18nSetLocale('en');
+
+// The "From {price}" wording: PHP puts it in the price config, the script fills it.
+$plansSrc = (string) file_get_contents($root . '/partials/landing/plans.php');
+$priceJs = (string) file_get_contents($root . '/assets/js/landing-price.js');
+check('scan: plans.php adds fromTemplate (t of landing.plans.from_price) to the price config', preg_match("/\\['fromTemplate'\\]\s*=\s*t\('landing\.plans\.from_price'\)/", $plansSrc) === 1);
+check('scan: landing-price.js uses config.fromTemplate and falls back to "From "', strpos($priceJs, 'config.fromTemplate') !== false && strpos($priceJs, "'From ' + total") !== false);
+check('scan: landing-price.js never uses innerHTML', stripos($priceJs, 'innerHTML') === false);
+same('catalog: English from_price', 'From {price}', $en['landing.plans.from_price'] ?? null);
+
+// index.php: title, description and the JSON-LD WebSite node.
+$indexSrc = (string) file_get_contents($root . '/index.php');
+check('scan: index.php title and description come from the catalog', strpos($indexSrc, "'title'        => t('landing.meta.title')") !== false && strpos($indexSrc, "'description'  => t('landing.meta.description')") !== false);
+check('scan: index.php WebSite url follows the language and carries inLanguage', strpos($indexSrc, "'url'   => \$msOrigin . i18nUrl('/')") !== false && strpos($indexSrc, "'inLanguage' => i18nLocale()") !== false);
+same('catalog: English meta title is today\'s literal', 'Mail Shield — Your inbox for everything else', $en['landing.meta.title'] ?? null);
+
+// No catalog value carries a number or the domain (they are placeholders).
+$numberInCopy = [];
+foreach ($en as $key => $value) {
+    if (strncmp($key, 'landing.', 8) !== 0) {
+        continue;
+    }
+    $texts = is_array($value) ? $value : [$value];
+    foreach ($texts as $text) {
+        $bare = preg_replace('/\{[a-z_]+\}/', '', (string) $text);
+        if (preg_match('/\d/', $bare) || stripos($bare, 'manjo') !== false || stripos($bare, '.me') !== false) {
+            $numberInCopy[] = $key;
+        }
+    }
+}
+check('catalog: no landing value writes a number or the domain', $numberInCopy === [], implode(', ', $numberInCopy));
+$unused = [];
+$landingSrc = '';
+foreach (glob($root . '/partials/landing/*.php') as $f) {
+    $landingSrc .= file_get_contents($f);
+}
+$landingSrc .= $plansSrc . $indexSrc;
+foreach (array_keys($en) as $key) {
+    if (strncmp($key, 'landing.', 8) === 0 && strpos($landingSrc, "'" . $key . "'") === false) {
+        $unused[] = $key;
+    }
+}
+check('catalog: every landing key is used by a partial or index.php', $unused === [], implode(', ', $unused));
+
+// No English text node left outside te()/tHtml()/tp(): strip the PHP, then the tags.
+foreach (glob($root . '/partials/landing/*.php') as $f) {
+    $src = (string) file_get_contents($f);
+    $markup = preg_replace('/<\?(?:php|=).*?(?:\?>|\z)/s', '', $src);
+    $attrs = [];
+    preg_match_all('/\b(?:alt|aria-label|title)="([^"]*)"/', $markup, $am);
+    foreach ($am[1] as $a) {
+        if (preg_match('/[A-Za-z]{2}/', $a)) {
+            $attrs[] = $a;
+        }
+    }
+    $text = html_entity_decode(strip_tags($markup), ENT_QUOTES, 'UTF-8');
+    // Product, company and the real brands the mockup shows are names, not copy; the
+    // one-letter avatars are not words.
+    $text = str_replace(['Mail Shield', 'Manjo Consulting AB', 'Amazon', 'GitHub', 'Spotify', 'Reddit'], '', $text);
+    $leftover = preg_match('/[A-Za-z’\']{2,}(?:\s+[A-Za-z’\']{2,}){2,}/', $text, $lm) ? trim($lm[0]) : '';
+    check('scan: ' . basename($f) . ' has no English text node outside t()/tHtml()/tp()', $leftover === '', $leftover);
+    check('scan: ' . basename($f) . ' has no literal alt/aria-label/title', $attrs === [], implode(' | ', $attrs));
+}
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

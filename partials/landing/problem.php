@@ -18,18 +18,18 @@ if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 ?>
 <section class="ms-section" id="problem">
     <div class="ms-container--narrow ms-problem">
-        <h2 class="ms-h2">Your inbox wasn’t built for all this.</h2>
-        <p class="ms-problem__body">Every signup, newsletter, online purchase and random service adds another message to the inbox you actually care about.</p>
-        <p class="ms-problem__body ms-problem__body--turn">Mail Shield gives those emails somewhere else to go.</p>
+        <h2 class="ms-h2"><?php echo te('landing.problem.title'); ?></h2>
+        <p class="ms-problem__body"><?php echo te('landing.problem.body'); ?></p>
+        <p class="ms-problem__body ms-problem__body--turn"><?php echo te('landing.problem.turn'); ?></p>
 
         <ul class="ms-problem__chips">
-            <li class="ms-chip">shopping</li>
-            <li class="ms-chip">newsletters</li>
-            <li class="ms-chip">registrations</li>
-            <li class="ms-chip">forums</li>
-            <li class="ms-chip">services you want to try</li>
-            <li class="ms-chip">projects</li>
-            <li class="ms-chip">automated email</li>
+            <li class="ms-chip"><?php echo te('landing.problem.chip_shopping'); ?></li>
+            <li class="ms-chip"><?php echo te('landing.problem.chip_newsletters'); ?></li>
+            <li class="ms-chip"><?php echo te('landing.problem.chip_registrations'); ?></li>
+            <li class="ms-chip"><?php echo te('landing.problem.chip_forums'); ?></li>
+            <li class="ms-chip"><?php echo te('landing.problem.chip_services'); ?></li>
+            <li class="ms-chip"><?php echo te('landing.problem.chip_projects'); ?></li>
+            <li class="ms-chip"><?php echo te('landing.problem.chip_automated'); ?></li>
         </ul>
     </div>
 </section>

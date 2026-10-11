@@ -864,8 +864,8 @@ $msOrigin = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 // offers block: no price has been published (§9), and an invented Offer is
 // exactly the claim that gets a site penalised rather than ranked.
 $msPage = [
-    'title'        => 'Mail Shield — Your inbox for everything else',
-    'description'  => 'A separate inbox for shopping, newsletters, signups and temporary email. Create sticky addresses that stay, or timed addresses that delete themselves, and keep your primary inbox for what matters.',
+    'title'        => t('landing.meta.title'),
+    'description'  => t('landing.meta.description'),
     'path'         => '/',
     'preload_font' => true,
     'jsonld'       => [
@@ -884,7 +884,8 @@ $msPage = [
             [
                 '@type' => 'WebSite',
                 'name'  => 'Mail Shield',
-                'url'   => $msOrigin . '/',
+                'url'   => $msOrigin . i18nUrl('/'),
+                'inLanguage' => i18nLocale(),
             ],
         ],
     ],

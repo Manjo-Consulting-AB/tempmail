@@ -42,7 +42,13 @@
             var items = response.data.details.lineItems;
             for (var i = 0; i < items.length; i++) {
                 if (items[i].price.id === config.priceId) {
-                    amountEl.textContent = 'From ' + items[i].formattedTotals.total;
+                    var total = items[i].formattedTotals.total;
+                    // The wording comes from the page's language ("From {price}");
+                    // an older config without it keeps the English text.
+                    var template = (typeof config.fromTemplate === 'string') ? config.fromTemplate : '';
+                    amountEl.textContent = template !== ''
+                        ? template.replace('{price}', function () { return total; })
+                        : 'From ' + total;
                     return;
                 }
             }

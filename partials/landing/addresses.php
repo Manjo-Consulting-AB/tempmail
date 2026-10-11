@@ -36,23 +36,27 @@ $msAddrDomain = htmlspecialchars(
 // The tier note doubles as the trial pitch for signed-out visitors (epic #267):
 // this is where personal addresses start to look worth having.
 $msAddrTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['trial']['days'] ?? 0)) : 0;
+
+// The cap on sticky addresses per account (index.php `case 'create_personal'`).
+// Passed to the copy as a placeholder so no catalog value carries the number.
+$msAddrStickyMax = 10;
 ?>
 <section class="ms-section" id="features">
     <div class="ms-container">
         <div class="ms-addresses">
             <div class="ms-addresses__copy">
-                <p class="ms-eyebrow">Sticky addresses</p>
-                <h2 class="ms-h2">One account. Multiple addresses.</h2>
-                <p class="ms-addresses__body">Create up to 10 sticky addresses and manage them from one inbox. Keep the addresses you want to use, without turning this into another inbox you have to maintain.</p>
-                <p class="ms-addresses__kicker">Multiple identities. One inbox.</p>
-                <p class="ms-addresses__tier">Sticky addresses are part of Pro<?php if ($msAddrTrialDays > 0) : ?> &mdash; and included in your first <?php echo $msAddrTrialDays; ?> days<?php endif; ?>.</p>
+                <p class="ms-eyebrow"><?php echo te('landing.addresses.eyebrow'); ?></p>
+                <h2 class="ms-h2"><?php echo te('landing.addresses.title'); ?></h2>
+                <p class="ms-addresses__body"><?php echo te('landing.addresses.body', ['max' => $msAddrStickyMax]); ?></p>
+                <p class="ms-addresses__kicker"><?php echo te('landing.addresses.kicker'); ?></p>
+                <p class="ms-addresses__tier"><?php echo $msAddrTrialDays > 0 ? te('landing.addresses.tier_trial', ['days' => $msAddrTrialDays]) : te('landing.addresses.tier'); ?></p>
             </div>
 
             <div class="ms-addresses__routing">
                 <ul class="ms-addresses__list">
-                    <li class="ms-addresses__item"><span class="ms-addr">shopping@<?php echo $msAddrDomain; ?></span></li>
-                    <li class="ms-addresses__item"><span class="ms-addr">news@<?php echo $msAddrDomain; ?></span></li>
-                    <li class="ms-addresses__item"><span class="ms-addr">projects@<?php echo $msAddrDomain; ?></span></li>
+                    <li class="ms-addresses__item"><span class="ms-addr"><?php echo te('landing.mock.addr_shopping'); ?>@<?php echo $msAddrDomain; ?></span></li>
+                    <li class="ms-addresses__item"><span class="ms-addr"><?php echo te('landing.mock.addr_news'); ?>@<?php echo $msAddrDomain; ?></span></li>
+                    <li class="ms-addresses__item"><span class="ms-addr"><?php echo te('landing.mock.addr_projects'); ?>@<?php echo $msAddrDomain; ?></span></li>
                 </ul>
 
                 <svg class="ms-addresses__links" viewBox="0 0 72 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
@@ -71,8 +75,8 @@ $msAddrTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['tria
 
                         <div class="ms-mock__body">
                             <div class="ms-mock__side">
-                                <p class="ms-eyebrow">INBOX</p>
-                                <p class="ms-mock__count">22 messages</p>
+                                <p class="ms-eyebrow"><?php echo te('landing.mock.inbox'); ?></p>
+                                <p class="ms-mock__count"><?php echo htmlspecialchars(tp('landing.mock.count', 22), ENT_QUOTES, 'UTF-8'); ?></p>
                             </div>
 
                             <ul class="ms-mock__list">
@@ -80,33 +84,33 @@ $msAddrTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['tria
                                     <span class="ms-mock__avatar">A</span>
                                     <span class="ms-mock__head">
                                         <span class="ms-mock__from">Amazon</span>
-                                        <span class="ms-mock__time">2m</span>
+                                        <span class="ms-mock__time"><?php echo te('landing.mock.minutes', ['n' => 2]); ?></span>
                                     </span>
                                     <span class="ms-mock__sub">
-                                        <span class="ms-mock__subject">Your order has shipped</span>
-                                        <span class="ms-chip ms-mock__to">To: shopping</span>
+                                        <span class="ms-mock__subject"><?php echo te('landing.mock.subject_shipped'); ?></span>
+                                        <span class="ms-chip ms-mock__to"><?php echo te('landing.mock.to', ['name' => t('landing.mock.addr_shopping')]); ?></span>
                                     </span>
                                 </li>
                                 <li class="ms-mock__row ms-mock__row--unread">
-                                    <span class="ms-mock__avatar">W</span>
+                                    <span class="ms-mock__avatar"><?php echo te('landing.mock.avatar_dispatch_card'); ?></span>
                                     <span class="ms-mock__head">
-                                        <span class="ms-mock__from">The Weekly Dispatch</span>
-                                        <span class="ms-mock__time">1h</span>
+                                        <span class="ms-mock__from"><?php echo te('landing.mock.from_dispatch'); ?></span>
+                                        <span class="ms-mock__time"><?php echo te('landing.mock.hours', ['n' => 1]); ?></span>
                                     </span>
                                     <span class="ms-mock__sub">
-                                        <span class="ms-mock__subject">This week's offers</span>
-                                        <span class="ms-chip ms-mock__to">To: news</span>
+                                        <span class="ms-mock__subject"><?php echo te('landing.mock.subject_offers'); ?></span>
+                                        <span class="ms-chip ms-mock__to"><?php echo te('landing.mock.to', ['name' => t('landing.mock.addr_news')]); ?></span>
                                     </span>
                                 </li>
                                 <li class="ms-mock__row">
                                     <span class="ms-mock__avatar">G</span>
                                     <span class="ms-mock__head">
                                         <span class="ms-mock__from">GitHub</span>
-                                        <span class="ms-mock__time">3h</span>
+                                        <span class="ms-mock__time"><?php echo te('landing.mock.hours', ['n' => 3]); ?></span>
                                     </span>
                                     <span class="ms-mock__sub">
-                                        <span class="ms-mock__subject">Security alert: new sign-in</span>
-                                        <span class="ms-chip ms-mock__to">To: projects</span>
+                                        <span class="ms-mock__subject"><?php echo te('landing.mock.subject_security'); ?></span>
+                                        <span class="ms-chip ms-mock__to"><?php echo te('landing.mock.to', ['name' => t('landing.mock.addr_projects')]); ?></span>
                                     </span>
                                 </li>
                             </ul>

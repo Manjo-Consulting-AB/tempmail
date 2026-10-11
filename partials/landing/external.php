@@ -48,15 +48,15 @@ if (!defined('TEMPMAIL_APP')) { http_response_code(403); exit; }
 ?>
 <section class="ms-section" id="external">
     <div class="ms-container">
-        <p class="ms-eyebrow">Power user</p>
-        <h2 class="ms-h2">Your rules, on your own mail server.</h2>
-        <p class="ms-external__body">Keep the mailbox you already run, and manage its sender rules from Mail Shield.</p>
-        <p class="ms-external__detail">The Agent runs on your own mail server, verifies RSA-signed webhooks from Mail Shield, and applies your filter scripts and sender lists locally.</p>
+        <p class="ms-eyebrow"><?php echo te('landing.external.eyebrow'); ?></p>
+        <h2 class="ms-h2"><?php echo te('landing.external.title'); ?></h2>
+        <p class="ms-external__body"><?php echo te('landing.external.body'); ?></p>
+        <p class="ms-external__detail"><?php echo te('landing.external.detail'); ?></p>
 
         <ol class="ms-external__flow">
-            <li class="ms-external__step">you edit your rules</li>
-            <li class="ms-external__step">signed update to your server</li>
-            <li class="ms-external__step">your server filters your mailbox</li>
+            <li class="ms-external__step"><?php echo te('landing.external.step1'); ?></li>
+            <li class="ms-external__step"><?php echo te('landing.external.step2'); ?></li>
+            <li class="ms-external__step"><?php echo te('landing.external.step3'); ?></li>
         </ol>
     </div>
 </section>

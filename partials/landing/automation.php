@@ -67,15 +67,15 @@ $msAutoTrialDays = empty($_SESSION['pro_user_id']) ? max(0, (int) ($config['tria
 // reads as a token card if it is ever included without it.
 $msMcpSignIn = !empty($msMcpSignIn);
 $msAiCardText = $msMcpSignIn
-    ? 'Connect Claude or another MCP client by signing in, or with an access token, to list, create and delete your addresses and read your mail.'
-    : 'Connect Claude or another MCP client with an access token to list, create and delete your addresses and read your mail.';
+    ? te('landing.automation.ai_text_signin')
+    : te('landing.automation.ai_text_token');
 ?>
 <section class="ms-section ms-section--sunken" id="automation">
     <div class="ms-container">
-        <p class="ms-eyebrow">Automation</p>
-        <h2 class="ms-h2">Email doesn't have to stay in your inbox.</h2>
-        <p class="ms-automation__body">Connect Mail Shield to the tools you already use.</p>
-        <p class="ms-automation__tier">Automation is part of Pro<?php if ($msAutoTrialDays > 0) : ?> &mdash; and included in your first <?php echo $msAutoTrialDays; ?> days<?php endif; ?>.</p>
+        <p class="ms-eyebrow"><?php echo te('landing.automation.eyebrow'); ?></p>
+        <h2 class="ms-h2"><?php echo te('landing.automation.title'); ?></h2>
+        <p class="ms-automation__body"><?php echo te('landing.automation.body'); ?></p>
+        <p class="ms-automation__tier"><?php echo $msAutoTrialDays > 0 ? te('landing.automation.tier_trial', ['days' => $msAutoTrialDays]) : te('landing.automation.tier'); ?></p>
 
         <ul class="ms-grid ms-grid--3 ms-automation__grid">
             <li class="ms-card ms-automation__card">
@@ -84,8 +84,8 @@ $msAiCardText = $msMcpSignIn
                     <path d="M4.9 10.6A4.5 4.5 0 0 1 9.4 15.1"/>
                     <path d="M4.9 6.6A8.5 8.5 0 0 1 13.4 15.1"/>
                 </svg>
-                <h3 class="ms-h3 ms-automation__title">RSS</h3>
-                <p class="ms-automation__text">Read your inbox in any feed reader, through a private token-protected feed.</p>
+                <h3 class="ms-h3 ms-automation__title"><?php echo te('landing.automation.rss_title'); ?></h3>
+                <p class="ms-automation__text"><?php echo te('landing.automation.rss_text'); ?></p>
             </li>
 
             <li class="ms-card ms-automation__card">
@@ -94,8 +94,8 @@ $msAiCardText = $msMcpSignIn
                     <circle cx="4.5" cy="15.5" r="2"/>
                     <circle cx="15.5" cy="4.5" r="2"/>
                 </svg>
-                <h3 class="ms-h3 ms-automation__title">Webhooks</h3>
-                <p class="ms-automation__text">POST every incoming message as JSON to your own endpoint.</p>
+                <h3 class="ms-h3 ms-automation__title"><?php echo te('landing.automation.webhooks_title'); ?></h3>
+                <p class="ms-automation__text"><?php echo te('landing.automation.webhooks_text'); ?></p>
             </li>
 
             <li class="ms-card ms-automation__card">
@@ -103,8 +103,8 @@ $msAiCardText = $msMcpSignIn
                     <rect x="6" y="2.5" width="8" height="15" rx="2"/>
                     <circle cx="11.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/>
                 </svg>
-                <h3 class="ms-h3 ms-automation__title">Pushover</h3>
-                <p class="ms-automation__text">Get incoming mail as a push notification on your phone.</p>
+                <h3 class="ms-h3 ms-automation__title"><?php echo te('landing.automation.pushover_title'); ?></h3>
+                <p class="ms-automation__text"><?php echo te('landing.automation.pushover_text'); ?></p>
             </li>
 
             <li class="ms-card ms-automation__card">
@@ -113,8 +113,8 @@ $msAiCardText = $msMcpSignIn
                     <path d="M6 8.5H14"/>
                     <path d="M6 11.5H11"/>
                 </svg>
-                <h3 class="ms-h3 ms-automation__title">Digest emails</h3>
-                <p class="ms-automation__text">A periodic summary of what arrived, sent to your real inbox.</p>
+                <h3 class="ms-h3 ms-automation__title"><?php echo te('landing.automation.digest_title'); ?></h3>
+                <p class="ms-automation__text"><?php echo te('landing.automation.digest_text'); ?></p>
             </li>
 
             <li class="ms-card ms-automation__card">
@@ -124,19 +124,19 @@ $msAiCardText = $msMcpSignIn
                     <circle cx="8.8" cy="5.5" r=".85" fill="currentColor" stroke="none"/>
                     <path d="M6.4 13.4L9 16L14 11"/>
                 </svg>
-                <h3 class="ms-h3 ms-automation__title">Agent</h3>
-                <p class="ms-automation__text">Run filtering on your own mail server, driven by signed webhooks.</p>
+                <h3 class="ms-h3 ms-automation__title"><?php echo te('landing.automation.agent_title'); ?></h3>
+                <p class="ms-automation__text"><?php echo te('landing.automation.agent_text'); ?></p>
             </li>
 
             <li class="ms-card ms-automation__card">
                 <svg class="ms-automation__icon" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M10 3.2L11.5 8.5L16.8 10L11.5 11.5L10 16.8L8.5 11.5L3.2 10L8.5 8.5Z"/>
                 </svg>
-                <h3 class="ms-h3 ms-automation__title">AI assistants</h3>
-                <p class="ms-automation__text"><?php echo htmlspecialchars($msAiCardText, ENT_QUOTES, 'UTF-8'); ?></p>
+                <h3 class="ms-h3 ms-automation__title"><?php echo te('landing.automation.ai_title'); ?></h3>
+                <p class="ms-automation__text"><?php echo $msAiCardText; ?></p>
             </li>
         </ul>
 
-        <p class="ms-automation__note">Every incoming message can trigger more than one of these.</p>
+        <p class="ms-automation__note"><?php echo te('landing.automation.note'); ?></p>
     </div>
 </section>

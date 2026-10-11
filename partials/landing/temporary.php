@@ -36,30 +36,36 @@ $msTempDomain = htmlspecialchars(
     ENT_QUOTES,
     'UTF-8'
 );
+
+// Retention as the approved sentence states it (brief §9): a free Timed address
+// lasts 24 hours, a Pro one is configurable up to 7 days (index.php `case 'generate'`).
+// Passed to the copy as placeholders so no catalog value carries a number.
+$msTempFreeHours = 24;
+$msTempProMaxDays = 7;
 ?>
 <section class="ms-section" id="temporary">
     <div class="ms-container">
-        <p class="ms-eyebrow">Timed addresses</p>
-        <h2 class="ms-h2">Here when you need it. Gone when you don't.</h2>
-        <p class="ms-temp__body">Need an address for a signup, download or service you don't fully trust yet? Create a timed address. Use it. Forget it.</p>
+        <p class="ms-eyebrow"><?php echo te('landing.temporary.eyebrow'); ?></p>
+        <h2 class="ms-h2"><?php echo te('landing.temporary.title'); ?></h2>
+        <p class="ms-temp__body"><?php echo te('landing.temporary.body'); ?></p>
 
         <ol class="ms-lifecycle">
             <li class="ms-lifecycle__beat">
-                <span class="ms-eyebrow ms-lifecycle__label">Create</span>
+                <span class="ms-eyebrow ms-lifecycle__label"><?php echo te('landing.temporary.create'); ?></span>
                 <span class="ms-addr ms-lifecycle__addr">a4f9c2e1@<?php echo $msTempDomain; ?></span>
             </li>
             <li class="ms-lifecycle__beat">
-                <span class="ms-eyebrow ms-lifecycle__label">Use it</span>
-                <span class="ms-lifecycle__detail">Paste it into the signup. Read the confirmation here.</span>
+                <span class="ms-eyebrow ms-lifecycle__label"><?php echo te('landing.temporary.use'); ?></span>
+                <span class="ms-lifecycle__detail"><?php echo te('landing.temporary.use_detail'); ?></span>
             </li>
             <li class="ms-lifecycle__beat ms-lifecycle__beat--end">
-                <span class="ms-eyebrow ms-lifecycle__label">Gone</span>
-                <span class="ms-lifecycle__detail">Deleted automatically, with everything in it.</span>
+                <span class="ms-eyebrow ms-lifecycle__label"><?php echo te('landing.temporary.gone'); ?></span>
+                <span class="ms-lifecycle__detail"><?php echo te('landing.temporary.gone_detail'); ?></span>
             </li>
         </ol>
 
-        <p class="ms-temp__retention">Timed addresses clean up after themselves — 24 hours on a free account, or up to 7 days on Pro.</p>
-        <p class="ms-temp__aside">Disposable email, without the disposable-looking website.</p>
-        <p class="ms-temp__more"><a class="ms-btn ms-btn--quiet" href="/temporary-email.php">More about temporary email addresses</a></p>
+        <p class="ms-temp__retention"><?php echo te('landing.temporary.retention', ['hours' => $msTempFreeHours, 'days' => $msTempProMaxDays]); ?></p>
+        <p class="ms-temp__aside"><?php echo te('landing.temporary.aside'); ?></p>
+        <p class="ms-temp__more"><a class="ms-btn ms-btn--quiet" href="<?php echo htmlspecialchars(i18nUrl('/temporary-email.php'), ENT_QUOTES, 'UTF-8'); ?>"><?php echo te('landing.temporary.more'); ?></a></p>
     </div>
 </section>
