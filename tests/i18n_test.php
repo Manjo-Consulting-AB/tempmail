@@ -82,7 +82,7 @@ same('resolve: CLI is English', 'en', i18nLocale());
 same('resolve: plain URL', null, i18nResolveRequest(['REQUEST_URI' => '/terms.php'], $both));
 same('resolve: untranslated /sv/ page redirects to the plain URL', '/terms.php', i18nResolveRequest(['REQUEST_URI' => '/sv/terms.php'], $both));
 same('resolve: ...and stays English', 'en', i18nLocale());
-same('resolve: query string survives the redirect', '/blog.php?post=2026-10-05', i18nResolveRequest(['REQUEST_URI' => '/sv/blog.php?post=2026-10-05'], $both));
+same('resolve: query string survives the redirect', '/register.php?plan=pro', i18nResolveRequest(['REQUEST_URI' => '/sv/register.php?plan=pro'], $both));
 same('resolve: app page under /sv/ redirects', '/inbox.php?address=abc', i18nResolveRequest(['REQUEST_URI' => '/sv/inbox.php?address=abc'], $both));
 
 // --- With Swedish translations (simulated) ------------------------------------
@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -915,7 +915,7 @@ foreach ($faqVariants as $name => [$signIn, $trial]) {
     check("faq sv {$name}: stylesheets resolve from the root, not from /sv/", strpos($raw, 'href="/assets/css/style.css"') !== false && strpos($raw, 'href="/assets/css/mailshield.css?v=') !== false && strpos($raw, 'href="assets/') === false);
     check("faq sv {$name}: section anchors stay English", strpos($raw, 'id="accounts"') !== false && strpos($raw, 'href="#automation"') !== false && strpos($raw, 'id="troubleshooting"') !== false);
     check("faq sv {$name}: the pricing link is the Swedish page, app pages stay plain", strpos($raw, 'href="/sv/pricing.php"') !== false && strpos($raw, 'href="/pro_login.php"') !== false && strpos($raw, '/sv/pro_login.php') === false);
-    check("faq sv {$name}: pages not yet in Swedish keep their plain URL, translated ones link to /sv/", strpos($raw, 'href="/sv/temporary-email.php"') !== false && strpos($raw, 'href="/temporary-email.php"') === false && strpos($raw, 'href="/blog.php"') !== false && strpos($raw, '/sv/blog.php') === false);
+    check("faq sv {$name}: translated pages link to /sv/", strpos($raw, 'href="/sv/temporary-email.php"') !== false && strpos($raw, 'href="/temporary-email.php"') === false && strpos($raw, 'href="/sv/blog.php"') !== false && strpos($raw, 'href="/blog.php"') === false);
     check("faq sv {$name}: header and footer links go to the Swedish page", strpos($raw, '<li><a href="/sv/">Startsida</a></li>') !== false && strpos($raw, 'href="/sv/faq.php">Vanliga frågor</a>') !== false);
     check("faq sv {$name}: numbers and the domain are the config's (10, 1 to 7, 30 days, 4 times)", strpos($raw, 'upp till 10 Sticky-adresser') !== false && strpos($raw, '1 till 7') !== false && strpos($raw, 'i 30 dagar, upp till 4 gånger per år') !== false && strpos($raw, 'shopping@example.test') !== false);
     check("faq sv {$name}: the trial days are the config's", $trial > 0 ? strpos($raw, "{$trial} dagar Pro") !== false : strpos($raw, 'provperioden') === false);
@@ -1153,6 +1153,331 @@ same('resolve: /sv/temporary-email.php is served once Swedish is on', null, i18n
 same('resolve: ...and redirects while only English is on', '/temporary-email.php', i18nResolveRequest(['REQUEST_URI' => '/sv/temporary-email.php'], $onlyEn));
 i18nSetLocale('en');
 
+// --- blog.php: English fixtures, Swedish posts ---------------------------------
+// The fixtures were rendered from blog.php before it went through t(): the index,
+// two posts (2026-10-01 has an image and a list, 2026-07-02 inline code and long
+// prose) and the not-found view. No post uses a fenced code block, so none is
+// covered by a fixture.
+
+/**
+ * Renders blog.php in a probe docroot (the real page, i18n.php, partials/, lang/
+ * and the *.md posts, with a stub config.php). $extraPosts are written for this
+ * one render only, as [path under the docroot => markdown].
+ *
+ * @return array{raw:string,err:string,status:int}
+ */
+function blogRender(string $root, string $locale, array $enabled, string $query = '', array $extraPosts = [], bool $signedIn = false): array
+{
+    static $probe = null;
+    if ($probe === null) {
+        $probe = sys_get_temp_dir() . '/ms_blog_probe_' . getmypid();
+        @mkdir($probe, 0777, true);
+        foreach (['blog.php', 'i18n.php'] as $f) {
+            copy($root . '/' . $f, $probe . '/' . $f);
+        }
+        foreach (['partials', 'lang'] as $d) {
+            @mkdir($probe . '/' . $d, 0777, true);
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/' . $d, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $item) {
+                $rel = substr($item->getPathname(), strlen($root) + 1);
+                if ($item->isDir()) {
+                    @mkdir($probe . '/' . $rel, 0777, true);
+                } else {
+                    copy($item->getPathname(), $probe . '/' . $rel);
+                }
+            }
+        }
+        // Only the posts: the images are referenced, never read.
+        foreach (['blog', 'blog/sv'] as $d) {
+            if (!is_dir($root . '/' . $d)) {
+                continue;
+            }
+            @mkdir($probe . '/' . $d, 0777, true);
+            foreach (glob($root . '/' . $d . '/*.md') ?: [] as $post) {
+                copy($post, $probe . '/' . $d . '/' . basename($post));
+            }
+        }
+        file_put_contents($probe . '/config.php', <<<'PHP'
+<?php
+// Stub config.php for tests/i18n_test.php: just what blog.php and its partials read.
+$config = [
+    'email'  => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+    'app'    => ['version' => 'test'],
+    'i18n'   => ['enabled' => array_values(array_filter(explode(',', (string) getenv('PROBE_ENABLED'))))],
+];
+// A CLI render is told its URI and query; under the built-in server both are the request's own.
+if (getenv('PROBE_URI') !== false) {
+    $_SERVER['REQUEST_URI'] = (string) getenv('PROBE_URI');
+    parse_str((string) getenv('PROBE_QUERY'), $_GET);
+}
+require_once __DIR__ . '/i18n.php';
+i18nBootstrap($config['i18n'], $_SERVER);
+if (getenv('PROBE_STATUS_FILE') !== false) {
+    register_shutdown_function(static function () {
+        file_put_contents((string) getenv('PROBE_STATUS_FILE'), (string) http_response_code());
+    });
+}
+session_start();
+$_SESSION = getenv('PROBE_SIGNED_IN') === '1' ? ['pro_user_id' => 1] : [];
+function logMessage($level, $message, $context = []) {}
+PHP);
+        register_shutdown_function(static function () use ($probe) {
+            exec('rm -rf ' . escapeshellarg($probe));
+        });
+    }
+    foreach ($extraPosts as $rel => $md) {
+        @mkdir(dirname($probe . '/' . $rel), 0777, true);
+        file_put_contents($probe . '/' . $rel, $md);
+    }
+    $statusFile = $probe . '/status.txt';
+    @unlink($statusFile);
+    $env = [
+        'PROBE_ENABLED' => implode(',', $enabled),
+        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/blog.php' . ($query !== '' ? '?' . $query : ''),
+        'PROBE_QUERY' => $query,
+        'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
+        'PROBE_STATUS_FILE' => $statusFile,
+        'PATH' => (string) getenv('PATH'),
+    ];
+    $proc = proc_open([PHP_BINARY, '-d', 'session.save_path=' . sys_get_temp_dir(), 'blog.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $probe, $env);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    proc_close($proc);
+    foreach (array_keys($extraPosts) as $rel) {
+        @unlink($probe . '/' . $rel);
+    }
+    // PHP reports false (0 here) for a response nothing changed, which is a 200.
+    $status = is_file($statusFile) ? (int) file_get_contents($statusFile) : 0;
+    return ['raw' => $out, 'err' => $err, 'status' => $status ?: 200];
+}
+
+/**
+ * What blog.php answers over HTTP, for the one thing the CLI cannot show: the
+ * Location header (the CLI keeps no header list). The probe docroot is served by
+ * PHP's built-in server with a router for the /sv/ rewrite, started on first use.
+ *
+ * @return array{status:int,location:?string,body:string}
+ */
+function blogHttp(string $root, string $uri, array $extraPosts = []): array
+{
+    static $server = null;
+    // Reuse the CLI probe's docroot; the first render creates it.
+    blogRender($root, 'en', ['en', 'sv']);
+    $probe = sys_get_temp_dir() . '/ms_blog_probe_' . getmypid();
+    if ($server === null) {
+        file_put_contents($probe . '/router.php', <<<'PHP'
+<?php
+// Emulates the .htaccess rewrite ^(sv)/([A-Za-z0-9_-]+\.php)$ for the built-in server.
+$path = (string) parse_url((string) $_SERVER['REQUEST_URI'], PHP_URL_PATH);
+if (preg_match('#^/sv/([A-Za-z0-9_-]+\.php)$#', $path, $m)) {
+    $_SERVER['SCRIPT_NAME'] = '/' . $m[1];
+    require __DIR__ . '/' . $m[1];
+    return true;
+}
+return false;
+PHP);
+        $sock = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $port = $sock ? (int) substr((string) strrchr((string) stream_socket_get_name($sock, false), ':'), 1) : 0;
+        if ($sock) {
+            fclose($sock);
+        }
+        $proc = proc_open([PHP_BINARY, '-S', '127.0.0.1:' . $port, '-t', $probe, $probe . '/router.php'], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $probe, [
+            'PROBE_ENABLED' => 'en,sv',
+            'PATH' => (string) getenv('PATH'),
+        ]);
+        for ($i = 0; $i < 50; $i++) {
+            $c = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
+            if ($c) {
+                fclose($c);
+                break;
+            }
+            usleep(100000);
+        }
+        $server = ['proc' => $proc, 'port' => $port];
+        register_shutdown_function(static function () use ($proc) {
+            proc_terminate($proc);
+        });
+    }
+    foreach ($extraPosts as $rel => $md) {
+        @mkdir(dirname($probe . '/' . $rel), 0777, true);
+        file_put_contents($probe . '/' . $rel, $md);
+    }
+    $ctx = stream_context_create(['http' => ['method' => 'GET', 'follow_location' => 0, 'ignore_errors' => true, 'timeout' => 10]]);
+    $body = (string) @file_get_contents('http://127.0.0.1:' . $server['port'] . $uri, false, $ctx);
+    $headers = $http_response_header ?? [];
+    foreach (array_keys($extraPosts) as $rel) {
+        @unlink($probe . '/' . $rel);
+    }
+    $status = isset($headers[0]) && preg_match('#^HTTP/\S+ (\d+)#', $headers[0], $m) ? (int) $m[1] : 0;
+    $location = null;
+    foreach ($headers as $h) {
+        if (stripos($h, 'Location:') === 0) {
+            $location = trim(substr($h, 9));
+        }
+    }
+    return ['status' => $status, 'location' => $location, 'body' => $body];
+}
+
+/** The copyright year changes every January; the fixtures must not. */
+function blogNorm(string $html): string
+{
+    return preg_replace('/&copy; \d{4}/', '&copy; YYYY', $html);
+}
+
+$blogFixtures = [
+    'index'           => ['blog.index.en.html', '', 200],
+    'post 2026-10-01' => ['blog.post_2026-10-01.en.html', 'post=2026-10-01', 200],
+    'post 2026-07-02' => ['blog.post_2026-07-02.en.html', 'post=2026-07-02', 200],
+    'unknown post'    => ['blog.post_missing.en.html', 'post=2099-01-01', 404],
+];
+foreach ($blogFixtures as $name => [$file, $query, $status]) {
+    $r = blogRender($root, 'en', $onlyEn, $query);
+    check("blog en {$name}: the page rendered", $r['raw'] !== '', $r['err']);
+    same("fixture: {$file}", blogNorm((string) file_get_contents($fx . $file)), blogNorm($r['raw']));
+    check("blog en {$name}: status {$status}", $r['status'] === $status, (string) $r['status']);
+    check("blog en {$name}: no hreflang and no og:locale while English is alone", strpos($r['raw'], 'hreflang') === false && strpos($r['raw'], 'og:locale') === false);
+}
+
+same('pages: the blog is offered in Swedish', ['en', 'sv'], $realPages['/blog.php'] ?? null);
+
+// Every English post has a Swedish twin (same basename) and the other way round.
+$blogEn = array_map(fn($f) => basename($f, '.md'), glob($root . '/blog/*.md') ?: []);
+$blogSv = array_map(fn($f) => basename($f, '.md'), glob($root . '/blog/sv/*.md') ?: []);
+sort($blogEn);
+sort($blogSv);
+check('blog: there are posts', count($blogEn) > 0);
+same('blog: every blog/*.md has a blog/sv/ twin and there is no Swedish post without an English one', $blogEn, $blogSv);
+
+// The same structure: title, headings, images (same files, same width), list items,
+// links (same targets), code fences and paragraphs break the same way.
+$blogShape = static function (string $md): array {
+    $lines = preg_split('/\r?\n/', $md);
+    $imgs = preg_match_all('/!\[[^\]]*\]\(([^)]+)\)/', $md, $im) ? $im[1] : [];
+    $links = preg_match_all('/(?<!!)\[[^\]]+\]\(([^)]+)\)/', $md, $lm) ? $lm[1] : [];
+    return [
+        'h1' => count(preg_grep('/^#\s/', $lines)),
+        'headings' => array_map(fn($l) => strlen(strtok($l, ' ')), array_values(preg_grep('/^#{1,6}\s/', $lines))),
+        'images' => $imgs,
+        'links' => $links,
+        'items' => count(preg_grep('/^(?:[-*]\s|\d+\.\s)/', $lines)),
+        'fences' => substr_count($md, '```'),
+        'blocks' => count(preg_split('/\n\s*\n/', trim($md))),
+        'hard_breaks' => preg_match_all('/\\\\$/m', $md),
+    ];
+};
+foreach ($blogEn as $base) {
+    $enMd = (string) file_get_contents($root . "/blog/{$base}.md");
+    $svMd = (string) file_get_contents($root . "/blog/sv/{$base}.md");
+    same("blog sv {$base}: the same structure as the English post", $blogShape($enMd), $blogShape($svMd));
+    check("blog sv {$base}: starts with a # title", preg_match('/^#\s+\S/', $svMd) === 1);
+    check("blog sv {$base}: valid UTF-8, no unfilled draft marker", mb_check_encoding($svMd, 'UTF-8') && !preg_match('/TODO|FIXME|XXX/', $svMd));
+}
+
+// Swedish index: only the posts that have a Swedish file, newest first, in the Swedish chrome.
+$svIndex = blogRender($root, 'sv', $both);
+$raw = $svIndex['raw'];
+check('blog sv index: the page rendered', $raw !== '', $svIndex['err']);
+check('blog sv index: <html lang="sv">', strpos($raw, '<html lang="sv">') !== false);
+check('blog sv index: no raw key, no unfilled placeholder', !preg_match('/(?<![\/\w])blog\.[a-z_.0-9]+\b/', $raw) && !preg_match('/\{[a-z_]+\}/', $raw));
+check('blog sv index: canonical, hreflang and og:locale', strpos($raw, '<link rel="canonical" href="https://example.test/sv/blog.php">') !== false
+    && strpos($raw, 'hreflang="sv" href="https://example.test/sv/blog.php"') !== false
+    && strpos($raw, 'hreflang="en" href="https://example.test/blog.php"') !== false
+    && strpos($raw, 'hreflang="x-default" href="https://example.test/blog.php"') !== false
+    && strpos($raw, '<meta property="og:locale" content="sv_SE">') !== false);
+check('blog sv index: the title, the h1 and the lede are Swedish', strpos($raw, '<title>Blogg · Mail Shield</title>') !== false
+    && strpos($raw, '<h1 class="ms-faq__title">Blogg</h1>') !== false
+    && strpos($raw, 'Nyheter om tjänsten och anteckningar från driften.') !== false);
+check('blog sv index: stylesheets resolve from the root, not from /sv/', strpos($raw, 'href="/assets/css/mailshield.css?v=') !== false && strpos($raw, 'href="assets/') === false);
+preg_match_all('#href="/sv/blog\.php\?post=([^"]+)"#', $raw, $listed);
+$blogSvDesc = $blogSv;
+rsort($blogSvDesc);
+same('blog sv index: lists exactly the Swedish posts, newest first', $blogSvDesc, $listed[1]);
+check('blog sv index: dates are Swedish', strpos($raw, '<time class="ms-blog__date" datetime="2025-12-01">1 december 2025</time>') !== false);
+check('blog sv index: no English page chrome left', strpos($raw, 'Skip to content') === false && strpos($raw, 'Create your inbox') === false && strpos($raw, 'Cookie settings') === false);
+check('blog sv index: header and footer links go to the Swedish pages', strpos($raw, 'href="/sv/faq.php"') !== false && strpos($raw, 'href="/sv/temporary-email.php"') !== false && strpos($raw, 'href="/sv/"') !== false);
+
+// A post present in English only: a temporary fixture, so the result does not depend on which posts exist.
+$tmpPost = ['blog/2099-01-01.md' => "# Only in English\n\nBody.\n"];
+$r = blogRender($root, 'sv', $both, 'post=2099-01-01', $tmpPost);
+check('blog sv: a post with no Swedish file answers 302', $r['status'] === 302, (string) $r['status']);
+check('blog sv: ...with no body', trim($r['raw']) === '');
+$h = blogHttp($root, '/sv/blog.php?post=2099-01-01', $tmpPost);
+check('blog sv over HTTP: 302 with Location to the English post', $h['status'] === 302 && $h['location'] === '/blog.php?post=2099-01-01', $h['status'] . ' ' . var_export($h['location'], true));
+$h = blogHttp($root, '/blog.php?post=2099-01-01', $tmpPost);
+check('blog en over HTTP: the same post is served, no Location', $h['status'] === 200 && $h['location'] === null && strpos($h['body'], 'Only in English') !== false, $h['status'] . ' ' . var_export($h['location'], true));
+$h = blogHttp($root, '/sv/blog.php?post=..%2Fconfig');
+check('blog sv over HTTP: ?post=../config is a 404 with no Location', $h['status'] === 404 && $h['location'] === null, $h['status'] . ' ' . var_export($h['location'], true));
+$h = blogHttp($root, '/sv/blog.php?post=2026-10-05');
+check('blog sv over HTTP: a post with a Swedish file is served as it is', $h['status'] === 200 && $h['location'] === null && strpos($h['body'], '<html lang="sv">') !== false, $h['status'] . ' ' . var_export($h['location'], true));
+$r = blogRender($root, 'sv', $both, '', $tmpPost);
+check('blog sv index: a post with no Swedish file is not listed', strpos($r['raw'], '2099-01-01') === false && strpos($r['raw'], 'Only in English') === false);
+$r = blogRender($root, 'en', $both, 'post=2099-01-01', $tmpPost);
+check('blog en: the same post renders in English (no redirect)', strpos($r['raw'], '<h1 class="ms-blog__title">Only in English</h1>') !== false && $r['status'] === 200);
+check('blog en: a post that exists in one language only carries no hreflang', strpos($r['raw'], 'hreflang') === false && strpos($r['raw'], 'og:locale') === false);
+
+// ?post= is only ever looked up in the directory listing, never used as a path.
+foreach (['../config', '..%2Fconfig', '..%2F..%2Fconfig.php', 'sv/2026-10-01', '2026-10-01.md', '2026-10-01%00', '/etc/passwd', 'blog/2026-10-01', '2026-10-0', '%2e%2e/%2e%2e/config'] as $evil) {
+    foreach (['en', 'sv'] as $lc) {
+        $r = blogRender($root, $lc, $both, 'post=' . $evil);
+        check("blog {$lc}: ?post={$evil} finds nothing (a 404 page, nothing read)", $r['status'] === 404 && strpos($r['raw'], 'robots" content="noindex, nofollow"') !== false && stripos($r['raw'], '<?php') === false && stripos($r['raw'], 'DB_PASSWORD') === false);
+    }
+}
+$r = blogRender($root, 'sv', $both, 'post[]=2026-10-01');
+check('blog sv: an array ?post[]= is the index, not a post', strpos($r['raw'], 'class="ms-blog__list"') !== false && $r['status'] === 200);
+$r = blogRender($root, 'sv', $both, 'post=2099-12-31');
+check('blog sv: an unknown basename is a 404 in Swedish', $r['status'] === 404 && strpos($r['raw'], '<h1 class="ms-faq__title">Inlägget finns inte</h1>') !== false && strpos($r['raw'], '<a href="/sv/blog.php">bloggens startsida</a>') !== false);
+
+// Every Swedish post, rendered.
+foreach ($blogSv as $base) {
+    $r = blogRender($root, 'sv', $both, 'post=' . $base);
+    $raw = $r['raw'];
+    $en = blogRender($root, 'en', $both, 'post=' . $base);
+    check("blog sv {$base}: the page rendered", $raw !== '' && $r['status'] === 200, $r['err']);
+    check("blog sv {$base}: <html lang=\"sv\"> and the Swedish canonical", strpos($raw, '<html lang="sv">') !== false && strpos($raw, '<link rel="canonical" href="https://example.test/sv/blog.php?post=' . $base . '">') !== false);
+    check("blog sv {$base}: hreflang to the English twin, the Swedish page and x-default", strpos($raw, 'hreflang="en" href="https://example.test/blog.php?post=' . $base . '"') !== false
+        && strpos($raw, 'hreflang="sv" href="https://example.test/sv/blog.php?post=' . $base . '"') !== false
+        && strpos($raw, 'hreflang="x-default" href="https://example.test/blog.php?post=' . $base . '"') !== false
+        && strpos($raw, '<meta property="og:locale" content="sv_SE">') !== false);
+    check("blog en {$base}: the English post points to its Swedish twin", strpos($en['raw'], 'hreflang="sv" href="https://example.test/sv/blog.php?post=' . $base . '"') !== false && strpos($en['raw'], '<html lang="en">') !== false);
+    check("blog sv {$base}: no image or link path is relative", !preg_match('#(?:src|href)="(?!https?:|mailto:|/|\#)#', preg_replace('#<(?:html|meta|link)\b[^>]*>#', '', $raw)));
+    check("blog sv {$base}: images are root-relative", !preg_match('#<img [^>]*src="(?!/|https?:)#', $raw) && (strpos($raw, '<img ') === false || strpos($raw, 'src="/blog/images/') !== false));
+    check("blog en {$base}: English output keeps the relative image path", strpos($en['raw'], '<img ') === false || strpos($en['raw'], 'src="blog/images/') !== false);
+    check("blog sv {$base}: the date is Swedish", preg_match('#<time class="ms-blog__date" datetime="' . $base . '">\d{1,2} (?:januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december) \d{4}</time>#u', $raw) === 1);
+    check("blog sv {$base}: the back links go to the Swedish pages", strpos($raw, '<a href="/sv/blog.php"><span aria-hidden="true">&larr;</span> Alla inlägg</a>') !== false && strpos($raw, 'Tillbaka till Mail Shield</a>') !== false);
+    check("blog sv {$base}: no English page chrome left", strpos($raw, 'All posts') === false && strpos($raw, 'Back to Mail Shield') === false && strpos($raw, 'Skip to content') === false && strpos($raw, 'opens in new tab') === false);
+    // Every link to another page of the site is a route that exists (a file, or the landing page).
+    $linkBad = [];
+    preg_match_all('/\b(?:href|src)="(\/[^"]*)"/', $raw, $hm);
+    foreach (array_unique($hm[1]) as $href) {
+        if (strncmp($href, '//', 2) === 0) {
+            continue;
+        }
+        $path = (string) parse_url(html_entity_decode($href), PHP_URL_PATH);
+        $path = preg_replace('#^/sv(?=/|$)#', '', $path);
+        if ($path === '' || $path === '/') {
+            continue;
+        }
+        if (!is_file($root . $path)) {
+            $linkBad[] = $href;
+        }
+    }
+    check("blog sv {$base}: every site link is a route that exists", $linkBad === [], implode(', ', $linkBad));
+}
+$r = blogRender($root, 'sv', $both, 'post=2026-10-01');
+check('blog sv 2026-10-01: the image is root-relative and keeps its alt text', strpos($r['raw'], '<img src="/blog/images/mcp.gif" alt="Checking email"') !== false);
+$r = blogRender($root, 'sv', $both, 'post=2026-10-05');
+check('blog sv 2026-10-05: uses the confirmed glossary term for the retention hold', strpos($r['raw'], 'Pausa radering') !== false && strpos($r['raw'], 'Sticky-adresser') !== false);
+
+// The renderer, through the page: a path it leaves alone, and one it moves to the root
+// for another language. Temporary posts, so no real post has to contain every case.
+$mdIn = "# Paths\n\n![a](blog/images/x.jpeg|200)\n\n[ext](https://example.test/a) [mail](mailto:a@example.test) [hash](#top) [root](/faq.php) [rel](blog/x)\n\n<script>alert(1)</script> ![x](javascript:alert(1))\n";
+$mdPosts = ['blog/2099-01-02.md' => $mdIn, 'blog/sv/2099-01-02.md' => $mdIn];
+$mdEn = blogRender($root, 'en', $both, 'post=2099-01-02', $mdPosts)['raw'];
+$mdSv = blogRender($root, 'sv', $both, 'post=2099-01-02', $mdPosts)['raw'];
+check('markdown: a relative image and link are unchanged for English', strpos($mdEn, 'src="blog/images/x.jpeg"') !== false && strpos($mdEn, 'href="blog/x"') !== false && strpos($mdEn, '(opens in new tab)') !== false);
+check('markdown: a relative image and link get a leading slash for another language', strpos($mdSv, 'src="/blog/images/x.jpeg"') !== false && strpos($mdSv, 'href="/blog/x"') !== false && strpos($mdSv, 'style="width:200px;height:auto;"') !== false && strpos($mdSv, '(öppnas i ny flik)') !== false);
+check('markdown: https:, mailto:, # and a root path are left as written', strpos($mdSv, 'href="https://example.test/a"') !== false && strpos($mdSv, 'href="mailto:a@example.test"') !== false && strpos($mdSv, 'href="#top"') !== false && strpos($mdSv, 'href="/faq.php"') !== false);
+check('markdown: a script in a post is still escaped, in both languages', strpos($mdEn, '<script>alert') === false && strpos($mdSv, '<script>alert') === false && strpos($mdSv, '&lt;script&gt;alert(1)&lt;/script&gt;') !== false);
+
 /**
  * Renders a real legal page (terms.php, privacy.php or refund-policy.php) in a
  * probe docroot (a copy of the page and what it requires, plus a stub
@@ -1314,7 +1639,7 @@ same('legal facts sv: hosting', 'Inleed, ett varumärke som tillhör Yelles AB (
 i18nSetLocale('en');
 
 // Confirmed Swedish glossary (#416, I18N.md §5): the retired terms never come back.
-$svTermFiles = array_merge([$root . '/lang/sv.php'], glob($root . '/partials/content/*.sv.php') ?: []);
+$svTermFiles = array_merge([$root . '/lang/sv.php'], glob($root . '/partials/content/*.sv.php') ?: [], glob($root . '/blog/sv/*.md') ?: []);
 foreach ($svTermFiles as $svTermFile) {
     $svTermRaw = (string) file_get_contents($svTermFile);
     check('glossary: no presentkod or lagringspaus in ' . basename($svTermFile), !preg_match('/presentkod|lagringspaus/i', $svTermRaw));
@@ -1583,7 +1908,7 @@ $svOut = $renderNav('signed_out', 'sv', 'en,sv');
 check('sv app nav, signed out: Swedish text', strpos($svOut, '>Skapa konto</a>') !== false && strpos($svOut, 'aria-label="Meny"') !== false && strpos($svOut, 'aria-label="Applikation"') !== false);
 check('sv app nav, signed out: the logo points at the Swedish landing page', strpos($svOut, 'href="/sv/"') !== false);
 check('sv app nav, signed out: the FAQ goes through i18nUrl()', strpos($svOut, 'href="/sv/faq.php"') !== false);
-check('sv app nav, signed out: the blog (English only) keeps its plain path', strpos($svOut, 'href="/blog.php"') !== false);
+check('sv app nav, signed out: the blog goes through i18nUrl()', strpos($svOut, 'href="/sv/blog.php"') !== false);
 $svIn = $renderNav('pending', 'sv', 'en,sv');
 check('sv app nav, signed in: Swedish text', strpos($svIn, '>Inkorg</a>') !== false && strpos($svIn, '>Logga ut</a>') !== false && strpos($svIn, 'Inloggad som') !== false);
 check('sv app nav, pending changes: the hidden text is Swedish', strpos($svIn, 'väntande ändringar') !== false);
