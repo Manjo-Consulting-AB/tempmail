@@ -13,6 +13,7 @@ require_once __DIR__ . '/pii_crypto.php';
 require_once __DIR__ . '/pro_remember.php';
 require_once __DIR__ . '/mcp_tokens.php';
 require_once __DIR__ . '/after_login.php';
+require_once __DIR__ . '/i18n.php';
 
 // Hjälpfunktion: generera slumpad token
 function generateLoginToken($length = 48) {
@@ -44,6 +45,7 @@ function getOrCreateProUser($email) {
     $stmt->execute([$email, $defaultTtl]);
     $userId = $pdo->lastInsertId();
     proUserStoreEmailPii($pdo, (int) $userId, (string) $email);
+    proAuthRecordLocale($userId);
     return $userId;
 }
 
@@ -357,6 +359,48 @@ function voucherRedemptionErrorMessage(?string $code): string {
 }
 
 /**
+ * The catalog key for a VOUCHER_ERROR_* code (voucher.error.<name>), so the web
+ * endpoints can show the message in the page's language: t(voucherRedemptionErrorKey($c)).
+ * voucherRedemptionErrorMessage() above stays as it is — English, the documented
+ * fallback. An unknown or null code is 'redemption_failed', as there.
+ */
+function voucherRedemptionErrorKey(?string $code): string {
+    $names = [
+        VOUCHER_ERROR_INVALID_EMAIL => 'invalid_email',
+        VOUCHER_ERROR_INVALID_CODE_FORMAT => 'invalid_code_format',
+        VOUCHER_ERROR_INVALID_OR_EXPIRED_CODE => 'invalid_or_expired_code',
+        VOUCHER_ERROR_CODE_NOT_ACTIVE => 'code_not_active',
+        VOUCHER_ERROR_CODE_EXPIRED => 'code_expired',
+        VOUCHER_ERROR_CODE_FULLY_REDEEMED => 'code_fully_redeemed',
+        VOUCHER_ERROR_DOMAIN_NOT_ALLOWED => 'domain_not_allowed',
+        VOUCHER_ERROR_ALREADY_REDEEMED => 'already_redeemed',
+        VOUCHER_ERROR_ALREADY_LIFETIME => 'already_lifetime',
+        VOUCHER_ERROR_REDEMPTION_FAILED => 'redemption_failed',
+    ];
+    return 'voucher.error.' . ($names[$code] ?? 'redemption_failed');
+}
+
+/**
+ * Remembers a page language on an account (epic #428 decision 6): only a
+ * non-default language is ever recorded, and only while the account's locale is
+ * still NULL, so nothing here overwrites a stored choice. Called after every
+ * INSERT INTO pro_users and on every successful sign-in. Fail-open — a missing
+ * column or any error just means nothing is stored — and it logs nothing but
+ * what proUserSetLocale() does (a user_id, never an address).
+ */
+function proAuthRecordLocale($userId): void {
+    global $pdo;
+    if (!function_exists('i18nLocale') || !function_exists('proUserSetLocale')) {
+        return;
+    }
+    $locale = i18nLocale();
+    if ($locale === i18nDefaultLocale() || (int) $userId <= 0) {
+        return;
+    }
+    proUserSetLocale($pdo, (int) $userId, $locale, true);
+}
+
+/**
  * Löser in en voucherkod för en e-postadress. Skapar kontot om det inte finns,
  * annars förlängs pro_expires_at. Delas av redeem_voucher-endpointet och
  * registreringsflödet — se documentaion/ACCOUNT_TIERS.md §4.
@@ -470,6 +514,7 @@ function redeemVoucherForEmail(string $email, string $code): array {
             $userId = $pdo->lastInsertId();
             // Inside the voucher transaction, so the pair commits with the row.
             proUserStoreEmailPii($pdo, (int) $userId, $email);
+            proAuthRecordLocale($userId);
             $created = true;
         }
 
@@ -561,7 +606,7 @@ if (function_exists('i18nUseAppLocale')) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'request_login_link') {
     $email = trim($_POST['email'] ?? '');
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        echo json_encode(['success' => false, 'error' => 'Invalid email address']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.invalid_email')]);
         exit;
     }
     // Picked from the fixed list rather than derived from the request value:
@@ -666,7 +711,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $result = redeemVoucherForEmail($email, $code);
 
     if ($result['success']) {
-        echo json_encode(['success' => true, 'message' => 'Voucher redeemed successfully']);
+        echo json_encode(['success' => true, 'message' => t('auth.message.voucher_redeemed')]);
     } else {
         // False positive: Semgrep's taint tracking marks this tainted purely
         // because $email/$code (from $_POST) were passed into
@@ -676,7 +721,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // table (see its definition) - $result['error_code'] can only be one
         // of the VOUCHER_ERROR_* constants, never arbitrary user input.
         // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
-        echo json_encode(['success' => false, 'error' => voucherRedemptionErrorMessage($result['error_code'])]);
+        echo json_encode(['success' => false, 'error' => t(voucherRedemptionErrorKey($result['error_code']))]);
     }
     exit;
 }
@@ -715,12 +760,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if ($flagPatterns && function_exists('flagMaliciousActivity')) {
             flagMaliciousActivity($ip, 'Suspicious register_account input: ' . implode(',', $flagPatterns));
         }
-        echo json_encode(['success' => false, 'error' => 'Invalid request']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.invalid_request')]);
         exit;
     }
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        echo json_encode(['success' => false, 'error' => 'Invalid email address']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.invalid_email')]);
         exit;
     }
 
@@ -728,15 +773,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // ordning, samma trösklar, samma felmeddelanden). Två olika krav i samma
     // produkt vore en bugg i sig.
     if ($password === '' || $password !== $passwordConfirm) {
-        echo json_encode(['success' => false, 'error' => 'Passwords do not match']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.passwords_mismatch')]);
         exit;
     }
     if (strlen($password) < 8) {
-        echo json_encode(['success' => false, 'error' => 'Password must be at least 8 characters']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.password_short')]);
         exit;
     }
     if (strlen($password) > 256) {
-        echo json_encode(['success' => false, 'error' => 'Password too long (max 256 characters)']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.password_long')]);
         exit;
     }
 
@@ -748,12 +793,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // (endast i grenen "inget/färskt-utgånget konto" nedan) - det är den
     // smala, avsiktliga voucher-felkanalen som issuen tillåter.
     if ($plan === 'pro' && $code === '') {
-        echo json_encode(['success' => false, 'error' => 'A voucher code is required for a Pro account']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.voucher_required')]);
         exit;
     }
 
     // Det generiska svaret - identiskt i alla grenar utom formatfel/voucherfel ovan.
-    $genericResponse = ['success' => true, 'message' => 'Check your email to finish creating your account'];
+    $genericResponse = ['success' => true, 'message' => t('auth.message.check_email')];
 
     // 4. Rate limiting, byggd exakt som magic_link_requests i
     // request_login_link ovan: samma fönster, samma gräns, samma
@@ -813,7 +858,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // again after creation (pii_crypto.php). The answer does not depend on
     // which accounts exist, so it reveals nothing.
     if (!piiEmailRequireKeys('register_account')) {
-        echo json_encode(['success' => false, 'error' => 'Registration is temporarily unavailable. Please try again later.']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.registration_unavailable')]);
         exit;
     }
     $hasVerifiedCol = tableHasColumn('pro_users', 'email_verified_at');
@@ -882,7 +927,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Samma falska positiv som vid redeem_voucher-endpointet ovan -
             // se kommentaren där för motivering.
             // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
-            echo json_encode(['success' => false, 'error' => voucherRedemptionErrorMessage($result['error_code'])]);
+            echo json_encode(['success' => false, 'error' => t(voucherRedemptionErrorKey($result['error_code']))]);
             exit;
         }
         $userId = (int) $result['user_id'];
@@ -912,6 +957,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $ins->execute([$email, $passwordHash]);
         $userId = (int) $pdo->lastInsertId();
         proUserStoreEmailPii($pdo, $userId, $email);
+        proAuthRecordLocale($userId);
     }
 
     // 8. Skicka verifieringsmail. Samma token/tabell som magic link
@@ -936,13 +982,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Same guard, and same answer, as verify_2fa below.
     if (!requireSameOriginRequest()) {
         logMessage('WARNING', 'Rejected cross-origin password_login request');
-        echo json_encode(['success' => false, 'error' => 'Invalid request origin']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.bad_origin')]);
         exit;
     }
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
     if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '') {
-        echo json_encode(['success' => false, 'error' => 'Invalid request']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.invalid_request')]);
         exit;
     }
     $stayDays = proRememberNormaliseDays($_POST['stay_days'] ?? 0);
@@ -964,7 +1010,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Too many attempts from this IP, tell the client to wait
             // Flagga IP för blockering (misslyckade inloggningsförsök)
             flagMaliciousActivity($ip, 'Brute force login: ' . $failsIp . ' misslyckade försök');
-            echo json_encode(['success' => false, 'error' => 'Too many failed login attempts from your IP. Try again later.']);
+            echo json_encode(['success' => false, 'error' => t('auth.error.throttled_ip')]);
             exit;
         }
 
@@ -988,7 +1034,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
         if ($failsAccount >= $maxFailsAccount) {
             logMessage('WARNING', 'Password login throttled for account', ['ip' => $ip, 'email_ref' => $attemptRef]);
-            echo json_encode(['success' => false, 'error' => 'Too many failed login attempts for this account. Try again in a few minutes or use the magic link.']);
+            echo json_encode(['success' => false, 'error' => t('auth.error.throttled_account')]);
             exit;
         }
     } catch (Exception $e) {
@@ -1020,7 +1066,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // ignore
         }
         // Do not reveal whether the user exists
-        echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.bad_credentials')]);
         exit;
     }
     if (empty($user['password_hash'])) {
@@ -1033,7 +1079,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
         // Same answer as a wrong password, so this cannot tell an attacker
         // which addresses have an account. The hint helps real magic-link users.
-        echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.bad_credentials')]);
         exit;
     }
     if (!password_verify($password, $user['password_hash'])) {
@@ -1044,7 +1090,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         } catch (Exception $e) {
             // ignore
         }
-        echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.bad_credentials')]);
         exit;
     }
     // Login is tier-neutral (see documentaion/ACCOUNT_TIERS.md §5), but the
@@ -1060,14 +1106,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         } catch (Exception $e) {
             // ignore
         }
-        echo json_encode(['success' => false, 'error' => 'Incorrect email or password. If you normally sign in with a link, use the magic link instead.']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.bad_credentials')]);
         exit;
     }
     // Suspended by an admin (abuse_guard.php). Said plainly: whoever reaches
     // this line has proved they know the password.
     if (function_exists('proUserIsSuspended') && proUserIsSuspended((int) $user['id'])) {
         logMessage('INFO', 'Password login refused: account suspended', ['user_id' => (int) $user['id']]);
-        echo json_encode(['success' => false, 'error' => 'This account has been suspended. Please contact support.']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.suspended')]);
         exit;
     }
     session_start();
@@ -1094,6 +1140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $_SESSION['pro_user_email'] = $userEmail;
             $_SESSION['pro_login_method'] = 'password';
             recordProUserLogin($user['id']);
+            proAuthRecordLocale($user['id']);
             proRememberIssue((int) $user['id'], $stayDays);
             try {
                 $ins = $pdo->prepare("INSERT INTO login_attempts (ip, email, user_id, success) VALUES (?, ?, ?, 1)");
@@ -1127,6 +1174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $_SESSION['pro_user_email'] = $userEmail;
     $_SESSION['pro_login_method'] = 'password';
     recordProUserLogin($user['id']);
+    proAuthRecordLocale($user['id']);
     proRememberIssue((int) $user['id'], $stayDays);
     // Record successful attempt
     try {
@@ -1147,7 +1195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_2fa') {
     if (!requireSameOriginRequest()) {
         logMessage('WARNING', 'Rejected cross-origin verify_2fa request');
-        echo json_encode(['success' => false, 'error' => 'Invalid request origin']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.bad_origin')]);
         exit;
     }
 
@@ -1161,7 +1209,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         || (time() - (int) $pending['created_at']) > 600
     ) {
         unset($_SESSION['pending_2fa']);
-        echo json_encode(['success' => false, 'error' => 'Login session expired. Please sign in again.']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.session_expired')]);
         exit;
     }
 
@@ -1172,14 +1220,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if (function_exists('proUserIsSuspended') && proUserIsSuspended($userId)) {
         unset($_SESSION['pending_2fa']);
         logMessage('INFO', '2FA login refused: account suspended', ['user_id' => $userId]);
-        echo json_encode(['success' => false, 'error' => 'This account has been suspended. Please contact support.']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.suspended')]);
         exit;
     }
 
     // Locked out: same generic response as an incorrect code below. The IP
     // side of this already calls flagMaliciousActivity() internally.
     if (TwoFactorAuth::isChallengeBlocked($userId, $ip)) {
-        echo json_encode(['success' => false, 'error' => 'Incorrect code']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.incorrect_code')]);
         exit;
     }
 
@@ -1196,7 +1244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         TwoFactorAuth::recordAttempt($userId, $ip, false);
         // Generic error: never reveal whether the code was wrong or the
         // account/IP is locked.
-        echo json_encode(['success' => false, 'error' => 'Incorrect code']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.incorrect_code')]);
         exit;
     }
 
@@ -1210,6 +1258,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $_SESSION['pro_login_method'] = 'password';
     unset($_SESSION['pending_2fa']);
     recordProUserLogin($userId);
+    proAuthRecordLocale($userId);
     proRememberIssue($userId, proRememberNormaliseDays($pending['stay_days'] ?? 0));
 
     // "Remember this browser" checkbox: only ever creates a trusted-device
@@ -1245,7 +1294,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cancel_2fa') {
     if (!requireSameOriginRequest()) {
         logMessage('WARNING', 'Rejected cross-origin cancel_2fa request');
-        echo json_encode(['success' => false, 'error' => 'Invalid request origin']);
+        echo json_encode(['success' => false, 'error' => t('auth.error.bad_origin')]);
         exit;
     }
 
@@ -1275,6 +1324,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['token'])) {
     $_SESSION['pro_user_id'] = $result['user_id'];
     $_SESSION['pro_user_email'] = $result['email'];
     $_SESSION['pro_login_method'] = 'magic_link';
+    proAuthRecordLocale($result['user_id']);
     proRememberIssue((int) $result['user_id'], proRememberNormaliseDays($_GET['stay'] ?? 0));
     // Back to where the sign-in started, when something asked to be resumed
     // (after_login.php — the OAuth consent page today); otherwise to the
@@ -1672,7 +1722,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['undo_profile_change']))
 
 // Om ingen endpoint matchar
 http_response_code(400);
-echo json_encode(['success' => false, 'error' => 'Ogiltig begäran']);
+echo json_encode(['success' => false, 'error' => t('auth.error.unknown_action')]);
 exit;
 
 endif;

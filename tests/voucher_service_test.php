@@ -237,12 +237,14 @@ function voucherTestProbeBuild(string $repoRoot, string $probe): void
     foreach ([
         'pro_auth.php', 'TwoFactorAuth.php', 'pro_trial.php', 'referrals.php', 'login_tokens.php',
         'email_log_ref.php', 'pii_crypto.php', 'pro_remember.php', 'mcp_tokens.php',
-        'after_login.php',
+        'after_login.php', 'i18n.php',
     ] as $file) {
         if (!copy($repoRoot . '/' . $file, $probe . '/' . $file)) {
             throw new RuntimeException("Could not copy {$file} into the probe docroot");
         }
     }
+    // pro_auth.php answers through t(): the language library and its catalogs (epic #428).
+    symlink($repoRoot . '/lang', $probe . '/lang');
     file_put_contents($probe . '/config.php', voucherTestStubConfig());
     file_put_contents($probe . '/probe_caller.php', voucherTestCaller());
 }

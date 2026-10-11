@@ -49,6 +49,10 @@ if (!empty($_COOKIE) && is_array($_COOKIE)) {
 
 // Emit small HTML that clears localStorage keys and redirects to index
 header('Content-Type: text/html; charset=utf-8');
+// Where the page sends the visitor: today's relative index.php in English, the
+// language's landing page otherwise (i18nUrl() adds the prefix only when that
+// page exists in the language).
+$msHome = i18nLocale() === i18nDefaultLocale() ? 'index.php' : i18nUrl('/');
 ?>
 <!doctype html>
 <html lang="<?php echo htmlspecialchars(i18nLocale(), ENT_QUOTES, 'UTF-8'); ?>">
@@ -56,7 +60,7 @@ header('Content-Type: text/html; charset=utf-8');
 
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width,initial-scale=1">
-	<title>Logged out</title>
+	<title><?php echo te('auth.logout.title'); ?></title>
 	<script>
 		try {
 			// Remove common keys that may contain user-specific data
@@ -102,14 +106,14 @@ header('Content-Type: text/html; charset=utf-8');
 			}
 		})();
 		// Redirect to public index
-		window.location.replace('index.php');
+		window.location.replace(<?php echo json_encode($msHome, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>);
 	</script>
 	<noscript>
-		<meta http-equiv="refresh" content="0;url=index.php">
+		<meta http-equiv="refresh" content="0;url=<?php echo htmlspecialchars($msHome, ENT_QUOTES, 'UTF-8'); ?>">
 	</noscript>
 </head>
 <body>
-	<p>Signing out… If you are not redirected automatically, <a href="index.php">click here</a>.</p>
+	<p><?php echo tHtml('auth.logout.body', [], ['link' => '<a href="' . htmlspecialchars($msHome, ENT_QUOTES, 'UTF-8') . '">', 'link_end' => '</a>']); ?></p>
 <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
 </body>
 </html>

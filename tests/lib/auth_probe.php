@@ -21,7 +21,8 @@ if (PHP_SAPI !== 'cli') {
 const MS_AUTH_ENC_KEY = 'ee-probe-encryption-key-0123456789abcdef';
 const MS_AUTH_IDX_KEY = 'ii-probe-index-key-0123456789abcdef-xyz';
 const MS_AUTH_HASH_KEY = 'hh-probe-trial-hash-key-0123456789abcdef';
-const MS_AUTH_TOTP_KEY = 'tt-probe-totp-key-0123456789abcdef-xyz';
+// base64 of 32 bytes, as TwoFactorAuth expects
+const MS_AUTH_TOTP_KEY = 'a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=';
 
 function ms_auth_stub_config(): string
 {
@@ -97,6 +98,10 @@ foreach (($probeRequest['server'] ?? []) as $k => $v) {
     $_SERVER[$k] = $v;
 }
 i18nBootstrap($config['i18n'], $_SERVER);
+// The app area is offered in Swedish only once '@app' lists it (step 7/8); a case can switch that on.
+if (!empty($probeRequest['app_sv'])) {
+    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@app' => ['en', 'sv']]));
+}
 if (!empty($probeRequest['session_id'])) {
     session_id((string) $probeRequest['session_id']);
 }
@@ -158,6 +163,10 @@ function ms_auth_probe_build(string $repoRoot): string
     symlink($repoRoot . '/assets', $root . '/assets');
     symlink($repoRoot . '/lang', $root . '/lang');
     file_put_contents($root . '/config.php', ms_auth_stub_config());
+    // Prints [code => [key, English message]] for every VOUCHER_ERROR_* constant, plus the two edge inputs.
+    file_put_contents($root . '/voucher_keys.php', "<?php\nrequire __DIR__ . '/config.php';\nrequire __DIR__ . '/pro_auth.php';\n\$out = [];\nforeach (get_defined_constants(true)['user'] as \$n => \$v) {\n    if (strpos(\$n, 'VOUCHER_ERROR_') === 0) { \$out[\$v] = [voucherRedemptionErrorKey(\$v), voucherRedemptionErrorMessage(\$v)]; }\n}\n\$out['@null'] = [voucherRedemptionErrorKey(null), voucherRedemptionErrorMessage(null)];\n\$out['@unknown'] = [voucherRedemptionErrorKey('nope'), voucherRedemptionErrorMessage('nope')];\necho json_encode(\$out);\n");
+    // Prints a fresh magic-link token for the user id in argv[1] (the real createLoginToken()).
+    file_put_contents($root . '/mk_token.php', "<?php\nrequire __DIR__ . '/config.php';\nrequire __DIR__ . '/pro_auth.php';\necho createLoginToken((int) \$argv[1]);\n");
     mkdir($root . '/sessions');
     $base = new PDO('sqlite:' . $root . '/base.sqlite', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     ms_auth_schema($base);
@@ -206,7 +215,7 @@ function ms_auth_probe_db(string $root, ?callable $setup = null): array
  *
  * @return array{out:string,err:string,log:string}
  */
-function ms_auth_probe_run(string $root, string $script, array $request, string $dbPath, bool $keys = true, array $env = []): array
+function ms_auth_probe_run(string $root, string $script, array $request, string $dbPath, bool $keys = true, array $env = [], array $args = []): array
 {
     $logPath = $dbPath . '.log';
     @unlink($logPath);
@@ -216,7 +225,7 @@ function ms_auth_probe_run(string $root, string $script, array $request, string 
         $environment += ['PII_ENCRYPTION_KEY' => MS_AUTH_ENC_KEY, 'PII_INDEX_KEY' => MS_AUTH_IDX_KEY];
     }
     // The trailing '#' comments out the -f envelope option mail() appends.
-    $proc = proc_open([PHP_BINARY, '-d', 'display_errors=stderr', '-d', 'sendmail_path=cat >> ' . escapeshellarg($root . '/mail.log') . ' #', '-d', 'session.save_path=' . $root . '/sessions', $root . '/' . $script],
+    $proc = proc_open([PHP_BINARY, '-d', 'display_errors=stderr', '-d', 'sendmail_path=cat >> ' . escapeshellarg($root . '/mail.log') . ' #', '-d', 'session.save_path=' . $root . '/sessions', $root . '/' . $script, ...$args],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root, $environment);
     $out = stream_get_contents($pipes[1]);
     $err = stream_get_contents($pipes[2]);
