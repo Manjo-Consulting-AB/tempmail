@@ -137,6 +137,24 @@ $mcpSignInAvailable = oauthDiscoveryEnabled($pdo);
 // base_url is stored with, and the example cannot go stale if BASE_URL changes.
 $mcpEndpoint = rtrim((string) ($config['email']['base_url'] ?? ''), '/') . '/mcp';
 
+// The Language card (epic #428, step 4/8): shown only when the app area is
+// offered in more than one language (the '@app' gate in i18nTranslatedPages(),
+// still ['en'] until step 7/8) and the locale column exists, so it stays
+// hidden until Swedish is switched on and a database without the migration
+// never shows a control that cannot save. Fail-open: any error hides it.
+$localeCardOn = false;
+$localeCurrent = '';
+$localeChoices = [];
+try {
+    $localeChoices = i18nPageLocales('@app', (array) ($config['i18n']['enabled'] ?? [i18nDefaultLocale()]));
+    if (count($localeChoices) > 1 && tableHasColumn('pro_users', 'locale')) {
+        $localeCardOn = true;
+        $localeCurrent = i18nAccountLocale($pdo, (int) $_SESSION['pro_user_id']) ?? '';
+    }
+} catch (Throwable $e) {
+    $localeCardOn = false;
+}
+
 // The Claude Desktop entry, as one string so it stays a single <pre> block.
 // It is the token route: Desktop's Connectors screen signs in over OAuth when
 // that is switched on (the lead sentence says so), while a client whose config
@@ -161,7 +179,7 @@ $mcpDesktopConfig = '{
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#FAFAF9">
     <meta name="robots" content="noindex, nofollow">
-    <title>Settings · Mail Shield</title>
+    <title><?php echo te('profile.section.page_title'); ?></title>
 <?php require __DIR__ . '/partials/favicons.php'; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -185,17 +203,17 @@ $mcpDesktopConfig = '{
              page's own scripts bind by id can end up inside a panel that is
              hidden when they run; deep links and find-in-page keep working too. -->
         <main class="ms-settings">
-            <h1 class="ms-settings__title">Settings</h1>
+            <h1 class="ms-settings__title"><?php echo te('profile.section.title'); ?></h1>
 
             <div class="ms-settings__grid">
-                <nav class="ms-settings__rail" aria-label="Settings sections">
+                <nav class="ms-settings__rail" aria-label="<?php echo te('profile.section.rail_label'); ?>">
                     <ul class="ms-settings__rail-list">
-                        <li><a class="ms-settings__rail-link" href="#settings-account" aria-current="location">Account</a></li>
-                        <li><a class="ms-settings__rail-link" href="#settings-addresses">Addresses</a></li>
-                        <li><a class="ms-settings__rail-link" href="#settings-automation">Automation</a></li>
-                        <li><a class="ms-settings__rail-link" href="#settings-security">Security</a></li>
-                        <li><a class="ms-settings__rail-link" href="#settings-agent">Client Agent</a></li>
-                        <li><a class="ms-settings__rail-link" href="#settings-delete">Delete account</a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-account" aria-current="location"><?php echo te('profile.section.account'); ?></a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-addresses"><?php echo te('profile.section.addresses'); ?></a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-automation"><?php echo te('profile.section.automation'); ?></a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-security"><?php echo te('profile.section.security'); ?></a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-agent"><?php echo te('profile.section.agent'); ?></a></li>
+                        <li><a class="ms-settings__rail-link" href="#settings-delete"><?php echo te('profile.section.delete'); ?></a></li>
                     </ul>
                 </nav>
 
@@ -207,37 +225,37 @@ $mcpDesktopConfig = '{
 
                     <form id="proProfileForm">
                         <section class="ms-settings__section" id="settings-account">
-                            <h2 class="ms-settings__section-title">Account</h2>
-                            <p class="ms-settings__section-lede">Who you are here, and what your plan covers.</p>
+                            <h2 class="ms-settings__section-title"><?php echo te('profile.section.account'); ?></h2>
+                            <p class="ms-settings__section-lede"><?php echo te('profile.section.account_lede'); ?></p>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Plan</h3>
-                                <p class="ms-card__desc">Timed addresses are free. Pro adds sticky addresses, webhooks, digest emails, the RSS feed and the client agent.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.account.plan_title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.account.plan_desc'); ?></p>
                                 <?php if ($accountIsPro && $accountProExpiresAt !== null) : ?>
-                                <p class="ms-card__note">You're on Pro until <?php echo htmlspecialchars(date('j F Y', strtotime($accountProExpiresAt)), ENT_QUOTES, 'UTF-8'); ?>.</p>
+                                <p class="ms-card__note"><?php echo te('profile.account.plan_pro_until', ['date' => i18nDate(strtotime($accountProExpiresAt))]); ?></p>
                                 <?php elseif ($accountIsPro) : ?>
-                                <p class="ms-card__note">You're on Pro.</p>
+                                <p class="ms-card__note"><?php echo te('profile.account.plan_pro'); ?></p>
                                 <?php else : ?>
-                                <p class="ms-card__note">You're on the free plan.</p>
+                                <p class="ms-card__note"><?php echo te('profile.account.plan_free'); ?></p>
                                 <?php endif; ?>
                                 <?php if ($referralOn && $referralSummary['own'] !== null) : ?>
-                                <p class="ms-card__note">Invited by a friend: buy a 12-month plan before <?php echo htmlspecialchars(date('j F Y', strtotime($referralSummary['own']['window_ends_at'])), ENT_QUOTES, 'UTF-8'); ?> and get <?php echo (int) (12 + $referralSettings['bonus_months']); ?> months.</p>
+                                <p class="ms-card__note"><?php echo te('profile.account.plan_invited', ['plan_months' => 12, 'date' => i18nDate(strtotime($referralSummary['own']['window_ends_at'])), 'total_months' => (int) (12 + $referralSettings['bonus_months'])]); ?></p>
                                 <?php endif; ?>
                                 <?php if ($hasPaddleBilling) : ?>
                                 <div class="mb-3">
-                                    <p class="form-text">Cancel your subscription, change your payment method or download invoices on Paddle, which handles payments for Mail Shield.</p>
-                                    <button type="button" id="billingPortalBtn" class="btn btn-secondary">Manage billing</button>
+                                    <p class="form-text"><?php echo te('profile.account.billing_help'); ?></p>
+                                    <button type="button" id="billingPortalBtn" class="btn btn-secondary"><?php echo te('profile.account.billing_btn'); ?></button>
                                 </div>
                                 <?php endif; ?>
                                 <div id="upgradeToProSection" class="d-none">
                                     <?php if ($accountProExpiresAt !== null) : ?>
-                                    <p class="form-text">Stay on Pro: choose a <a href="/pricing.php">plan</a>, or redeem a voucher code. Either way, the time is added after your current end date.</p>
+                                    <p class="form-text"><?php echo tHtml('profile.account.upgrade_extend', [], ['plan' => '<a href="' . htmlspecialchars(i18nUrl('/pricing.php'), ENT_QUOTES, 'UTF-8') . '">', 'plan_end' => '</a>']); ?></p>
                                     <?php else : ?>
-                                    <p class="form-text">Switch to Pro: choose a <a href="/pricing.php">plan</a>, or redeem a voucher code.</p>
+                                    <p class="form-text"><?php echo tHtml('profile.account.upgrade_switch', [], ['plan' => '<a href="' . htmlspecialchars(i18nUrl('/pricing.php'), ENT_QUOTES, 'UTF-8') . '">', 'plan_end' => '</a>']); ?></p>
                                     <?php endif; ?>
                                     <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
-                                        <input type="text" id="voucherCodeInput" class="form-control" placeholder="Voucher code" style="max-width:220px;" />
-                                        <button type="button" id="redeemVoucherBtn" class="btn btn-primary"><?php echo $accountProExpiresAt !== null ? 'Extend' : 'Upgrade'; ?></button>
+                                        <input type="text" id="voucherCodeInput" class="form-control" placeholder="<?php echo te('profile.account.voucher_placeholder'); ?>" style="max-width:220px;" />
+                                        <button type="button" id="redeemVoucherBtn" class="btn btn-primary"><?php echo te($accountProExpiresAt !== null ? 'profile.account.voucher_extend' : 'profile.account.voucher_upgrade'); ?></button>
                                     </div>
                                     <div id="voucherMsg" class="mt-2"></div>
                                 </div>
@@ -245,82 +263,99 @@ $mcpDesktopConfig = '{
 
                             <?php if ($referralOn && $referralCode !== null) : ?>
                             <div class="ms-card" id="referralCard">
-                                <h3 class="ms-card__title">Invite friends</h3>
+                                <h3 class="ms-card__title"><?php echo te('profile.account.invite_title'); ?></h3>
                                 <?php if ($referralLifetime) : ?>
-                                <p class="ms-card__desc">Invite a friend. When they buy a 12-month Pro plan within <?php echo (int) $referralSettings['window_days']; ?> days, they get <?php echo (int) (12 + $referralSettings['bonus_months']); ?> months &mdash; and you get <?php echo (int) $referralSettings['sticky_bonus']; ?> more Sticky addresses, for life. No limit.</p>
+                                <p class="ms-card__desc"><?php echo te('profile.account.invite_lifetime', ['plan_months' => 12, 'window_days' => (int) $referralSettings['window_days'], 'total_months' => (int) (12 + $referralSettings['bonus_months']), 'sticky_bonus' => (int) $referralSettings['sticky_bonus']]); ?></p>
                                 <?php else : ?>
-                                <p class="ms-card__desc">Give <?php echo (int) $referralSettings['bonus_months']; ?> months. Get <?php echo (int) $referralSettings['bonus_months']; ?> months. When a friend signs up through your link and buys a 12-month Pro plan within <?php echo (int) $referralSettings['window_days']; ?> days, they get <?php echo (int) (12 + $referralSettings['bonus_months']); ?> months of Pro &mdash; and you get <?php echo (int) $referralSettings['bonus_months']; ?> extra months. No limit: your bonus months stack.</p>
+                                <p class="ms-card__desc"><?php echo te('profile.account.invite_regular', ['bonus_months' => (int) $referralSettings['bonus_months'], 'plan_months' => 12, 'window_days' => (int) $referralSettings['window_days'], 'total_months' => (int) (12 + $referralSettings['bonus_months'])]); ?></p>
                                 <?php endif; ?>
                                 <div class="input-group mb-2" style="max-width:520px;">
-                                    <input type="text" id="referralLinkInput" class="form-control" value="<?php echo htmlspecialchars($referralLink, ENT_QUOTES, 'UTF-8'); ?>" readonly aria-label="Your invite link" />
-                                    <button type="button" id="referralCopyBtn" class="btn btn-secondary">Copy link</button>
+                                    <input type="text" id="referralLinkInput" class="form-control" value="<?php echo htmlspecialchars($referralLink, ENT_QUOTES, 'UTF-8'); ?>" readonly aria-label="<?php echo te('profile.account.invite_link_label'); ?>" />
+                                    <button type="button" id="referralCopyBtn" class="btn btn-secondary"><?php echo te('profile.account.invite_copy'); ?></button>
                                 </div>
-                                <p class="ms-card__note">Signed up: <?php echo (int) $referralSummary['joined']; ?> &middot; Waiting: <?php echo (int) $referralSummary['pending']; ?> &middot; Rewarded: <?php echo (int) $referralSummary['rewarded']; ?></p>
-                                <p class="form-text">A reward is added <?php echo (int) $referralSettings['hold_days']; ?> days after your friend's payment.</p>
+                                <p class="ms-card__note"><?php echo te('profile.account.invite_stats', ['joined' => (int) $referralSummary['joined'], 'pending' => (int) $referralSummary['pending'], 'rewarded' => (int) $referralSummary['rewarded']]); ?></p>
+                                <p class="form-text"><?php echo te('profile.account.invite_hold', ['hold_days' => (int) $referralSettings['hold_days']]); ?></p>
                             </div>
                             <?php endif; ?>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Email address</h3>
-                                <p class="ms-card__desc">Where sign-in links, digests and account notices are sent.</p>
+                                <h3 class="ms-card__title"><?php echo te('profile.account.email_title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.account.email_desc'); ?></p>
                                 <div class="mb-3">
-                                    <label class="form-label">Email</label>
+                                    <label class="form-label"><?php echo te('profile.account.email_label'); ?></label>
                                     <input type="email" class="form-control" id="proEmail" />
                                 </div>
-                                <button type="button" id="saveProfileEmailBtn" class="btn btn-primary">Save email</button>
+                                <button type="button" id="saveProfileEmailBtn" class="btn btn-primary"><?php echo te('profile.account.email_save'); ?></button>
                             </div>
+
+                            <?php if ($localeCardOn) : ?>
+                            <div class="ms-card" id="languageCard">
+                                <h3 class="ms-card__title"><?php echo te('profile.account.language_title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.account.language_desc'); ?></p>
+                                <div class="mb-3">
+                                    <label class="form-label" for="languageSelect"><?php echo te('profile.account.language_label'); ?></label>
+                                    <select class="form-select w-auto" id="languageSelect">
+                                        <option value=""<?php echo $localeCurrent === '' ? ' selected' : ''; ?>><?php echo te('profile.account.language_follow'); ?></option>
+<?php foreach ($localeChoices as $localeCode) : ?>
+                                        <option value="<?php echo htmlspecialchars($localeCode, ENT_QUOTES, 'UTF-8'); ?>"<?php echo $localeCurrent === $localeCode ? ' selected' : ''; ?>><?php echo htmlspecialchars(i18nSupportedLocales()[$localeCode] ?? $localeCode, ENT_QUOTES, 'UTF-8'); ?></option>
+<?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <button type="button" id="saveLanguageBtn" class="btn btn-primary"><?php echo te('profile.account.language_save'); ?></button>
+                            </div>
+                            <?php endif; ?>
 
                         </section>
 
                         <section class="ms-settings__section" id="settings-addresses">
-                            <h2 class="ms-settings__section-title">Addresses</h2>
-                            <p class="ms-settings__section-lede">The addresses that keep working, alongside the timed ones you throw away.</p>
+                            <h2 class="ms-settings__section-title"><?php echo te('profile.section.addresses'); ?></h2>
+                            <p class="ms-settings__section-lede"><?php echo te('profile.section.addresses_lede'); ?></p>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Sticky addresses</h3>
-                                <p class="ms-card__desc">Create up to 10 sticky addresses and manage them from one inbox.<?php if ($referralBonusSlots > 0) : ?> You have <?php echo (int) $referralBonusSlots; ?> bonus addresses from invites.<?php endif; ?></p>
+                                <h3 class="ms-card__title"><?php echo te('profile.addresses.sticky_title'); ?></h3>
+                                <p class="ms-card__desc"><?php echo te('profile.addresses.sticky_desc', ['max' => 10]); ?><?php if ($referralBonusSlots > 0) : ?> <?php echo te('profile.addresses.sticky_bonus', ['count' => (int) $referralBonusSlots]); ?><?php endif; ?></p>
                                 <div class="d-flex align-items-center mb-2 flex-wrap">
                                     <div class="input-group" style="max-width:420px;">
-                                        <input id="personalLocal" class="form-control" placeholder="yourname" aria-label="local part" />
+                                        <input id="personalLocal" class="form-control" placeholder="<?php echo te('profile.addresses.local_part_placeholder'); ?>" aria-label="<?php echo te('profile.addresses.local_part_label'); ?>" />
                                         <span class="input-group-text">@<?php echo htmlspecialchars($config['email']['domain']); ?></span>
                                     </div>
-                                    <button type="button" id="createPersonalBtn" class="btn btn-primary btn-sm btn-create-personal ms-3">Create</button>
+                                    <button type="button" id="createPersonalBtn" class="btn btn-primary btn-sm btn-create-personal ms-3"><?php echo te('profile.addresses.create'); ?></button>
                                     <div id="personalMsg" style="margin-left:10px; color:#9ecbff; margin-top:6px;"></div>
                                 </div>
                                 <div>
-                                    <span id="personalCounterLabel" class="text-muted">You have</span>
+                                    <span id="personalCounterLabel" class="text-muted"><?php echo te('profile.addresses.counter_label'); ?></span>
                                     <span id="personalCounterBadge" class="badge bg-secondary ms-2">0/10</span>
                                 </div>
                                 <div id="personalList" class="mt-3"></div>
                                 <div id="personalCooldown" class="mt-3 d-none">
-                                    <h4 class="ms-card__subtitle">Recently deleted</h4>
-                                    <p class="form-text text-muted">A deleted sticky address stays reserved for you for <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> months, so nobody else can pick up mail meant for you. You can create it again until the date shown. At most <?php echo (int)($config['address_cooldown']['max_per_user'] ?? 30); ?> addresses are reserved at a time; the oldest is released first.</p>
+                                    <h4 class="ms-card__subtitle"><?php echo te('profile.addresses.cooldown_title'); ?></h4>
+                                    <p class="form-text text-muted"><?php echo te('profile.addresses.cooldown_note', ['months' => (int)($config['address_cooldown']['months'] ?? 6), 'max' => (int)($config['address_cooldown']['max_per_user'] ?? 30)]); ?></p>
                                     <div id="personalCooldownList"></div>
                                 </div>
-                                <div id="personalCreateProNote" class="form-text text-muted d-none">Creating sticky addresses requires a Pro account. Existing addresses can still be viewed and deleted.</div>
-                                <div id="personalFeedProNote" class="form-text text-muted d-none">A per-address RSS feed requires a Pro account. Deleting addresses stays available.</div>
+                                <div id="personalCreateProNote" class="form-text text-muted d-none"><?php echo te('profile.addresses.create_pro_note'); ?></div>
+                                <div id="personalFeedProNote" class="form-text text-muted d-none"><?php echo te('profile.addresses.feed_pro_note'); ?></div>
                             </div>
 
                             <div class="ms-card">
-                                <h3 class="ms-card__title">Default lifetime</h3>
+                                <h3 class="ms-card__title"><?php echo te('profile.hold.title'); ?></h3>
                                 <?php $msHoldDays = (int)($config['retention_hold']['days'] ?? 30); $msHoldMax = (int)($config['retention_hold']['max_per_year'] ?? 4); ?>
-                                <p class="ms-card__desc">How long a newly generated timed address and its mail stay alive (1-7 days). Choose <?php echo $msHoldDays; ?> days to keep the mail on your sticky addresses for <?php echo $msHoldDays; ?> days, up to <?php echo $msHoldMax; ?> times a year.</p>
+                                <p class="ms-card__desc"><?php echo te('profile.hold.desc', ['min_days' => 1, 'max_days' => 7, 'hold_days' => $msHoldDays, 'hold_max' => $msHoldMax]); ?></p>
                                 <div class="d-flex align-items-center flex-wrap">
                                     <select id="ttlSelect" class="form-select w-auto"></select>
                                     <div id="ttlMsg" style="margin-left:10px; color:#9ecbff;"></div>
                                     <div id="ttlHoldConfirm" class="d-none ms-3">
                                         <span id="ttlHoldConfirmText" class="text-muted me-2"></span>
-                                        <button type="button" id="ttlHoldStartBtn" class="btn btn-sm btn-primary me-1">Start</button>
-                                        <button type="button" id="ttlHoldCancelBtn" class="btn btn-sm btn-outline-secondary">Cancel</button>
+                                        <button type="button" id="ttlHoldStartBtn" class="btn btn-sm btn-primary me-1"><?php echo te('profile.hold.start'); ?></button>
+                                        <button type="button" id="ttlHoldCancelBtn" class="btn btn-sm btn-outline-secondary"><?php echo te('profile.common.cancel'); ?></button>
                                     </div>
                                 </div>
                                 <div id="ttlHoldNote" class="form-text text-muted mt-2 d-none"></div>
-                                <div id="ttlProNote" class="form-text text-muted d-none">Regular accounts use a fixed 24-hour address lifetime. Upgrade to Pro to choose 1-7 days.</div>
+                                <div id="ttlProNote" class="form-text text-muted d-none"><?php echo te('profile.hold.pro_note', ['hours' => 24, 'min_days' => 1, 'max_days' => 7]); ?></div>
                             </div>
                         </section>
 
                         <section class="ms-settings__section" id="settings-automation">
-                            <h2 class="ms-settings__section-title">Automation</h2>
+                            <h2 class="ms-settings__section-title"><?php echo te('profile.section.automation'); ?></h2>
                             <p class="ms-settings__section-lede">Send your mail onward as it arrives, or read it somewhere else entirely.</p>
 
                             <div class="ms-card">
@@ -408,7 +443,7 @@ $mcpDesktopConfig = '{
                         </section>
 
                         <section class="ms-settings__section" id="settings-security">
-                            <h2 class="ms-settings__section-title">Security</h2>
+                            <h2 class="ms-settings__section-title"><?php echo te('profile.section.security'); ?></h2>
                             <p class="ms-settings__section-lede">Codes, devices, and how a password sign-in is verified.</p>
 
                             <div class="ms-card" id="staySignedInCard">
@@ -642,7 +677,7 @@ $mcpDesktopConfig = '{
                         </section>
 
                         <section class="ms-settings__section" id="settings-agent">
-                            <h2 class="ms-settings__section-title">Client Agent</h2>
+                            <h2 class="ms-settings__section-title"><?php echo te('profile.section.agent'); ?></h2>
                             <p class="ms-settings__section-lede">Keys for the agent you run on your own mail server.</p>
 
                             <div class="ms-card">
@@ -654,7 +689,7 @@ $mcpDesktopConfig = '{
                         </section>
 
                         <section class="ms-settings__section" id="settings-delete">
-                            <h2 class="ms-settings__section-title">Delete account</h2>
+                            <h2 class="ms-settings__section-title"><?php echo te('profile.section.delete'); ?></h2>
 
                             <div class="ms-card">
                                 <p class="ms-card__desc">Permanently delete your account and all associated Pro settings. This cannot be undone.</p>
@@ -672,10 +707,39 @@ $mcpDesktopConfig = '{
     <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- NOTE: app.js is intentionally NOT included here to avoid auto-refresh email polling -->
+<?php
+// The scripts' own strings (partials/i18n_js.php, read by msT() below): this page's
+// profile.* keys, which the Automation and Security cards of the later steps share, and
+// the four expiry-line texts the app pages use (app.common.expiry_*).
+$msI18nJs = ['profile.', 'app.common.expiry_'];
+require __DIR__ . '/partials/i18n_js.php';
+?>
     <script>
+        // msT(key, fallback, params): a string of this page's language from the JSON
+        // above, or the English fallback; {name} placeholders are filled in. Exactly as
+        // documentaion/I18N.md section 4. The value is plain text: put it in with
+        // .text() / textContent, or run it through escapeHtml() when it goes into HTML.
+        var msI18n = null;
+        function msT(key, fallback, params) {
+            if (msI18n === null) {
+                try { msI18n = JSON.parse(document.getElementById('ms-i18n').textContent); }
+                catch (e) { msI18n = {}; }
+            }
+            var text = (typeof msI18n[key] === 'string') ? msI18n[key] : fallback;
+            return text.replace(/\{(\w+)\}/g, function (m, name) {
+                return params && name in params ? String(params[name]) : m;
+            });
+        }
+
+        // One message in the alert area at the top of the settings. The text is set as text,
+        // never as HTML: it may be a server message or an app-supplied string.
+        function profileAlert(type, text) {
+            $('#proProfileAlert').empty().append($('<div class="alert"></div>').addClass('alert-' + type).text(text));
+        }
+
         // On page load, fetch profile and populate (reuse same endpoints)
         $(function(){
-            $('#proProfileAlert').html('<div class="alert alert-info">Loading profile...</div>');
+            profileAlert('info', msT('profile.common.loading', 'Loading profile...'));
 <?php if ($referralOn && $referralCode !== null) : ?>
             // Invite friends: copy the link (epic #387 step 8). The button
             // says "Copied" for 2 s; with no clipboard API the input's text
@@ -686,9 +750,9 @@ $mcpDesktopConfig = '{
                 if (!btn || !input) return;
                 var timer = null;
                 function flash() {
-                    btn.textContent = 'Copied';
+                    btn.textContent = msT('profile.account.invite_copied', 'Copied');
                     clearTimeout(timer);
-                    timer = setTimeout(function () { btn.textContent = 'Copy link'; }, 2000);
+                    timer = setTimeout(function () { btn.textContent = msT('profile.account.invite_copy', 'Copy link'); }, 2000);
                 }
                 function selectInput() {
                     input.focus();
@@ -798,39 +862,63 @@ $mcpDesktopConfig = '{
             $('#redeemVoucherBtn').on('click', function(){
                 var code = $.trim($('#voucherCodeInput').val() || '');
                 var $msg = $('#voucherMsg');
+                // Every message goes in as text: the error is the server's, in the page's language.
+                var say = function (type, text) {
+                    $msg.empty().append($('<div class="alert"></div>').addClass('alert-' + type).text(text));
+                };
                 if (!code) {
-                    $msg.html('<div class="alert alert-danger">Enter a voucher code</div>');
+                    say('danger', msT('profile.account.voucher_enter', 'Enter a voucher code'));
                     return;
                 }
                 var $btn = $(this).prop('disabled', true);
-                $msg.html('<div class="alert alert-info">Checking code...</div>');
+                say('info', msT('profile.account.voucher_checking', 'Checking code...'));
                 $.post('pro_profile.php', { action: 'upgrade_with_voucher', code: code }, function(res){
                     if (res && res.success) {
-                        $msg.html('<div class="alert alert-success">' + (proHasExpiry ? 'Pro extended! Reloading...' : 'Upgraded to Pro! Reloading...') + '</div>');
+                        say('success', proHasExpiry ? msT('profile.account.voucher_extended', 'Pro extended! Reloading...') : msT('profile.account.voucher_upgraded', 'Upgraded to Pro! Reloading...'));
                         setTimeout(function(){ window.location.reload(); }, 1200);
                     } else {
                         $btn.prop('disabled', false);
-                        $msg.html('<div class="alert alert-danger">' + $('<div>').text((res && res.error) ? res.error : 'Could not redeem code').html() + '</div>');
+                        say('danger', (res && res.error) ? res.error : msT('profile.account.voucher_failed', 'Could not redeem code'));
                     }
                 }, 'json').fail(function(){
                     $btn.prop('disabled', false);
-                    $msg.html('<div class="alert alert-danger">Network error</div>');
+                    say('danger', msT('profile.common.network_error', 'Network error'));
                 });
             });
 
             $('#saveProfileEmailBtn').on('click', function(e){
                 e.preventDefault();
                 var email = $('#proEmail').val();
-                $('#proProfileAlert').html('<div class="alert alert-info">Saving email...</div>');
+                profileAlert('info', msT('profile.account.email_saving', 'Saving email...'));
                 $.post('pro_profile.php', { action: 'update_email', email: email }, function(res){
                     if (res && res.success) {
-                        var msg = res.message || 'Verification email sent. Please check your inbox.';
-                        $('#proProfileAlert').html('<div class="alert alert-success">' + msg + '</div>');
+                        profileAlert('success', res.message || msT('profile.account.email_sent', 'Verification email sent. Please check your inbox.'));
                     } else {
-                        $('#proProfileAlert').html('<div class="alert alert-danger">' + (res && res.error ? res.error : 'Failed to save email') + '</div>');
+                        profileAlert('danger', res && res.error ? res.error : msT('profile.account.email_failed', 'Failed to save email'));
                     }
                 }, 'json').fail(function(){
-                    $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+                    profileAlert('danger', msT('profile.common.network_error', 'Network error'));
+                });
+            });
+
+            // Language (the card exists only when the app is offered in more than one language).
+            // The page reloads on success so everything on it, the server-rendered text included,
+            // comes back in the chosen language.
+            $('#saveLanguageBtn').on('click', function(e){
+                e.preventDefault();
+                var $btn = $(this).prop('disabled', true);
+                profileAlert('info', msT('profile.account.language_saving', 'Saving language...'));
+                $.post('pro_profile.php', { action: 'set_locale', locale: $('#languageSelect').val() }, function(res){
+                    if (res && res.success) {
+                        profileAlert('success', msT('profile.account.language_saved', 'Language saved. Reloading...'));
+                        setTimeout(function(){ window.location.reload(); }, 600);
+                    } else {
+                        $btn.prop('disabled', false);
+                        profileAlert('danger', res && res.error ? res.error : msT('profile.account.language_failed', 'Could not save the language'));
+                    }
+                }, 'json').fail(function(){
+                    $btn.prop('disabled', false);
+                    profileAlert('danger', msT('profile.common.network_error', 'Network error'));
                 });
             });
 
@@ -1358,17 +1446,17 @@ $mcpDesktopConfig = '{
             $('#billingPortalBtn').on('click', function(e){
                 e.preventDefault();
                 var $btn = $(this).prop('disabled', true);
-                $('#proProfileAlert').html('<div class="alert alert-info">Opening the billing portal...</div>');
+                profileAlert('info', msT('profile.account.billing_opening', 'Opening the billing portal...'));
                 $.post('pro_profile.php', { action: 'billing_portal' }, function(res){
                     if (res && res.success && typeof res.url === 'string' && res.url.indexOf('https://') === 0) {
                         window.location.href = res.url;
                         return;
                     }
                     $btn.prop('disabled', false);
-                    $('#proProfileAlert').html($('<div class="alert alert-danger"></div>').text(res && res.error ? res.error : 'Could not open the billing portal'));
+                    profileAlert('danger', res && res.error ? res.error : msT('profile.account.billing_open_failed', 'Could not open the billing portal'));
                 }, 'json').fail(function(){
                     $btn.prop('disabled', false);
-                    $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+                    profileAlert('danger', msT('profile.common.network_error', 'Network error'));
                 });
             });
 
@@ -1395,7 +1483,7 @@ $mcpDesktopConfig = '{
                     // Show pro expiry if provided (date-only under Signed in as)
                     var expires = res.profile.pro_expires_at || null;
                     if (!res.profile.is_pro) {
-                        $('#proExpiryLine').text('Free').css('color', '');
+                        $('#proExpiryLine').text(msT('app.common.expiry_free', 'Free')).css('color', '');
                     } else if (expires) {
                         var d = new Date(expires + ' UTC');
                         // Format date as DD/MM/YYYY (no time)
@@ -1407,21 +1495,21 @@ $mcpDesktopConfig = '{
                         var diffMs = d - now;
                         var days = Math.floor(diffMs / (1000*60*60*24));
                         if (diffMs <= 0) {
-                            $('#proExpiryLine').text('Pro expired on ' + dateOnly).css('color', '#ff6b6b');
+                            $('#proExpiryLine').text(msT('app.common.expiry_expired', 'Pro expired on {date}', { date: dateOnly })).css('color', '#ff6b6b');
                         } else {
-                            $('#proExpiryLine').text('Pro expires: ' + dateOnly).css('color', '');
+                            $('#proExpiryLine').text(msT('app.common.expiry_expires', 'Pro expires: {date}', { date: dateOnly })).css('color', '');
                         }
                     } else {
-                        $('#proExpiryLine').text('Pro: Lifetime').css('color', '');
+                        $('#proExpiryLine').text(msT('app.common.expiry_lifetime', 'Pro: Lifetime')).css('color', '');
                     }
                     // We no longer require the current password to set a new one, so the current-password field is not shown.
                     applyProGating(!!res.profile.is_pro);
                     $('#proProfileAlert').html('');
                 } else {
-                    $('#proProfileAlert').html('<div class="alert alert-warning">Could not load profile</div>');
+                    profileAlert('warning', msT('profile.common.load_failed', 'Could not load profile'));
                 }
             }, 'json').fail(function(){
-                $('#proProfileAlert').html('<div class="alert alert-danger">Network error</div>');
+                profileAlert('danger', msT('profile.common.network_error', 'Network error'));
             });
 
             // Load digest settings
@@ -1529,7 +1617,7 @@ $mcpDesktopConfig = '{
                 renderWebhooks(lastWebhooks);
                 var $container = $('#personalList');
                 if (!items || items.length === 0) {
-                    $container.html('<p class="text-muted">No sticky addresses yet.</p>');
+                    $container.html('<p class="text-muted">' + escapeHtml(msT('profile.addresses.list_empty', 'No sticky addresses yet.')) + '</p>');
                     $('#personalCounterBadge').text(isFinite(MAX_PERSONAL_ADDRESSES) ? '0/' + MAX_PERSONAL_ADDRESSES : '0');
                     return;
                 }
@@ -1552,9 +1640,9 @@ $mcpDesktopConfig = '{
                     // the address is refused because of a flood of mail.
                     var pauseNotice = '';
                     if (it.closed) {
-                        pauseNotice = '                                    <p class="ms-address-row__notice">Closed after repeated floods of mail: mail to this address is refused. Delete it and create a new one.</p>\n';
+                        pauseNotice = '                                    <p class="ms-address-row__notice">'+escapeHtml(msT('profile.addresses.closed', 'Closed after repeated floods of mail: mail to this address is refused. Delete it and create a new one.'))+'</p>\n';
                     } else if (it.paused_until) {
-                        pauseNotice = '                                    <p class="ms-address-row__notice">Paused until '+escapeHtml(it.paused_until)+' (server time) because of an unusual amount of mail. Mail to this address is refused until then.</p>\n';
+                        pauseNotice = '                                    <p class="ms-address-row__notice">'+escapeHtml(msT('profile.addresses.paused', 'Paused until {until} (server time) because of an unusual amount of mail. Mail to this address is refused until then.', { until: it.paused_until }))+'</p>\n';
                     }
                     html += '\n                                <div class="list-group-item ms-address-row" data-id="'+escapeHtml(it.id)+'">\n'
                         + '                                    <div class="d-flex justify-content-between align-items-center ms-address-row__main">\n'
@@ -1566,7 +1654,7 @@ $mcpDesktopConfig = '{
                         + '                                                <i class="fas fa-rss" aria-hidden="true"></i> <span class="ms-address-row__feed-state">'+(feedOn ? 'RSS on' : 'RSS')+'</span>\n'
                         + '                                            </button>\n'
                         + hooksButton
-                        + '                                            <button class="btn btn-sm btn-danger personal-delete" data-id="'+escapeHtml(it.id)+'" title="Delete">\n'
+                        + '                                            <button class="btn btn-sm btn-danger personal-delete" data-id="'+escapeHtml(it.id)+'" title="'+escapeHtml(msT('profile.addresses.delete_title', 'Delete'))+'">\n'
                         + '                                                <i class="fas fa-trash"></i>\n'
                         + '                                            </button>\n'
                         + '                                        </div>\n'
@@ -1581,7 +1669,7 @@ $mcpDesktopConfig = '{
                 $('#personalCounterBadge').text(isFinite(MAX_PERSONAL_ADDRESSES) ? count + '/' + MAX_PERSONAL_ADDRESSES : String(count));
                 if (count >= MAX_PERSONAL_ADDRESSES) {
                     $('#createPersonalBtn').prop('disabled', true);
-                    $('#personalMsg').css('color', '#ff6b6b').text('Max ' + MAX_PERSONAL_ADDRESSES + ' sticky addresses reached');
+                    $('#personalMsg').css('color', '#ff6b6b').text(msT('profile.addresses.max_reached', 'Max {max} sticky addresses reached', { max: MAX_PERSONAL_ADDRESSES }));
                     $('#personalCounterBadge').addClass('quota-reached bg-danger').removeClass('bg-secondary');
                     $('#personalCounterLabel').addClass('text-danger');
                 } else {
@@ -1607,10 +1695,10 @@ $mcpDesktopConfig = '{
                         + '                                    <div class="d-flex justify-content-between align-items-center ms-address-row__main">\n'
                         + '                                        <div class="flex-grow-1">\n'
                         + '                                            <span>'+escapeHtml(it.full_address)+'</span>\n'
-                        + '                                            <div class="form-text text-muted">Reserved for you until '+escapeHtml(until)+'</div>\n'
+                        + '                                            <div class="form-text text-muted">'+escapeHtml(msT('profile.addresses.reserved_until', 'Reserved for you until {date}', { date: until }))+'</div>\n'
                         + '                                        </div>\n'
                         + '                                        <div class="d-flex align-items-center ms-address-row__actions">\n'
-                        + '                                            <button type="button" class="btn btn-sm btn-outline-secondary personal-recreate" data-address="'+escapeHtml(it.address)+'"'+(isProAccount ? '' : ' disabled')+'>Create again</button>\n'
+                        + '                                            <button type="button" class="btn btn-sm btn-outline-secondary personal-recreate" data-address="'+escapeHtml(it.address)+'"'+(isProAccount ? '' : ' disabled')+'>'+escapeHtml(msT('profile.addresses.create_again', 'Create again'))+'</button>\n'
                         + '                                        </div>\n'
                         + '                                    </div>\n'
                         + '                                </div>';
@@ -1626,9 +1714,9 @@ $mcpDesktopConfig = '{
                         renderPersonalList(res.personal || []);
                         renderPersonalCooldown(res.cooldown || []);
                     } else {
-                        $('#personalList').html('<p class="text-danger">Failed to load sticky addresses</p>');
+                        $('#personalList').html('<p class="text-danger">' + escapeHtml(msT('profile.addresses.list_failed', 'Failed to load sticky addresses')) + '</p>');
                     }
-                }, 'json').fail(function(){ $('#personalList').html('<p class="text-danger">Request failed</p>'); });
+                }, 'json').fail(function(){ $('#personalList').html('<p class="text-danger">' + escapeHtml(msT('profile.common.request_failed', 'Request failed')) + '</p>'); });
             }
 
             // --- Per-address feeds (#162). The token is fetched lazily on the
@@ -1835,26 +1923,26 @@ $mcpDesktopConfig = '{
             // Create personal
             $('#createPersonalBtn').on('click', function(){
                 if ($('#personalList .list-group-item').length >= MAX_PERSONAL_ADDRESSES) {
-                    $('#personalMsg').css('color', '#ff6b6b').text('You already have ' + MAX_PERSONAL_ADDRESSES + ' sticky addresses');
+                    $('#personalMsg').css('color', '#ff6b6b').text(msT('profile.addresses.already_have', 'You already have {max} sticky addresses', { max: MAX_PERSONAL_ADDRESSES }));
                     return;
                 }
                 var local = $('#personalLocal').val().trim();
                 var llower = (local || '').toLowerCase();
                 if (window.personalAddressBlacklist && window.personalAddressBlacklist.indexOf(llower) !== -1) {
-                    $('#personalMsg').css('color', '#ff6b6b').text('This local part is not allowed');
+                    $('#personalMsg').css('color', '#ff6b6b').text(msT('profile.addresses.not_allowed', 'This local part is not allowed'));
                     return;
                 }
                 var $msg = $('#personalMsg');
-                $msg.css('color', '#9ecbff').text('Creating...');
+                $msg.css('color', '#9ecbff').text(msT('profile.addresses.creating', 'Creating...'));
                 $.post('index.php', { action: 'create_personal', local: local }, function(res){
                     if (res && res.success) {
-                        $msg.css('color', '#fff').text('Created: ' + res.full_address);
+                        $msg.css('color', '#fff').text(msT('profile.addresses.created', 'Created: {address}', { address: res.full_address }));
                         setTimeout(function(){ $msg.text('').css('color', '#9ecbff'); }, 4000);
                         loadPersonalList();
                     } else {
-                        $msg.css('color', '#ff6b6b').text(res && res.error ? res.error : 'Error creating address');
+                        $msg.css('color', '#ff6b6b').text(res && res.error ? res.error : msT('profile.addresses.create_error', 'Error creating address'));
                     }
-                }, 'json').fail(function(){ $msg.css('color', '#ff6b6b').text('Request failed'); });
+                }, 'json').fail(function(){ $msg.css('color', '#ff6b6b').text(msT('profile.common.request_failed', 'Request failed')); });
             });
 
             // Take a reserved address back: same path as typing it in.
@@ -1892,7 +1980,7 @@ $mcpDesktopConfig = '{
                 e.stopPropagation();
                 var id = $(this).data('id');
                 if (!id) return;
-                if (!confirm('Delete this sticky address? Its mail is deleted and cannot be restored. The address stays reserved for you for <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> months, so you can create it again.')) return;
+                if (!confirm(msT('profile.addresses.delete_confirm', 'Delete this sticky address? Its mail is deleted and cannot be restored. The address stays reserved for you for {months} months, so you can create it again.', { months: <?php echo (int)($config['address_cooldown']['months'] ?? 6); ?> }))) return;
                 var $btn = $(this);
                 $btn.prop('disabled', true);
                 $.post('index.php', { action: 'delete_personal', id: id }, function(res){
@@ -1906,9 +1994,9 @@ $mcpDesktopConfig = '{
                             }
                         }
                     } else {
-                        alert(res && res.error ? res.error : 'Failed to delete');
+                        alert(res && res.error ? res.error : msT('profile.addresses.delete_failed', 'Failed to delete'));
                     }
-                }, 'json').fail(function(){ alert('Request failed'); }).always(function(){ $btn.prop('disabled', false); });
+                }, 'json').fail(function(){ alert(msT('profile.common.request_failed', 'Request failed')); }).always(function(){ $btn.prop('disabled', false); });
             });
 
             // Load TTL (default lifetime) and populate selector. The answer
@@ -1942,7 +2030,7 @@ $mcpDesktopConfig = '{
                 $('#ttlHoldConfirm').addClass('d-none');
                 var $sel = $('#ttlSelect').empty();
                 for (var i = 1; i <= 7; i++) {
-                    $sel.append($('<option/>').attr('value', i).text(i + (i === 1 ? ' day' : ' days')));
+                    $sel.append($('<option/>').attr('value', i).text(i === 1 ? msT('profile.hold.day_one', '{count} day', { count: i }) : msT('profile.hold.day_other', '{count} days', { count: i })));
                 }
 
                 var $note = $('#ttlHoldNote').addClass('d-none').text('');
@@ -1961,16 +2049,16 @@ $mcpDesktopConfig = '{
                         } else {
                             n = used + 1;
                         }
-                        var $hold = $('<option/>').attr('value', 'hold').text(days + ' days (' + n + '/' + max + ')');
+                        var $hold = $('<option/>').attr('value', 'hold').text(msT('profile.hold.option', '{days} days ({used}/{max})', { days: days, used: n, max: max }));
                         if (disabled) $hold.prop('disabled', true);
                         $sel.append($hold);
                         hasHoldOption = true;
 
                         if (status.active && status.active.ends_at) {
-                            $note.text('Mail on your sticky addresses is kept until ' + ttlHoldDate(status.active.ends_at) + '.').removeClass('d-none');
+                            $note.text(msT('profile.hold.kept_until', 'Mail on your sticky addresses is kept until {date}.', { date: ttlHoldDate(status.active.ends_at) })).removeClass('d-none');
                         } else if (disabled) {
-                            var line = 'All ' + max + ' holds used this year.';
-                            if (status.next_available_at) line += ' Next one available ' + ttlHoldDate(status.next_available_at) + '.';
+                            var line = msT('profile.hold.all_used', 'All {max} holds used this year.', { max: max });
+                            if (status.next_available_at) line += ' ' + msT('profile.hold.next_available', 'Next one available {date}.', { date: ttlHoldDate(status.next_available_at) });
                             $note.text(line).removeClass('d-none');
                         }
                     }
@@ -1988,14 +2076,14 @@ $mcpDesktopConfig = '{
                     if (resp && resp.success) {
                         ttlStoredDays = newTtl;
                         renderTtlOptions(ttlHold);
-                        ttlSay(successNote || 'Saved', 'ok');
+                        ttlSay(successNote || msT('profile.common.saved', 'Saved'), 'ok');
                     } else {
                         renderTtlOptions(ttlHold);
-                        ttlSay(resp && resp.error ? resp.error : 'Error', 'err');
+                        ttlSay(resp && resp.error ? resp.error : msT('profile.common.error', 'Error'), 'err');
                     }
                 }, 'json').fail(function(){
                     renderTtlOptions(ttlHold);
-                    ttlSay('Request failed', 'err');
+                    ttlSay(msT('profile.common.request_failed', 'Request failed'), 'err');
                 });
             }
 
@@ -2020,7 +2108,7 @@ $mcpDesktopConfig = '{
                         $(this).val(ttlSavedValue);
                         return;
                     }
-                    $('#ttlHoldConfirmText').text('This uses hold ' + (ttlHold.active ? used : used + 1) + ' of ' + max + '.');
+                    $('#ttlHoldConfirmText').text(msT('profile.hold.confirm', 'This uses hold {n} of {max}.', { n: ttlHold.active ? used : used + 1, max: max }));
                     $('#ttlHoldConfirm').removeClass('d-none');
                     return;
                 }
@@ -2032,17 +2120,17 @@ $mcpDesktopConfig = '{
                 }
 
                 if (ttlHold && ttlHold.active) {
-                    ttlSay('Ending hold...', 'idle');
+                    ttlSay(msT('profile.hold.ending', 'Ending hold...'), 'idle');
                     $.post('pro_profile.php', { action: 'retention_hold_end' }, function(res){
                         if (!res || !res.success) {
-                            ttlSay(res && res.error ? res.error : 'Error', 'err');
+                            ttlSay(res && res.error ? res.error : msT('profile.common.error', 'Error'), 'err');
                             $('#ttlSelect').val(ttlSavedValue);
                             return;
                         }
                         ttlHold = res.status || ttlHold;
-                        saveTtl(newTtl, 'Hold ended. Mail already kept keeps its date.');
+                        saveTtl(newTtl, msT('profile.hold.ended', 'Hold ended. Mail already kept keeps its date.'));
                     }, 'json').fail(function(){
-                        ttlSay('Request failed', 'err');
+                        ttlSay(msT('profile.common.request_failed', 'Request failed'), 'err');
                         $('#ttlSelect').val(ttlSavedValue);
                     });
                     return;
@@ -2054,18 +2142,18 @@ $mcpDesktopConfig = '{
             $('#ttlHoldStartBtn').on('click', function(){
                 $('#ttlHoldConfirm').addClass('d-none');
                 var $btn = $(this).prop('disabled', true);
-                ttlSay('Starting hold...', 'idle');
+                ttlSay(msT('profile.hold.starting', 'Starting hold...'), 'idle');
                 $.post('pro_profile.php', { action: 'retention_hold_start' }, function(res){
                     if (!res || !res.success) {
-                        ttlSay(res && res.error ? res.error : 'Error', 'err');
+                        ttlSay(res && res.error ? res.error : msT('profile.common.error', 'Error'), 'err');
                         $('#ttlSelect').val(ttlSavedValue);
                         return;
                     }
                     ttlHold = res.status || ttlHold;
                     renderTtlOptions(ttlHold);
-                    ttlSay('Hold started', 'ok');
+                    ttlSay(msT('profile.hold.started', 'Hold started'), 'ok');
                 }, 'json').fail(function(){
-                    ttlSay('Request failed', 'err');
+                    ttlSay(msT('profile.common.request_failed', 'Request failed'), 'err');
                     $('#ttlSelect').val(ttlSavedValue);
                 }).always(function(){ $btn.prop('disabled', false); });
             });
@@ -2348,7 +2436,7 @@ $mcpDesktopConfig = '{
                             $('#whName').attr('placeholder', 'My webhook');
                         }
                         // Clear kind-specific fields if they appear to be pushover defaults
-                        if ($('#whUrl').val().indexOf('pushover.net') !== -1) {
+                        if ($('#whUrl').val() === 'https://api.pushover.net/1/messages.json') {
                             $('#whUrl').val('');
                         }
                         var cfg = ($('#whConfig').val() || '').trim();
