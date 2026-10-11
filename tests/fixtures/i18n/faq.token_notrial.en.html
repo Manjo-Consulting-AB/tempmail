@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
+    <!-- Google Analytics: consent-gated. See partials/analytics.php and
+     assets/js/consent.js — gtag.js is requested only after the visitor
+     accepts the cookie notice this script shows. -->
+<script type="application/json" id="ms-i18n-consent">{"consent.label":"Cookie consent","consent.text":"We use Google Analytics on our public pages to understand how Mail Shield is used.","consent.learn_more":"Learn more","consent.decline":"Decline","consent.accept":"Accept","consent.privacy_url":"\/privacy.php#cookies"}</script>
+<script>window.msAnalyticsId = 'G-BFX6EC3575';</script>
+<script src="/assets/js/consent.js?v=1"></script>
+    <title>Frequently asked questions · Mail Shield</title>
+    <meta name="description" content="Short answers about Mail Shield: what it is, what a free account includes, how long timed and sticky addresses last, and what you can connect it to.">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://example.test/faq.php">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mail Shield">
+    <meta property="og:title" content="Frequently asked questions · Mail Shield">
+    <meta property="og:description" content="Short answers about Mail Shield: what it is, what a free account includes, how long timed and sticky addresses last, and what you can connect it to.">
+    <meta property="og:url" content="https://example.test/faq.php">
+    <meta property="og:image" content="https://example.test/assets/images/og-mailshield.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Frequently asked questions · Mail Shield">
+    <meta name="twitter:description" content="Short answers about Mail Shield: what it is, what a free account includes, how long timed and sticky addresses last, and what you can connect it to.">
+    <meta name="twitter:image" content="https://example.test/assets/images/og-mailshield.png">
+
+    <link rel="icon" href="/assets/images/favicon.ico" sizes="32x32">
+    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/images/favicon-180x180.png">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <!-- FAQPage structured data. Emitted here rather than through
+         partials/public_head.php because this page does not use the marketing
+         shell — it carries the app's <head>. The array is built above from
+         $msFaq, the same source the sections below render from, so the answers
+         here are the answers on the page by construction, not by discipline.
+         json_encode escapes "/", so a value containing "</script>" cannot end
+         this element early. -->
+    <script type="application/ld+json">{"@context":"https:\/\/schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is Mail Shield?","acceptedAnswer":{"@type":"Answer","text":"A separate inbox for the email you don't want in your primary one. Shopping, newsletters, signups, forum replies, automated mail and the services you're only trying out all have somewhere else to go, and you read them in one place on the web. You get addresses of your own \u2014 timed ones that delete themselves, and sticky ones you keep. It is not a page that prints a throwaway address and forgets you the moment you close the tab: an address here belongs to an account, so a confirmation that arrives an hour later is still waiting for you."}},{"@type":"Question","name":"How do I get a timed address?","acceptedAnswer":{"@type":"Answer","text":"Create an account with your own email address, verify it, then create the timed address from your inbox. There is no button on the homepage that issues one anonymously \u2014 an address needs an account behind it, which is what lets you come back for a message that arrives later."}},{"@type":"Question","name":"How long are messages and addresses kept?","acceptedAnswer":{"@type":"Answer","text":"A timed address on a free account is deleted automatically 24 hours after you create it, and the messages in it go with it. On Pro you choose the lifetime for each timed address, from 1 to 7 days. Sticky addresses don't run on a timer at all \u2014 they stay until you delete them."}},{"@type":"Question","name":"Does it cost anything?","acceptedAnswer":{"@type":"Answer","text":"A free account costs nothing and needs no card. Pro is a monthly, yearly or one-time plan, or a voucher code."}},{"@type":"Question","name":"What's the difference between Free and Pro?","acceptedAnswer":{"@type":"Answer","text":"A free account covers temporary email: one timed address at a time, deleted 24 hours after you create it. Pro adds the permanent side of the product and the automation \u2014 up to 10 sticky addresses, a timed-address lifetime of 1 to 7 days that you choose, RSS, webhooks, Pushover, digest emails and the Agent."}},{"@type":"Question","name":"How many addresses can I create?","acceptedAnswer":{"@type":"Answer","text":"Addresses belong to your account, not to a browser session. Every account holds one timed address at a time, and creating a new one replaces the old one. Pro accounts also get up to 10 sticky addresses, which live alongside the timed one and deliver into the same inbox."}},{"@type":"Question","name":"How do I create a Pro account?","acceptedAnswer":{"@type":"Answer","text":"Create a free account and choose a plan while signed in \u2014 or register with a voucher code: pick Pro on the sign-up page and enter the code. Pro accounts sign in with a magic link sent to their email, and can optionally set a password in their profile."}},{"@type":"Question","name":"What settings are available on Pro?","acceptedAnswer":{"@type":"Answer","text":"Set a password for sign-in, alongside the email link. Choose how long new timed addresses last, from 1 to 7 days. Create, review and delete up to 10 sticky addresses. Turn two-factor authentication on or off, and manage trusted browsers. Keep mail for 30 days, up to 4 times a year. Configure automation: RSS, webhooks and digest emails."}},{"@type":"Question","name":"Can I keep my mail longer?","acceptedAnswer":{"@type":"Answer","text":"Yes, on Pro. Up to 4 times a year you can hold back the clean-up: mail on your sticky addresses that would otherwise be deleted is kept for 30 days from the day it arrived, instead of the usual 1 to 7. Start a hold by choosing 30 days under Profile \u2192 Default lifetime. Ending a hold early leaves the mail that was already extended in place. Timed addresses are not affected \u2014 they still expire on schedule and take their messages with them. Your mailbox storage limit still applies, and when it is reached the oldest mail is removed first."}},{"@type":"Question","name":"What's the difference between a timed and a sticky address?","acceptedAnswer":{"@type":"Answer","text":"A timed address is Mail Shield's take on temporary email: it is meant to be thrown away. It expires on a timer you don't have to think about \u2014 24 hours on a free account, 1 to 7 days on Pro \u2014 and takes its messages with it. A sticky address is one you keep: a readable name like shopping@example.test instead of a random string, no expiry, and you decide when it goes. Both kinds arrive in the same inbox."}},{"@type":"Question","name":"Can I use Mail Shield for permanent addresses?","acceptedAnswer":{"@type":"Answer","text":"Yes \u2014 that's what sticky addresses are for. A Pro account can hold up to 10 of them, all permanent in the sense that matters: they don't expire, and you delete them when you're done with them. Every address uses the example.test domain, and every one of them delivers into the same inbox."}},{"@type":"Question","name":"How long do sticky addresses last?","acceptedAnswer":{"@type":"Answer","text":"Until you delete them. They carry no expiry timer and aren't caught by the clean-up that removes timed addresses. Deleting one from your profile removes the address, and it stops receiving mail from then on."}},{"@type":"Question","name":"What can I connect it to?","acceptedAnswer":{"@type":"Answer","text":"Pro accounts can route mail onward in several ways: A private RSS feed, read in any feed reader, protected by a token \u2014 for your whole account, or for one sticky address on its own. Webhooks that POST each incoming message as JSON to an endpoint you control. Pushover, for incoming mail as a notification on your phone. Digest emails, a periodic summary of what arrived. If you run your own mail server, the Agent is there too: you manage sender lists and filter rules in Mail Shield, and the Agent applies them to a mailbox on your server. That mail stays on your server \u2014 it doesn't come into Mail Shield. You can also connect an AI assistant to your account, to read and manage your addresses for you. That has its own question below."}},{"@type":"Question","name":"Can I connect an AI assistant to my account?","acceptedAnswer":{"@type":"Answer","text":"Yes, on Pro. You create an access token in your profile and give it to the assistant, which connects to Mail Shield over the Model Context Protocol (MCP) at https:\/\/example.test\/mcp. It can then list your addresses, read your mail, and \u2014 if you gave the token write access \u2014 create and delete addresses for you. The assistant acts as your account, so treat its access token like a password. Anything it reads is sent to whoever runs it: that provider is chosen by you, not by us, and we are not its processor. Revoke a token from the Connected apps card in your profile and it stops working immediately; changing your password or your email address revokes every token at once."}},{"@type":"Question","name":"Is automation included in a free account?","acceptedAnswer":{"@type":"Answer","text":"No. RSS, webhooks, Pushover, digests and the Agent are all part of Pro. A free account covers temporary email."}},{"@type":"Question","name":"Is my email content private?","acceptedAnswer":{"@type":"Answer","text":"The answer differs by kind of address, so it's worth being exact. A timed address is reachable through its link: whoever holds that link can read the inbox, and so can anyone who finds it. Treat a timed address as somewhere to receive, not somewhere to keep a secret. Sticky addresses are different. They belong to your account and can only be read while you're signed in as the owner. Either way, don't send sensitive personal data \u2014 banking, identity documents, medical details \u2014 to an address you intend to throw away."}},{"@type":"Question","name":"How are attachments handled?","acceptedAnswer":{"@type":"Answer","text":"Attachments are stored temporarily, and download links are signed and time-limited so a link can't be guessed or passed around indefinitely. Files are cleaned up together with the messages they arrived on."}},{"@type":"Question","name":"What does two-factor authentication (2FA) protect?","acceptedAnswer":{"@type":"Answer","text":"2FA protects password sign-in to your account: after 2FA is enabled, signing in with your password also requires a 6-digit code from an authenticator app. It does not add a step to email sign-in links \u2014 a magic link already proves you have access to the inbox, which is itself a second factor."}},{"@type":"Question","name":"Which authenticator apps are supported?","acceptedAnswer":{"@type":"Answer","text":"Any standard TOTP authenticator app works, including 1Password, Authy, and Google Authenticator. Set it up from the two-factor authentication section of your profile by scanning the QR code or entering the key manually."}},{"@type":"Question","name":"What if I lose my phone or authenticator app?","acceptedAnswer":{"@type":"Answer","text":"You're not locked out. Sign in using your email login link (magic link) as usual \u2014 it works even with 2FA enabled \u2014 and then turn off two-factor authentication from your profile. From there you can set up 2FA again on a new device, or leave it off. You can also use one of the one-time recovery codes shown when you enrolled, if you saved them."}},{"@type":"Question","name":"Is the Agent safe?","acceptedAnswer":{"@type":"Answer","text":"The Agent runs on your own server, so your data stays under your control. It verifies RSA-signed webhooks from Mail Shield before acting on them, and stores the secrets it needs encrypted rather than in plain text. Filtering happens on your machine, so your mail doesn't have to leave it to be sorted."}},{"@type":"Question","name":"I didn't receive an expected message \u2014 what now?","acceptedAnswer":{"@type":"Answer","text":"Check the full address you gave out, local part and domain both. For a sticky address, make sure you're signed in to the account that owns it. Then give it a moment and refresh \u2014 mail is fetched from the server on a schedule, so a message can take a short while to appear. If it still doesn't arrive, the sender may have delayed or rejected it."}},{"@type":"Question","name":"How do I get support?","acceptedAnswer":{"@type":"Answer","text":"Account-specific problems are best handled from inside your account: sign in and use the contact page, and include the address or the message you're asking about. This FAQ is meant to answer the general cases first."}}]}</script>
+
+    <!-- App-layer dependencies, in the brief §11 order: the bridge loads last and
+         wins. None of these are used by this page's own markup yet — they stay
+         because faq.php and blog.php share the app's <head> pattern, and
+         removing them here would silently fork it. -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/mailshield-fonts.css?v=1" rel="stylesheet">
+    <link href="assets/css/mailshield.css?v=1" rel="stylesheet">
+    <link href="assets/css/mailshield-bootstrap.css?v=1" rel="stylesheet">
+</head>
+<body>
+<a class="ms-skip" href="#main">Skip to content</a>
+<div class="ms-faq">
+    <header class="ms-faq__bar">
+        <div class="ms-container ms-faq__bar-inner">
+            <a class="ms-logo ms-faq__logo" href="/"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+            <ul class="ms-faq__links">
+                <li><a href="/">Home</a></li>
+                <li><a href="/temporary-email.php">Temporary email</a></li>
+                <li><a href="/blog.php">Blog</a></li>
+            </ul>
+
+            <div class="ms-faq__actions">
+                                    <a class="ms-faq__login" href="/pro_login.php">Log in</a>
+                    <a class="ms-btn ms-btn--primary" href="/register.php?plan=regular">Create your inbox</a>
+                            </div>
+        </div>
+    </header>
+
+    <main class="ms-faq__main" id="main">
+        <div class="ms-container--narrow">
+            <h1 class="ms-faq__title">Frequently asked questions</h1>
+            <p class="ms-lede ms-faq__lede">What Mail Shield is, what a free account includes, how long addresses last, and what you can connect it to. If you came here looking for a disposable address specifically, the <a href="/temporary-email.php">temporary email page</a> goes deeper.</p>
+
+            <nav class="ms-faq__jump" aria-label="Jump to a section">
+                <p class="ms-eyebrow">Jump to</p>
+                <ul class="ms-faq__jump-list">
+                                        <li><a href="#general">General</a></li>
+                                        <li><a href="#accounts">Accounts and plans</a></li>
+                                        <li><a href="#temporary">Timed and sticky addresses</a></li>
+                                        <li><a href="#automation">Automation</a></li>
+                                        <li><a href="#security">Security and privacy</a></li>
+                                        <li><a href="#troubleshooting">Troubleshooting</a></li>
+                                    </ul>
+            </nav>
+
+                        <section class="ms-faq__group" id="general" aria-labelledby="faq-h-general">
+                <h2 class="ms-h2" id="faq-h-general">General</h2>
+                <div class="ms-faq__items">
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">What is Mail Shield?</h3>
+                        <div class="ms-prose"><p>A separate inbox for the email you don't want in your primary one. Shopping, newsletters, signups, forum replies, automated mail and the services you're only trying out all have somewhere else to go, and you read them in one place on the web.</p>
+<p>You get addresses of your own — timed ones that delete themselves, and sticky ones you keep. It is not a page that prints a throwaway address and forgets you the moment you close the tab: an address here belongs to an account, so a confirmation that arrives an hour later is still waiting for you.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">How do I get a timed address?</h3>
+                        <div class="ms-prose"><p>Create an account with your own email address, verify it, then create the timed address from your inbox. There is no button on the homepage that issues one anonymously — an address needs an account behind it, which is what lets you come back for a message that arrives later.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">How long are messages and addresses kept?</h3>
+                        <div class="ms-prose"><p>A timed address on a free account is deleted automatically <strong>24 hours</strong> after you create it, and the messages in it go with it. On Pro you choose the lifetime for each timed address, from <strong>1 to 7 days</strong>.</p>
+<p>Sticky addresses don't run on a timer at all — they stay until you delete them.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">Does it cost anything?</h3>
+                        <div class="ms-prose"><p>A free account costs nothing and needs no card. Pro is a <a href="/pricing.php">monthly, yearly or one-time plan</a>, or a voucher code.</p></div>
+                    </div>
+                                    </div>
+            </section>
+                        <section class="ms-faq__group" id="accounts" aria-labelledby="faq-h-accounts">
+                <h2 class="ms-h2" id="faq-h-accounts">Accounts and plans</h2>
+                <div class="ms-faq__items">
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">What&#039;s the difference between Free and Pro?</h3>
+                        <div class="ms-prose"><p>A free account covers temporary email: one timed address at a time, deleted 24 hours after you create it.</p>
+<p>Pro adds the permanent side of the product and the automation — up to 10 sticky addresses, a timed-address lifetime of 1 to 7 days that you choose, RSS, webhooks, Pushover, digest emails and the Agent.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">How many addresses can I create?</h3>
+                        <div class="ms-prose"><p>Addresses belong to your account, not to a browser session. Every account holds one timed address at a time, and creating a new one replaces the old one.</p>
+<p>Pro accounts also get up to 10 sticky addresses, which live alongside the timed one and deliver into the same inbox.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">How do I create a Pro account?</h3>
+                        <div class="ms-prose"><p>Create a free account and choose a <a href="/pricing.php">plan</a> while signed in — or register with a voucher code: pick Pro on the sign-up page and enter the code. Pro accounts sign in with a magic link sent to their email, and can optionally set a password in their profile.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">What settings are available on Pro?</h3>
+                        <div class="ms-prose"><ul>
+<li>Set a password for sign-in, alongside the email link.</li>
+<li>Choose how long new timed addresses last, from 1 to 7 days.</li>
+<li>Create, review and delete up to 10 sticky addresses.</li>
+<li>Turn two-factor authentication on or off, and manage trusted browsers.</li>
+<li>Keep mail for 30 days, up to 4 times a year.</li>
+<li>Configure automation: RSS, webhooks and digest emails.</li>
+</ul></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">Can I keep my mail longer?</h3>
+                        <div class="ms-prose"><p>Yes, on Pro. Up to 4 times a year you can hold back the clean-up: mail on your sticky addresses that would otherwise be deleted is kept for 30 days from the day it arrived, instead of the usual 1 to 7. Start a hold by choosing 30 days under <strong>Profile &rarr; Default lifetime</strong>.</p>
+<p>Ending a hold early leaves the mail that was already extended in place. Timed addresses are not affected — they still expire on schedule and take their messages with them. Your mailbox storage limit still applies, and when it is reached the oldest mail is removed first.</p></div>
+                    </div>
+                                    </div>
+            </section>
+                        <section class="ms-faq__group" id="temporary" aria-labelledby="faq-h-temporary">
+                <h2 class="ms-h2" id="faq-h-temporary">Timed and sticky addresses</h2>
+                <div class="ms-faq__items">
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">What&#039;s the difference between a timed and a sticky address?</h3>
+                        <div class="ms-prose"><p>A timed address is Mail Shield's take on temporary email: it is meant to be thrown away. It expires on a timer you don't have to think about — 24 hours on a free account, 1 to 7 days on Pro — and takes its messages with it.</p>
+<p>A sticky address is one you keep: a readable name like <span class="ms-addr">shopping@example.test</span> instead of a random string, no expiry, and you decide when it goes. Both kinds arrive in the same inbox.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">Can I use Mail Shield for permanent addresses?</h3>
+                        <div class="ms-prose"><p>Yes — that's what sticky addresses are for. A Pro account can hold up to 10 of them, all permanent in the sense that matters: they don't expire, and you delete them when you're done with them.</p>
+<p>Every address uses the example.test domain, and every one of them delivers into the same inbox.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">How long do sticky addresses last?</h3>
+                        <div class="ms-prose"><p>Until you delete them. They carry no expiry timer and aren't caught by the clean-up that removes timed addresses. Deleting one from your profile removes the address, and it stops receiving mail from then on.</p></div>
+                    </div>
+                                    </div>
+            </section>
+                        <section class="ms-faq__group" id="automation" aria-labelledby="faq-h-automation">
+                <h2 class="ms-h2" id="faq-h-automation">Automation</h2>
+                <div class="ms-faq__items">
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">What can I connect it to?</h3>
+                        <div class="ms-prose"><p>Pro accounts can route mail onward in several ways:</p>
+<ul>
+<li>A private RSS feed, read in any feed reader, protected by a token — for your whole account, or for one sticky address on its own.</li>
+<li>Webhooks that POST each incoming message as JSON to an endpoint you control.</li>
+<li>Pushover, for incoming mail as a notification on your phone.</li>
+<li>Digest emails, a periodic summary of what arrived.</li>
+</ul>
+<p>If you run your own mail server, the Agent is there too: you manage sender lists and filter rules in Mail Shield, and the Agent applies them to a mailbox on your server. That mail stays on your server — it doesn't come into Mail Shield.</p>
+<p>You can also connect an AI assistant to your account, to read and manage your addresses for you. That has its own question below.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">Can I connect an AI assistant to my account?</h3>
+                        <div class="ms-prose"><p>Yes, on Pro. You create an access token in your profile and give it to the assistant, which connects to Mail Shield over the Model Context Protocol (MCP) at <code>https://example.test/mcp</code>. It can then list your addresses, read your mail, and — if you gave the token write access — create and delete addresses for you.</p>
+<p>The assistant acts as your account, so treat its access token like a password. Anything it reads is sent to whoever runs it: that provider is chosen by you, not by us, and we are not its processor. Revoke a token from the Connected apps card in your profile and it stops working immediately; changing your password or your email address revokes every token at once.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">Is automation included in a free account?</h3>
+                        <div class="ms-prose"><p>No. RSS, webhooks, Pushover, digests and the Agent are all part of Pro. A free account covers temporary email.</p></div>
+                    </div>
+                                    </div>
+            </section>
+                        <section class="ms-faq__group" id="security" aria-labelledby="faq-h-security">
+                <h2 class="ms-h2" id="faq-h-security">Security and privacy</h2>
+                <div class="ms-faq__items">
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">Is my email content private?</h3>
+                        <div class="ms-prose"><p>The answer differs by kind of address, so it's worth being exact. A timed address is reachable through its link: whoever holds that link can read the inbox, and so can anyone who finds it. Treat a timed address as somewhere to receive, not somewhere to keep a secret.</p>
+<p>Sticky addresses are different. They belong to your account and can only be read while you're signed in as the owner.</p>
+<p>Either way, don't send sensitive personal data — banking, identity documents, medical details — to an address you intend to throw away.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">How are attachments handled?</h3>
+                        <div class="ms-prose"><p>Attachments are stored temporarily, and download links are signed and time-limited so a link can't be guessed or passed around indefinitely. Files are cleaned up together with the messages they arrived on.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">What does two-factor authentication (2FA) protect?</h3>
+                        <div class="ms-prose"><p>2FA protects password sign-in to your account: after 2FA is enabled, signing in with your password also requires a 6-digit code from an authenticator app. It does not add a step to email sign-in links — a magic link already proves you have access to the inbox, which is itself a second factor.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">Which authenticator apps are supported?</h3>
+                        <div class="ms-prose"><p>Any standard TOTP authenticator app works, including 1Password, Authy, and Google Authenticator. Set it up from the two-factor authentication section of your profile by scanning the QR code or entering the key manually.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">What if I lose my phone or authenticator app?</h3>
+                        <div class="ms-prose"><p>You're not locked out. Sign in using your email login link (magic link) as usual — it works even with 2FA enabled — and then turn off two-factor authentication from your profile. From there you can set up 2FA again on a new device, or leave it off. You can also use one of the one-time recovery codes shown when you enrolled, if you saved them.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">Is the Agent safe?</h3>
+                        <div class="ms-prose"><p>The Agent runs on your own server, so your data stays under your control. It verifies RSA-signed webhooks from Mail Shield before acting on them, and stores the secrets it needs encrypted rather than in plain text. Filtering happens on your machine, so your mail doesn't have to leave it to be sorted.</p></div>
+                    </div>
+                                    </div>
+            </section>
+                        <section class="ms-faq__group" id="troubleshooting" aria-labelledby="faq-h-troubleshooting">
+                <h2 class="ms-h2" id="faq-h-troubleshooting">Troubleshooting</h2>
+                <div class="ms-faq__items">
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">I didn&#039;t receive an expected message — what now?</h3>
+                        <div class="ms-prose"><p>Check the full address you gave out, local part and domain both. For a sticky address, make sure you're signed in to the account that owns it. Then give it a moment and refresh — mail is fetched from the server on a schedule, so a message can take a short while to appear. If it still doesn't arrive, the sender may have delayed or rejected it.</p></div>
+                    </div>
+                                        <div class="ms-faq__item">
+                        <h3 class="ms-h3">How do I get support?</h3>
+                        <div class="ms-prose"><p>Account-specific problems are best handled from inside your account: <a href="/pro_login.php">sign in</a> and use the contact page, and include the address or the message you're asking about. This FAQ is meant to answer the general cases first.</p></div>
+                    </div>
+                                    </div>
+            </section>
+                    </div>
+    </main>
+
+    <footer class="ms-faq__foot">
+        <div class="ms-container">
+            <nav class="ms-faq__foot-links" aria-label="Footer">
+                <a href="/register.php?plan=regular">Create your inbox</a>
+                <a href="/pro_login.php">Log in</a>
+                <a href="/temporary-email.php">Temporary email addresses</a>
+                <a href="/blog.php">Blog</a>
+                <a href="/faq.php">FAQ</a>
+                <button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button>
+            </nav>
+            <p class="ms-faq__foot-legal">&copy; 2026 Manjo Consulting AB <span aria-hidden="true">&middot;</span> Mail Shield vtest</p>
+        </div>
+    </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

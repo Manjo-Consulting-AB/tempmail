@@ -743,5 +743,96 @@ same('tiers: plan keys and names', [['pro', 'Pro'], ['lifetime', 'Lifetime']], a
 same('tiers: the retention numbers still come from $config', ['days' => 30, 'times' => 4], $tiersOut[0]['features'][2][1]);
 check('tiers: pricing_tiers.php never calls t() and so needs no i18n.php', !preg_match('/\bt\(|\bte\(|i18n/', preg_replace('#/\*.*?\*/#s', '', (string) file_get_contents($tiersFile))));
 
+/**
+ * Renders the real faq.php in a probe docroot (a copy of the page and what it
+ * requires, plus a stub config.php) as a CLI subprocess and returns the page.
+ * $signIn switches the OAuth discovery answer ($msMcpSignIn), $trial is the
+ * trial length in days.
+ */
+function faqRender(string $root, string $locale, array $enabled, bool $signIn, int $trial, bool $signedIn = false): array
+{
+    static $probe = null;
+    if ($probe === null) {
+        $probe = sys_get_temp_dir() . '/ms_faq_probe_' . getmypid();
+        @mkdir($probe, 0777, true);
+        foreach (['faq.php', 'i18n.php', 'oauth_server.php', 'mcp_tokens.php'] as $f) {
+            copy($root . '/' . $f, $probe . '/' . $f);
+        }
+        foreach (['partials', 'lang'] as $d) {
+            @mkdir($probe . '/' . $d, 0777, true);
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/' . $d, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $item) {
+                $rel = substr($item->getPathname(), strlen($root) + 1);
+                if ($item->isDir()) {
+                    @mkdir($probe . '/' . $rel, 0777, true);
+                } else {
+                    copy($item->getPathname(), $probe . '/' . $rel);
+                }
+            }
+        }
+        file_put_contents($probe . '/config.php', <<<'PHP'
+<?php
+// Stub config.php for tests/i18n_test.php: just what faq.php and its partials read.
+$config = [
+    'email'  => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+    'app'    => ['version' => 'test'],
+    'trial'  => ['days' => (int) getenv('PROBE_TRIAL')],
+    'i18n'   => ['enabled' => array_values(array_filter(explode(',', (string) getenv('PROBE_ENABLED'))))],
+    'oauth'  => ['enabled' => getenv('PROBE_SIGNIN') === '1'],
+    'retention_hold' => ['days' => 30, 'max_per_year' => 4],
+];
+$_SERVER['REQUEST_URI'] = (string) getenv('PROBE_URI');
+require_once __DIR__ . '/i18n.php';
+i18nBootstrap($config['i18n'], $_SERVER);
+// oauthDiscoveryEnabled() asks the database whether oauth_clients exists.
+$pdo = new PDO('sqlite::memory:');
+if (getenv('PROBE_SIGNIN') === '1') {
+    $pdo->exec('CREATE TABLE oauth_clients (id INTEGER)');
+}
+session_start();
+$_SESSION = getenv('PROBE_SIGNED_IN') === '1' ? ['pro_user_id' => 1] : [];
+function logMessage($level, $message, $context = []) {}
+PHP);
+        register_shutdown_function(static function () use ($probe) {
+            exec('rm -rf ' . escapeshellarg($probe));
+        });
+    }
+    $env = [
+        'PROBE_ENABLED' => implode(',', $enabled),
+        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/faq.php',
+        'PROBE_SIGNIN' => $signIn ? '1' : '0',
+        'PROBE_TRIAL' => (string) $trial,
+        'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
+        'PATH' => (string) getenv('PATH'),
+    ];
+    $proc = proc_open([PHP_BINARY, '-d', 'session.save_path=' . sys_get_temp_dir(), 'faq.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $probe, $env);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    proc_close($proc);
+    return ['raw' => $out, 'err' => $err];
+}
+
+/** The copyright year changes every January; the fixtures must not. */
+function faqNorm(string $html): string
+{
+    return preg_replace('/&copy; \d{4}/', '&copy; YYYY', $html);
+}
+
+// --- FAQ page: English fixtures -----------------------------------------------
+// The fixtures were rendered from faq.php before it went through t() and the data
+// files: signed out, with and without the OAuth sign-in wording, with and without
+// the trial.
+$faqVariants = [
+    'signin_trial'      => [true, 60],
+    'token_trial'       => [false, 60],
+    'signin_notrial'    => [true, 0],
+    'token_notrial'     => [false, 0],
+];
+foreach ($faqVariants as $name => [$signIn, $trial]) {
+    $r = faqRender($root, 'en', $onlyEn, $signIn, $trial);
+    check("faq en {$name}: the page rendered", $r['raw'] !== '', $r['err']);
+    same("fixture: faq.{$name}.en.html", faqNorm((string) file_get_contents($fx . "faq.{$name}.en.html")), faqNorm($r['raw']));
+}
+
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);
