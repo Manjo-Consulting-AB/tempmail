@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Google Analytics: consent-gated. See partials/analytics.php and
+     assets/js/consent.js — gtag.js is requested only after the visitor
+     accepts the cookie notice this script shows. -->
+<script type="application/json" id="ms-i18n-consent">{"consent.label":"Cookie consent","consent.text":"We use Google Analytics on our public pages to understand how Mail Shield is used.","consent.learn_more":"Learn more","consent.decline":"Decline","consent.accept":"Accept","consent.privacy_url":"\/privacy.php#cookies"}</script>
+<script>window.msAnalyticsId = 'G-BFX6EC3575';</script>
+<script src="/assets/js/consent.js?v=1"></script>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#FAFAF9">
+    <title>Terms of service · Mail Shield</title>
+    <meta name="description" content="The terms that apply when you use Mail Shield, including Pro plans sold through Paddle as Merchant of Record.">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://example.test/terms.php">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mail Shield">
+    <meta property="og:title" content="Terms of service · Mail Shield">
+    <meta property="og:description" content="The terms that apply when you use Mail Shield, including Pro plans sold through Paddle as Merchant of Record.">
+    <meta property="og:url" content="https://example.test/terms.php">
+    <meta property="og:image" content="https://example.test/assets/images/og-mailshield.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Terms of service · Mail Shield">
+    <meta name="twitter:description" content="The terms that apply when you use Mail Shield, including Pro plans sold through Paddle as Merchant of Record.">
+    <meta name="twitter:image" content="https://example.test/assets/images/og-mailshield.png">
+
+    <link rel="icon" href="/assets/images/favicon.ico" sizes="32x32">
+    <link rel="icon" href="/assets/images/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/images/favicon-180x180.png">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <!-- Marketing pages load these two stylesheets only (brief §11). -->
+    <link rel="stylesheet" href="/assets/css/mailshield-fonts.css?v=1">
+    <link rel="stylesheet" href="/assets/css/mailshield.css?v=1">
+</head>
+<body>
+<div class="ms-page">
+<a class="ms-skip" href="#main">Skip to content</a>
+<header class="ms-nav" id="ms-nav">
+    <div class="ms-container ms-nav__inner">
+        <a class="ms-logo ms-nav__logo" href="/"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 24" fill="none" focusable="false" class="ms-logo__mark" aria-hidden="true"><path d="M2.4 3.2H17.6V11.8C17.6 16.6 14.6 19.8 10 21.3C5.4 19.8 2.4 16.6 2.4 11.8V3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.6 8.6H14.4M5.6 8.6L10 13.6L14.4 8.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="ms-logo__word">Mail Shield</span></a>
+        <button type="button" class="ms-nav__toggle" id="ms-nav-toggle"
+                aria-expanded="false" aria-controls="ms-nav-panel" aria-label="Menu">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"
+                 fill="none" aria-hidden="true" focusable="false">
+                <path d="M3 6h14M3 10h14M3 14h14" fill="none" stroke="currentColor"
+                      stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+        </button>
+
+        <nav class="ms-nav__panel" id="ms-nav-panel" aria-label="Main" hidden>
+            <ul class="ms-nav__links">
+                <li><a href="/#features">Features</a></li>
+                <li><a href="/#how-it-works">How it works</a></li>
+                <li><a href="/pricing.php">Pricing</a></li>
+                <li><a href="/faq.php">FAQ</a></li>
+            </ul>
+
+            <div class="ms-nav__actions">
+                                    <a class="ms-nav__login" href="/pro_login.php">Log in</a>
+                    <a class="ms-btn ms-btn--primary" href="/register.php?plan=regular">Create your inbox</a>
+                            </div>
+        </nav>
+    </div>
+</header>
+
+<script>
+(function () {
+    var nav = document.getElementById('ms-nav');
+    var btn = document.getElementById('ms-nav-toggle');
+    var panel = document.getElementById('ms-nav-panel');
+    if (!nav || !btn || !panel) return;
+
+    function isOpen() { return btn.getAttribute('aria-expanded') === 'true'; }
+    function setOpen(open) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) { panel.removeAttribute('hidden'); } else { panel.setAttribute('hidden', ''); }
+    }
+    function close(moveFocus) {
+        if (!isOpen()) return;
+        setOpen(false);
+        if (moveFocus) btn.focus();
+    }
+
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(true); });
+    // An outside click leaves focus where the user clicked; only Escape pulls it
+    // back to the button.
+    document.addEventListener('click', function (e) { if (!nav.contains(e.target)) close(false); });
+
+    // Hairline only once the page has left the top of the document.
+    var onScroll = function () { nav.classList.toggle('ms-nav--scrolled', window.scrollY > 0); };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>
+<main id="main">
+    <article class="ms-doc">
+        <div class="ms-container--narrow">
+            <h1 class="ms-doc__title">Terms of service</h1>
+            <p class="ms-lede ms-doc__lede">These terms are the agreement between you and us when you use Mail Shield. They are written to be read, so they are short where they can be.</p>
+            <p class="ms-doc__meta">Effective 10 October 2026</p>
+
+            <nav class="ms-doc__toc" aria-label="On this page">
+                <p class="ms-eyebrow">On this page</p>
+                <ul class="ms-doc__toc-list">
+                                            <li><a href="#who">Who we are</a></li>
+                                            <li><a href="#service">The service</a></li>
+                                            <li><a href="#account">Your account</a></li>
+                                            <li><a href="#acceptable-use">Acceptable use</a></li>
+                                            <li><a href="#suitability">What Mail Shield is not for</a></li>
+                                            <li><a href="#plans">Plans, trial and vouchers</a></li>
+                                            <li><a href="#payments">Payments and Paddle</a></li>
+                                            <li><a href="#referrals">Invites</a></li>
+                                            <li><a href="#termination">Ending the service</a></li>
+                                            <li><a href="#transfer">Transfer of the service</a></li>
+                                            <li><a href="#liability">Warranty and liability</a></li>
+                                            <li><a href="#privacy">Privacy</a></li>
+                                            <li><a href="#changes">Changes to these terms</a></li>
+                                            <li><a href="#law">Governing law and disputes</a></li>
+                                    </ul>
+            </nav>
+
+                            <section class="ms-doc__section" id="who">
+                    <h2 class="ms-h2">Who we are</h2>
+                    <div class="ms-prose">
+                        <p>Mail Shield is operated by Example AB (corporate identity number 556000-0000, VAT number SE556000000001), a company registered in Sweden ("we", "us"). You can reach us at <a href="mailto:support@example.test">support@example.test</a>.</p><p>By creating an account or using the service you accept these terms. If you do not accept them, please do not use Mail Shield.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="service">
+                    <h2 class="ms-h2">The service</h2>
+                    <div class="ms-prose">
+                        <p>Mail Shield is a secondary email environment on the domain example.test. It receives email for you; it is not a service for sending email. Depending on your plan you can:</p><ul><li>create timed addresses that receive mail for 24 hours on a free account, or for 1 to 7 days on Pro;</li><li>keep up to 10 sticky addresses (Pro only);</li><li>forward what arrives to other systems — RSS, webhooks, Pushover and digest emails (Pro only).</li></ul><p>A free account has a storage quota of 10 MB and a Pro account one of 100 MB; the Pro figure applies from the first day of the trial, because a trial account is a Pro account. Mail to an address that is not linked to an account has its own 10 MB. When a quota is reached, the oldest messages in it are deleted automatically to make room for new ones, even if the address they arrived at has not expired yet.</p><p>The quota that counts is the one that applies when a message arrives. If a Pro plan ends and the account is then over the free quota, it is trimmed down to it — oldest messages first — as new mail comes in.</p><p>Addresses and integrations have usage limits that protect them and the service. When a limit is reached, the address or integration is paused automatically for a while and you are told; see <a href="/privacy.php#automated-limits">Automated limits</a>.</p><p>Mail is deleted automatically when an address expires or is removed. Mail Shield is not an archive: keep a copy elsewhere of anything you need to keep.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="account">
+                    <h2 class="ms-h2">Your account</h2>
+                    <div class="ms-prose">
+                        <p>You need an account to use Mail Shield. You must give a real email address you control, keep your password to yourself, and tell us if you think someone else has access to your account. You are responsible for what happens under your account.</p><p>You must be at least 16 years old, or the age of digital consent where you live if that is higher.</p><p>A free Regular account that nobody has signed in to for 365 days is deleted, together with its addresses and mail. We email a warning 30 days before that happens. Pro accounts are not deleted for inactivity.</p><p>You can delete your account at any time from your profile. Deletion removes your addresses and your mail.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="acceptable-use">
+                    <h2 class="ms-h2">Acceptable use</h2>
+                    <div class="ms-prose">
+                        <p>You may not use Mail Shield to:</p><ul><li>break the law, or help someone else break it;</li><li>commit fraud, impersonate others, or evade bans, limits or verification in ways that harm the service you use the address with;</li><li>use an address to collect passwords, payment details or other data obtained through phishing, malware or other deception, or to receive the results of such schemes;</li><li>create addresses or accounts in bulk to run spam, fraud or fake-account operations elsewhere;</li><li>receive material that is illegal to possess, including child sexual abuse material;</li><li>attack, probe or overload Mail Shield or its infrastructure, or get round its limits;</li><li>resell or give access to the service as your own product without our written permission.</li></ul><p>We may suspend or close an account that breaks these rules, and remove content connected to it. Where the law requires, we will cooperate with the authorities.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="suitability">
+                    <h2 class="ms-h2">What Mail Shield is not for</h2>
+                    <div class="ms-prose">
+                        <p>Do not use a timed address for anything you need to keep or recover — banking, government services, or an account whose password reset would go to it. Once the address expires, so does your access to that mail.</p><p>A timed address reached through a shared link is readable by anyone who has the link. Treat it as somewhere to receive mail, not somewhere to keep a secret.</p><p>We cannot guarantee that every message sent to you arrives. Senders can delay, reject or filter mail before it reaches us.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="plans">
+                    <h2 class="ms-h2">Plans, trial and vouchers</h2>
+                    <div class="ms-prose">
+                        <p>Mail Shield has a free Regular plan and a paid Pro plan. Pro can be bought as a monthly or yearly subscription, or once as Lifetime. The Pro features are the ones described on the <a href="/pricing.php">pricing page</a> at the time you buy.</p><p>Pro time can also be granted with a voucher code. A voucher has no cash value and cannot be exchanged for money.</p><p>"Lifetime" means for as long as we operate Mail Shield, not for your lifetime or ours. If we ever close the service, we will tell you in advance as described under <a href="#termination">Ending the service</a>.</p><p>When Pro ends, the account becomes a free Regular account. Its sticky addresses are deleted 7 days later, with their mail, and its integrations stop.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="payments">
+                    <h2 class="ms-h2">Payments and Paddle</h2>
+                    <div class="ms-prose">
+                        <p>Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.</p><p>That means the purchase itself is a contract between you and Paddle, on <a href="https://www.paddle.com/legal/checkout-buyer-terms" rel="noopener">Paddle's buyer terms</a>. Paddle takes the payment, charges and pays any sales tax or VAT that applies where you are, and sends you the receipt. Prices are shown in your local currency, including that tax.</p><h3>Subscriptions</h3><p>A monthly or yearly subscription renews automatically at the end of each period, at the price then in force, until you cancel it. You can cancel at any time with <strong>Manage billing</strong> on your profile or through Paddle. After cancelling you keep Pro until the end of the period you have paid for; there is no charge after that.</p><p>If we change the price of a subscription, we tell you by email before the change applies to your next renewal, so you can cancel first.</p><h3>Refunds</h3><p>You can get your money back within 30 days of a payment. The details are in our <a href="/refund-policy.php">refund policy</a>.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="referrals">
+                    <h2 class="ms-h2">Invites</h2>
+                    <div class="ms-prose">
+                        <p>While the invite programme is open, every account has a personal invite link, shown on your profile. The rules are:</p><ul><li>A friend who creates a <strong>new</strong> account through your link, and whose email address has never been used with Mail Shield before, is linked to you. The link is made once, when the account is first verified, and cannot be changed afterwards.</li><li>If that friend buys a 12-month Pro plan within 120 days of creating the account, the friend gets 3 extra months: their next payment is moved 3 months later. If their subscription is set to end instead, the months are added to their Pro time.</li><li>You get 3 months of Pro 30 days after the friend's payment, provided it has not been refunded or charged back by then. If you pay by subscription, your next payment moves 3 months later. Otherwise the months are added to your current end date, or to today if it has passed. If you have Lifetime, you get 3 more Sticky addresses instead, on top of the usual limit, for as long as the account is Pro.</li><li>A Lifetime purchase by the friend also counts for you, but gives the friend nothing extra.</li><li>There is no limit on the number of invites, and rewards stack. Rewards have no cash value and cannot be transferred.</li><li>Inviting yourself, or using several accounts or payment details to collect rewards, is not allowed. We may withhold or remove rewards obtained that way.</li><li>We may change or end the programme. Rewards already granted are kept.</li></ul><p>What happens to a reward when a payment is refunded is in the <a href="/refund-policy.php#after">refund policy</a>; what we store about an invite is in the <a href="/privacy.php#data">privacy policy</a>.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="termination">
+                    <h2 class="ms-h2">Ending the service</h2>
+                    <div class="ms-prose">
+                        <p>You can stop using Mail Shield and delete your account at any time. Cancelling a subscription is a separate step, done with Manage billing; deleting the account does not cancel it by itself.</p><p>We can end or restrict your use of Mail Shield in three different ways:</p><ul><li><strong>Immediate suspension.</strong> Where we see abuse, or a risk to the security of Mail Shield or its users, we may suspend an account at once and without notice while we look into it.</li><li><strong>Closure after a breach.</strong> If you break these terms, we may close your account.</li><li><strong>Our own decision.</strong> If we end your account for any other reason, or close Mail Shield altogether, we will give at least 30 days' notice by email and refund the unused part of any subscription period you have paid for. For a Lifetime purchase made less than two years before the service closes, we refund a share of the price in proportion to the part of those two years that is left.</li></ul>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="transfer">
+                    <h2 class="ms-h2">Transfer of the service</h2>
+                    <div class="ms-prose">
+                        <p>We may transfer Mail Shield and these terms to another operator that takes over the service. We will tell you by email before that happens. Your rights, Lifetime included, continue against the new operator, and if you do not accept the transfer you can delete your account.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="liability">
+                    <h2 class="ms-h2">Warranty and liability</h2>
+                    <div class="ms-prose">
+                        <p>We work to keep Mail Shield available and your mail safe, but the service is provided as it is, and we do not promise that it will be uninterrupted or free of errors.</p><p>To the extent the law allows, we are not liable for indirect or consequential loss, such as lost profits, lost data or lost access to an account elsewhere, and our total liability to you is limited to what you have paid for Mail Shield in the 12 months before the claim arose.</p><p>Nothing in these terms limits rights you have as a consumer under mandatory law, or our liability for gross negligence or intent.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="privacy">
+                    <h2 class="ms-h2">Privacy</h2>
+                    <div class="ms-prose">
+                        <p>How we handle personal data, including the mail you receive, is described in our <a href="/privacy.php">privacy policy</a>.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="changes">
+                    <h2 class="ms-h2">Changes to these terms</h2>
+                    <div class="ms-prose">
+                        <p>We may update these terms. The date at the top shows when they last changed. If a change affects your rights in a material way, we will email you at least 30 days before it takes effect. If you continue to use Mail Shield after that, the new terms apply; if you do not accept them, you can delete your account and cancel your subscription before then.</p>                    </div>
+                </section>
+                            <section class="ms-doc__section" id="law">
+                    <h2 class="ms-h2">Governing law and disputes</h2>
+                    <div class="ms-prose">
+                        <p>These terms are governed by Swedish law. Disputes are settled by the Swedish courts, with the Stockholm District Court as the first instance, unless mandatory consumer law gives you the right to bring a claim where you live.</p><p>If you are a consumer in the EU, you can also turn to the Swedish National Board for Consumer Disputes (Allmänna reklamationsnämnden, <a href="https://www.arn.se" rel="noopener">arn.se</a>). Please contact us at <a href="mailto:support@example.test">support@example.test</a> first — most things are quicker to sort out directly.</p>                    </div>
+                </section>
+                    </div>
+    </article>
+</main>
+<footer class="ms-footer">
+    <div class="ms-container ms-footer__inner">
+        <p class="ms-footer__trust">Mail Shield is operated by Manjo Consulting AB.</p>
+
+        <div class="ms-footer__cols">
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">Product</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/register.php?plan=regular">Create your inbox</a></li>
+                    <li><a href="/pro_login.php">Log in</a></li>
+                    <li><a href="/temporary-email.php">Temporary email addresses</a></li>
+                    <li><a href="/faq.php">FAQ</a></li>
+                </ul>
+            </div>
+
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">More</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/blog.php">Blog</a></li>
+                </ul>
+            </div>
+
+            <div class="ms-footer__col">
+                <h2 class="ms-footer__heading">Legal</h2>
+                <ul class="ms-footer__links">
+                    <li><a href="/pricing.php">Pricing</a></li>
+                    <li><a href="/terms.php">Terms of service</a></li>
+                    <li><a href="/privacy.php">Privacy policy</a></li>
+                    <li><a href="/refund-policy.php">Refund policy</a></li>
+                    <li><button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button></li>
+                </ul>
+                <p class="ms-footer__legal">&copy; YYYY Manjo Consulting AB &middot; Mail Shield vtest</p>
+            </div>
+        </div>
+    </div>
+</footer>
+</div><!-- /.ms-page -->
+</body>
+</html>

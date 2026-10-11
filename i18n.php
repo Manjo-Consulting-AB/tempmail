@@ -101,12 +101,12 @@ if (!function_exists('i18nSupportedLocales')) {
             '/temporary-email.php' => ['en', 'sv'],
             '/pricing.php'         => ['en', 'sv'],
             '/faq.php'             => ['en', 'sv'],
-            '/blog.php'            => ['en'],
+            '/blog.php'            => ['en', 'sv'],
             '/register.php'        => ['en', 'sv'],
             '/pro_login.php'       => ['en', 'sv'],
-            '/terms.php'           => ['en'],
-            '/privacy.php'         => ['en'],
-            '/refund-policy.php'   => ['en'],
+            '/privacy.php'         => ['en', 'sv'],
+            '/refund-policy.php'   => ['en', 'sv'],
+            '/terms.php'           => ['en', 'sv'],
         ];
     }
 

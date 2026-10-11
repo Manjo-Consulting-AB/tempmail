@@ -1,26 +1,10 @@
 <?php
 /**
- * Mail Shield — privacy policy. Rendered by partials/legal_page.php; the facts
- * it quotes come from partials/legal_facts.php and follow $config.
- *
- * Every data flow described here is one the code has, and the list has to be
- * kept in step with it: the account address (encrypted at rest, pii_crypto.php),
- * received mail and its retention (cron/cleanup.php, MailboxQuota, and the
- * retention hold a Pro account may start — retention_hold.php), system logs
- * with IP addresses (LOG_RETENTION_DAYS), removed personal addresses on the
- * cool-off list (address_cooldown.php, ADDRESS_COOLDOWN_MONTHS), the hashed trial claim
- * (pro_trial.php, five years), the Paddle mirror tables (paddle_sync.php), the
- * integrations a user configures themselves, the apps a user connects to the
- * MCP endpoint — by approving one on the OAuth consent page (oauth_server.php:
- * the name it registered and the redirect host, plus a hash of each token) or
- * with an access token of their own (mcp_tokens.php: only a hash of the token
- * is stored), Google Analytics loaded only
- * after consent on the public pages (partials/analytics.php, consent-gated;
- * register.php no longer loads it), and the session and 2FA
- * trusted-device cookies (TwoFactorAuth::TRUSTED_DEVICE_COOKIE, 30 days), and
- * the stay-signed-in cookie and its token rows (pro_remember.php: the chosen
- * 1/7/30 days, sliding, never past 90 days after sign-in).
- * Adding a processor or a tracker means updating this page in the same change.
+ * Mail Shield - privacy policy. Rendered by partials/legal_page.php; the copy
+ * lives in partials/content/legal/privacy.<locale>.php (documentaion/I18N.md
+ * section 4) and the facts it quotes come from partials/legal_facts.php and
+ * follow $config. The data-flow inventory the policy must keep in step with
+ * the code is in privacy.en.php's docblock.
  */
 
 define('TEMPMAIL_APP', true);
@@ -36,148 +20,14 @@ $f = require __DIR__ . '/partials/legal_facts.php';
 require_once __DIR__ . '/referrals.php';
 $ref = referralSettings($config['referral'] ?? []);
 
-$msLegalDoc = [
-    'title'       => 'Privacy policy',
-    'lede'        => 'Mail Shield exists to keep your primary address out of places it does not need to be. This page says what we collect to do that, why, how long we keep it, and who else sees it.',
-    'description' => 'What personal data Mail Shield collects, why, how long it is kept, and who processes it — including payments handled by Paddle.',
-    'path'        => '/privacy.php',
-    'updated'     => '10 October 2026',
-    'sections'    => [
-        [
-            'id'      => 'controller',
-            'heading' => 'Who is responsible',
-            'html'    => '<p>The data controller is ' . $f['company_full'] . ', which operates Mail Shield. Questions about your data, and requests to use the rights described below, go to ' . $f['contact'] . '.</p>'
-                . '<p>For purchases, Paddle is the Merchant of Record and is the controller of the payment data it collects; see <a href="#payments">Payments</a>.</p>',
-        ],
-        [
-            'id'      => 'data',
-            'heading' => 'What we collect',
-            'html'    => '<h3>Your account</h3>'
-                . '<p>The email address you register with, and a hash of your password — never the password itself. If you turn on two-factor authentication, we store its secret encrypted, and a record of browsers you choose to trust. We record when the account was created and when you last signed in, and your settings: plan, address lifetime, digests and integrations.</p>'
-                . '<p>Your registered email address is stored encrypted, and looked up through a keyed hash rather than in plain text.</p>'
-                . '<h3>The mail you receive</h3>'
-                . '<p>Messages sent to your Mail Shield addresses — headers, content and attachments — are stored so that you can read them. People at Mail Shield do not look at your mail as part of running the service, and it is never used for advertising or profiling. It is processed automatically to store it, show it to you and pass it to the integrations you have set up. We only access a specific message when that is needed to investigate abuse or a security incident, to help you when you ask us to, or when the law requires it.</p>'
-                . '<h3>Connected apps</h3>'
-                . '<p>You can connect an app or an AI assistant to your account: either by signing in and approving the app when it asks, or by creating an access token and giving that to the app. Either way we store only a one-way hash of the credential — never the token itself — together with the access you granted (read only, or read and change) and when it was last used. A token you created yourself also carries the name you gave it and the expiry you chose.</p>'
-                . '<p>For an app you approve on the sign-in screen we keep the name the app gave itself, the host of the address it asked to be sent back to, and when you connected it. The app supplies those details itself when it registers; they are what the Connected apps card shows you, so you can tell one app from another and disconnect it.</p>'
-                . '<h3>Invites</h3>'
-                . '<p>When you sign up through an invite link, we store which account invited you and the status of the invite, with its dates and, once you buy Pro, the plan and the Paddle subscription or transaction it concerns. The invite code is kept in a cookie and on your new account until you verify your address. The person who invited you only sees counts, never who you are. The record holds account numbers, not email addresses, and stays when either account is deleted. Every account also has an invite code of its own.</p>'
-                . '<h3>Technical data</h3>'
-                . '<p>Our server logs record events such as sign-ins, errors and suspicious requests, with the IP address involved. Sign-in attempts are recorded to stop password guessing. We do not write your registered email address into the logs.</p>'
-                . '<p>To protect addresses from floods of mail and the service from misuse, we count how many messages, and how many bytes, each address receives, how many addresses are created from each IP address and account, and how many notifications each integration sends. When a limit is reached we pause the address or the integration for a while and tell you, and we keep a record of that step.</p>'
-                . '<h3>Trial record</h3>'
-                . '<p>To give each email address the free Pro trial only once, we keep a keyed hash of the normalised address. It is not linked to your account and cannot be turned back into the address.</p>'
-                . '<h3>Payments</h3>'
-                . '<p>When you buy Pro, Paddle tells us your customer ID, the email address you paid with, and the status of your subscription and transactions, so that we can give your account Pro. We never receive or store your card details.</p>'
-                . '<h3>Support</h3>'
-                . '<p>If you contact us, we keep the conversation so that we can answer you.</p>',
-        ],
-        [
-            'id'      => 'purposes',
-            'heading' => 'Why, and on what legal basis',
-            'html'    => '<ul>'
-                . '<li><strong>Running the service you signed up for</strong> — your account, your addresses, your mail, your integrations and your plan. Legal basis: performance of our contract with you (GDPR article 6.1 b).</li>'
-                . '<li><strong>Keeping the service secure</strong> — logs, sign-in limits, abuse detection and the trial record. Legal basis: our legitimate interest in protecting Mail Shield and its users from misuse (article 6.1 f).</li>'
-                . '<li><strong>Accounting</strong> — payment records. Legal basis: our legal obligation under Swedish bookkeeping law (article 6.1 c).</li>'
-                . '<li><strong>Understanding how the public pages are used</strong> — Google Analytics, only after you accept it in the cookie notice. Legal basis: your consent (GDPR article 6.1 a), asked before any analytics cookie is set; declining changes nothing else on the site.</li>'
-                . '<li><strong>Telling you about your account</strong> — verification, sign-in links, security notices, inactivity warnings and changes to our terms. These are service messages, not marketing; we do not send newsletters.</li>'
-                . '</ul>',
-        ],
-        [
-            'id'      => 'retention',
-            'heading' => 'How long we keep it',
-            'html'    => '<ul>'
-                . '<li><strong>Timed addresses and their mail</strong> — ' . $f['free_hours'] . ' hours on a free account, or the 1 to 7 days you choose on Pro. Then they are deleted automatically.</li>'
-                . '<li><strong>Sticky addresses</strong> — until you remove them, or 7 days after your Pro plan ends. Their mail is deleted with them.</li>'
-                . '<li><strong>Mail you choose to keep longer</strong> — a Pro account can hold back the clean-up of its sticky addresses\' mail: up to ' . $f['hold_max'] . ' times a year, a hold extends that mail to ' . $f['hold_days'] . ' days from the day it arrived. Ending a hold early leaves the mail that was already extended in place, and a timed address always expires on its own schedule. The storage limit below still applies.</li>'
-                . '<li><strong>Any mail, before it would otherwise expire</strong> — a storage quota applies to your account (or to each address, if it is not linked to an account): ' . $f['quota_free_mb'] . ' MB on a free account and ' . $f['quota_pro_mb'] . ' MB on Pro, with the Pro figure also during the trial. When it is full, the oldest mail in that scope is deleted to make room, whichever address it is in. The quota is read when a message arrives, so an account that drops to free (a plan or a trial ending) is trimmed, oldest first, as new mail comes in.</li>'
-                . '<li><strong>Removed sticky addresses</strong> — the address itself (not its mail) is kept on a reserved list for ' . $f['cooldown_months'] . ' months after it is removed, linked to your account number, so nobody else can take it over and receive mail meant for you. This also applies after your account is deleted.</li>'
-                . '<li><strong>Your account</strong> — until you delete it. A free Regular account nobody signs in to for ' . $f['delete_days'] . ' days is deleted, after an email warning.</li>'
-                . '<li><strong>Server logs</strong> — ' . $f['log_days'] . ' days.</li>'
-                . '<li><strong>Abuse counters</strong> (messages per address, new addresses per IP address and account) — two days. The record of pauses, warnings and other protective steps — 90 days.</li>'
-                . '<li><strong>Trusted browsers for two-factor authentication</strong> — 30 days, or until you remove them.</li>'
-                . '<li><strong>Devices you keep signed in</strong> (a browser and operating system name, and when it was last used) — the period you chose, counted from the last visit and never more than 90 days after you signed in, or until you remove the device, sign out on it, or change your password or email address.</li>'
-                . '<li><strong>Access tokens you created yourself</strong> — until you revoke them, or until the expiry you chose. A revoked or expired token is deleted 30 days later. Changing your password or email address, or deleting your account, revokes them all at once.</li>'
-                . '<li><strong>Apps you connected by signing in</strong> — until you disconnect them, or ' . $f['grant_idle_days'] . ' days after the app last used its access, whichever comes first. A sign-in you started but never approved lapses after ' . $f['code_seconds'] . ' seconds, and an app that registered itself and was never used is removed after ' . $f['client_idle_days'] . ' days. Disconnecting an app, changing your password or email address, or deleting your account ends these at once.</li>'
-                . '<li><strong>Trial record</strong> — five years from the first time the address was used.</li>'
-                . '<li><strong>Payment records</strong> — seven years, as Swedish bookkeeping law requires.</li>'
-                . '</ul>',
-        ],
-        [
-            'id'      => 'sharing',
-            'heading' => 'Who else processes your data',
-            'html'    => '<p>We do not sell your data, and we do not share it with advertisers. It is processed by these parties, and only for the reasons given:</p>'
-                . '<ul>'
-                . '<li><strong>Our hosting provider, ' . $f['hosting'] . '</strong>, which runs the servers that receive, store and serve your mail, as our processor under a data processing agreement. Your account and your mail are stored in Sweden.</li>'
-                . '<li><strong>Paddle</strong> (Paddle.com Market Ltd), for payments — see below.</li>'
-                . '<li><strong>Google</strong> (Google Ireland Ltd), for Google Analytics on our public pages, if you accept analytics.</li>'
-                . '<li><strong>The destinations you choose</strong>, when you set up an integration:'
-                . '<ul>'
-                . '<li><strong>Webhook:</strong> the sender, the recipient address, the subject, the full message body and the time it arrived. Attachments are not sent, only how many there are.</li>'
-                . '<li><strong>Pushover:</strong> the subject and a plain-text excerpt of the body (up to about 4,000 characters), titled with the recipient address, sent to Pushover and on to your devices.</li>'
-                . '<li><strong>RSS feed:</strong> the sender, subject, date and full message body, with links to the attachments, available to anyone who has the feed link.</li>'
-                . '<li><strong>An app or AI assistant you connect</strong> — whether you approved it on the sign-in screen or gave it an access token: your addresses, and the mail it asks for — sender, subject, body and attachment links. Unlike the integrations above, that app fetches it itself, and what it does with it is between you and whoever runs it.</li>'
-                . '</ul>'
-                . 'Those services are chosen by you and handle the data under their own terms. An AI assistant you connect is no different: its provider answers to you, not to us, and is not our processor.</li>'
-                . '<li><strong>Authorities</strong>, where the law requires us to disclose data.</li>'
-                . '</ul>'
-                . '<p>A digest email is not shared with anyone else: it lists the sender, subject and time of your waiting messages and goes to your own registered address.</p>',
-        ],
-        [
-            'id'      => 'automated-limits',
-            'heading' => 'Automated limits',
-            'html'    => '<p>Automatic limits protect addresses and the service: when one is reached, an address or integration is paused for a while and you are told. These pauses are temporary. Suspending an account is always decided by a person. We do not make decisions based solely on automated processing that have legal or similarly significant effects on you (GDPR article 22). If you think a limit hit you wrongly, <a href="#controller">contact us</a>.</p>',
-        ],
-        [
-            'id'      => 'payments',
-            'heading' => 'Payments are processed by Paddle',
-            'html'    => '<p>Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. When you check out, you give your payment details, name, country and email address to Paddle, not to us, and Paddle processes them as an independent controller under <a href="https://www.paddle.com/legal/privacy" rel="noopener">Paddle\'s privacy policy</a>.</p>'
-                . '<p>The pricing page, and the plans section of the front page, load Paddle\'s script to show prices in your currency, and the checkout uses it to open. Loading it means your browser contacts Paddle, which then sees your IP address; Paddle may set its own cookies there.</p>',
-        ],
-        [
-            'id'      => 'cookies',
-            'heading' => 'Cookies',
-            'html'    => '<ul>'
-                . '<li><strong>A session cookie</strong>, which keeps you signed in. It is necessary for the service and ends when you sign out or close the session.</li>'
-                . '<li><strong>A trusted-browser cookie</strong>, set only if you choose to have a browser remembered for two-factor authentication. It lasts 30 days.</li>'
-                . '<li><strong>A stay-signed-in cookie</strong>, set only if you choose to stay signed in on a device. It lasts the period you chose (1, 7 or 30 days from your last visit, at most 90 days) and is removed when you sign out.</li>'
-                . '<li><strong>Google Analytics cookies</strong>, set only on the public pages (never on the inbox, your account or sign-in pages) and only after you click Accept in the cookie notice. Use Cookie settings in the footer to withdraw your consent; that stops these cookies being set on later pages and deletes the ones already set.</li>'
-                . '<li><strong>An invite cookie, <code>ms_ref</code></strong>, set only when you follow an invite link while the invite programme is open. It holds the invite code, lasts up to ' . $ref['cookie_days'] . ' days and is removed when you verify your account.</li>'
-                . '<li><strong>Paddle cookies</strong> on the front page, the pricing page and in the checkout.</li>'
-                . '<li><strong>Your cookie choice</strong> itself is remembered in your browser\'s local storage, not a cookie, so we can honour it; it is strictly necessary and is not sent to us.</li>'
-                . '</ul>'
-                . '<p>You can block or delete cookies in your browser. Blocking the session cookie means you cannot sign in.</p>',
-        ],
-        [
-            'id'      => 'transfers',
-            'heading' => 'Transfers outside the EU',
-            'html'    => '<p>Mail Shield itself is hosted in Sweden, and your mail is stored there. Only Google and Paddle process data outside the EU and EEA, including in the United States and the United Kingdom. Where they do, the transfer is covered by an adequacy decision — such as the EU–US Data Privacy Framework or the decision for the United Kingdom — or by the EU\'s standard contractual clauses.</p>',
-        ],
-        [
-            'id'      => 'security',
-            'heading' => 'How we protect it',
-            'html'    => '<p>Connections to Mail Shield are encrypted. Your registered address, two-factor secrets and your integrations\' credentials — webhook secrets and headers, Pushover keys and feed links — are encrypted at rest; passwords and the access tokens for connected apps are hashed rather than stored as themselves. Attachments are only served through signed, expiring links. Access to production data is limited to the people who run the service.</p>'
-                . '<p>Remember that email itself is usually not end-to-end encrypted, and that a shared inbox link can be read by anyone who has it.</p>',
-        ],
-        [
-            'id'      => 'rights',
-            'heading' => 'Your rights',
-            'html'    => '<p>Under the GDPR you have the right to access the personal data we hold about you, to have it corrected or deleted, to restrict or object to its processing, and to receive it in a portable format. Where we rely on your consent, you can withdraw it at any time. Where we rely on our legitimate interest, you have the right to object to that processing.</p>'
-                . '<p>Some of these rights have limits. Payment records are kept for seven years under Swedish bookkeeping law, even after your account is deleted, and data needed to handle a security incident or a legal claim may be kept for as long as that lasts.</p>'
-                . '<p>Most of this you can do yourself: your profile shows your account data, and deleting your account removes it, except what we must keep for accounting. For anything else, email ' . $f['contact'] . '. We answer within one month.</p>'
-                . '<p>If you think we handle your data wrongly, you can complain to the Swedish Authority for Privacy Protection (Integritetsskyddsmyndigheten, <a href="https://www.imy.se" rel="noopener">imy.se</a>) or to the authority where you live.</p>',
-        ],
-        [
-            'id'      => 'children',
-            'heading' => 'Children',
-            'html'    => '<p>Mail Shield is not meant for children under 16, and we do not knowingly collect data from them.</p>',
-        ],
-        [
-            'id'      => 'changes',
-            'heading' => 'Changes to this policy',
-            'html'    => '<p>When this policy changes, we update the date at the top. If a change is material, we tell you by email before it takes effect.</p>',
-        ],
-    ],
-];
+// The copy: one content file per language, English when a language has none.
+// The file reads $f and $ref (listed in privacy.en.php's docblock) and returns
+// the document as data.
+$msLocale = i18nLocale();
+$msLegalFile = __DIR__ . '/partials/content/legal/privacy.' . $msLocale . '.php';
+if (!preg_match('/^[a-z]{2}$/', $msLocale) || !is_file($msLegalFile)) {
+    $msLegalFile = __DIR__ . '/partials/content/legal/privacy.en.php';
+}
+$msLegalDoc = require $msLegalFile;
 
 require __DIR__ . '/partials/legal_page.php';
