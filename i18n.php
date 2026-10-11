@@ -88,7 +88,7 @@ if (!function_exists('i18nSupportedLocales')) {
         }
         return $pages ?? [
             '/'                    => ['en', 'sv'],
-            '/temporary-email.php' => ['en'],
+            '/temporary-email.php' => ['en', 'sv'],
             '/pricing.php'         => ['en', 'sv'],
             '/faq.php'             => ['en', 'sv'],
             '/blog.php'            => ['en'],
