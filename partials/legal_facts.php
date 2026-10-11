@@ -35,22 +35,26 @@ $msLegalOrgNumber = trim((string) ($config['legal']['org_number'] ?? ''));
 $msLegalVatNumber = trim((string) ($config['legal']['vat_number'] ?? ''));
 $msLegalContact   = (string) ($config['legal']['contact_email'] ?? '');
 
-// "corporate identity number 556…, VAT number SE556…01", whichever are set.
+// "corporate identity number 556…, VAT number SE556…01", whichever are set, in
+// this request's language. t() returns plain text, so the number goes in as a
+// placeholder and the finished sentence is escaped once, below.
 $msLegalIds = [];
 if ($msLegalOrgNumber !== '') {
-    $msLegalIds[] = 'corporate identity number ' . $msLegalH($msLegalOrgNumber);
+    $msLegalIds[] = t('legal.fact.org_number', ['number' => $msLegalOrgNumber]);
 }
 if ($msLegalVatNumber !== '') {
-    $msLegalIds[] = 'VAT number ' . $msLegalH($msLegalVatNumber);
+    $msLegalIds[] = t('legal.fact.vat_number', ['number' => $msLegalVatNumber]);
 }
 
 return [
     'company'      => $msLegalH($msLegalCompany),
     // "Manjo Consulting AB (corporate identity number …, VAT number …), a
     // company registered in Sweden" — the brackets only when a number is set.
-    'company_full' => $msLegalH($msLegalCompany)
-        . ($msLegalIds !== [] ? ' (' . implode(', ', $msLegalIds) . ')' : '')
-        . ', a company registered in Sweden',
+    // The wording is the catalog's (legal.fact.*), so it follows the language.
+    'company_full' => $msLegalH(t('legal.fact.company_full', [
+        'company' => $msLegalCompany,
+        'ids'     => $msLegalIds !== [] ? ' (' . implode(', ', $msLegalIds) . ')' : '',
+    ])),
     'contact'      => '<a href="mailto:' . $msLegalH($msLegalContact) . '">' . $msLegalH($msLegalContact) . '</a>',
     'domain'       => $msLegalH($config['email']['domain'] ?? ''),
     'trial_days'   => max(0, (int) ($config['trial']['days'] ?? 0)),
@@ -73,5 +77,5 @@ return [
     'grant_idle_days' => 90,
     'code_seconds'    => 60,
     'client_idle_days' => 30,
-    'hosting'      => 'Inleed, a trade name of Yelles AB (Sweden)',
+    'hosting'      => $msLegalH(t('legal.fact.hosting')),
 ];

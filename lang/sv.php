@@ -276,6 +276,12 @@ return [
     'faq.foot.blog' => 'Blogg',
     'faq.foot.faq' => 'Vanliga frågor',
     'faq.foot.cookie_settings' => 'Cookie-inställningar',
+    'legal.shell.effective' => 'Gäller från',
+    'legal.shell.toc' => 'På den här sidan',
+    'legal.fact.org_number' => 'organisationsnummer {number}',
+    'legal.fact.vat_number' => 'momsregistreringsnummer {number}',
+    'legal.fact.company_full' => '{company}{ids}, ett bolag registrerat i Sverige',
+    'legal.fact.hosting' => 'Inleed, ett varumärke som tillhör Yelles AB (Sverige)',
 
     // Appens navigering (partials/nav.php)
     'appnav.label'         => 'Applikation',

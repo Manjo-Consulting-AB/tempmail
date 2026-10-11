@@ -14,9 +14,11 @@
  *   'lede'        string  one plain-text paragraph under it
  *   'description' string  meta description
  *   'path'        string  canonical path, e.g. '/terms.php'
- *   'updated'     string  effective date as shown, e.g. '25 September 2026' —
- *                         a real date the text took effect, not a file mtime,
- *                         because a legal text is dated by when it applies
+ *   'updated'     string  effective date as ISO Y-m-d, e.g. '2026-09-25', shown
+ *                         through i18nDate() in the page's language — a real
+ *                         date the text took effect, not a file mtime, because
+ *                         a legal text is dated by when it applies; every
+ *                         language of a document carries the same date
  *   'sections'    array   list of ['id' => …, 'heading' => …, 'html' => …];
  *                         heading is plain text, html is trusted markup built by
  *                         the page with every interpolated value escaped
@@ -50,10 +52,10 @@ $msLegalEsc = function ($value): string {
         <div class="ms-container--narrow">
             <h1 class="ms-doc__title"><?php echo $msLegalEsc($msLegalDoc['title']); ?></h1>
             <p class="ms-lede ms-doc__lede"><?php echo $msLegalEsc($msLegalDoc['lede']); ?></p>
-            <p class="ms-doc__meta">Effective <?php echo $msLegalEsc($msLegalDoc['updated']); ?></p>
+            <p class="ms-doc__meta"><?php echo te('legal.shell.effective'); ?> <?php echo $msLegalEsc(i18nDate(strtotime((string) $msLegalDoc['updated']))); ?></p>
 
-            <nav class="ms-doc__toc" aria-label="On this page">
-                <p class="ms-eyebrow">On this page</p>
+            <nav class="ms-doc__toc" aria-label="<?php echo te('legal.shell.toc'); ?>">
+                <p class="ms-eyebrow"><?php echo te('legal.shell.toc'); ?></p>
                 <ul class="ms-doc__toc-list">
                     <?php foreach ($msLegalDoc['sections'] as $msLegalSection) : ?>
                         <li><a href="#<?php echo $msLegalEsc($msLegalSection['id']); ?>"><?php echo $msLegalEsc($msLegalSection['heading']); ?></a></li>
