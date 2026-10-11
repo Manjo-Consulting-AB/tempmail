@@ -30,6 +30,13 @@
  *      `/blog.php?post=<basename>`; an article view renders one. The `?post=`
  *      value is never treated as a path — it is looked up in the list built
  *      from the directory scan, so an unknown value cannot read anything.
+ *   5. Languages (documentaion/I18N.md). English posts are blog/*.md and are
+ *      never touched; a translation is blog/<locale>/<same basename>.md and is
+ *      as much a dated record as the original (old names and features stay as
+ *      they were). The index of a language lists only the posts that have a
+ *      file in that language, and a non-English post URL whose post exists only
+ *      in English answers a 302 to the English post. The chrome (headings,
+ *      navigation, footer, dates) goes through the catalog under `blog.`.
  */
 
 define('TEMPMAIL_APP', true);
@@ -44,8 +51,13 @@ require_once __DIR__ . '/partials/brand.php';
  * Security note: the input is escaped in full before any regex runs, and each
  * callback escapes its own attribute values again. Keep that order — text is
  * escaped on the way in, never around the generated tags.
+ *
+ * $rootRelative is for posts shown under a language prefix (/sv/blog.php): a
+ * relative image or link path such as blog/images/x.jpeg would resolve against
+ * /sv/, so it gets a leading slash. A scheme (https:, mailto:), a leading
+ * slash or # is left as written. It only changes a path after the escaping.
  */
-function markdown_to_html(string $text): string
+function markdown_to_html(string $text, bool $rootRelative = false): string
 {
     $text = rtrim($text, "\n");
     $text = htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -64,11 +76,18 @@ function markdown_to_html(string $text): string
     $in_ol = false;
     $hard_break = false;
 
-    $inline = function ($s) {
+    $absolutise = function (string $path) use ($rootRelative): string {
+        if (!$rootRelative || $path === '' || preg_match('#^(?:[a-z][a-z0-9+.-]*:|/|\#)#i', $path)) {
+            return $path;
+        }
+        return '/' . $path;
+    };
+
+    $inline = function ($s) use ($absolutise) {
         // images: allow optional width suffix like ![alt](path/to/img.jpg|200)
-        $s = preg_replace_callback('/!\[([^\]]*)\]\(([^)\|]+)(?:\|(\d+))?\)/', function ($m) {
+        $s = preg_replace_callback('/!\[([^\]]*)\]\(([^)\|]+)(?:\|(\d+))?\)/', function ($m) use ($absolutise) {
             $alt = htmlspecialchars($m[1], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            $src = htmlspecialchars($m[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $src = htmlspecialchars($absolutise($m[2]), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $width = isset($m[3]) && $m[3] !== '' ? intval($m[3]) : null;
             $style = $width ? 'style="width:' . $width . 'px;height:auto;"' : '';
             return '<img src="' . $src . '" alt="' . $alt . '" class="img-fluid" ' . $style . ' />';
@@ -77,13 +96,13 @@ function markdown_to_html(string $text): string
         // inline code
         $s = preg_replace('/`([^`]+)`/', '<code>$1</code>', $s);
             // links [text](url) - open in new tab safely. Use callback to escape attributes.
-            $s = preg_replace_callback('/\[([^\]]+)\]\(([^)]+)\)/', function ($m) {
+            $s = preg_replace_callback('/\[([^\]]+)\]\(([^)]+)\)/', function ($m) use ($absolutise) {
                 $text = $m[1];
-                $href = $m[2];
+                $href = $absolutise($m[2]);
                 $textEsc = $text; // already escaped earlier via htmlspecialchars
                 $hrefEsc = htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 $icon = '<i class="fas fa-external-link-alt ms-1" aria-hidden="true"></i>';
-                $vis = '<span class="visually-hidden"> (opens in new tab)</span>';
+                $vis = '<span class="visually-hidden"> ' . htmlspecialchars(t('blog.new_tab'), ENT_QUOTES, 'UTF-8') . '</span>';
                 // &nbsp; rather than a plain space: the icon is part of the link
                 // and must stay with the last word instead of wrapping alone.
                 return '<a href="' . $hrefEsc . '" target="_blank" rel="noopener noreferrer">' . $textEsc . '&nbsp;' . $icon . $vis . '</a>';
@@ -176,13 +195,34 @@ $msExcerpt = function (string $md, int $limit = 155): string {
     return $text;
 };
 
-// The post list. Discovery and ordering are unchanged: every *.md directly in
-// blog/, sorted by filename descending, which for YYYY-MM-DD.md is newest first.
-$msPosts = [];
-$rootBlog = realpath(__DIR__ . '/blog');
+$msLocale  = i18nLocale();
+$msDefault = i18nDefaultLocale();
+$msIsDefault = $msLocale === $msDefault;
+$msEnabled = $config['i18n']['enabled'] ?? [$msDefault];
 
-if ($rootBlog !== false && is_dir($rootBlog)) {
-    $files = glob($rootBlog . '/*.md');
+// The post list of one language. Discovery and ordering are unchanged: every
+// *.md directly in the language's directory (blog/ for English, blog/<locale>/
+// for any other), sorted by filename descending, which for YYYY-MM-DD.md is
+// newest first. The locale reaches the path only after it has been checked to
+// be two letters, and it comes from the URL prefix i18nBootstrap() accepted.
+$msScanPosts = function (string $locale) use ($msDefault): array {
+    $posts = [];
+    $rootBlog = realpath(__DIR__ . '/blog');
+    if ($rootBlog === false || !is_dir($rootBlog)) {
+        return $posts;
+    }
+    $dir = $rootBlog;
+    if ($locale !== $msDefault) {
+        if (!preg_match('/^[a-z]{2}$/', $locale)) {
+            return $posts;
+        }
+        $dir = $rootBlog . '/' . $locale;
+        if (!is_dir($dir)) {
+            return $posts;
+        }
+    }
+
+    $files = glob($dir . '/*.md') ?: [];
     usort($files, function ($a, $b) {
         return strcmp(basename($b), basename($a));
     });
@@ -203,14 +243,19 @@ if ($rootBlog !== false && is_dir($rootBlog)) {
 
         $dt = DateTime::createFromFormat('Y-m-d', $basename);
 
-        $msPosts[$basename] = [
+        $posts[$basename] = [
             'title' => $title,
             'body'  => $md,
             'iso'   => $basename,
-            'date'  => $dt ? $dt->format('j F Y') : $basename,
+            'date'  => $dt ? i18nDate($dt->getTimestamp()) : $basename,
         ];
     }
-}
+
+    return $posts;
+};
+
+$msPosts   = $msScanPosts($msLocale);
+$msEnPosts = $msIsDefault ? $msPosts : $msScanPosts($msDefault);
 
 // Routing. `?post=` can only ever *match* one of the records read from disk —
 // the value that reaches the page is always a record from the directory scan,
@@ -228,30 +273,70 @@ if ($msPostKey !== '') {
     }
 }
 
+// A post that exists only in English: from another language's URL the reader
+// is sent to the English post. The target is the matched record's own
+// basename, never the request.
+if ($msPost === null && $msPostKey !== '' && !$msIsDefault) {
+    foreach ($msEnPosts as $msCandidate) {
+        if ($msCandidate['iso'] === $msPostKey) {
+            header('Location: ' . i18nUrl('/blog.php?post=' . rawurlencode((string) $msCandidate['iso']), $msDefault, $msEnabled), true, 302);
+            exit;
+        }
+    }
+}
+
 $msMissing = $msPostKey !== '' && $msPost === null;
 
-$msStandfirst = 'Release notes and notes on running the service.';
+$msStandfirst = t('blog.lede');
 
+$msPath    = '/blog.php';
 $msOrigin  = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 $msOgImage = $msOrigin . '/assets/images/og-mailshield.png';
 
+// A link to a public page in this request's language, escaped for HTML.
+$msU = function (string $path) use ($msLocale, $msEnabled): string {
+    return htmlspecialchars(i18nUrl($path, $msLocale, $msEnabled), ENT_QUOTES, 'UTF-8');
+};
+$msAssets = $msIsDefault ? '' : '/';
+
+// hreflang alternates of one post: only when the post exists in more than one
+// of the languages the page is offered in. i18nAlternates() is path-only, so
+// the query is built here.
+$msPostAlternates = [];
+if ($msPost !== null) {
+    $msPostQuery = $msPath . '?post=' . rawurlencode((string) $msPost['iso']);
+    $msHave = [];
+    foreach (i18nPageLocales($msPath, $msEnabled) as $msCode) {
+        $msList = $msCode === $msLocale ? $msPosts : ($msCode === $msDefault ? $msEnPosts : $msScanPosts($msCode));
+        if (isset($msList[$msPost['iso']])) {
+            $msHave[] = $msCode;
+        }
+    }
+    if (count($msHave) > 1) {
+        foreach ($msHave as $msCode) {
+            $msPostAlternates[] = ['hreflang' => $msCode, 'href' => $msOrigin . i18nUrl($msPostQuery, $msCode, $msEnabled)];
+        }
+        $msPostAlternates[] = ['hreflang' => 'x-default', 'href' => $msOrigin . i18nUrl($msPostQuery, $msDefault, $msEnabled)];
+    }
+}
+
 if ($msPost !== null) {
     $msView        = 'article';
-    $msTitle       = ($msPost['title'] ?? $msPost['date']) . ' · Blog · Mail Shield';
+    $msTitle       = t('blog.post.title', ['title' => $msPost['title'] ?? $msPost['date']]);
     $msDescription = $msExcerpt((string) $msPost['body']);
-    $msUrl         = $msOrigin . '/blog.php?post=' . rawurlencode((string) $msPost['iso']);
+    $msUrl         = $msOrigin . i18nUrl('/blog.php?post=' . rawurlencode((string) $msPost['iso']));
     $msRobots      = 'index, follow';
 } elseif ($msMissing) {
     $msView        = 'missing';
-    $msTitle       = 'Post not found · Blog · Mail Shield';
-    $msDescription = 'That post does not exist. Every published post is listed on the blog index.';
-    $msUrl         = $msOrigin . '/blog.php';
+    $msTitle       = t('blog.missing.title');
+    $msDescription = t('blog.missing.description');
+    $msUrl         = $msOrigin . i18nUrl('/blog.php');
     $msRobots      = 'noindex, nofollow';
 } else {
     $msView        = 'index';
-    $msTitle       = 'Blog · Mail Shield';
+    $msTitle       = t('blog.meta.title');
     $msDescription = $msStandfirst;
-    $msUrl         = $msOrigin . '/blog.php';
+    $msUrl         = $msOrigin . i18nUrl('/blog.php');
     $msRobots      = 'index, follow';
 }
 
@@ -263,10 +348,10 @@ if ($msView === 'missing') {
 // signed-in reader is never sent back through sign-up.
 $msSignedIn = !empty($_SESSION['pro_user_id']);
 $msCtaHref  = $msSignedIn ? '/pro.php' : '/register.php?plan=regular';
-$msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
+$msCtaLabel = $msSignedIn ? t('blog.go_to_inbox') : t('blog.create_inbox');
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?php echo $msEsc($msLocale); ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -276,6 +361,14 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
     <meta name="description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="robots" content="<?php echo $msEsc($msRobots); ?>">
     <link rel="canonical" href="<?php echo $msEsc($msUrl); ?>">
+<?php if ($msView === 'index') : ?>
+<?php require __DIR__ . '/partials/i18n_head.php'; ?>
+<?php elseif (count($msPostAlternates) > 0) : ?>
+<?php foreach ($msPostAlternates as $msAlt) : ?>
+    <link rel="alternate" hreflang="<?php echo $msEsc($msAlt['hreflang']); ?>" href="<?php echo $msEsc($msAlt['href']); ?>">
+<?php endforeach; ?>
+    <meta property="og:locale" content="<?php echo $msEsc(['en' => 'en_GB', 'sv' => 'sv_SE'][$msLocale] ?? $msLocale); ?>">
+<?php endif; ?>
 
     <meta property="og:type" content="<?php echo $msView === 'article' ? 'article' : 'website'; ?>">
     <meta property="og:site_name" content="Mail Shield">
@@ -300,29 +393,29 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
          wins. -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
-    <link href="assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
-    <link href="assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/style.css" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-fonts.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield.css') ?: 1; ?>" rel="stylesheet">
+    <link href="<?php echo $msAssets; ?>assets/css/mailshield-bootstrap.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/mailshield-bootstrap.css') ?: 1; ?>" rel="stylesheet">
 </head>
 <body>
-<a class="ms-skip" href="#main">Skip to content</a>
+<a class="ms-skip" href="#main"><?php echo te('blog.skip'); ?></a>
 <div class="ms-faq">
     <header class="ms-faq__bar">
         <div class="ms-container ms-faq__bar-inner">
-            <?php echo ms_logo(['href' => '/', 'class' => 'ms-faq__logo']); ?>
+            <?php echo ms_logo(['href' => i18nUrl('/'), 'class' => 'ms-faq__logo']); ?>
 
             <ul class="ms-faq__links">
-                <li><a href="/">Home</a></li>
-                <li><a href="/temporary-email.php">Temporary email</a></li>
-                <li><a href="/faq.php">FAQ</a></li>
+                <li><a href="<?php echo $msU('/'); ?>"><?php echo te('blog.home'); ?></a></li>
+                <li><a href="<?php echo $msU('/temporary-email.php'); ?>"><?php echo te('blog.temporary_email'); ?></a></li>
+                <li><a href="<?php echo $msU('/faq.php'); ?>"><?php echo te('blog.faq'); ?></a></li>
             </ul>
 
             <div class="ms-faq__actions">
                 <?php if ($msSignedIn) : ?>
                     <a class="ms-btn ms-btn--primary" href="<?php echo $msEsc($msCtaHref); ?>"><?php echo $msEsc($msCtaLabel); ?></a>
                 <?php else : ?>
-                    <a class="ms-faq__login" href="/pro_login.php">Log in</a>
+                    <a class="ms-faq__login" href="/pro_login.php"><?php echo te('blog.login'); ?></a>
                     <a class="ms-btn ms-btn--primary" href="<?php echo $msEsc($msCtaHref); ?>"><?php echo $msEsc($msCtaLabel); ?></a>
                 <?php endif; ?>
             </div>
@@ -333,7 +426,7 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
         <div class="ms-container--narrow">
         <?php if ($msView === 'article') : ?>
             <article class="ms-blog__post">
-                <p class="ms-blog__back"><a href="/blog.php"><span aria-hidden="true">&larr;</span> All posts</a></p>
+                <p class="ms-blog__back"><a href="<?php echo $msU('/blog.php'); ?>"><span aria-hidden="true">&larr;</span> <?php echo te('blog.all_posts'); ?></a></p>
 
                 <header class="ms-blog__head">
                     <h1 class="ms-blog__title"><?php echo $msEsc($msPost['title'] ?? $msPost['date']); ?></h1>
@@ -341,25 +434,25 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
                 </header>
 
                 <div class="ms-article">
-                    <?php echo markdown_to_html((string) $msPost['body']); ?>
+                    <?php echo markdown_to_html((string) $msPost['body'], !$msIsDefault); ?>
                 </div>
 
-                <p class="ms-blog__back ms-blog__back--end"><a href="/"><span aria-hidden="true">&larr;</span> Back to Mail Shield</a></p>
+                <p class="ms-blog__back ms-blog__back--end"><a href="<?php echo $msU('/'); ?>"><span aria-hidden="true">&larr;</span> <?php echo te('blog.back_to_site'); ?></a></p>
             </article>
         <?php elseif ($msView === 'missing') : ?>
-            <h1 class="ms-faq__title">Post not found</h1>
-            <p class="ms-lede ms-faq__lede">That post does not exist. Every published post is listed on the <a href="/blog.php">blog index</a>.</p>
+            <h1 class="ms-faq__title"><?php echo te('blog.missing.heading'); ?></h1>
+            <p class="ms-lede ms-faq__lede"><?php echo tHtml('blog.missing.text', [], ['index' => '<a href="' . $msU('/blog.php') . '">', 'index_end' => '</a>']); ?></p>
         <?php else : ?>
-            <h1 class="ms-faq__title">Blog</h1>
+            <h1 class="ms-faq__title"><?php echo te('blog.title'); ?></h1>
             <p class="ms-lede ms-faq__lede"><?php echo $msEsc($msStandfirst); ?></p>
 
             <?php if (empty($msPosts)) : ?>
-                <p class="ms-blog__empty">No posts yet.</p>
+                <p class="ms-blog__empty"><?php echo te('blog.empty'); ?></p>
             <?php else : ?>
                 <ul class="ms-blog__list">
                     <?php foreach ($msPosts as $msEntry) : ?>
                     <li class="ms-blog__item">
-                        <a class="ms-blog__entry" href="/blog.php?post=<?php echo rawurlencode((string) $msEntry['iso']); ?>">
+                        <a class="ms-blog__entry" href="<?php echo $msU('/blog.php?post=' . rawurlencode((string) $msEntry['iso'])); ?>">
                             <time class="ms-blog__date" datetime="<?php echo $msEsc($msEntry['iso']); ?>"><?php echo $msEsc($msEntry['date']); ?></time>
                             <span class="ms-blog__entry-title"><?php echo $msEsc($msEntry['title'] ?? $msEntry['date']); ?></span>
                         </a>
@@ -373,13 +466,13 @@ $msCtaLabel = $msSignedIn ? 'Go to your inbox' : 'Create your inbox';
 
     <footer class="ms-faq__foot">
         <div class="ms-container">
-            <nav class="ms-faq__foot-links" aria-label="Footer">
-                <a href="/register.php?plan=regular">Create your inbox</a>
-                <a href="/pro_login.php">Log in</a>
-                <a href="/temporary-email.php">Temporary email addresses</a>
-                <a href="/blog.php">Blog</a>
-                <a href="/faq.php">FAQ</a>
-                <button type="button" class="ms-footer__cookie" data-ms-cookie-settings>Cookie settings</button>
+            <nav class="ms-faq__foot-links" aria-label="<?php echo te('blog.footer_label'); ?>">
+                <a href="/register.php?plan=regular"><?php echo te('blog.foot.create_inbox'); ?></a>
+                <a href="/pro_login.php"><?php echo te('blog.foot.login'); ?></a>
+                <a href="<?php echo $msU('/temporary-email.php'); ?>"><?php echo te('blog.foot.temporary_email'); ?></a>
+                <a href="<?php echo $msU('/blog.php'); ?>"><?php echo te('blog.foot.blog'); ?></a>
+                <a href="<?php echo $msU('/faq.php'); ?>"><?php echo te('blog.foot.faq'); ?></a>
+                <button type="button" class="ms-footer__cookie" data-ms-cookie-settings><?php echo te('blog.foot.cookie_settings'); ?></button>
             </nav>
             <p class="ms-faq__foot-legal">&copy; <?php echo date('Y'); ?> Manjo Consulting AB <span aria-hidden="true">&middot;</span> Mail Shield v<?php echo $msEsc($config['app']['version'] ?? ''); ?></p>
         </div>
