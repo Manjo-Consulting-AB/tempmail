@@ -93,7 +93,7 @@ HTML,
                 'a' => $msT > 0 ? <<<HTML
 <p>Skapa ett konto – det börjar med Pro under sina första {$msT} dagar. För att behålla Pro efter det väljer du en <a href="{$msU('/pricing.php')}">plan</a> medan du är inloggad, eller löser in en värdekod i din profil; i båda fallen läggs tiden till efter att provperioden tagit slut. Konton loggar in med en inloggningslänk (magic link) som skickas till deras e-post, och kan frivilligt ange ett lösenord i sin profil.</p>
 HTML : <<<HTML
-<p>Skapa ett gratiskonto och välj en <a href="{$msU('/pricing.php')}">plan</a> medan du är inloggad – eller registrera dig med en värdekod: välj Pro på registreringssidan och ange koden. Pro-konton loggar in med en inloggningslänk (magic link) som skickas till deras e-post, och kan frivilligt ange ett lösenord i sin profil.</p>
+<p>Skapa ett gratiskonto och välj en <a href="{$msU('/pricing.php')}">plan</a> medan du är inloggad – eller registrera dig med en värdekod: välj Pro på registreringssidan och ange koden. Konton loggar in med en inloggningslänk (magic link) som skickas till deras e-post, och kan frivilligt ange ett lösenord i sin profil.</p>
 HTML,
             ],
             [
@@ -223,7 +223,7 @@ HTML,
             [
                 'q' => 'Jag fick inte ett meddelande jag väntade på – vad gör jag?',
                 'a' => <<<HTML
-<p>Kontrollera hela adressen du angav, både lokal del och domän. För en Sticky-adress: se till att du är inloggad på kontot som äger den. Ge det sedan en liten stund och uppdatera – e-post hämtas från servern enligt ett schema, så ett meddelande kan ta en kort stund på sig att dyka upp. Om det fortfarande inte kommer kan avsändaren ha fördröjt eller avvisat det.</p>
+<p>Kontrollera hela adressen du angav, både lokal del och domän. För en Sticky-adress: se till att du är inloggad på kontot som äger den. Ge det sedan en liten stund och uppdatera – e-post lagras så fort avsändarens server lämnar över den, och inkorgen hämtar den vid nästa kontroll eller när du uppdaterar, men en avsändare kan fördröja eller göra nya leveransförsök. Om det fortfarande inte kommer kan avsändaren ha fördröjt eller avvisat det.</p>
 HTML,
             ],
             [
