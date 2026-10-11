@@ -50,7 +50,7 @@
             el.textContent = formatted || '…';
         });
         perEls.forEach(function (el) {
-            el.textContent = period === 'year' ? '/ year' : '/ month';
+            el.textContent = period === 'year' ? (config.perYear || '/ year') : (config.perMonth || '/ month');
         });
         subscribeEls.forEach(function (el) {
             // Buttons only render for a signed-in visitor (pricing.php), and
@@ -114,6 +114,10 @@
                     successUrl: config.successUrl
                 }
             };
+            if (config.locale) {
+                // Paddle's overlay in the page's language.
+                checkout.settings.locale = config.locale;
+            }
             if (config.email) {
                 checkout.customer = { email: config.email };
             }

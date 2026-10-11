@@ -4,9 +4,11 @@
  *
  * Shape of each plan (the PHP counterpart of a TypeScript interface):
  *
- *   'name'        string   card heading
- *   'description' string   one line under the name
- *   'features'    string[] the bullet list
+ *   'key'         string   'pro' / 'lifetime': the plan's id in the catalogs
+ *   'name'        string   card heading — a product name, never translated
+ *   'description' string   catalog key (lang/<locale>.php) of the line under the name
+ *   'features'    array    the bullet list, as [catalog key, params] pairs;
+ *                          pricing.php turns each into text with t($key, $params)
  *   'featured'    bool     marked as the recommended card
  *   'priceId'     one entry per Paddle environment, each holding either
  *                 ['month' => 'pri_…', 'year' => 'pri_…']   subscription,
@@ -25,6 +27,10 @@
  * 2026-09-30. The amounts live in Paddle, not here — pricing.php shows
  * whatever Paddle returns for the visitor's country.
  *
+ * This file carries catalog keys, not user-facing copy, so it still loads
+ * without i18n.php (paddle_webhook.php, migrate_paddle_billing.php and
+ * tests/paddle_sync_test.php require it). The English wording is in lang/en.php.
+ *
  * Copy rule (CLAUDE.md, brief §9): every feature listed must be one the code
  * has. These are the Pro features from partials/landing/plans.php.
  */
@@ -38,18 +44,19 @@ $holdDays = max(1, (int) ($config['retention_hold']['days'] ?? 30));
 $holdMax  = max(1, (int) ($config['retention_hold']['max_per_year'] ?? 4));
 
 $proFeatures = [
-    'Up to 10 sticky addresses',
-    'Timed address lifetime configurable from 1 to 7 days',
-    'Keep mail for ' . $holdDays . ' days, up to ' . $holdMax . ' times a year',
-    'RSS, webhooks, Pushover and digest emails',
-    'External mailboxes and the Agent',
-    'Priority support',
+    ['pricing.feature.sticky_max', ['max' => 10]],
+    ['pricing.feature.timed_range', ['min' => 1, 'max' => 7]],
+    ['pricing.feature.hold', ['days' => $holdDays, 'times' => $holdMax]],
+    ['pricing.feature.automation', []],
+    ['pricing.feature.external', []],
+    ['pricing.feature.support', []],
 ];
 
 return [
     [
+        'key'         => 'pro',
         'name'        => 'Pro',
-        'description' => 'Your second inbox, with the wiring.',
+        'description' => 'pricing.tier.pro.description',
         'features'    => $proFeatures,
         'featured'    => true,
         'priceId'     => [
@@ -64,11 +71,12 @@ return [
         ],
     ],
     [
+        'key'         => 'lifetime',
         'name'        => 'Lifetime',
-        'description' => 'Pro, paid once.',
+        'description' => 'pricing.tier.lifetime.description',
         'features'    => [
-            'Everything in Pro',
-            'One payment — no subscription to renew',
+            ['pricing.feature.everything_pro', []],
+            ['pricing.feature.one_payment', []],
         ],
         'featured'    => false,
         'priceId'     => [

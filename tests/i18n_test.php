@@ -270,7 +270,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -492,7 +492,7 @@ foreach (landingVariants() as $section => $variants) {
         preg_match_all('/[A-Za-z0-9._-]+@([A-Za-z0-9.-]+)/', $svOut, $mm);
         check("sv render {$label}: every example address is on the configured domain", array_unique($mm[1]) === [] || array_unique($mm[1]) === ['example.test'], implode(',', array_unique($mm[1])));
         check("sv render {$label}: no hard-coded manjo.me", stripos($svOut, 'manjo.me') === false);
-        check("sv render {$label}: Swedish links stay on pages that exist in Swedish", strpos($svOut, 'href="/sv/pricing.php"') === false && strpos($svOut, 'href="/sv/register.php') === false);
+        check("sv render {$label}: Swedish links stay on pages that exist in Swedish", strpos($svOut, 'href="/sv/register.php') === false);
     }
 }
 check('sv render: the lang attribute is not hard-coded in a partial', strpos($svAll, 'lang="en"') === false);
@@ -503,7 +503,7 @@ $statsSv = renderLanding('stats', [false, 60, false], 'sv', $both);
 check('sv stats: numbers through i18nNumber (no-break space)', strpos($statsSv, "1\u{00A0}234\u{00A0}567") !== false);
 same('stats: nothing at all when every figure is zero', '', renderLanding('stats', [false, 60, false], 'en', $onlyEn, ['emails_processed' => 0]));
 $planSv = renderLanding('plans', [false, 60, false], 'sv', $both);
-check('sv plans: pricing and register links stay plain until those pages are translated', strpos($planSv, 'href="/pricing.php"') !== false && strpos($planSv, 'href="/register.php?plan=pro"') !== false);
+check('sv plans: pricing is translated so its link has the prefix; register stays plain until it is', strpos($planSv, 'href="/sv/pricing.php"') !== false && strpos($planSv, 'href="/register.php?plan=pro"') !== false);
 i18nTranslatedPages(['/' => ['en', 'sv'], '/pricing.php' => ['en', 'sv'], '/register.php' => ['en', 'sv'], '/temporary-email.php' => ['en', 'sv']]);
 $planSv = renderLanding('plans', [false, 60, false], 'sv', $both);
 check('sv plans: ...and follow them once translated', strpos($planSv, 'href="/sv/pricing.php"') !== false && strpos($planSv, 'href="/sv/register.php?plan=pro"') !== false);
@@ -574,6 +574,174 @@ foreach (glob($root . '/partials/landing/*.php') as $f) {
     check('scan: ' . basename($f) . ' has no English text node outside t()/tHtml()/tp()', $leftover === '', $leftover);
     check('scan: ' . basename($f) . ' has no literal alt/aria-label/title', $attrs === [], implode(' | ', $attrs));
 }
+
+/**
+ * Renders the real pricing.php in a probe docroot (a copy of the page and what
+ * it requires, plus a stub config.php) as a CLI subprocess.
+ * Returns ['main' => <main>…</main>, 'config' => decoded JSON, 'raw' => page].
+ */
+function pricingRender(string $root, string $locale, array $enabled, bool $signedIn, bool $checkout, ?string $uri = null, bool $production = false): array
+{
+    static $probe = null;
+    if ($probe === null) {
+        $probe = sys_get_temp_dir() . '/ms_pricing_probe_' . getmypid();
+        @mkdir($probe . '/assets/js', 0777, true);
+        foreach (['pricing.php', 'pricing_tiers.php', 'pricing_helpers.php', 'paddle_sync.php', 'pii_crypto.php', 'i18n.php', 'referrals.php', 'assets/js/pricing.js'] as $f) {
+            copy($root . '/' . $f, $probe . '/' . $f);
+        }
+        foreach (['partials', 'lang'] as $d) {
+            @mkdir($probe . '/' . $d, 0777, true);
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/' . $d, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $item) {
+                $rel = substr($item->getPathname(), strlen($root) + 1);
+                if ($item->isDir()) {
+                    @mkdir($probe . '/' . $rel, 0777, true);
+                } else {
+                    copy($item->getPathname(), $probe . '/' . $rel);
+                }
+            }
+        }
+        file_put_contents($probe . '/config.php', <<<'PHP'
+<?php
+// Stub config.php for tests/i18n_test.php: just what pricing.php and the shell read.
+$config = [
+    'email'  => ['base_url' => 'https://example.test/', 'domain' => 'example.test'],
+    'app'    => ['version' => 'test'],
+    'trial'  => ['days' => 60],
+    'i18n'   => ['enabled' => array_values(array_filter(explode(',', (string) getenv('PROBE_ENABLED'))))],
+    'paddle' => [
+        'environment'      => getenv('PROBE_PRODUCTION') === '1' ? 'production' : 'sandbox',
+        'client_token'      => getenv('PROBE_PRODUCTION') === '1' ? 'live_probe_token' : 'test_probe_token',
+        'sandbox_user_ids' => [7],
+    ],
+    'retention_hold' => ['days' => 30, 'max_per_year' => 4],
+    'referral' => ['enabled' => false],
+];
+$_SERVER['REQUEST_URI'] = (string) getenv('PROBE_URI');
+require_once __DIR__ . '/i18n.php';
+i18nBootstrap($config['i18n'], $_SERVER);
+session_start();
+$_SESSION = getenv('PROBE_SIGNED_IN') === '1' ? ['pro_user_id' => (int) getenv('PROBE_USER_ID'), 'pro_user_email' => 'user@example.test'] : [];
+function logMessage($level, $message, $context = []) {}
+function tableHasColumn($table, $column) { return false; }
+PHP);
+        // The real paddleClientSettings(), lifted from config.php so the probe
+        // validates the environment exactly as production does.
+        if (preg_match('/^function paddleClientSettings\(.*?^}\n/ms', (string) file_get_contents($root . '/config.php'), $fm)) {
+            file_put_contents($probe . '/config.php', "\n" . $fm[0], FILE_APPEND);
+        }
+        register_shutdown_function(static function () use ($probe) {
+            exec('rm -rf ' . escapeshellarg($probe));
+        });
+    }
+    $env = [
+        'PROBE_ENABLED' => implode(',', $enabled),
+        'PROBE_URI' => $uri ?? (($locale === 'sv' ? '/sv' : '') . '/pricing.php'),
+        'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
+        // 7 is on the stub's sandbox allow-list, 1 is not
+        'PROBE_USER_ID' => $checkout ? '7' : '1',
+        'PROBE_PRODUCTION' => $production ? '1' : '0',
+        'PATH' => (string) getenv('PATH'),
+    ];
+    $proc = proc_open([PHP_BINARY, '-d', 'session.save_path=' . sys_get_temp_dir(), 'pricing.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $probe, $env);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    proc_close($proc);
+    preg_match('#<main id="main">.*?</main>#s', $out, $mm);
+    preg_match('#<script type="application/json" id="ms-pricing-config">(.*?)</script>#s', $out, $cm);
+    return ['main' => $mm[0] ?? '', 'config' => json_decode($cm[1] ?? '', true), 'raw' => $out, 'err' => $err];
+}
+
+
+// --- Pricing page: English fixtures, Swedish render ---------------------------
+// The fixtures were rendered from pricing.php before it went through t(). The page
+// runs for real in a probe docroot (a copy of it and what it requires, plus a stub
+// config.php) as a CLI subprocess. The config JSON gained perMonth, perYear and
+// locale afterwards; those three are removed before the comparison.
+i18nTranslatedPages($realPages);
+$pricingVariants = [
+    'signed_out'        => [false, false, false],
+    'signed_out_open'   => [false, true, true],
+    'signed_in_open'    => [true, true, false],
+    'signed_in_closed'  => [true, false, false],
+];
+foreach ($pricingVariants as $name => [$in, $co, $prod]) {
+    $r = pricingRender($root, 'en', $onlyEn, $in, $co, null, $prod);
+    same("fixture: pricing.main.{$name}.en.html", (string) file_get_contents($fx . "pricing.main.{$name}.en.html"), $r['main'] . "\n");
+    $cfg = is_array($r['config']) ? $r['config'] : [];
+    same("pricing en {$name}: config gained perMonth, perYear and locale", ['/ month', '/ year', 'en'], [$cfg['perMonth'] ?? null, $cfg['perYear'] ?? null, $cfg['locale'] ?? null]);
+    unset($cfg['perMonth'], $cfg['perYear'], $cfg['locale']);
+    same("fixture: pricing.config.{$name}.en.json", (string) file_get_contents($fx . "pricing.config.{$name}.en.json"), json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+}
+
+same('pages: pricing is offered in Swedish', ['en', 'sv'], $realPages['/pricing.php'] ?? null);
+same('resolve: /sv/pricing.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/pricing.php'], $both));
+same('resolve: ...and redirects while only English is on', '/pricing.php', i18nResolveRequest(['REQUEST_URI' => '/sv/pricing.php'], $onlyEn));
+i18nSetLocale('en');
+
+foreach ($pricingVariants as $name => [$in, $co, $prod]) {
+    $r = pricingRender($root, 'sv', $both, $in, $co, null, $prod);
+    $enR = pricingRender($root, 'en', $both, $in, $co, null, $prod);
+    check("pricing sv {$name}: the page rendered", $r['main'] !== '', $r['err']);
+    check("pricing sv {$name}: no raw key", !preg_match('/\b(?:pricing|date)\.[a-z_.0-9]+\b/', $r['main']));
+    check("pricing sv {$name}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $r['main']));
+    check("pricing sv {$name}: differs from English", $r['main'] !== $enR['main']);
+    check("pricing sv {$name}: <html lang=\"sv\">", strpos($r['raw'], '<html lang="sv">') !== false);
+    check("pricing sv {$name}: plan names stay Pro and Lifetime", strpos($r['main'], '>Pro</h2>') !== false && strpos($r['main'], '>Lifetime</h2>') !== false);
+    check("pricing sv {$name}: numbers still come from the config (10, 1 to 7, 30 days, 4 times)", strpos($r['main'], 'Upp till 10 Sticky-adresser') !== false && strpos($r['main'], 'från 1 till 7 dagar') !== false && strpos($r['main'], 'i 30 dagar, upp till 4 gånger per år') !== false);
+    check("pricing sv {$name}: the money-back days are the page's 30", strpos($r['main'], '30 dagars pengarna-tillbaka-garanti') !== false);
+    check("pricing sv {$name}: links to pages not yet in Swedish stay plain", strpos($r['main'], 'href="/terms.php"') !== false && strpos($r['main'], 'href="/privacy.php"') !== false && strpos($r['main'], 'href="/refund-policy.php"') !== false && strpos($r['main'], '/sv/terms.php') === false);
+    $cfg = is_array($r['config']) ? $r['config'] : [];
+    same("pricing sv {$name}: config perMonth, perYear, locale", ['/ månad', '/ år', 'sv'], [$cfg['perMonth'] ?? null, $cfg['perYear'] ?? null, $cfg['locale'] ?? null]);
+    $cfgEn = is_array($enR['config']) ? $enR['config'] : [];
+    unset($cfg['perMonth'], $cfg['perYear'], $cfg['locale'], $cfgEn['perMonth'], $cfgEn['perYear'], $cfgEn['locale']);
+    same("pricing sv {$name}: prices, ids and the checkout gate are not language-dependent", $cfgEn, $cfg);
+    check("pricing sv {$name}: canonical and hreflang", strpos($r['raw'], '<link rel="canonical" href="https://example.test/sv/pricing.php">') !== false && strpos($r['raw'], 'hreflang="x-default" href="https://example.test/pricing.php"') !== false);
+}
+$svOpen = pricingRender($root, 'sv', $both, false, true, null, true);
+check('pricing sv: Swedish headings and controls', strpos($svOpen['main'], '>Planer och priser</h1>') !== false && strpos($svOpen['main'], 'aria-label="Faktureringsperiod"') !== false && strpos($svOpen['main'], '>Månadsvis</button>') !== false && strpos($svOpen['main'], '>Logga in för att prenumerera</a>') !== false);
+check('pricing sv: the one-time label', strpos($svOpen['main'], '>engångsbelopp</span>') !== false);
+$svClosed = pricingRender($root, 'sv', $both, false, false);
+check('pricing sv: the closed-checkout note', strpos($svClosed['main'], 'Betalning online öppnar snart.') !== false && strpos($svClosed['main'], 'Subscribe') === false);
+$svHtml = pricingRender($root, 'sv', $both, false, false);
+check('pricing sv: <title> and description are Swedish', strpos($svHtml['raw'], '<title>Priser · Mail Shield</title>') !== false && strpos($svHtml['raw'], 'Mail Shields planer och priser') !== false);
+check('pricing sv: robots rule unchanged (sandbox noindex)', strpos($svHtml['raw'], 'noindex, nofollow') !== false);
+check('pricing sv production: robots rule unchanged (index)', strpos($svOpen['raw'], 'index, follow') !== false);
+
+// i18nDate()
+$monthStamps = [];
+for ($m = 1; $m <= 12; $m++) {
+    $monthStamps[] = gmmktime(12, 0, 0, $m, 5 + $m, 2026);
+}
+$prevTz = date_default_timezone_get();
+date_default_timezone_set('UTC');
+$dateOk = true;
+foreach ($monthStamps as $ts) {
+    $dateOk = $dateOk && i18nDate($ts, 'en') === date('j F Y', $ts);
+}
+check('i18nDate: English equals date(\'j F Y\') for all twelve months', $dateOk);
+same('i18nDate: Swedish', '5 mars 2026', i18nDate(gmmktime(12, 0, 0, 3, 5, 2026), 'sv'));
+same('i18nDate: Swedish month names are lowercase', 'maj', t('date.month.5', [], 'sv'));
+i18nSetLocale('sv');
+same('i18nDate: defaults to this request\'s language', '31 december 2026', i18nDate(gmmktime(12, 0, 0, 12, 31, 2026)));
+i18nSetLocale('en');
+date_default_timezone_set($prevTz);
+same('referral note: both languages fill {date} and {months}', ['Invited by a friend: buy a 12-month plan before 5 March 2026 and get 15 months.', 'Inbjuden av en vän: köp en 12-månadersplan före 5 mars 2026 och få 15 månader.'], [t('pricing.referral', ['date' => '5 March 2026', 'months' => 15], 'en'), t('pricing.referral', ['date' => '5 mars 2026', 'months' => 15], 'sv')]);
+
+// pricing_tiers.php carries catalog keys, not copy, and loads without i18n.php.
+$tiersFile = $root . '/pricing_tiers.php';
+$tiersOut = (static function () use ($tiersFile) { $config = ['retention_hold' => ['days' => 30, 'max_per_year' => 4]]; return require $tiersFile; })();
+$tierKeys = [];
+foreach ($tiersOut as $tier) {
+    $tierKeys[] = $tier['description'];
+    foreach ($tier['features'] as $pair) {
+        $tierKeys[] = $pair[0];
+        check('tiers: feature ' . $pair[0] . ' is a [key, params] pair', count($pair) === 2 && is_array($pair[1]));
+    }
+}
+check('tiers: every description and feature key exists in lang/en.php', array_diff($tierKeys, array_keys($en)) === [], implode(', ', array_diff($tierKeys, array_keys($en))));
+same('tiers: plan keys and names', [['pro', 'Pro'], ['lifetime', 'Lifetime']], array_map(fn($t) => [$t['key'], $t['name']], $tiersOut));
+same('tiers: the retention numbers still come from $config', ['days' => 30, 'times' => 4], $tiersOut[0]['features'][2][1]);
+check('tiers: pricing_tiers.php never calls t() and so needs no i18n.php', !preg_match('/\bt\(|\bte\(|i18n/', preg_replace('#/\*.*?\*/#s', '', (string) file_get_contents($tiersFile))));
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

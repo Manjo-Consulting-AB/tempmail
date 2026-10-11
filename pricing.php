@@ -83,14 +83,17 @@ $pricingConfig = [
     'userId'          => $signedIn ? (int) $_SESSION['pro_user_id'] : null,
     'checkoutEnabled' => $checkoutEnabled,
     'successUrl'      => $origin . '/welcome.php',
+    'perMonth'        => t('pricing.per_month'),
+    'perYear'         => t('pricing.per_year'),
+    'locale'          => i18nLocale(),
     'tiers'           => array_map(function (array $tier): array {
         return ['name' => $tier['name'], 'priceId' => $tier['priceId']];
     }, $tiers),
 ];
 
 $msPage = [
-    'title'       => 'Pricing · Mail Shield',
-    'description' => 'Mail Shield plans and prices, shown in your local currency.',
+    'title'       => t('pricing.meta.title'),
+    'description' => t('pricing.meta.description'),
     'path'        => '/pricing.php',
     'robots'      => $paddle['environment'] === 'production' ? 'index, follow' : 'noindex, nofollow',
 ];
@@ -108,6 +111,8 @@ $esc = function ($value): string {
 // Referred account inside its window (epic #387 step 8). Fail-open: any
 // problem, the flag being off or the migration missing shows nothing.
 $referralNote = null;
+// The money-back period in the note below: an existing literal of this page.
+$moneyBackDays = 30;
 if ($signedIn) {
     try {
         require_once __DIR__ . '/referrals.php';
@@ -115,7 +120,10 @@ if ($signedIn) {
         if ($referralCfg['enabled'] && tableHasColumn('referrals', 'status')) {
             $own = referralSummaryFor($pdo, (int) $_SESSION['pro_user_id'], time())['own'];
             if ($own !== null) {
-                $referralNote = 'Invited by a friend: buy a 12-month plan before ' . date('j F Y', strtotime($own['window_ends_at'])) . ' and get ' . (12 + $referralCfg['bonus_months']) . ' months.';
+                $referralNote = t('pricing.referral', [
+                    'date'   => i18nDate((int) strtotime($own['window_ends_at'])),
+                    'months' => 12 + $referralCfg['bonus_months'],
+                ]);
             }
         }
     } catch (Throwable $e) {
@@ -126,16 +134,16 @@ if ($signedIn) {
 <main id="main">
     <section class="ms-section ms-pricing">
         <div class="ms-container">
-            <h1 class="ms-h1">Plans and pricing</h1>
-            <p class="ms-lede ms-pricing__lede">Subscribe monthly or yearly, or pay once for good. Prices are shown in your local currency, including any tax that applies where you are.</p>
+            <h1 class="ms-h1"><?php echo te('pricing.title'); ?></h1>
+            <p class="ms-lede ms-pricing__lede"><?php echo te('pricing.lede'); ?></p>
 
-            <div class="ms-pricing__toggle" role="group" aria-label="Billing period">
-                <button type="button" class="ms-pricing__period" data-period="month" aria-pressed="true">Monthly</button>
-                <button type="button" class="ms-pricing__period" data-period="year" aria-pressed="false">Yearly</button>
+            <div class="ms-pricing__toggle" role="group" aria-label="<?php echo te('pricing.toggle.label'); ?>">
+                <button type="button" class="ms-pricing__period" data-period="month" aria-pressed="true"><?php echo te('pricing.toggle.monthly'); ?></button>
+                <button type="button" class="ms-pricing__period" data-period="year" aria-pressed="false"><?php echo te('pricing.toggle.yearly'); ?></button>
             </div>
 
 <?php if ($referralNote !== null) { echo '<p class="ms-plans__note">' . $esc($referralNote) . '</p>'; } ?>
-            <p class="ms-pricing__error" id="ms-pricing-error" role="alert" hidden>Prices could not be loaded right now. Please reload the page to try again.</p>
+            <p class="ms-pricing__error" id="ms-pricing-error" role="alert" hidden><?php echo te('pricing.error'); ?></p>
 
             <div class="ms-pricing__grid">
                 <?php foreach ($tiers as $index => $tier) :
@@ -146,29 +154,29 @@ if ($signedIn) {
                         <div class="ms-plans__head">
                             <h2 class="ms-h3"><?php echo $esc($tier['name']); ?></h2>
                             <?php if ($featured) : ?>
-                                <span class="ms-chip">Most useful</span>
+                                <span class="ms-chip"><?php echo te('pricing.chip'); ?></span>
                             <?php endif; ?>
                         </div>
-                        <p class="ms-plans__summary"><?php echo $esc($tier['description']); ?></p>
+                        <p class="ms-plans__summary"><?php echo te($tier['description']); ?></p>
 
                         <p class="ms-pricing__price" aria-live="polite">
                             <span class="ms-pricing__amount" data-tier="<?php echo (int) $index; ?>">&hellip;</span>
-                            <span class="ms-pricing__per"<?php echo $oneTime ? '' : ' data-per'; ?>><?php echo $oneTime ? 'one-time' : '/ month'; ?></span>
+                            <span class="ms-pricing__per"<?php echo $oneTime ? '' : ' data-per'; ?>><?php echo $oneTime ? te('pricing.one_time') : te('pricing.per_month'); ?></span>
                         </p>
 
                         <?php if (!$checkoutEnabled) : ?>
-                            <p class="ms-pricing__closed">Online checkout opens shortly. Until then, Pro is available with a voucher code.</p>
+                            <p class="ms-pricing__closed"><?php echo te('pricing.closed'); ?></p>
                         <?php elseif ($signedIn) : ?>
                             <button type="button" class="ms-btn <?php echo $featured ? 'ms-btn--primary' : 'ms-btn--secondary'; ?> ms-pricing__subscribe"
-                                    data-tier="<?php echo (int) $index; ?>" disabled><?php echo $oneTime ? 'Buy' : 'Subscribe'; ?></button>
+                                    data-tier="<?php echo (int) $index; ?>" disabled><?php echo $oneTime ? te('pricing.button.buy') : te('pricing.button.subscribe'); ?></button>
                         <?php else : ?>
                             <a class="ms-btn <?php echo $featured ? 'ms-btn--primary' : 'ms-btn--secondary'; ?> ms-pricing__subscribe-link"
-                               href="/pro_login.php"><?php echo $oneTime ? 'Log in to buy' : 'Log in to subscribe'; ?></a>
+                               href="<?php echo $esc(i18nUrl('/pro_login.php')); ?>"><?php echo $oneTime ? te('pricing.link.login_buy') : te('pricing.link.login_subscribe'); ?></a>
                         <?php endif; ?>
 
                         <ul class="ms-plans__list">
-                            <?php foreach ($tier['features'] as $feature) : ?>
-                                <li><?php echo $esc($feature); ?></li>
+                            <?php foreach ($tier['features'] as [$featureKey, $featureParams]) : ?>
+                                <li><?php echo te($featureKey, $featureParams); ?></li>
                             <?php endforeach; ?>
                         </ul>
                     </div>
@@ -176,10 +184,20 @@ if ($signedIn) {
             </div>
 
             <?php if (!$signedIn && $checkoutEnabled) : ?>
-                <p class="ms-plans__note">You need a Mail Shield account to subscribe, so the plan lands on the right inbox. No account yet? <a href="/register.php?plan=regular">Create one for free</a>, then come back here.</p>
+                <p class="ms-plans__note"><?php echo tHtml('pricing.note.account', [], [
+                    'register'     => '<a href="' . $esc(i18nUrl('/register.php?plan=regular')) . '">',
+                    'register_end' => '</a>',
+                ]); ?></p>
             <?php endif; ?>
-            <p class="ms-plans__note">Payments are handled by Paddle, our reseller and Merchant of Record, which also sends your receipt. Every payment comes with a 30-day money-back guarantee.</p>
-            <p class="ms-plans__note">By buying you accept our <a href="/terms.php">terms of service</a>. See also our <a href="/privacy.php">privacy policy</a> and <a href="/refund-policy.php">refund policy</a>.</p>
+            <p class="ms-plans__note"><?php echo te('pricing.note.paddle', ['days' => $moneyBackDays]); ?></p>
+            <p class="ms-plans__note"><?php echo tHtml('pricing.note.legal', [], [
+                'terms'       => '<a href="' . $esc(i18nUrl('/terms.php')) . '">',
+                'terms_end'   => '</a>',
+                'privacy'     => '<a href="' . $esc(i18nUrl('/privacy.php')) . '">',
+                'privacy_end' => '</a>',
+                'refund'      => '<a href="' . $esc(i18nUrl('/refund-policy.php')) . '">',
+                'refund_end'  => '</a>',
+            ]); ?></p>
         </div>
     </section>
 </main>
