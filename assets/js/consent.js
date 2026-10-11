@@ -43,6 +43,19 @@
         return (msI18n && typeof msI18n[key] === 'string') ? msI18n[key] : fallback;
     }
 
+    // The privacy link is rebuilt from literals: only the locale prefix is
+    // taken from #ms-i18n-consent, and only when it is one we serve, so the
+    // href can never become a javascript: or off-site URL. Add a locale here
+    // when it is added to i18nSupportedLocales().
+    var PRIVACY_LOCALE_PREFIX = { sv: '/sv' };
+    function privacyHref() {
+        var match = /^\/([a-z]{2})\//.exec(msT('consent.privacy_url', ''));
+        var prefix = (match && Object.prototype.hasOwnProperty.call(PRIVACY_LOCALE_PREFIX, match[1]))
+            ? PRIVACY_LOCALE_PREFIX[match[1]]
+            : '';
+        return prefix + '/privacy.php#cookies';
+    }
+
     var gtagLoaded = false;
     var banner = null;
 
@@ -158,7 +171,7 @@
             msT('consent.text', 'We use Google Analytics on our public pages to understand how Mail Shield is used.') + ' '
         ));
         var link = document.createElement('a');
-        link.setAttribute('href', msT('consent.privacy_url', '/privacy.php#cookies'));
+        link.setAttribute('href', privacyHref());
         link.textContent = msT('consent.learn_more', 'Learn more');
         text.appendChild(link);
         text.appendChild(document.createTextNode('.'));
