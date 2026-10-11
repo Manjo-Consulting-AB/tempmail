@@ -43,6 +43,7 @@ $msDefaults = [
     'preload_font' => false,
     'jsonld'       => null,
     'analytics'    => true,
+    'i18n_js'      => [],
 ];
 
 if (!isset($msPage) || !is_array($msPage)) {
@@ -64,13 +65,11 @@ if ($msPath === '') {
 
 // The page in this request's language (i18n.php): /sv/terms.php once terms.php
 // is translated and Swedish is switched on, otherwise the plain path. The
-// alternates are empty while the page exists in one language only, so a
-// monolingual site emits no hreflang at all.
+// alternates (partials/i18n_head.php) are empty while the page exists in one
+// language only, so a monolingual site emits no hreflang at all.
 $msLocale     = function_exists('i18nLocale') ? i18nLocale() : 'en';
 $msI18nOn     = $config['i18n']['enabled'] ?? ['en'];
 $msUrl        = $msOrigin . (function_exists('i18nUrl') ? i18nUrl($msPath, $msLocale, $msI18nOn) : $msPath);
-$msAlternates = function_exists('i18nAlternates') ? i18nAlternates($msPath, $msI18nOn, $msOrigin) : [];
-$msOgLocales  = ['en' => 'en_GB', 'sv' => 'sv_SE'];
 
 $msTitle       = (string) $msPage['title'];
 $msDescription = (string) $msPage['description'];
@@ -94,15 +93,10 @@ $msEsc = function ($value): string {
     <meta name="description" content="<?php echo $msEsc($msDescription); ?>">
     <meta name="robots" content="<?php echo $msEsc($msPage['robots']); ?>">
     <link rel="canonical" href="<?php echo $msEsc($msUrl); ?>">
-<?php foreach ($msAlternates as $msAlt) : ?>
-    <link rel="alternate" hreflang="<?php echo $msEsc($msAlt['hreflang']); ?>" href="<?php echo $msEsc($msAlt['href']); ?>">
-<?php endforeach; ?>
+<?php require __DIR__ . '/i18n_head.php'; ?>
 
     <meta property="og:type" content="<?php echo $msEsc($msPage['og_type']); ?>">
     <meta property="og:site_name" content="Mail Shield">
-<?php if (count($msAlternates) > 0) : ?>
-    <meta property="og:locale" content="<?php echo $msEsc($msOgLocales[$msLocale] ?? $msLocale); ?>">
-<?php endif; ?>
     <meta property="og:title" content="<?php echo $msEsc($msTitle); ?>">
     <meta property="og:description" content="<?php echo $msEsc($msDescription); ?>">
     <meta property="og:url" content="<?php echo $msEsc($msUrl); ?>">
@@ -133,6 +127,7 @@ $msEsc = function ($value): string {
     <!-- Marketing pages load these two stylesheets only (brief §11). -->
     <link rel="stylesheet" href="/assets/css/mailshield-fonts.css?v=<?php echo @filemtime(__DIR__ . '/../assets/css/mailshield-fonts.css') ?: 1; ?>">
     <link rel="stylesheet" href="/assets/css/mailshield.css?v=<?php echo @filemtime(__DIR__ . '/../assets/css/mailshield.css') ?: 1; ?>">
+<?php $msI18nJs = is_array($msPage['i18n_js']) ? $msPage['i18n_js'] : []; require __DIR__ . '/i18n_js.php'; ?>
 </head>
 <body>
 <div class="ms-page">

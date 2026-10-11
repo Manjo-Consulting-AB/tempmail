@@ -7,4 +7,30 @@
 
 return [
     'lang.switcher.label' => 'Språk',
+
+    'nav.skip'          => 'Hoppa till innehållet',
+    'nav.menu'          => 'Meny',
+    'nav.main'          => 'Huvudmeny',
+    'nav.features'      => 'Funktioner',
+    'nav.how_it_works'  => 'Så fungerar det',
+    'nav.pricing'       => 'Priser',
+    'nav.faq'           => 'Vanliga frågor',
+    'nav.login'         => 'Logga in',
+    'nav.create_inbox'  => 'Skapa din inkorg',
+    'nav.go_to_inbox'   => 'Gå till din inkorg',
+
+    'footer.trust'           => 'Mail Shield drivs av {company}.',
+    'footer.product'         => 'Produkt',
+    'footer.more'            => 'Mer',
+    'footer.legal'           => 'Juridik',
+    'footer.create_inbox'    => 'Skapa din inkorg',
+    'footer.login'           => 'Logga in',
+    'footer.temporary_email' => 'Tillfälliga e-postadresser',
+    'footer.faq'             => 'Vanliga frågor',
+    'footer.blog'            => 'Blogg',
+    'footer.pricing'         => 'Priser',
+    'footer.terms'           => 'Användarvillkor',
+    'footer.privacy'         => 'Integritetspolicy',
+    'footer.refund'          => 'Återbetalningspolicy',
+    'footer.cookie_settings' => 'Cookie-inställningar',
 ];

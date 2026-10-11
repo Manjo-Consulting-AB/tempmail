@@ -11,4 +11,30 @@
 
 return [
     'lang.switcher.label' => 'Language',
+
+    'nav.skip'          => 'Skip to content',
+    'nav.menu'          => 'Menu',
+    'nav.main'          => 'Main',
+    'nav.features'      => 'Features',
+    'nav.how_it_works'  => 'How it works',
+    'nav.pricing'       => 'Pricing',
+    'nav.faq'           => 'FAQ',
+    'nav.login'         => 'Log in',
+    'nav.create_inbox'  => 'Create your inbox',
+    'nav.go_to_inbox'   => 'Go to your inbox',
+
+    'footer.trust'           => 'Mail Shield is operated by {company}.',
+    'footer.product'         => 'Product',
+    'footer.more'            => 'More',
+    'footer.legal'           => 'Legal',
+    'footer.create_inbox'    => 'Create your inbox',
+    'footer.login'           => 'Log in',
+    'footer.temporary_email' => 'Temporary email addresses',
+    'footer.faq'             => 'FAQ',
+    'footer.blog'            => 'Blog',
+    'footer.pricing'         => 'Pricing',
+    'footer.terms'           => 'Terms of service',
+    'footer.privacy'         => 'Privacy policy',
+    'footer.refund'          => 'Refund policy',
+    'footer.cookie_settings' => 'Cookie settings',
 ];

@@ -327,4 +327,74 @@ if (!function_exists('i18nSupportedLocales')) {
     {
         return htmlspecialchars(t($key, $params), ENT_QUOTES, 'UTF-8');
     }
+
+    /**
+     * t() with markup. The translation is looked up as t() does (fallback and
+     * all) and $params are filled in as plain text; the whole result is then
+     * escaped, and only afterwards is each {name} in $html replaced by its raw
+     * value. Paired markup uses {name} and {name_end}:
+     *
+     *   tHtml($loginKey, [], ['login' => '<a href="' . $url . '">', 'login_end' => '</a>'])
+     *   // 'Already have an account? {login}Log in{login_end}'
+     *
+     * $html values are markup the calling code builds from literals and
+     * already-escaped values. They NEVER come from a request, the database or
+     * a catalog — they are inserted unescaped.
+     *
+     * @param array<string,scalar> $params plain text
+     * @param array<string,string> $html   trusted markup
+     * @throws InvalidArgumentException when a key is in both arrays
+     */
+    function tHtml(string $key, array $params = [], array $html = []): string
+    {
+        $both = array_intersect_key($params, $html);
+        if ($both !== []) {
+            throw new InvalidArgumentException('tHtml(): "' . (string) array_key_first($both) . '" is in both $params and $html');
+        }
+        $text = htmlspecialchars(t($key, $params), ENT_QUOTES, 'UTF-8');
+        if ($html === []) {
+            return $text;
+        }
+        $map = [];
+        foreach ($html as $name => $markup) {
+            $map['{' . $name . '}'] = (string) $markup;
+        }
+        return strtr($text, $map);
+    }
+
+    /**
+     * A number in this request's language: a no-break space (U+00A0) between
+     * thousands in every language, "." as the decimal separator in English and
+     * "," in Swedish.
+     */
+    function i18nNumber(int|float $n, int $decimals = 0, ?string $locale = null): string
+    {
+        $locale = $locale ?? i18nLocale();
+        $decimalSeparator = ($locale === 'sv') ? ',' : '.';
+        return number_format($n, max(0, $decimals), $decimalSeparator, "\u{00A0}");
+    }
+
+    /**
+     * Every English key that starts with one of $prefixes, with its value in
+     * $locale (default: this request's), falling back to English. Plural
+     * arrays are passed through unchanged. Feeds partials/i18n_js.php.
+     *
+     * @param list<string> $prefixes
+     * @return array<string,string|array<string,string>>
+     */
+    function i18nCatalogSubset(array $prefixes, ?string $locale = null): array
+    {
+        $locale = $locale ?? i18nLocale();
+        $own = i18nCatalog($locale);
+        $out = [];
+        foreach (i18nCatalog(i18nDefaultLocale()) as $key => $value) {
+            foreach ($prefixes as $prefix) {
+                if ($prefix !== '' && strncmp((string) $key, $prefix, strlen($prefix)) === 0) {
+                    $out[$key] = $own[$key] ?? $value;
+                    break;
+                }
+            }
+        }
+        return $out;
+    }
 }
