@@ -30,6 +30,7 @@
  * Variables privacy.php defines for this file:
  *   $f     array    the legal facts (partials/legal_facts.php), already escaped
  *   $ref   array    the invite programme's settings (referralSettings())
+ * and defines the fixed numbers listed below the guard itself.
  *
  * 'html' holds trusted markup authored here with every interpolated value
  * escaped, never anything a visitor supplies. Never write a number into the
@@ -42,6 +43,20 @@ if (!defined('TEMPMAIL_APP')) {
     http_response_code(403);
     exit;
 }
+
+// Numbers the code fixes rather than $config (cron/cleanup.php, pro_remember.php,
+// TwoFactorAuth, php_imap_processor.php); named here so none is typed into the
+// prose. The Swedish file declares the same names.
+$ttlMinDays = 1;        // the shortest Timed address lifetime on Pro
+$ttlMaxDays = 7;        // the longest
+$graceDays = 7;         // a lapsed Pro account's Sticky addresses are deleted after this
+$trustedDays = 30;      // how long a trusted browser and its cookie last
+$maxSignedInDays = 90;  // stay-signed-in: the cap counted from sign-in
+$stayDays = [1, 7, 30]; // the choices for staying signed in
+$tokenSweepDays = 30;   // a revoked or expired access token is deleted this long after
+$pushoverChars = '4,000'; // the excerpt Pushover gets, written for this language
+$abuseEventDays = 90;   // the record of pauses, warnings and other protective steps
+$minAge = 16;           // the age below which Mail Shield is not meant for children
 
 return [
     'title'       => 'Privacy policy',
@@ -94,17 +109,17 @@ return [
             'id'      => 'retention',
             'heading' => 'How long we keep it',
             'html'    => '<ul>'
-                . '<li><strong>Timed addresses and their mail</strong> — ' . $f['free_hours'] . ' hours on a free account, or the 1 to 7 days you choose on Pro. Then they are deleted automatically.</li>'
-                . '<li><strong>Sticky addresses</strong> — until you remove them, or 7 days after your Pro plan ends. Their mail is deleted with them.</li>'
+                . '<li><strong>Timed addresses and their mail</strong> — ' . $f['free_hours'] . ' hours on a free account, or the ' . $ttlMinDays . ' to ' . $ttlMaxDays . ' days you choose on Pro. Then they are deleted automatically.</li>'
+                . '<li><strong>Sticky addresses</strong> — until you remove them, or ' . $graceDays . ' days after your Pro plan ends. Their mail is deleted with them.</li>'
                 . '<li><strong>Mail you choose to keep longer</strong> — a Pro account can hold back the clean-up of its sticky addresses\' mail: up to ' . $f['hold_max'] . ' times a year, a hold extends that mail to ' . $f['hold_days'] . ' days from the day it arrived. Ending a hold early leaves the mail that was already extended in place, and a timed address always expires on its own schedule. The storage limit below still applies.</li>'
                 . '<li><strong>Any mail, before it would otherwise expire</strong> — a storage quota applies to your account (or to each address, if it is not linked to an account): ' . $f['quota_free_mb'] . ' MB on a free account and ' . $f['quota_pro_mb'] . ' MB on Pro, with the Pro figure also during the trial. When it is full, the oldest mail in that scope is deleted to make room, whichever address it is in. The quota is read when a message arrives, so an account that drops to free (a plan or a trial ending) is trimmed, oldest first, as new mail comes in.</li>'
                 . '<li><strong>Removed sticky addresses</strong> — the address itself (not its mail) is kept on a reserved list for ' . $f['cooldown_months'] . ' months after it is removed, linked to your account number, so nobody else can take it over and receive mail meant for you. This also applies after your account is deleted.</li>'
                 . '<li><strong>Your account</strong> — until you delete it. A free Regular account nobody signs in to for ' . $f['delete_days'] . ' days is deleted, after an email warning.</li>'
                 . '<li><strong>Server logs</strong> — ' . $f['log_days'] . ' days.</li>'
-                . '<li><strong>Abuse counters</strong> (messages per address, new addresses per IP address and account) — two days. The record of pauses, warnings and other protective steps — 90 days.</li>'
-                . '<li><strong>Trusted browsers for two-factor authentication</strong> — 30 days, or until you remove them.</li>'
-                . '<li><strong>Devices you keep signed in</strong> (a browser and operating system name, and when it was last used) — the period you chose, counted from the last visit and never more than 90 days after you signed in, or until you remove the device, sign out on it, or change your password or email address.</li>'
-                . '<li><strong>Access tokens you created yourself</strong> — until you revoke them, or until the expiry you chose. A revoked or expired token is deleted 30 days later. Changing your password or email address, or deleting your account, revokes them all at once.</li>'
+                . '<li><strong>Abuse counters</strong> (messages per address, new addresses per IP address and account) — two days. The record of pauses, warnings and other protective steps — ' . $abuseEventDays . ' days.</li>'
+                . '<li><strong>Trusted browsers for two-factor authentication</strong> — ' . $trustedDays . ' days, or until you remove them.</li>'
+                . '<li><strong>Devices you keep signed in</strong> (a browser and operating system name, and when it was last used) — the period you chose, counted from the last visit and never more than ' . $maxSignedInDays . ' days after you signed in, or until you remove the device, sign out on it, or change your password or email address.</li>'
+                . '<li><strong>Access tokens you created yourself</strong> — until you revoke them, or until the expiry you chose. A revoked or expired token is deleted ' . $tokenSweepDays . ' days later. Changing your password or email address, or deleting your account, revokes them all at once.</li>'
                 . '<li><strong>Apps you connected by signing in</strong> — until you disconnect them, or ' . $f['grant_idle_days'] . ' days after the app last used its access, whichever comes first. A sign-in you started but never approved lapses after ' . $f['code_seconds'] . ' seconds, and an app that registered itself and was never used is removed after ' . $f['client_idle_days'] . ' days. Disconnecting an app, changing your password or email address, or deleting your account ends these at once.</li>'
                 . '<li><strong>Trial record</strong> — five years from the first time the address was used.</li>'
                 . '<li><strong>Payment records</strong> — seven years, as Swedish bookkeeping law requires.</li>'
@@ -121,7 +136,7 @@ return [
                 . '<li><strong>The destinations you choose</strong>, when you set up an integration:'
                 . '<ul>'
                 . '<li><strong>Webhook:</strong> the sender, the recipient address, the subject, the full message body and the time it arrived. Attachments are not sent, only how many there are.</li>'
-                . '<li><strong>Pushover:</strong> the subject and a plain-text excerpt of the body (up to about 4,000 characters), titled with the recipient address, sent to Pushover and on to your devices.</li>'
+                . '<li><strong>Pushover:</strong> the subject and a plain-text excerpt of the body (up to about ' . $pushoverChars . ' characters), titled with the recipient address, sent to Pushover and on to your devices.</li>'
                 . '<li><strong>RSS feed:</strong> the sender, subject, date and full message body, with links to the attachments, available to anyone who has the feed link.</li>'
                 . '<li><strong>An app or AI assistant you connect</strong> — whether you approved it on the sign-in screen or gave it an access token: your addresses, and the mail it asks for — sender, subject, body and attachment links. Unlike the integrations above, that app fetches it itself, and what it does with it is between you and whoever runs it.</li>'
                 . '</ul>'
@@ -146,8 +161,8 @@ return [
             'heading' => 'Cookies',
             'html'    => '<ul>'
                 . '<li><strong>A session cookie</strong>, which keeps you signed in. It is necessary for the service and ends when you sign out or close the session.</li>'
-                . '<li><strong>A trusted-browser cookie</strong>, set only if you choose to have a browser remembered for two-factor authentication. It lasts 30 days.</li>'
-                . '<li><strong>A stay-signed-in cookie</strong>, set only if you choose to stay signed in on a device. It lasts the period you chose (1, 7 or 30 days from your last visit, at most 90 days) and is removed when you sign out.</li>'
+                . '<li><strong>A trusted-browser cookie</strong>, set only if you choose to have a browser remembered for two-factor authentication. It lasts ' . $trustedDays . ' days.</li>'
+                . '<li><strong>A stay-signed-in cookie</strong>, set only if you choose to stay signed in on a device. It lasts the period you chose (' . $stayDays[0] . ', ' . $stayDays[1] . ' or ' . $stayDays[2] . ' days from your last visit, at most ' . $maxSignedInDays . ' days) and is removed when you sign out.</li>'
                 . '<li><strong>Google Analytics cookies</strong>, set only on the public pages (never on the inbox, your account or sign-in pages) and only after you click Accept in the cookie notice. Use Cookie settings in the footer to withdraw your consent; that stops these cookies being set on later pages and deletes the ones already set.</li>'
                 . '<li><strong>An invite cookie, <code>ms_ref</code></strong>, set only when you follow an invite link while the invite programme is open. It holds the invite code, lasts up to ' . $ref['cookie_days'] . ' days and is removed when you verify your account.</li>'
                 . '<li><strong>Paddle cookies</strong> on the front page, the pricing page and in the checkout.</li>'
@@ -177,7 +192,7 @@ return [
         [
             'id'      => 'children',
             'heading' => 'Children',
-            'html'    => '<p>Mail Shield is not meant for children under 16, and we do not knowingly collect data from them.</p>',
+            'html'    => '<p>Mail Shield is not meant for children under ' . $minAge . ', and we do not knowingly collect data from them.</p>',
         ],
         [
             'id'      => 'changes',

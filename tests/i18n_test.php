@@ -375,7 +375,7 @@ same('analytics sv: privacy url follows the translated page', '/sv/privacy.php#c
 i18nTranslatedPages($realPages);
 preg_match($consentRe, renderAnalytics('sv', $both), $m);
 $consentSv = json_decode($m[1] ?? '', true);
-same('analytics sv: privacy url stays English until privacy is translated', '/privacy.php#cookies', $consentSv['consent.privacy_url'] ?? null);
+same('analytics sv: privacy url follows the real translated-pages list (privacy is offered in Swedish)', '/sv/privacy.php#cookies', $consentSv['consent.privacy_url'] ?? null);
 i18nSetLocale('en');
 $consentJs = (string) file_get_contents($root . '/assets/js/consent.js');
 check('scan: consent.js has no innerHTML built from msT()', !preg_match('/innerHTML[^;]*msT\(/s', $consentJs) && strpos($consentJs, 'innerHTML') === false);
@@ -692,7 +692,7 @@ foreach ($pricingVariants as $name => [$in, $co, $prod]) {
     check("pricing sv {$name}: plan names stay Pro and Lifetime", strpos($r['main'], '>Pro</h2>') !== false && strpos($r['main'], '>Lifetime</h2>') !== false);
     check("pricing sv {$name}: numbers still come from the config (10, 1 to 7, 30 days, 4 times)", strpos($r['main'], 'Upp till 10 Sticky-adresser') !== false && strpos($r['main'], 'från 1 till 7 dagar') !== false && strpos($r['main'], 'i 30 dagar, upp till 4 gånger per år') !== false);
     check("pricing sv {$name}: the money-back days are the page's 30", strpos($r['main'], '30 dagars pengarna-tillbaka-garanti') !== false);
-    check("pricing sv {$name}: links to pages not yet in Swedish stay plain, the refund policy goes to /sv/", strpos($r['main'], 'href="/terms.php"') !== false && strpos($r['main'], 'href="/privacy.php"') !== false && strpos($r['main'], 'href="/sv/refund-policy.php"') !== false && strpos($r['main'], '/sv/terms.php') === false);
+    check("pricing sv {$name}: links to pages not yet in Swedish stay plain, the privacy and refund policies go to /sv/", strpos($r['main'], 'href="/terms.php"') !== false && strpos($r['main'], 'href="/sv/privacy.php"') !== false && strpos($r['main'], 'href="/sv/refund-policy.php"') !== false && strpos($r['main'], '/sv/terms.php') === false);
     $cfg = is_array($r['config']) ? $r['config'] : [];
     same("pricing sv {$name}: config perMonth, perYear, locale", ['/ månad', '/ år', 'sv'], [$cfg['perMonth'] ?? null, $cfg['perYear'] ?? null, $cfg['locale'] ?? null]);
     $cfgEn = is_array($enR['config']) ? $enR['config'] : [];
@@ -1244,19 +1244,20 @@ foreach (['terms', 'privacy', 'refund-policy'] as $legalPage) {
 }
 
 same('pages: the refund policy is offered in Swedish', ['en', 'sv'], $realPages['/refund-policy.php'] ?? null);
-check('pages: terms and privacy are still English only', ($realPages['/terms.php'] ?? null) === ['en'] && ($realPages['/privacy.php'] ?? null) === ['en']);
+same('pages: the privacy policy is offered in Swedish', ['en', 'sv'], $realPages['/privacy.php'] ?? null);
+check('pages: terms is still English only', ($realPages['/terms.php'] ?? null) === ['en']);
 
 // The two content files: the same section ids in the same order, the same
 // 'updated', the same interpolated variables, and no number typed into the prose.
 $legalLoad = static function (string $file) use ($root): array {
-    $f = ['contact' => 'C', 'company_full' => 'CF', 'hosting' => 'H'];
-    $ref = ['hold_days' => 30];
+    $f = ['contact' => 'C', 'company_full' => 'CF', 'hosting' => 'H', 'free_hours' => 24, 'hold_max' => 4, 'hold_days' => 30, 'quota_free_mb' => 10, 'quota_pro_mb' => 100, 'cooldown_months' => 6, 'delete_days' => 365, 'log_days' => 30, 'grant_idle_days' => 90, 'code_seconds' => 60, 'client_idle_days' => 30];
+    $ref = ['hold_days' => 30, 'cookie_days' => 30];
     $msU = static fn(string $path): string => $path;
     return require $root . '/partials/content/legal/' . $file;
 };
 $legalVars = static function (string $file): array {
     $src = (string) file_get_contents($file);
-    preg_match_all('/\$(f|ref|msU|guaranteeDays|graceDays)\b(?:\[\'([a-z_]+)\'\])?/', preg_replace('#/\*.*?\*/#s', '', $src), $m, PREG_SET_ORDER);
+    preg_match_all('/\$(f|ref|msU|guaranteeDays|graceDays|ttlMinDays|ttlMaxDays|trustedDays|maxSignedInDays|stayDays|tokenSweepDays|pushoverChars|abuseEventDays|minAge)\b(?:\[\'([a-z_]+)\'\])?/', preg_replace('#/\*.*?\*/#s', '', $src), $m, PREG_SET_ORDER);
     $out = [];
     foreach ($m as $hit) {
         $out[] = $hit[1] . (isset($hit[2]) && $hit[2] !== '' ? '.' . $hit[2] : '');
@@ -1277,6 +1278,51 @@ foreach (['en', 'sv'] as $code) {
     check("refund-policy data {$code}: no number next to a day, month or hour unless it comes from a variable", !preg_match('/\d+[\s-]*(?:dag|day|månad|month|timm|hour)/iu', $src));
     check("refund-policy data {$code}: links to public pages go through \$msU", !preg_match('#href="/(?:pricing|temporary-email|blog|faq|terms|privacy|refund-policy)(?:\.php)?[^"]*"|href="/"#', $src));
     check("refund-policy data {$code}: no clause on which language prevails", !preg_match('/prevail|företräde|tolkningsföreträde|authentic/i', $src));
+}
+
+// The privacy policy (epic #441 step 3/4): the same checks, plus the language-preference
+// statement (decision 5) in both languages, asserted on a distinctive phrase each.
+$privEn = $legalLoad('privacy.en.php');
+$privSv = $legalLoad('privacy.sv.php');
+same('privacy data: the same section ids in the same order', array_column($privEn['sections'], 'id'), array_column($privSv['sections'], 'id'));
+same('privacy data: the same updated date', $privEn['updated'], $privSv['updated']);
+check('privacy data: updated is a real Y-m-d date', (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $privEn['updated']) && date('Y-m-d', strtotime($privEn['updated'])) === $privEn['updated']);
+same('privacy data: the same path', $privEn['path'], $privSv['path']);
+same('privacy data: the same interpolated variables', $legalVars($root . '/partials/content/legal/privacy.en.php'), $legalVars($root . '/partials/content/legal/privacy.sv.php'));
+foreach (['en', 'sv'] as $code) {
+    $src = preg_replace('#/\*.*?\*/#s', '', (string) file_get_contents($root . "/partials/content/legal/privacy.{$code}.php"));
+    check("privacy data {$code}: no number next to a day, month or hour unless it comes from a variable", !preg_match('/\d+[\s-]*(?:dag|day|månad|month|timm|hour)/iu', $src));
+    check("privacy data {$code}: no clause on which language prevails", !preg_match('/prevail|företräde|tolkningsföreträde|authentic (?:version|text)|autentisk/i', $src));
+}
+$privAll = static function (array $doc): string {
+    return implode("\n", array_column($doc['sections'], 'html'));
+};
+check('privacy data en: the account stores a language preference', strpos($privAll($privEn), 'the account stores that language preference') !== false);
+check('privacy data sv: the account stores a language preference', strpos($privAll($privSv), 'sparar kontot den språkinställningen') !== false);
+check('privacy data en: the browser language is read and not stored', strpos($privAll($privEn), 'language setting is read to choose the display language; it is not stored') !== false);
+check('privacy data sv: the browser language is read and not stored', strpos($privAll($privSv), 'webbläsarens språkinställning för att välja visningsspråk; den sparas inte') !== false);
+check('privacy data en: no cookie is used for language', strpos($privAll($privEn), 'No cookie is used for language.') !== false);
+check('privacy data sv: no cookie is used for language', strpos($privAll($privSv), 'Ingen cookie används för språk.') !== false);
+foreach ($legalVariants as $name => [$referral, $trial]) {
+    $r = legalRender($root, 'privacy.php', 'sv', $both, $referral, $trial);
+    $raw = $r['raw'];
+    check("legal sv privacy {$name}: the page rendered", $raw !== '', $r['err']);
+    check("legal sv privacy {$name}: lang sv", strpos($raw, '<html lang="sv">') !== false);
+    check("legal sv privacy {$name}: the /sv/ canonical", strpos($raw, '<link rel="canonical" href="https://example.test/sv/privacy.php">') !== false);
+    check("legal sv privacy {$name}: hreflang en, sv and x-default", strpos($raw, 'hreflang="en" href="https://example.test/privacy.php"') !== false && strpos($raw, 'hreflang="sv" href="https://example.test/sv/privacy.php"') !== false && strpos($raw, 'hreflang="x-default"') !== false);
+    check("legal sv privacy {$name}: no raw catalog key", !preg_match('/\blegal\.(?:shell|fact)\./', $raw));
+    check("legal sv privacy {$name}: the shell is Swedish", strpos($raw, 'Gäller från 11 oktober 2026') !== false && strpos($raw, 'På den här sidan') !== false && strpos($raw, 'Effective') === false && strpos($raw, 'On this page') === false);
+    check("legal sv privacy {$name}: every section id is on the page", (function () use ($raw, $privSv) {
+        foreach ($privSv['sections'] as $s) {
+            if (strpos($raw, 'id="' . $s['id'] . '"') === false) {
+                return false;
+            }
+        }
+        return true;
+    })());
+    check("legal sv privacy {$name}: the facts follow the stub config", strpos($raw, 'support@example.test') !== false && strpos($raw, 'Example AB') !== false && strpos($raw, 'i 6 månader') !== false && strpos($raw, 'upp till 4 gånger per år') !== false);
+    check("legal sv privacy {$name}: the invite cookie follows the referral switch only in the facts, not the structure", strpos($raw, 'ms_ref') !== false);
+    check("legal sv privacy {$name}: the language-preference statement is on the page", strpos($raw, 'sparar kontot den språkinställningen') !== false && strpos($raw, 'Ingen cookie används för språk.') !== false);
 }
 
 // The Swedish page: language, canonical, hreflang, no raw key, no English chrome.
