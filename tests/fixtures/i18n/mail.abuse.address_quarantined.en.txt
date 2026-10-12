@@ -1,0 +1,12 @@
+Subject: box@manjo.me is paused
+
+Hello,
+
+box@manjo.me received far more mail than normal, so we have paused it until 2026-01-01 10:00:00 (server time).
+
+While it is paused, mail to the address is refused and returned to the sender. It opens again by itself. Mail it already received is untouched.
+
+Your addresses: https://example.test/pro_profile_page.php
+
+Regards,
+The Mail Shield Team

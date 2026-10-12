@@ -1,0 +1,10 @@
+Subject: Your Mail Shield account is creating addresses unusually fast
+
+Hello,
+
+Your account has reached a limit on how many addresses can be created in a short time.
+
+If this continues, the addresses of the account will be paused for a while. If you did not do this yourself, change your password: https://example.test/pro_profile_page.php
+
+Regards,
+The Mail Shield Team

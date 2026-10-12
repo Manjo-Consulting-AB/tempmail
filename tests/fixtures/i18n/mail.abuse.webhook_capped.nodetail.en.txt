@@ -1,0 +1,10 @@
+Subject: A webhook reached its hourly limit
+
+Hello,
+
+Your webhook "webhook" reached its limit of 0 notifications per hour. Further notifications are skipped until the hour is over. Mail is still received and stored as usual.
+
+Your webhooks: https://example.test/pro_profile_page.php
+
+Regards,
+The Mail Shield Team

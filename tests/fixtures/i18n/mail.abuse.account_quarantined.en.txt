@@ -1,0 +1,10 @@
+Subject: The addresses of your Mail Shield account are paused
+
+Hello,
+
+Your account has repeatedly gone over the limits for creating addresses, so all of its addresses are paused for 30 minutes. Mail to them is refused and returned to the sender meanwhile; they open again by themselves.
+
+If you did not do this yourself, change your password: https://example.test/pro_profile_page.php
+
+Regards,
+The Mail Shield Team

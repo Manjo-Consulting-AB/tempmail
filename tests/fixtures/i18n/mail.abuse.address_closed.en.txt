@@ -1,0 +1,12 @@
+Subject: box@manjo.me has been closed
+
+Hello,
+
+box@manjo.me has been paused several times in a short period because of the amount of mail sent to it, so it is now closed and refuses all mail.
+
+Mail it already received is untouched. We recommend deleting the address and creating a new one: https://example.test/pro_profile_page.php
+
+If you need this exact address back, reply to this message.
+
+Regards,
+The Mail Shield Team
