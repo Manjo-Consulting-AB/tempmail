@@ -191,12 +191,14 @@ function send_2fa_notification_email(int $userId, string $event): void {
             return;
         }
 
+        // The account holder's own request (epic #437): their saved language, then the page's.
+        $locale = mailLocaleFor($pdo, $userId, $config['i18n'] ?? [], i18nLocale());
         if ($event === 'enabled') {
-            $subject = 'Two-factor authentication enabled for Mail Shield';
-            $message = "Hello,\n\nTwo-factor authentication was just enabled on your Mail Shield account. Signing in with your password will now also require a code from your authenticator app.\n\nIf you did not make this change, sign in using your magic link and disable two-factor authentication immediately.\n\nRegards,\nThe Mail Shield Team";
+            $subject = mailEncodeSubject(t('mail.twofa_enabled.subject', [], $locale));
+            $message = t('mail.twofa_enabled.body', [], $locale);
         } else {
-            $subject = 'Two-factor authentication disabled for Mail Shield';
-            $message = "Hello,\n\nTwo-factor authentication was just disabled on your Mail Shield account. Signing in with your password no longer requires a code.\n\nIf you did not make this change, sign in using your magic link, re-enable two-factor authentication and change your password.\n\nRegards,\nThe Mail Shield Team";
+            $subject = mailEncodeSubject(t('mail.twofa_disabled.subject', [], $locale));
+            $message = t('mail.twofa_disabled.body', [], $locale);
         }
 
         $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
@@ -392,9 +394,11 @@ try {
                 $ins->execute([$userId, $data, pendingChangeStoredToken($pdo, $token), $expires]);
 
                 // Send confirmation email to the new email address
-                $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
-                $subject = 'Confirm your email change for Mail Shield';
-                $message = "Hello,\n\nA request was made to change the email for your Mail Shield account to this address.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email.\n\nRegards,\nThe Mail Shield Team";
+                // The mail goes to the NEW address, which has no account: the language is the requesting account's.
+                $locale = mailLocaleFor($pdo, $userId, $config['i18n'] ?? [], i18nLocale());
+                $confirmUrl = mailUrl($config, 'pro_auth.php?confirm_profile_change=' . urlencode($token), $locale);
+                $subject = mailEncodeSubject(t('mail.confirm_email.subject', [], $locale));
+                $message = t('mail.confirm_email.body', ['link' => $confirmUrl], $locale);
                 $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                 $headers = [];
                 $headers[] = 'From: Mail Shield <' . $from . '>';
@@ -441,10 +445,11 @@ try {
                 $ins->execute([$userId, $data, pendingChangeStoredToken($pdo, $token), $expires]);
 
                 // Send confirmation email to current user email
-                $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
+                $locale = mailLocaleFor($pdo, $userId, $config['i18n'] ?? [], i18nLocale());
+                $confirmUrl = mailUrl($config, 'pro_auth.php?confirm_profile_change=' . urlencode($token), $locale);
                 $to = $_SESSION['pro_user_email'] ?? '';
-                $subject = 'Confirm your password change for Mail Shield';
-                $message = "Hello,\n\nA request was made to change the password for your Mail Shield account.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe Mail Shield Team";
+                $subject = mailEncodeSubject(t('mail.confirm_password.subject', [], $locale));
+                $message = t('mail.confirm_password.body', ['link' => $confirmUrl], $locale);
                 $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                 $headers = [];
                 $headers[] = 'From: Mail Shield <' . $from . '>';
@@ -1016,7 +1021,8 @@ try {
 
                 $action = $pc['action'];
                 $data = json_decode($pc['data'], true) ?: [];
-                $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
+                $locale = mailLocaleFor($pdo, $userId, $config['i18n'] ?? [], i18nLocale());
+                $confirmUrl = mailUrl($config, 'pro_auth.php?confirm_profile_change=' . urlencode($token), $locale);
                 $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                 $headers = [];
                 $headers[] = 'From: Mail Shield <' . $from . '>';
@@ -1029,8 +1035,9 @@ try {
                     if (!$to) {
                         send_json(['success' => false, 'error' => t('profile.error.pending_email_missing')]);
                     }
-                    $subject = 'Confirm your email change for Mail Shield';
-                    $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield email change request.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email.\n\nRegards,\nThe Mail Shield Team";
+                    // The resend uses the subject of the original mail.
+                    $subject = mailEncodeSubject(t('mail.confirm_email.subject', [], $locale));
+                    $message = t('mail.confirm_email_resend.body', ['link' => $confirmUrl], $locale);
                     @mail($to, $subject, $message, $headersStr);
                     send_json(['success' => true, 'message' => t('profile.message.resent_new_email')]);
                 }
@@ -1040,8 +1047,8 @@ try {
                     if (!$to) {
                         send_json(['success' => false, 'error' => t('profile.error.user_email_missing')]);
                     }
-                    $subject = 'Confirm your password change for Mail Shield';
-                    $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield password change request.\n\nPlease confirm the change by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe Mail Shield Team";
+                    $subject = mailEncodeSubject(t('mail.confirm_password.subject', [], $locale));
+                    $message = t('mail.confirm_password_resend.body', ['link' => $confirmUrl], $locale);
                     @mail($to, $subject, $message, $headersStr);
                     send_json(['success' => true, 'message' => t('profile.message.resent_your_email')]);
                 }
@@ -1051,8 +1058,9 @@ try {
                     if (!$to) {
                         send_json(['success' => false, 'error' => t('profile.error.user_email_missing')]);
                     }
-                    $subject = 'Confirm your account deletion for Mail Shield';
-                    $message = "Hello,\n\nThis is a resend of the confirmation link for your Mail Shield account deletion request.\n\nPlease confirm the deletion by clicking the link below:\n\n" . $confirmUrl . "\n\nIf you did not request this change, ignore this email or contact support.\n\nRegards,\nThe Mail Shield Team";
+                    // The original mail's subject reads "Confirm account deletion", the resend's "Confirm your account deletion": two keys keep English byte-identical.
+                    $subject = mailEncodeSubject(t('mail.confirm_delete_resend.subject', [], $locale));
+                    $message = t('mail.confirm_delete_resend.body', ['link' => $confirmUrl], $locale);
                     @mail($to, $subject, $message, $headersStr);
                     send_json(['success' => true, 'message' => t('profile.message.resent_your_email')]);
                 }
@@ -1943,10 +1951,12 @@ try {
                 $ins->execute([$userId, $data, pendingChangeStoredToken($pdo, $token), $expires]);
 
                 // Send confirmation email with magic link
-                $confirmUrl = ($config['email']['base_url'] ?? '') . "pro_auth.php?confirm_profile_change=" . urlencode($token);
+                $locale = mailLocaleFor($pdo, $userId, $config['i18n'] ?? [], i18nLocale());
+                $confirmUrl = mailUrl($config, 'pro_auth.php?confirm_profile_change=' . urlencode($token), $locale);
                 $to = $_SESSION['pro_user_email'] ?? '';
-                $subject = 'Confirm account deletion for Mail Shield';
-                $message = "Hello,\n\nA request was made to permanently delete your Mail Shield account.\n\nIf you want to proceed, please confirm by clicking the link below (valid for 2 hours):\n\n" . $confirmUrl . "\n\nIf you did not request this, ignore this email.\n\nRegards,\nThe Mail Shield Team";
+                $subject = mailEncodeSubject(t('mail.confirm_delete.subject', [], $locale));
+                // 2 = the hours in the '+2 hours' expiry above; a number is a placeholder, never part of the copy.
+                $message = t('mail.confirm_delete.body', ['link' => $confirmUrl, 'hours' => 2], $locale);
                 $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                 $headers = [];
                 $headers[] = 'From: Mail Shield <' . $from . '>';
