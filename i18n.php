@@ -97,6 +97,7 @@ if (!function_exists('i18nSupportedLocales')) {
         }
         return $pages ?? [
             '@app'                 => ['en', 'sv'],
+            '@mail'                => ['en'],
             '/'                    => ['en', 'sv'],
             '/temporary-email.php' => ['en', 'sv'],
             '/pricing.php'         => ['en', 'sv'],
@@ -131,6 +132,82 @@ if (!function_exists('i18nSupportedLocales')) {
             }
         }
         return $out === [] ? [i18nDefaultLocale()] : $out;
+    }
+
+    /**
+     * The language a mail to one account is written in (epic #437): the
+     * account's saved language, then (only for a mail sent during the
+     * recipient's own request) $requestLocale, then English. A language must
+     * be switched on in $i18nConfig['enabled'] AND listed under '@mail' in
+     * i18nTranslatedPages(). Never throws: any failure is English, because a
+     * mail is never skipped over language.
+     *
+     * @param array<string,mixed> $i18nConfig $config['i18n']
+     */
+    function mailLocaleFor(?PDO $pdo, ?int $userId, array $i18nConfig, ?string $requestLocale = null): string
+    {
+        try {
+            $enabled = $i18nConfig['enabled'] ?? [i18nDefaultLocale()];
+            $candidates = i18nPageLocales('@mail', is_array($enabled) ? $enabled : [i18nDefaultLocale()]);
+            if ($pdo !== null && $userId !== null && $userId > 0) {
+                $account = i18nAccountLocale($pdo, $userId);
+                if ($account !== null && in_array($account, $candidates, true)) {
+                    return $account;
+                }
+            }
+            if ($requestLocale !== null && in_array($requestLocale, $candidates, true)) {
+                return $requestLocale;
+            }
+        } catch (Throwable $e) {
+            // fall through to English
+        }
+        return i18nDefaultLocale();
+    }
+
+    /**
+     * A mail subject made safe for a header (epic #437): CR and LF removed,
+     * an ASCII-only subject returned unchanged, anything else encoded per
+     * RFC 2047 (base64, UTF-8) in words of at most 75 characters, joined by
+     * CRLF + space. Cut on character boundaries, so no word splits a
+     * multi-byte character.
+     */
+    function mailEncodeSubject(string $subject): string
+    {
+        $subject = str_replace(["\r", "\n"], '', $subject);
+        if (!preg_match('/[^\x00-\x7F]/', $subject)) {
+            return $subject;
+        }
+        $chars = preg_split('//u', $subject, -1, PREG_SPLIT_NO_EMPTY);
+        if ($chars === false) {
+            // Not valid UTF-8: drop what cannot be encoded rather than send garbage.
+            $chars = preg_split('//u', (string) @iconv('UTF-8', 'UTF-8//IGNORE', $subject), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        }
+        // "=?UTF-8?B?" + "?=" is 12 characters; 60 base64 characters hold 45 bytes.
+        $words = [];
+        $chunk = '';
+        foreach ($chars as $char) {
+            if (strlen($chunk) + strlen($char) > 45) {
+                $words[] = '=?UTF-8?B?' . base64_encode($chunk) . '?=';
+                $chunk = '';
+            }
+            $chunk .= $char;
+        }
+        if ($chunk !== '') {
+            $words[] = '=?UTF-8?B?' . base64_encode($chunk) . '?=';
+        }
+        return implode("\r\n ", $words);
+    }
+
+    /**
+     * An absolute link to a public page in the mail's language (epic #437).
+     * For English it is today's string: base_url + path.
+     *
+     * @param array<string,mixed> $config
+     */
+    function mailUrl(array $config, string $path, string $locale): string
+    {
+        return rtrim((string) ($config['email']['base_url'] ?? ''), '/')
+            . i18nUrl($path, $locale, $config['i18n']['enabled'] ?? ['en']);
     }
 
     /** '' and 'index.php' are '/'; every path gets exactly one leading slash. */
