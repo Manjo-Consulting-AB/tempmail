@@ -2420,7 +2420,7 @@ $mailPdoNoColumn->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY)');
 $mailPdoNoColumn->exec('INSERT INTO pro_users (id) VALUES (1)');
 $mailCfg = ['enabled' => ['en', 'sv']];
 $realMailPages = i18nTranslatedPages();
-same('mail gate: the shipped list has @mail at English only', ['en'], $realMailPages['@mail'] ?? null);
+same('mail gate: the shipped list has @mail at English and Swedish', ['en', 'sv'], $realMailPages['@mail'] ?? null);
 // The gate is closed explicitly here, so this holds whatever the shipped list says.
 i18nTranslatedPages(array_merge($realMailPages, ['@mail' => ['en']]));
 same('mailLocaleFor: @mail at en is always English (account sv)', 'en', mailLocaleFor($mailPdo, 1, $mailCfg, 'sv'));
