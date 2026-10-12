@@ -1175,7 +1175,7 @@ return [
     'mail.digest.unknown_sender' => "(okänd)",
     'mail.digest.no_subject' => "(inget ämne)",
     'mail.inactivity.subject' => "Ditt Mail Shield-konto raderas snart",
-    'mail.inactivity.body' => "Hej,\n\nDitt Mail Shield-konto ({email}) har varit inaktivt en tid. Om du vill behålla det räcker det att logga in inom den närmaste månaden:\n\n{link}\n\nOm du inte loggar in raderas ditt konto och alla dess e-postadresser automatiskt och permanent om cirka {days} dagar.\n\nOm du inte längre behöver kontot behöver du inte göra något – det tas bort automatiskt.\n\nVänliga hälsningar,\nMail Shield-teamet",
+    'mail.inactivity.body' => "Hej,\n\nDitt Mail Shield-konto ({email}) har varit inaktivt en tid. Om du vill behålla det räcker det att logga in inom {days} dagar:\n\n{link}\n\nOm du inte loggar in raderas ditt konto och alla dess e-postadresser automatiskt och permanent om cirka {days} dagar.\n\nOm du inte längre behöver kontot behöver du inte göra något – det tas bort automatiskt.\n\nVänliga hälsningar,\nMail Shield-teamet",
     'mail.abuse.until_later' => "senare",
     'mail.abuse.webhook_name' => "webhook",
     'mail.abuse.address_warning.subject' => "Ovanligt mycket e-post till {address}",

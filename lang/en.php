@@ -1179,7 +1179,7 @@ return [
     'mail.digest.unknown_sender' => "(unknown)",
     'mail.digest.no_subject' => "(no subject)",
     'mail.inactivity.subject' => "Your Mail Shield account will be deleted soon",
-    'mail.inactivity.body' => "Hello,\n\nYour Mail Shield account ({email}) has been inactive for a while. To keep it, simply sign in within the next month:\n\n{link}\n\nIf you do not sign in, your account and all of its email addresses will be automatically and permanently deleted in about {days} days.\n\nIf you no longer need this account, no action is required - it will be removed automatically.\n\nRegards,\nThe Mail Shield Team",
+    'mail.inactivity.body' => "Hello,\n\nYour Mail Shield account ({email}) has been inactive for a while. To keep it, simply sign in within the next {days} days:\n\n{link}\n\nIf you do not sign in, your account and all of its email addresses will be automatically and permanently deleted in about {days} days.\n\nIf you no longer need this account, no action is required - it will be removed automatically.\n\nRegards,\nThe Mail Shield Team",
     'mail.abuse.until_later' => "later",
     'mail.abuse.webhook_name' => "webhook",
     'mail.abuse.address_warning.subject' => "Unusual amount of mail to {address}",
