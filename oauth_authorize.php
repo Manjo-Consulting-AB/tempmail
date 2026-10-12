@@ -111,6 +111,28 @@ function oauthAuthorizeRedirectHost(string $redirectUri): string
 }
 
 /**
+ * The sentence a refused request is explained with on our own page. The two fatal
+ * answers of oauthAuthorizeRequestValidate() (an unknown client, a redirect_uri that
+ * is not one the client registered) are told in the visitor's language, picked by
+ * their OAuth error code; any other description is protocol text from
+ * oauth_server.php and is shown as it is, never translated.
+ *
+ * @param array<string,mixed> $validated
+ */
+function oauthAuthorizeFatalMessage(array $validated): string
+{
+    if (!empty($validated['fatal'])) {
+        if (($validated['error'] ?? '') === 'invalid_client') {
+            return t('oauth.error.unknown_client');
+        }
+        if (($validated['error'] ?? '') === 'invalid_request') {
+            return t('oauth.error.redirect_mismatch');
+        }
+    }
+    return (string) ($validated['error_description'] ?? '');
+}
+
+/**
  * Send the user-agent back to the client, carrying the RFC's parameters. The
  * redirect_uri is one that was proven to be this client's own registered
  * string — nothing here is built from anything else.
@@ -209,7 +231,7 @@ function oauthAuthorizePage(string $title, string $body): void
         </main>
 
         <footer class="ms-auth__foot">
-            <p><a href="/">&larr; Back to Mail Shield</a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
+            <p><a href="/">&larr; <?php echo $escape(t('oauth.consent.back')); ?></a><span class="ms-auth__foot-sep" aria-hidden="true">&middot;</span><span>&copy; <?php echo date('Y'); ?> Manjo Consulting AB</span></p>
         </footer>
     </div>
 <?php require __DIR__ . '/partials/app_locale_js.php'; ?>
@@ -251,7 +273,11 @@ header("Content-Security-Policy: frame-ancestors 'none'");
 // ---------------------------------------------------------------------
 
 if (!oauthAvailable($pdo)) {
-    oauthAuthorizeNoticePage(503, 'Not available yet', 'Connecting an app is not available yet. Please try again later.');
+    // No session yet, so only the browser's language can apply (I18N.md 2.1).
+    if (function_exists('i18nUseAppLocale')) {
+        i18nUseAppLocale($pdo, null, $_SERVER, $config['i18n'] ?? []);
+    }
+    oauthAuthorizeNoticePage(503, t('oauth.error.not_available_title'), t('oauth.error.not_available'));
 }
 
 session_start();
@@ -264,7 +290,7 @@ if (function_exists('i18nUseAppLocale')) {
 $requestMethod = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
 if ($requestMethod !== 'GET' && $requestMethod !== 'POST') {
     header('Allow: GET, POST');
-    oauthAuthorizeNoticePage(405, 'Method not allowed', 'This page answers GET and POST only.');
+    oauthAuthorizeNoticePage(405, t('oauth.error.method_title'), t('oauth.error.method'));
 }
 
 // ---------------------------------------------------------------------
@@ -309,7 +335,7 @@ if ($limited !== null) {
         'rule' => $limited['rule'],
     ]);
     header('Retry-After: ' . (int) $limited['retry_after']);
-    oauthAuthorizeNoticePage(429, 'Too many requests', 'Too many requests from here just now. Please wait a little and try again.');
+    oauthAuthorizeNoticePage(429, t('oauth.error.rate_title'), t('oauth.error.rate'));
 }
 
 // ---------------------------------------------------------------------
@@ -329,9 +355,9 @@ function oauthAuthorizeBlocked(PDO $pdo, array $authRequest, int $userId): ?arra
     if (!proUserIsPro($userId)) {
         return [
             'status' => 403,
-            'title' => 'Connecting an app needs Pro',
-            'message' => 'Connecting an app is part of Mail Shield Pro. Your account is on the free plan, so no access was granted.',
-            'action' => '<a class="btn btn-primary" href="pro_profile_page.php">See your plan</a>',
+            'title' => t('oauth.error.need_pro_title'),
+            'message' => t('oauth.error.need_pro'),
+            'action' => '<a class="btn btn-primary" href="pro_profile_page.php">' . te('oauth.error.need_pro_action') . '</a>',
         ];
     }
     // One grant per (user, client): authorising a client the account already
@@ -341,9 +367,9 @@ function oauthAuthorizeBlocked(PDO $pdo, array $authRequest, int $userId): ?arra
         && oauthGrantCount($pdo, $userId) >= OAUTH_GRANT_MAX_PER_USER) {
         return [
             'status' => 403,
-            'title' => 'Too many connected apps',
-            'message' => 'Your account is already connected to as many apps as it can hold. Remove one, then try again.',
-            'action' => '<a class="btn btn-primary" href="pro_profile_page.php#settings-security">Open Connected apps</a>',
+            'title' => t('oauth.error.too_many_title'),
+            'message' => t('oauth.error.too_many'),
+            'action' => '<a class="btn btn-primary" href="pro_profile_page.php#settings-security">' . te('oauth.error.too_many_action') . '</a>',
         ];
     }
     return null;
@@ -359,7 +385,7 @@ if ($requestMethod === 'GET') {
     if (!$validated['ok']) {
         if ($validated['fatal']) {
             // Never redirect: the client or the redirect_uri is unproven.
-            oauthAuthorizeNoticePage(400, 'This link cannot be used', (string) $validated['error_description']);
+            oauthAuthorizeNoticePage(400, t('oauth.error.link_title'), oauthAuthorizeFatalMessage($validated));
         }
         oauthAuthorizeRedirectTo(
             (string) $validated['redirect_uri'],
@@ -421,39 +447,42 @@ if ($requestMethod === 'GET') {
 
     $scopesHtml = '<label class="ms-grant__scope">'
         . '<input type="radio" name="scope" value="' . $escape(OAUTH_SCOPE_READ) . '" checked>'
-        . '<span><span class="ms-grant__scope-title">Read only</span>'
-        . '<span class="ms-grant__scope-detail">See your addresses and read your messages.</span></span>'
+        . '<span><span class="ms-grant__scope-title">' . te('oauth.consent.scope_read_title') . '</span>'
+        . '<span class="ms-grant__scope-detail">' . te('oauth.consent.scope_read_detail') . '</span></span>'
         . '</label>';
     if ($wantsWrite) {
         // The broader grant is offered, never assumed: the narrower radio is
         // the one that starts checked, so a careless click grants less.
         $scopesHtml .= '<label class="ms-grant__scope">'
             . '<input type="radio" name="scope" value="' . $escape(OAUTH_SCOPE_READ . ' ' . OAUTH_SCOPE_WRITE) . '">'
-            . '<span><span class="ms-grant__scope-title">Read and change</span>'
-            . '<span class="ms-grant__scope-detail">Also create and delete your addresses.</span></span>'
+            . '<span><span class="ms-grant__scope-title">' . te('oauth.consent.scope_write_title') . '</span>'
+            . '<span class="ms-grant__scope-detail">' . te('oauth.consent.scope_write_detail') . '</span></span>'
             . '</label>';
     }
 
-    $body = '<h1 class="ms-auth__title">Connect this app?</h1>'
-        . '<p class="ms-auth__sub">An app on your computer or phone is asking to use your Mail Shield account.</p>'
+    // The app's name and the redirect host are attacker-controlled values: they go in as
+    // parameters (te()) or as the tHtml() text parameter, so they are escaped and shown
+    // literally, and never appear in a catalog value. The sentences around them are translated.
+    $body = '<h1 class="ms-auth__title">' . te('oauth.consent.title') . '</h1>'
+        . '<p class="ms-auth__sub">' . te('oauth.consent.sub') . '</p>'
         . '<div class="ms-grant__app">'
-        . '<p class="ms-grant__app-name">&ldquo;' . $escape($appName) . '&rdquo;</p>'
-        . '<p class="ms-grant__app-note">This is the name the app gives itself. Mail Shield has not checked who it is.</p>'
-        . '<p class="ms-grant__app-host">It sends you back to <code>' . $escape($appHost) . '</code> when you are done.</p>'
+        . '<p class="ms-grant__app-name">' . te('oauth.consent.app_name', ['name' => $appName]) . '</p>'
+        . '<p class="ms-grant__app-note">' . te('oauth.consent.app_note') . '</p>'
+        . '<p class="ms-grant__app-host">' . tHtml('oauth.consent.app_host', ['host' => $appHost], ['code' => '<code>', 'code_end' => '</code>']) . '</p>'
         . '</div>'
         . '<form method="post" action="">'
         . '<input type="hidden" name="csrf" value="' . $escape($csrfToken) . '">'
-        . '<fieldset class="ms-grant__scopes"><legend class="ms-visually-hidden">What the app may do</legend>' . $scopesHtml . '</fieldset>'
-        . '<p class="ms-grant__notice">Anything this app reads is sent to whoever runs it, outside Mail Shield. Only connect an app you trust.</p>'
+        . '<fieldset class="ms-grant__scopes"><legend class="ms-visually-hidden">' . te('oauth.consent.scopes_legend') . '</legend>' . $scopesHtml . '</fieldset>'
+        . '<p class="ms-grant__notice">' . te('oauth.consent.notice') . '</p>'
         . '<div class="ms-grant__actions">'
         // Cancel first in the DOM on purpose: a stray Enter picks "Cancel",
         // so nothing is granted by accident.
-        . '<button type="submit" name="decision" value="cancel" class="btn btn-outline-secondary">Cancel</button>'
-        . '<button type="submit" name="decision" value="allow" class="btn btn-primary">Allow</button>'
+        . '<button type="submit" name="decision" value="cancel" class="btn btn-outline-secondary">' . te('oauth.consent.cancel') . '</button>'
+        . '<button type="submit" name="decision" value="allow" class="btn btn-primary">' . te('oauth.consent.allow') . '</button>'
         . '</div>'
         . '</form>';
 
-    oauthAuthorizePage('Connect this app?', $body);
+    oauthAuthorizePage(t('oauth.consent.title'), $body);
     exit;
 }
 
@@ -468,14 +497,14 @@ if ($requestMethod === 'GET') {
  */
 function oauthAuthorizeRefusePost(string $title, string $message, int $status = 400): void
 {
-    oauthAuthorizeNoticePage($status, $title, $message, '<a class="btn btn-secondary" href="/">Close</a>', true);
+    oauthAuthorizeNoticePage($status, $title, $message, '<a class="btn btn-secondary" href="/">' . te('oauth.error.close') . '</a>', true);
 }
 
 $pending = $_SESSION[OAUTH_AUTHORIZE_PENDING_KEY] ?? null;
 if (!is_array($pending) || !is_array($pending['params'] ?? null)
     || (int) ($pending['created_at'] ?? 0) < time() - OAUTH_AUTHORIZE_PENDING_TTL_SECONDS) {
     unset($_SESSION[OAUTH_AUTHORIZE_PENDING_KEY]);
-    oauthAuthorizeRefusePost('This page has expired', 'Start again from the app you were connecting.');
+    oauthAuthorizeRefusePost(t('oauth.error.expired_title'), t('oauth.error.restart'));
 }
 
 /** @var array<string,mixed> $pendingParams */
@@ -486,7 +515,7 @@ $pendingParams = $pending['params'];
 $revalidated = oauthAuthorizeRequestValidate($pdo, $pendingParams);
 if (!$revalidated['ok']) {
     unset($_SESSION[OAUTH_AUTHORIZE_PENDING_KEY]);
-    oauthAuthorizeRefusePost('This request is no longer valid', (string) $revalidated['error_description']);
+    oauthAuthorizeRefusePost(t('oauth.error.invalid_title'), oauthAuthorizeFatalMessage($revalidated));
 }
 /** @var array<string,mixed> $authRequest */
 $authRequest = $revalidated['request'];
@@ -515,12 +544,12 @@ if ($postedCsrf === '' || !hash_equals(oauthAuthorizeCsrfToken($pendingParams), 
         'user_id' => $userId,
         'ip' => getVisitorIp(),
     ]);
-    oauthAuthorizeRefusePost('This page has expired', 'Start again from the app you were connecting.', 403);
+    oauthAuthorizeRefusePost(t('oauth.error.expired_title'), t('oauth.error.restart'), 403);
 }
 
 $decision = isset($_POST['decision']) && is_string($_POST['decision']) ? $_POST['decision'] : '';
 if ($decision !== 'allow' && $decision !== 'cancel') {
-    oauthAuthorizeRefusePost('Nothing was chosen', 'Start again from the app you were connecting.');
+    oauthAuthorizeRefusePost(t('oauth.error.none_chosen_title'), t('oauth.error.restart'));
 }
 
 unset($_SESSION[OAUTH_AUTHORIZE_PENDING_KEY]);
@@ -544,7 +573,7 @@ if ($decision === 'cancel') {
 $chosenRaw = isset($_POST['scope']) && is_string($_POST['scope']) ? $_POST['scope'] : '';
 $chosenSet = oauthScopeSetFromExternal($chosenRaw);
 if ($chosenSet === null || array_diff($chosenSet, $authRequest['scopes']) !== []) {
-    oauthAuthorizeRefusePost('That access was not offered', 'Start again from the app you were connecting.');
+    oauthAuthorizeRefusePost(t('oauth.error.not_offered_title'), t('oauth.error.restart'));
 }
 if ($chosenSet === []) {
     $chosenSet = ['read'];
@@ -566,11 +595,11 @@ try {
         'client_id' => (string) $authRequest['client_id'],
         'error' => $e->getMessage(),
     ]);
-    oauthAuthorizeNoticePage(500, 'Something went wrong', 'The app could not be connected just now. Please try again.');
+    oauthAuthorizeNoticePage(500, t('oauth.error.went_wrong_title'), t('oauth.error.went_wrong'));
 }
 
 if ($code === null) {
-    oauthAuthorizeNoticePage(500, 'Something went wrong', 'The app could not be connected just now. Please try again.');
+    oauthAuthorizeNoticePage(500, t('oauth.error.went_wrong_title'), t('oauth.error.went_wrong'));
 }
 
 // The log line carries the decision and who made it. The code itself and the
