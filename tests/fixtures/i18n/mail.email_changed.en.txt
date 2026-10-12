@@ -1,0 +1,14 @@
+To: alice@example.com
+Subject: Your Mail Shield email has been changed
+From: Mail Shield <noreply@manjo.me>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hello,
+
+This is a notification that the email address for your Mail Shield account was changed from alice@example.com to alice.new@example.com.
+
+If you did NOT authorize this change, please contact support immediately.
+
+Regards,
+The Mail Shield Team

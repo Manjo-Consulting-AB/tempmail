@@ -1,0 +1,20 @@
+To: alice@example.com
+Subject: Confirm your Mail Shield account
+From: Mail Shield <noreply@manjo.me>
+Reply-To: noreply@manjo.me
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+X-Mailer: PHP/<VERSION>
+
+Hello,
+
+Thanks for signing up. Click the link below to verify your email address and sign in:
+
+https://example.test/pro_login.php?token=<TOKEN>
+
+This link is valid for 30 minutes.
+
+If you did not create this account, please ignore this email.
+
+Regards,
+The Mail Shield Team
