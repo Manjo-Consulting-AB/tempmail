@@ -1,0 +1,14 @@
+To: alice@example.com
+Subject: A two-factor recovery code was used to sign in to Mail Shield
+From: Mail Shield <noreply@manjo.me>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hello,
+
+A two-factor recovery code was just used to sign in to your Mail Shield account. Recovery codes are meant as a backup — consider generating new ones from your profile if you're running low.
+
+If you did not sign in just now, sign in using your magic link, disable two-factor authentication and change your password immediately.
+
+Regards,
+The Mail Shield Team

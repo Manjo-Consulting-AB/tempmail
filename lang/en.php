@@ -1142,4 +1142,18 @@ return [
     'service.hold.start_failed' => 'Could not start retention hold',
     'service.hold.none_active' => 'No active hold',
     'service.hold.end_failed' => 'Could not end retention hold',
+
+    // Mail to users (epic #437). Plain text; {minutes} etc. are placeholders, never part of the copy.
+    'mail.login.subject' => "Your login link for Mail Shield",
+    'mail.login.body' => "Hello,\n\nClick the link below to sign in to your Mail Shield account:\n\n{link}\n\nThis link is valid for {minutes} minutes.\n\nIf you did not request this link, please ignore this email.\n\nRegards,\nThe Mail Shield Team",
+    'mail.verify.subject' => "Confirm your Mail Shield account",
+    'mail.verify.body' => "Hello,\n\nThanks for signing up. Click the link below to verify your email address and sign in:\n\n{link}\n\nThis link is valid for {minutes} minutes.\n\nIf you did not create this account, please ignore this email.\n\nRegards,\nThe Mail Shield Team",
+    'mail.already_registered.subject' => "You already have a Mail Shield account",
+    'mail.already_registered.body' => "Hello,\n\nSomeone (hopefully you) just tried to create a Mail Shield account with this email address, but an account already exists.\n\nIf that was you, sign in here:\n\n{link}\n\nIf you don't remember signing up, you can request a magic sign-in link from that page - no password needed.\n\nIf you did not try to create an account, you can safely ignore this email.\n\nRegards,\nThe Mail Shield Team",
+    'mail.recovery_used.subject' => "A two-factor recovery code was used to sign in to Mail Shield",
+    'mail.recovery_used.body' => "Hello,\n\nA two-factor recovery code was just used to sign in to your Mail Shield account. Recovery codes are meant as a backup — consider generating new ones from your profile if you're running low.\n\nIf you did not sign in just now, sign in using your magic link, disable two-factor authentication and change your password immediately.\n\nRegards,\nThe Mail Shield Team",
+    'mail.email_changed.subject' => "Your Mail Shield email has been changed",
+    'mail.email_changed.body' => "Hello,\n\nThis is a notification that the email address for your Mail Shield account was changed from {old} to {new}.\n\nIf you did NOT authorize this change, please contact support immediately.\n\nRegards,\nThe Mail Shield Team",
+    'mail.password_changed.subject' => "Your Mail Shield password has been changed",
+    'mail.password_changed.body' => "Hello,\n\nThis is a notification that the password for your Mail Shield account associated with {email} has been changed.\n\nIf you did NOT authorize this change, contact support immediately.\n\nRegards,\nThe Mail Shield Team",
 ];

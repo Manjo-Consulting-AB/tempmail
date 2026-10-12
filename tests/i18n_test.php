@@ -273,7 +273,7 @@ $missingJs = array_diff(array_keys($jsKeys), array_keys($en), ['consent.privacy_
 check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], implode(', ', $missingJs));
 
 // --- Swedish completeness by prefix -------------------------------------------
-$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.security.', 'profile.apps.', 'profile.twofa.', 'profile.password.', 'profile.agent.', 'profile.delete.', 'contact.', 'welcome.', 'oauth.'];
+$svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.security.', 'profile.apps.', 'profile.twofa.', 'profile.password.', 'profile.agent.', 'profile.delete.', 'contact.', 'welcome.', 'oauth.', 'mail.'];
 $sv = i18nCatalog('sv');
 foreach ($svRequiredPrefixes as $prefix) {
     $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
@@ -2335,6 +2335,216 @@ foreach (['register.php', 'pro_login.php'] as $page) {
     check("scan: {$page} posts to a root-relative endpoint under /sv/", strpos($src, "\$msAssets . 'pro_auth.php'") !== false && strpos($src, "\$.post('pro_auth.php'") === false);
 }
 check('scan: the sign-in area logs no locale beside an address', !preg_match('/logMessage\([^;]*locale[^;]*email/i', $authPhp));
+function ms_mail_probe_script(): string
+{
+    return <<<'PHP'
+<?php
+// Calls one mail function of the real pro_auth.php. Never deployed.
+require __DIR__ . '/config.php';
+require __DIR__ . '/pro_auth.php';
+$a = json_decode((string) $argv[1], true);
+if (!empty($a['locale'])) {
+    i18nSetLocale($a['locale']);
+}
+switch ($a['kind']) {
+    case 'login': sendLoginEmail($a['email'], $a['token'], $a['user_id'], (int) $a['stay']); break;
+    case 'verify': sendVerificationEmail($a['email'], $a['token'], $a['user_id']); break;
+    case 'already': sendAlreadyRegisteredEmail($a['email'], $a['user_id']); break;
+    case 'recovery': send_2fa_recovery_code_used_email($a['user_id']); break;
+    case 'admin': sendAdminRegistrationNotification($a['email'], $a['user_id']); break;
+}
+PHP;
+}
+
+/** The whole message mail() handed to sendmail, with the token and the PHP version masked. */
+function ms_mail_mask(string $raw): string
+{
+    $raw = preg_replace('/[a-f0-9]{48}/', '<TOKEN>', $raw);
+    $raw = preg_replace('/X-Mailer: PHP\/\S+/', 'X-Mailer: PHP/<VERSION>', $raw);
+    return str_replace("\r\n", "\n", (string) $raw);
+}
+
+/**
+ * Sends one mail through the probe and returns the captured, masked message.
+ * $kind: login | login_stay | verify | already | recovery | admin | email_changed | password_changed.
+ */
+function ms_mail_capture(string $root, string $kind, array $opts = []): string
+{
+    $locales = $opts['locales'] ?? 'en';
+    $account = $opts['account_locale'] ?? null;
+    $env = !empty($opts['mail_sv']) ? ['PROBE_MAIL_SV' => '1'] : [];
+    $mailLog = $root . '/mail.log';
+    @unlink($mailLog);
+    $token = str_repeat('ab12', 12);
+    if ($kind === 'email_changed' || $kind === 'password_changed') {
+        [$db] = ms_auth_probe_db($root, function (PDO $pdo, array $ids) use ($kind, $token, $account) {
+            if ($account !== null) {
+                $pdo->prepare('UPDATE pro_users SET locale = ? WHERE id = ?')->execute([$account, $ids['alice']]);
+            }
+            $pdo->prepare('INSERT INTO pending_profile_changes (user_id, action, data, token, expires_at) VALUES (?, ?, ?, ?, ?)')
+                ->execute([$ids['alice'], $kind === 'email_changed' ? 'update_email' : 'set_password',
+                    json_encode($kind === 'email_changed' ? ['new_email' => 'alice.new@example.com'] : ['password_hash' => password_hash('new-password-1', PASSWORD_DEFAULT)]),
+                    $token, date('Y-m-d H:i:s', time() + 3600)]);
+        });
+        ms_auth_probe_run($root, 'pro_auth.php', ['method' => 'GET', 'uri' => '/pro_auth.php', 'get' => ['confirm_profile_change' => $token], 'locales' => $locales, 'base_url' => 'https://example.test/'], $db, true, $env);
+    } else {
+        [$db, $ids] = ms_auth_probe_db($root, function (PDO $pdo, array $ids) use ($account) {
+            if ($account !== null) {
+                $pdo->prepare('UPDATE pro_users SET locale = ? WHERE id = ?')->execute([$account, $ids['alice']]);
+            }
+        });
+        $args = ['kind' => preg_replace('/_stay$/', '', $kind), 'email' => 'alice@example.com', 'token' => $token, 'user_id' => $ids['alice'], 'stay' => str_ends_with($kind, '_stay') ? 7 : 0, 'locale' => $opts['request_locale'] ?? null];
+        $run = ms_auth_probe_run($root, 'mail_probe.php', ['uri' => '/pro_auth.php', 'locales' => $locales, 'base_url' => 'https://example.test/'], $db, true, $env, [json_encode($args)]);
+        if ($run['err'] !== '') {
+            fwrite(STDERR, $run['err']);
+        }
+    }
+    @unlink($db);
+    @unlink($db . '.log');
+    return ms_mail_mask((string) @file_get_contents($mailLog));
+}
+
+// --- Account mail, step 1/3 (epic #437, #438): helpers and the pro_auth.php mails --------
+// mailLocaleFor(), mailEncodeSubject(), mailUrl() are pure; the seven mails of pro_auth.php run
+// as subprocesses of the auth probe with sendmail_path=cat >> mail.log, as tests/pii_crypto_test.php
+// does. The English fixtures (tests/fixtures/i18n/mail.*.en.txt) were captured from the code as it
+// was before these mails went through t(); the link token and the PHP version in X-Mailer are masked.
+
+// mailLocaleFor(): the account's language, then the request's, then English; '@mail' and
+// LOCALES_ENABLED both have to allow it.
+$mailPdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$mailPdo->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY, locale TEXT NULL)');
+$mailPdo->exec("INSERT INTO pro_users (id, locale) VALUES (1, 'sv'), (2, NULL), (3, 'en'), (4, 'xx')");
+$mailPdoNoColumn = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$mailPdoNoColumn->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY)');
+$mailPdoNoColumn->exec('INSERT INTO pro_users (id) VALUES (1)');
+$mailCfg = ['enabled' => ['en', 'sv']];
+$realMailPages = i18nTranslatedPages();
+same('mail gate: the shipped list has @mail at English only', ['en'], $realMailPages['@mail'] ?? null);
+same('mailLocaleFor: @mail at en is always English (account sv)', 'en', mailLocaleFor($mailPdo, 1, $mailCfg, 'sv'));
+i18nTranslatedPages(array_merge($realMailPages, ['@mail' => ['en', 'sv']]));
+same('mailLocaleFor: account sv', 'sv', mailLocaleFor($mailPdo, 1, $mailCfg, null));
+same('mailLocaleFor: the account beats the request (account en, request sv)', 'en', mailLocaleFor($mailPdo, 3, $mailCfg, 'sv'));
+same('mailLocaleFor: no stored language falls to the request', 'sv', mailLocaleFor($mailPdo, 2, $mailCfg, 'sv'));
+same('mailLocaleFor: no stored language and no request is English', 'en', mailLocaleFor($mailPdo, 2, $mailCfg, null));
+same('mailLocaleFor: an unsupported stored language is ignored', 'en', mailLocaleFor($mailPdo, 4, $mailCfg, null));
+same('mailLocaleFor: a request language that is not a candidate is ignored', 'en', mailLocaleFor($mailPdo, 2, $mailCfg, 'de'));
+same('mailLocaleFor: a missing user is English', 'en', mailLocaleFor($mailPdo, 99, $mailCfg, null));
+same('mailLocaleFor: no user id uses the request', 'sv', mailLocaleFor($mailPdo, null, $mailCfg, 'sv'));
+same('mailLocaleFor: no PDO uses the request', 'sv', mailLocaleFor(null, 1, $mailCfg, 'sv'));
+same('mailLocaleFor: no PDO and no request is English', 'en', mailLocaleFor(null, 1, $mailCfg, null));
+same('mailLocaleFor: the column absent falls to the request', 'sv', mailLocaleFor($mailPdoNoColumn, 1, $mailCfg, 'sv'));
+same('mailLocaleFor: the column absent and no request is English', 'en', mailLocaleFor($mailPdoNoColumn, 1, $mailCfg, null));
+same('mailLocaleFor: LOCALES_ENABLED=en is English', 'en', mailLocaleFor($mailPdo, 1, ['enabled' => ['en']], 'sv'));
+same('mailLocaleFor: no i18n config is English', 'en', mailLocaleFor($mailPdo, 1, [], 'sv'));
+same('mailLocaleFor: a broken config is English', 'en', mailLocaleFor($mailPdo, 1, ['enabled' => 'sv'], 'sv'));
+i18nTranslatedPages($realMailPages);
+
+// mailEncodeSubject()
+same('mailEncodeSubject: ASCII is unchanged', 'Your login link for Mail Shield', mailEncodeSubject('Your login link for Mail Shield'));
+$svSubject = 'Din inloggningslänk för Mail Shield';
+$encoded = mailEncodeSubject($svSubject);
+check('mailEncodeSubject: non-ASCII is an RFC 2047 base64 UTF-8 word', (bool) preg_match('/^=\?UTF-8\?B\?[A-Za-z0-9+\/=]+\?=$/', $encoded), $encoded);
+same('mailEncodeSubject: Swedish round-trips through mb_decode_mimeheader()', $svSubject, mb_decode_mimeheader($encoded));
+$longSubject = str_repeat('Återställningskod för tvåfaktorsautentisering ', 4);
+$encodedLong = mailEncodeSubject($longSubject);
+$words = explode("\r\n ", $encodedLong);
+check('mailEncodeSubject: a long subject is folded into several words', count($words) > 1);
+check('mailEncodeSubject: no encoded word is over 75 characters', max(array_map('strlen', $words)) <= 75, (string) max(array_map('strlen', $words)));
+same('mailEncodeSubject: a long subject round-trips', trim($longSubject), trim(mb_decode_mimeheader($encodedLong)));
+$words2 = array_map(fn($w) => base64_decode(substr($w, 10, -2), true), $words);
+check('mailEncodeSubject: no word splits a multi-byte character', !in_array(false, $words2, true) && !in_array(false, array_map(fn($w) => mb_check_encoding((string) $w, 'UTF-8'), $words2), true));
+check('mailEncodeSubject: CR and LF are stripped from ASCII', !preg_match('/[\r\n]/', mailEncodeSubject("Hello\r\nBcc: x@example.com")));
+same('mailEncodeSubject: the stripped ASCII subject', 'HelloBcc: x@example.com', mailEncodeSubject("Hello\r\nBcc: x@example.com"));
+$injected = mailEncodeSubject("Hej\r\nBcc: x@example.com å");
+check('mailEncodeSubject: CR and LF are stripped before encoding', !preg_match('/[\r\n](?! )/', $injected) && strpos(mb_decode_mimeheader($injected), "\n") === false);
+
+// mailUrl(): English is today's string, Swedish carries /sv/.
+$urlConfig = ['email' => ['base_url' => 'https://example.test/'], 'i18n' => ['enabled' => ['en', 'sv']]];
+$tok = str_repeat('ab12', 12);
+same('mailUrl: English equals the previous concatenation', $urlConfig['email']['base_url'] . 'pro_login.php?token=' . urlencode($tok), mailUrl($urlConfig, 'pro_login.php?token=' . urlencode($tok), 'en'));
+same('mailUrl: English without a query equals the previous concatenation', $urlConfig['email']['base_url'] . 'pro_login.php', mailUrl($urlConfig, 'pro_login.php', 'en'));
+same('mailUrl: Swedish is <origin>/sv/pro_login.php?token=…', 'https://example.test/sv/pro_login.php?token=' . $tok, mailUrl($urlConfig, 'pro_login.php?token=' . $tok, 'sv'));
+same('mailUrl: Swedish with LOCALES_ENABLED=en stays English', 'https://example.test/pro_login.php', mailUrl(['email' => $urlConfig['email'], 'i18n' => ['enabled' => ['en']]], 'pro_login.php', 'sv'));
+
+// The seven mails. The probe's config gets one extra line so a case can open the '@mail' gate.
+file_put_contents($authProbe . '/config.php', "\nif (getenv('PROBE_MAIL_SV')) {\n    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en', 'sv']]));\n}\n", FILE_APPEND);
+file_put_contents($authProbe . '/mail_probe.php', ms_mail_probe_script());
+$mailKinds = ['login', 'login_stay', 'verify', 'already', 'recovery', 'email_changed', 'password_changed'];
+$mailKeys = ['login' => 'mail.login', 'login_stay' => 'mail.login', 'verify' => 'mail.verify', 'already' => 'mail.already_registered', 'recovery' => 'mail.recovery_used', 'email_changed' => 'mail.email_changed', 'password_changed' => 'mail.password_changed'];
+$mailLinkPath = ['login' => 'pro_login.php?token=' . $tok, 'login_stay' => 'pro_login.php?token=' . $tok . '&stay=7', 'verify' => 'pro_login.php?token=' . $tok, 'already' => 'pro_login.php'];
+$mailParams = static function (string $kind, string $locale) use ($mailLinkPath, $urlConfig): array {
+    return match ($kind) {
+        'login', 'login_stay', 'verify' => ['link' => mailUrl($urlConfig, $mailLinkPath[$kind], $locale), 'minutes' => 30],
+        'already' => ['link' => mailUrl($urlConfig, $mailLinkPath[$kind], $locale)],
+        'email_changed' => ['old' => 'alice@example.com', 'new' => 'alice.new@example.com'],
+        'password_changed' => ['email' => 'alice@example.com'],
+        default => [],
+    };
+};
+$mailSplit = static function (string $message): array {
+    $parts = explode("\n\n", $message, 2);
+    return [$parts[0], $parts[1] ?? ''];
+};
+$mailSubject = static function (string $headers): string {
+    preg_match('/^Subject: (.*(?:\n .*)*)$/m', $headers, $m);
+    return mb_decode_mimeheader(str_replace("\n ", "\n ", $m[1] ?? ''));
+};
+
+foreach ($mailKinds as $kind) {
+    $fixture = (string) file_get_contents($fx . "mail.{$kind}.en.txt");
+    same("mail {$kind}: English is byte-identical to its fixture", $fixture, ms_mail_capture($authProbe, $kind));
+    same("mail {$kind}: with Swedish on but @mail closed it is still English (account sv)", $fixture, ms_mail_capture($authProbe, $kind, ['locales' => 'en,sv', 'account_locale' => 'sv', 'request_locale' => 'sv']));
+    same("mail {$kind}: with @mail open but LOCALES_ENABLED=en it is English", $fixture, ms_mail_capture($authProbe, $kind, ['locales' => 'en', 'account_locale' => 'sv', 'request_locale' => 'sv', 'mail_sv' => true]));
+    same("mail {$kind}: an account with locale en stays English with everything open", $fixture, ms_mail_capture($authProbe, $kind, ['locales' => 'en,sv', 'account_locale' => 'en', 'request_locale' => 'sv', 'mail_sv' => true]));
+
+    $svMail = ms_mail_capture($authProbe, $kind, ['locales' => 'en,sv', 'account_locale' => 'sv', 'mail_sv' => true]);
+    [$svHeaders, $svBody] = $mailSplit($svMail);
+    $mailKey0 = $mailKeys[$kind];
+    $svSubjectIsAscii = !preg_match('/[^\x00-\x7F]/', t($mailKey0 . '.subject', [], 'sv'));
+    check("mail {$kind}: Swedish subject is encoded exactly when it is not ASCII", $svSubjectIsAscii !== (bool) preg_match('/^Subject: =\?UTF-8\?B\?/m', $svHeaders), $svHeaders);
+    same("mail {$kind}: Swedish subject decodes to the catalog string", t($mailKey0 . '.subject', [], 'sv'), $mailSubject($svHeaders));
+    same("mail {$kind}: Swedish body is the catalog string", str_replace($tok, '<TOKEN>', rtrim(t($mailKey0 . '.body', $mailParams($kind, 'sv'), 'sv'))), rtrim($svBody));
+    check("mail {$kind}: Swedish body differs from English", t($mailKey0 . '.body', [], 'sv') !== t($mailKey0 . '.body', [], 'en'));
+    check("mail {$kind}: Swedish headers keep From, charset and no raw non-ASCII", strpos($svHeaders, 'From: Mail Shield <noreply@manjo.me>') !== false && strpos($svHeaders, 'Content-Type: text/plain; charset=UTF-8') !== false && !preg_match('/[^\x00-\x7F]/', $svHeaders));
+    if (isset($mailLinkPath[$kind])) {
+        check("mail {$kind}: the link carries /sv/", strpos($svBody, 'https://example.test/sv/' . str_replace($tok, '<TOKEN>', $mailLinkPath[$kind])) !== false);
+    }
+    // The English headers are exactly the fixture's headers.
+    [$enHeaders] = $mailSplit($fixture);
+    foreach (['From: ', 'Reply-To: ', 'MIME-Version: ', 'Content-Type: ', 'X-Mailer: '] as $h) {
+        same("mail {$kind}: header {$h} is unchanged in Swedish", (bool) preg_match('/^' . preg_quote($h, '/') . '.*$/m', $enHeaders, $a) ? $a[0] : null, (bool) preg_match('/^' . preg_quote($h, '/') . '.*$/m', $svHeaders, $b) ? $b[0] : null);
+    }
+}
+
+// The language of the request counts for the three mails the recipient asks for, and only for them.
+$enLogin = (string) file_get_contents($fx . 'mail.login.en.txt');
+foreach (['login', 'verify', 'already'] as $kind) {
+    $mailRun = ms_mail_capture($authProbe, $kind, ['locales' => 'en,sv', 'request_locale' => 'sv', 'mail_sv' => true]);
+    check("mail {$kind}: no stored language falls to the Swedish request", strpos($mailRun, "\nSubject: " . (mailEncodeSubject(t('mail.' . ($kind === 'already' ? 'already_registered' : $kind) . '.subject', [], 'sv'))) . "\n") !== false);
+    $mailRun = ms_mail_capture($authProbe, $kind, ['locales' => 'en,sv', 'request_locale' => 'sv', 'mail_sv' => true, 'account_locale' => 'en']);
+    same("mail {$kind}: the stored language wins over the request", (string) file_get_contents($fx . "mail.{$kind}.en.txt"), $mailRun);
+}
+same('mail recovery: the request language is not used (no stored language)', (string) file_get_contents($fx . 'mail.recovery.en.txt'), ms_mail_capture($authProbe, 'recovery', ['locales' => 'en,sv', 'request_locale' => 'sv', 'mail_sv' => true]));
+
+// The operator notice stays English whatever the operator account says.
+$admin = ms_mail_capture($authProbe, 'admin', ['locales' => 'en,sv', 'account_locale' => 'sv', 'request_locale' => 'sv', 'mail_sv' => true]);
+check('operator notice: still English with locale=sv and @mail open', strpos($admin, 'Subject: New Mail Shield registration verified') !== false && strpos($admin, 'A new user just registered and verified their email address') !== false && strpos($admin, '=?UTF-8?B?') === false, $admin);
+$authPhpMail = (string) file_get_contents($root . '/pro_auth.php');
+check('scan: the operator notice is not built from t()', (bool) preg_match('/function sendAdminRegistrationNotification.*?\n}\n/s', $authPhpMail, $adminFn) && !preg_match('/\bt\(/', $adminFn[0]));
+
+// Catalog hygiene for the mail keys.
+$enMail = i18nCatalog('en');
+foreach (array_filter(array_keys($enMail), fn($k) => strncmp($k, 'mail.', 5) === 0) as $mailKey) {
+    check("catalog: {$mailKey} has no markup", strip_tags((string) $enMail[$mailKey]) === (string) $enMail[$mailKey]);
+    same("catalog: {$mailKey} has the same placeholders in sv", placeholders($enMail[$mailKey]), placeholders(i18nCatalog('sv')[$mailKey] ?? ''));
+}
+check('catalog: no mail body writes the link lifetime into the text', strpos($enMail['mail.login.body'], '30') === false && strpos($enMail['mail.verify.body'], '30') === false && strpos(i18nCatalog('sv')['mail.login.body'], '30') === false);
+check('scan: the mail functions pass every subject through mailEncodeSubject()', substr_count($authPhpMail, 'mailEncodeSubject(t(') === 6);
+check('scan: no mail link is built from base_url by hand in pro_auth.php', strpos($authPhpMail, "\$config['email']['base_url'] . \"pro_login.php") === false);
+check('scan: the debug login_url keeps using the English link', strpos($authPhpMail, "\$response['login_url'] = proLoginLinkUrl(\$token, \$stayDays);") !== false);
+check('scan: no mail log line carries a locale beside an address', !preg_match('/logMessage\([^;]*locale[^;]*email/i', $authPhpMail));
+
 ms_auth_probe_remove($authProbe);
 
 // --- Inbox actions (epic #428, step 3/8, part A) --------------------------------

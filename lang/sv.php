@@ -1138,4 +1138,18 @@ return [
     'service.hold.start_failed' => 'Det gick inte att starta Pausa radering',
     'service.hold.none_active' => 'Ingen aktiv paus',
     'service.hold.end_failed' => 'Det gick inte att avsluta Pausa radering',
+
+    // Mail to users (epic #437). Plain text; {minutes} etc. are placeholders, never part of the copy.
+    'mail.login.subject' => "Din inloggningslänk för Mail Shield",
+    'mail.login.body' => "Hej,\n\nKlicka på länken nedan för att logga in på ditt Mail Shield-konto:\n\n{link}\n\nLänken är giltig i {minutes} minuter.\n\nOm du inte begärde länken kan du bortse från det här mejlet.\n\nVänliga hälsningar,\nMail Shield-teamet",
+    'mail.verify.subject' => "Bekräfta ditt Mail Shield-konto",
+    'mail.verify.body' => "Hej,\n\nTack för att du registrerade dig. Klicka på länken nedan för att bekräfta din e-postadress och logga in:\n\n{link}\n\nLänken är giltig i {minutes} minuter.\n\nOm du inte skapade kontot kan du bortse från det här mejlet.\n\nVänliga hälsningar,\nMail Shield-teamet",
+    'mail.already_registered.subject' => "Du har redan ett Mail Shield-konto",
+    'mail.already_registered.body' => "Hej,\n\nNågon (förhoppningsvis du) försökte just skapa ett Mail Shield-konto med den här e-postadressen, men det finns redan ett konto.\n\nOm det var du kan du logga in här:\n\n{link}\n\nOm du inte minns att du har registrerat dig kan du be om en inloggningslänk på den sidan – du behöver inget lösenord.\n\nOm du inte försökte skapa något konto kan du bortse från det här mejlet.\n\nVänliga hälsningar,\nMail Shield-teamet",
+    'mail.recovery_used.subject' => "En återställningskod för tvåfaktorsautentisering användes för att logga in på Mail Shield",
+    'mail.recovery_used.body' => "Hej,\n\nEn återställningskod för tvåfaktorsautentisering användes just för att logga in på ditt Mail Shield-konto. Återställningskoder är tänkta som en reserv – skapa gärna nya från din profil om du börjar få slut på dem.\n\nOm det inte var du som loggade in nyss: logga in med din inloggningslänk, stäng av tvåfaktorsautentiseringen och byt lösenord direkt.\n\nVänliga hälsningar,\nMail Shield-teamet",
+    'mail.email_changed.subject' => "Din e-postadress för Mail Shield har ändrats",
+    'mail.email_changed.body' => "Hej,\n\nDet här är en avisering om att e-postadressen för ditt Mail Shield-konto har ändrats från {old} till {new}.\n\nOm du INTE godkände ändringen, kontakta supporten omedelbart.\n\nVänliga hälsningar,\nMail Shield-teamet",
+    'mail.password_changed.subject' => "Ditt lösenord för Mail Shield har ändrats",
+    'mail.password_changed.body' => "Hej,\n\nDet här är en avisering om att lösenordet för ditt Mail Shield-konto kopplat till {email} har ändrats.\n\nOm du INTE godkände ändringen, kontakta supporten omedelbart.\n\nVänliga hälsningar,\nMail Shield-teamet",
 ];

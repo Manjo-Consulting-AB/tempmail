@@ -100,12 +100,26 @@ function consumeLoginToken(string $token): ?array {
 }
 
 // Hjälpfunktion: magic link-URL:en, med vald "Stay signed in"-period.
-function proLoginLinkUrl(string $token, int $stayDays = 0): string {
+function proLoginLinkUrl(string $token, int $stayDays = 0, string $locale = 'en'): string {
     global $config;
-    $url = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
+    $url = mailUrl($config, 'pro_login.php?token=' . urlencode($token), $locale);
     $stayDays = proRememberNormaliseDays($stayDays);
     return $stayDays > 0 ? $url . '&stay=' . $stayDays : $url;
 }
+
+// Hjälpfunktion: språket för ett mejl till ett konto (epic #437). $ownRequest
+// är sant bara när mottagaren själv gör den webbförfrågan som skickar mejlet
+// (inloggningslänk, verifiering, "du har redan ett konto"); då får förfrågans
+// språk gälla efter kontots eget. Fail-open: allt som går fel ger engelska.
+function proMailLocale(?int $userId, bool $ownRequest): string {
+    global $config;
+    $pdo = $GLOBALS['pdo'] ?? null;
+    return mailLocaleFor($pdo instanceof PDO ? $pdo : null, $userId, $config['i18n'] ?? [], $ownRequest ? i18nLocale() : null);
+}
+
+// Hjälpfunktion: hur länge en inloggnings-/verifieringslänk gäller, i minuter
+// (createLoginToken() ovan skapar den med 30). Skickas som värde till t().
+const PRO_LOGIN_LINK_MINUTES = 30;
 
 // Hjälpfunktion: skicka e-post med login-länk
 // $stayDays is the "Stay signed in" period chosen on the login form
@@ -113,9 +127,10 @@ function proLoginLinkUrl(string $token, int $stayDays = 0): string {
 // possibly not the one that asked, gets it. 0 leaves it out.
 function sendLoginEmail($email, $token, $userId = null, int $stayDays = 0) {
     global $config;
-    $loginUrl = proLoginLinkUrl((string) $token, $stayDays);
-    $subject = "Your login link for Mail Shield";
-    $message = "Hello,\n\nClick the link below to sign in to your Mail Shield account:\n\n" . $loginUrl . "\n\nThis link is valid for 30 minutes.\n\nIf you did not request this link, please ignore this email.\n\nRegards,\nThe Mail Shield Team";
+    $locale = proMailLocale($userId === null ? null : (int) $userId, true);
+    $loginUrl = proLoginLinkUrl((string) $token, $stayDays, $locale);
+    $subject = mailEncodeSubject(t('mail.login.subject', [], $locale));
+    $message = t('mail.login.body', ['link' => $loginUrl, 'minutes' => PRO_LOGIN_LINK_MINUTES], $locale);
     // Bestäm avsändaradress (kan sättas via ENV t.ex. EMAIL_FROM)
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
 
@@ -179,9 +194,10 @@ function sendLoginEmail($email, $token, $userId = null, int $stayDays = 0) {
 // inloggning blir alltså samma klick.
 function sendVerificationEmail(string $email, string $token, ?int $userId = null): bool {
     global $config;
-    $verifyUrl = $config['email']['base_url'] . "pro_login.php?token=" . urlencode($token);
-    $subject = "Confirm your Mail Shield account";
-    $message = "Hello,\n\nThanks for signing up. Click the link below to verify your email address and sign in:\n\n" . $verifyUrl . "\n\nThis link is valid for 30 minutes.\n\nIf you did not create this account, please ignore this email.\n\nRegards,\nThe Mail Shield Team";
+    $locale = proMailLocale($userId, true);
+    $verifyUrl = mailUrl($config, 'pro_login.php?token=' . urlencode($token), $locale);
+    $subject = mailEncodeSubject(t('mail.verify.subject', [], $locale));
+    $message = t('mail.verify.body', ['link' => $verifyUrl, 'minutes' => PRO_LOGIN_LINK_MINUTES], $locale);
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
 
     $headers = [];
@@ -225,9 +241,10 @@ function sendVerificationEmail(string $email, string $token, ?int $userId = null
 // avslöjar kontots existens till klienten.
 function sendAlreadyRegisteredEmail(string $email, ?int $userId = null): bool {
     global $config;
-    $loginUrl = $config['email']['base_url'] . "pro_login.php";
-    $subject = "You already have a Mail Shield account";
-    $message = "Hello,\n\nSomeone (hopefully you) just tried to create a Mail Shield account with this email address, but an account already exists.\n\nIf that was you, sign in here:\n\n" . $loginUrl . "\n\nIf you don't remember signing up, you can request a magic sign-in link from that page - no password needed.\n\nIf you did not try to create an account, you can safely ignore this email.\n\nRegards,\nThe Mail Shield Team";
+    $locale = proMailLocale($userId, true);
+    $loginUrl = mailUrl($config, 'pro_login.php', $locale);
+    $subject = mailEncodeSubject(t('mail.already_registered.subject', [], $locale));
+    $message = t('mail.already_registered.body', ['link' => $loginUrl], $locale);
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
 
     $headers = [];
@@ -575,8 +592,9 @@ function send_2fa_recovery_code_used_email($userId) {
         if (!$email) {
             return;
         }
-        $subject = 'A two-factor recovery code was used to sign in to Mail Shield';
-        $message = "Hello,\n\nA two-factor recovery code was just used to sign in to your Mail Shield account. Recovery codes are meant as a backup — consider generating new ones from your profile if you're running low.\n\nIf you did not sign in just now, sign in using your magic link, disable two-factor authentication and change your password immediately.\n\nRegards,\nThe Mail Shield Team";
+        $locale = proMailLocale((int) $userId, false);
+        $subject = mailEncodeSubject(t('mail.recovery_used.subject', [], $locale));
+        $message = t('mail.recovery_used.body', [], $locale);
         $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
         $headers = [];
         $headers[] = 'From: Mail Shield <' . $from . '>';
@@ -1411,8 +1429,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             // Notify old email that account email has changed (no undo link)
             try {
                 if (!empty($oldEmail) && filter_var($oldEmail, FILTER_VALIDATE_EMAIL) && $oldEmail !== $newEmail) {
-                    $subjectOld = 'Your Mail Shield email has been changed';
-                    $messageOld = "Hello,\n\nThis is a notification that the email address for your Mail Shield account was changed from " . $oldEmail . " to " . $newEmail . ".\n\nIf you did NOT authorize this change, please contact support immediately.\n\nRegards,\nThe Mail Shield Team";
+                    $localeOld = proMailLocale($userId, false);
+                    $subjectOld = mailEncodeSubject(t('mail.email_changed.subject', [], $localeOld));
+                    $messageOld = t('mail.email_changed.body', ['old' => $oldEmail, 'new' => $newEmail], $localeOld);
                     $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                     $headers = [];
                     $headers[] = 'From: Mail Shield <' . $from . '>';
@@ -1474,8 +1493,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['confirm_profile_change'
             // Notify old email that password has changed (no undo link)
             try {
                 if (!empty($oldEmail) && filter_var($oldEmail, FILTER_VALIDATE_EMAIL)) {
-                    $subjectOld = 'Your Mail Shield password has been changed';
-                    $messageOld = "Hello,\n\nThis is a notification that the password for your Mail Shield account associated with " . $oldEmail . " has been changed.\n\nIf you did NOT authorize this change, contact support immediately.\n\nRegards,\nThe Mail Shield Team";
+                    $localeOld = proMailLocale($userId, false);
+                    $subjectOld = mailEncodeSubject(t('mail.password_changed.subject', [], $localeOld));
+                    $messageOld = t('mail.password_changed.body', ['email' => $oldEmail], $localeOld);
                     $from = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));
                     $headers = [];
                     $headers[] = 'From: Mail Shield <' . $from . '>';

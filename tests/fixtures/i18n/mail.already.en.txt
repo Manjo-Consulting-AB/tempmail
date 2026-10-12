@@ -1,0 +1,22 @@
+To: alice@example.com
+Subject: You already have a Mail Shield account
+From: Mail Shield <noreply@manjo.me>
+Reply-To: noreply@manjo.me
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+X-Mailer: PHP/<VERSION>
+
+Hello,
+
+Someone (hopefully you) just tried to create a Mail Shield account with this email address, but an account already exists.
+
+If that was you, sign in here:
+
+https://example.test/pro_login.php
+
+If you don't remember signing up, you can request a magic sign-in link from that page - no password needed.
+
+If you did not try to create an account, you can safely ignore this email.
+
+Regards,
+The Mail Shield Team
