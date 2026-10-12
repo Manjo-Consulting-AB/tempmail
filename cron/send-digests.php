@@ -152,17 +152,21 @@ try {
 
         // Build plaintext message
         $count = count($messages);
+        // The recipient's language (epic #437): the account's, else English. A cron has no browser to ask.
+        $locale = mailLocaleFor($pdo, $userId, $config['i18n'] ?? []);
         $lines = [];
         foreach ($messages as $m) {
-            $from = $m['from_address'] ?? '(unknown)';
-            $subject = $m['subject'] ?? '(no subject)';
+            // Sender, subject and time come from outside senders: plain text values for the line,
+            // never part of a catalog string. The dates keep today's format.
+            $from = $m['from_address'] ?? t('mail.digest.unknown_sender', [], $locale);
+            $subject = $m['subject'] ?? t('mail.digest.no_subject', [], $locale);
             $received = date('Y-m-d H:i', strtotime($m['received_at'] ?? ''));
-            $lines[] = "- {$from} | {$subject} | {$received}";
+            $lines[] = t('mail.digest.line', ['from' => $from, 'subject' => $subject, 'received' => $received], $locale);
         }
 
-        $loginUrl = rtrim($config['email']['base_url'], '/') . '/pro_login.php';
-        $subjectLine = "Mail Shield: You have {$count} waiting message" . ($count === 1 ? '' : 's');
-        $body = "Hello,\n\nYou have {$count} message" . ($count === 1 ? '' : 's') . " waiting in your Mail Shield account.\n\nVisit your inbox to read them:\n{$loginUrl}\n\nMessages:\n" . implode("\n", $lines) . "\n\nThis is an automated summary from Mail Shield.\n";
+        $loginUrl = mailUrl($config, 'pro_login.php', $locale);
+        $subjectLine = mailEncodeSubject(tp('mail.digest.subject', $count, [], $locale));
+        $body = tp('mail.digest.body', $count, ['link' => $loginUrl, 'lines' => implode("\n", $lines)], $locale);
 
         // Send email using similar logic to pro_auth::sendLoginEmail
         // Decrypted from email_enc (pii_crypto.php). Null: ERROR already
