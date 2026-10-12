@@ -1,0 +1,18 @@
+To: fresh@example.org
+Subject: Confirm your email change for Mail Shield
+From: Mail Shield <noreply@manjo.me>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hello,
+
+A request was made to change the email for your Mail Shield account to this address.
+
+Please confirm the change by clicking the link below:
+
+http://localhost:8085/pro_auth.php?confirm_profile_change=<TOKEN>
+
+If you did not request this change, ignore this email.
+
+Regards,
+The Mail Shield Team

@@ -1,0 +1,14 @@
+To: trial@example.com
+Subject: Two-factor authentication disabled for Mail Shield
+From: Mail Shield <noreply@manjo.me>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hello,
+
+Two-factor authentication was just disabled on your Mail Shield account. Signing in with your password no longer requires a code.
+
+If you did not make this change, sign in using your magic link, re-enable two-factor authentication and change your password.
+
+Regards,
+The Mail Shield Team

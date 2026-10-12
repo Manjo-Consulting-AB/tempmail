@@ -3768,6 +3768,169 @@ foreach (['inbox.php', 'pro.php', 'pro_contact.php'] as $gscript) {
 }
 ms_auth_probe_remove($lp);
 
+// --- Account mail, step 2/3 (epic #437, #439): the pro_profile.php mails -----------------------
+// The real pro_profile.php runs in the profile probe with sendmail_path=cat >> mail.log, as the
+// pro_auth.php mails do. ms_test_request() in tests/lib/pushover_harness.php cannot set that ini
+// value, so this runs the same probe runner with it added.
+
+/** The TOTP secret ms_pp_totp_on() stores, and the one a pending enrolment is seeded with. */
+const MS_PF_TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
+
+/** The 6-digit TOTP (RFC 6238, SHA-1, 30 s) of a base32 secret for now. */
+function ms_pf_totp_now(string $b32): string
+{
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $bits = '';
+    foreach (str_split(strtoupper($b32)) as $c) {
+        $bits .= str_pad(decbin((int) strpos($alphabet, $c)), 5, '0', STR_PAD_LEFT);
+    }
+    $key = '';
+    foreach (str_split($bits, 8) as $byte) {
+        if (strlen($byte) === 8) {
+            $key .= chr(bindec($byte));
+        }
+    }
+    $hash = hash_hmac('sha1', pack('J', intdiv(time(), 30)), $key, true);
+    $offset = ord($hash[19]) & 0x0f;
+    $n = ((ord($hash[$offset]) & 0x7f) << 24) | (ord($hash[$offset + 1]) << 16) | (ord($hash[$offset + 2]) << 8) | ord($hash[$offset + 3]);
+    return str_pad((string) ($n % 1000000), 6, '0', STR_PAD_LEFT);
+}
+
+/** One scripted action per mail: [post fields (a closure, so a TOTP code is computed when it is sent), setup]. */
+function ms_pf_mail_cases(): array
+{
+    $pending = static fn(string $action, string $data): callable => static function (PDO $pdo, array $ids) use ($action, $data): void {
+        $pdo->prepare("INSERT INTO pending_profile_changes (id, user_id, action, data, token, expires_at, created_at, used) VALUES (5, ?, ?, ?, 't5', '2099-01-02 10:00:00', '2099-01-01 10:00:00', 0)")
+            ->execute([$ids['trial'], $action, $data]);
+    };
+    return [
+        'twofa_enabled' => [static fn(): array => ['action' => 'totp_confirm_enroll', 'code' => ms_pf_totp_now(MS_PF_TOTP_SECRET)], ms_pp_with_security(static function (PDO $pdo, array $ids): void {
+            $pdo->prepare("INSERT INTO pro_user_totp (user_id, secret_enc, status) VALUES (?, ?, 'pending')")->execute([$ids['trial'], ms_pp_totp_secret_enc(MS_PF_TOTP_SECRET)]);
+        })],
+        'twofa_disabled' => [static fn(): array => ['action' => 'totp_disable'], ms_pp_with_security(static fn(PDO $pdo, array $ids) => ms_pp_totp_on($pdo, $ids['trial']))],
+        'confirm_email' => [static fn(): array => ['action' => 'update_email', 'email' => 'fresh@example.org'], null],
+        'confirm_password' => [static fn(): array => ['action' => 'set_password', 'password' => 'abcdefgh1', 'confirm' => 'abcdefgh1'], null],
+        'confirm_delete' => [static fn(): array => ['action' => 'delete_account'], null],
+        'resend_email' => [static fn(): array => ['action' => 'resend_pending_change', 'id' => '5'], $pending('update_email', json_encode(['new_email' => 'n@example.org']))],
+        'resend_password' => [static fn(): array => ['action' => 'resend_pending_change', 'id' => '5'], $pending('set_password', '{}')],
+        'resend_delete' => [static fn(): array => ['action' => 'resend_pending_change', 'id' => '5'], $pending('delete_account', '{}')],
+    ];
+}
+
+/**
+ * Runs one of ms_pf_mail_cases() as the account 'trial' and returns the captured, masked message.
+ * $opts: account_locale (pro_users.locale), request_locale (X-MS-Locale), locales (LOCALES_ENABLED),
+ * app_sv ('@app' open), mail_sv ('@mail' open).
+ */
+function ms_pf_mail_capture(array $probe, string $kind, array $opts = []): string
+{
+    [$post, $setup] = ms_pf_mail_cases()[$kind];
+    $root = $probe['root'];
+    $mailLog = $root . '/mail.log';
+    @unlink($mailLog);
+    ms_pp_reset($probe, static function (PDO $pdo, array $ids) use ($setup, $opts): void {
+        if (isset($opts['account_locale'])) {
+            $pdo->prepare('UPDATE pro_users SET locale = ? WHERE id = ?')->execute([$opts['account_locale'], $ids['trial']]);
+        }
+        if ($setup !== null) {
+            $setup($pdo, $ids);
+        }
+    });
+    $server = isset($opts['request_locale']) ? ['HTTP_X_MS_LOCALE' => $opts['request_locale']] : [];
+    file_put_contents($root . '/probe_extra.json', json_encode(['server' => $server, 'locales' => $opts['locales'] ?? 'en', 'app_sv' => !empty($opts['app_sv']), 'mail_sv' => !empty($opts['mail_sv'])]));
+    $env = [
+        'PROBE_PAGE' => 'pro_profile.php', 'PROBE_METHOD' => 'POST', 'PROBE_USER_ID' => (string) $probe['ids']['trial'], 'PROBE_USER_EMAIL' => 'trial@example.com',
+        'PROBE_POST' => (string) json_encode($post()), 'PROBE_GET' => '[]', 'PROBE_ORIGIN' => MS_TEST_ORIGIN,
+        'PROBE_SQLITE' => ms_test_probe_sqlite($root), 'PROBE_SESSION_ID' => 'msprobe1', 'PATH' => (string) (getenv('PATH') ?: '/usr/bin:/bin'),
+    ];
+    // The trailing '#' comments out the -f envelope option mail() appends.
+    $proc = proc_open([PHP_BINARY, '-d', 'display_errors=0', '-d', 'log_errors=1', '-d', 'error_reporting=E_ALL', '-d', 'sendmail_path=cat >> ' . escapeshellarg($mailLog) . ' #', $root . '/ms_probe_runner.php'],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root, $env);
+    stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    proc_close($proc);
+    return ms_mail_mask((string) @file_get_contents($mailLog));
+}
+
+// Same section, the tests (step 2/3). '@mail' is opened per request by a line in the probe's config.
+file_put_contents($pp['root'] . '/config.php', "\nif (!empty(\$MS_EXTRA['mail_sv'])) {\n    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en', 'sv']]));\n}\n", FILE_APPEND);
+$pfLink = 'http://localhost:8085/pro_auth.php?confirm_profile_change=<TOKEN>';
+// kind => [subject key, body key, body placeholders]
+$pfKeys = [
+    'twofa_enabled' => ['mail.twofa_enabled.subject', 'mail.twofa_enabled.body', []],
+    'twofa_disabled' => ['mail.twofa_disabled.subject', 'mail.twofa_disabled.body', []],
+    'confirm_email' => ['mail.confirm_email.subject', 'mail.confirm_email.body', ['link' => $pfLink]],
+    'confirm_password' => ['mail.confirm_password.subject', 'mail.confirm_password.body', ['link' => $pfLink]],
+    'confirm_delete' => ['mail.confirm_delete.subject', 'mail.confirm_delete.body', ['link' => $pfLink, 'hours' => 2]],
+    'resend_email' => ['mail.confirm_email.subject', 'mail.confirm_email_resend.body', ['link' => $pfLink]],
+    'resend_password' => ['mail.confirm_password.subject', 'mail.confirm_password_resend.body', ['link' => $pfLink]],
+    'resend_delete' => ['mail.confirm_delete_resend.subject', 'mail.confirm_delete_resend.body', ['link' => $pfLink]],
+];
+$pfOpen = ['locales' => 'en,sv', 'app_sv' => true, 'mail_sv' => true];
+$pfSvMails = [];
+foreach (array_keys(ms_pf_mail_cases()) as $kind) {
+    $fixture = (string) file_get_contents($fx . "mail.{$kind}.en.txt");
+    check("pro_profile mail {$kind}: the fixture exists", $fixture !== '');
+    same("pro_profile mail {$kind}: English is byte-identical to its fixture", $fixture, ms_pf_mail_capture($pp, $kind));
+    same("pro_profile mail {$kind}: Swedish on but @mail closed is still English (account sv, page sv)", $fixture, ms_pf_mail_capture($pp, $kind, ['locales' => 'en,sv', 'app_sv' => true, 'account_locale' => 'sv', 'request_locale' => 'sv']));
+    same("pro_profile mail {$kind}: @mail open but LOCALES_ENABLED=en is English", $fixture, ms_pf_mail_capture($pp, $kind, ['locales' => 'en', 'mail_sv' => true, 'account_locale' => 'sv', 'request_locale' => 'sv']));
+    same("pro_profile mail {$kind}: an account with locale en stays English with everything open, even on a Swedish page", $fixture, ms_pf_mail_capture($pp, $kind, $pfOpen + ['account_locale' => 'en', 'request_locale' => 'sv']));
+    same("pro_profile mail {$kind}: no stored language and an English page is English", $fixture, ms_pf_mail_capture($pp, $kind, $pfOpen + ['request_locale' => 'en']));
+
+    $svMail = ms_pf_mail_capture($pp, $kind, $pfOpen + ['account_locale' => 'sv']);
+    $pfSvMails[$kind] = $svMail;
+    [$svHeaders, $svBody] = $mailSplit($svMail);
+    [$subjectKey, $bodyKey, $params] = $pfKeys[$kind];
+    check("pro_profile mail {$kind}: a Swedish mail was sent", $svMail !== '' && strpos($svMail, 'Hej,') !== false, $svMail);
+    $svSubjectIsAscii = !preg_match('/[^\x00-\x7F]/', t($subjectKey, [], 'sv'));
+    check("pro_profile mail {$kind}: Swedish subject is encoded exactly when it is not ASCII", $svSubjectIsAscii !== (bool) preg_match('/^Subject: =\?UTF-8\?B\?/m', $svHeaders), $svHeaders);
+    same("pro_profile mail {$kind}: Swedish subject decodes to the catalog string", t($subjectKey, [], 'sv'), $mailSubject($svHeaders));
+    same("pro_profile mail {$kind}: Swedish body is the catalog string", rtrim(t($bodyKey, $params, 'sv')), rtrim($svBody));
+    check("pro_profile mail {$kind}: Swedish body differs from English", t($bodyKey, $params, 'sv') !== t($bodyKey, $params, 'en'));
+    check("pro_profile mail {$kind}: Swedish headers keep From, MIME and charset and carry no raw non-ASCII", strpos($svHeaders, 'From: Mail Shield <noreply@manjo.me>') !== false && strpos($svHeaders, 'MIME-Version: 1.0') !== false && strpos($svHeaders, 'Content-Type: text/plain; charset=UTF-8') !== false && !preg_match('/[^\x00-\x7F]/', $svHeaders));
+    [$enHeaders] = $mailSplit($fixture);
+    same("pro_profile mail {$kind}: the recipient is the same in Swedish", (preg_match('/^To: .*$/m', $enHeaders, $a) ? $a[0] : null), (preg_match('/^To: .*$/m', $svHeaders, $b) ? $b[0] : null));
+    if (isset($params['link'])) {
+        check("pro_profile mail {$kind}: the link is the endpoint's, with no /sv/ in it", strpos($svBody, $pfLink) !== false && strpos($svBody, '/sv/') === false);
+    }
+    // Only the page's language (no stored one): the account holder is the one asking.
+    $pageOnly = ms_pf_mail_capture($pp, $kind, $pfOpen + ['request_locale' => 'sv']);
+    same("pro_profile mail {$kind}: with no stored language the Swedish page decides", $svMail, $pageOnly);
+    // The stored language wins over the page.
+    same("pro_profile mail {$kind}: the stored language wins over the page (account sv, page en)", $svMail, ms_pf_mail_capture($pp, $kind, $pfOpen + ['account_locale' => 'sv', 'request_locale' => 'en']));
+}
+// The email-change confirmation goes to an address with no account: it follows the requesting account.
+[$h] = $mailSplit($pfSvMails['confirm_email']);
+check('pro_profile mail confirm_email: sent to the new address, in the account\'s Swedish', strpos($h, 'To: fresh@example.org') !== false && strpos($pfSvMails['confirm_email'], 'Hej,') !== false);
+same('pro_profile mail confirm_email: the account\'s English wins over a Swedish page', (string) file_get_contents($fx . 'mail.confirm_email.en.txt'), ms_pf_mail_capture($pp, 'confirm_email', $pfOpen + ['account_locale' => 'en', 'request_locale' => 'sv']));
+// The resend reuses the original mail's subject (email and password); the deletion pair is worded differently in English.
+foreach (['email', 'password'] as $what) {
+    $a = $mailSplit($pfSvMails["confirm_{$what}"])[0];
+    $b = $mailSplit($pfSvMails["resend_{$what}"])[0];
+    preg_match('/^Subject: .*(?:\n .*)*$/m', $a, $sa);
+    preg_match('/^Subject: .*(?:\n .*)*$/m', $b, $sb);
+    check("pro_profile mail resend_{$what}: the subject is the original mail's, byte for byte, in Swedish", $sa !== [] && $sa === $sb);
+    $enA = $mailSplit((string) file_get_contents($fx . "mail.confirm_{$what}.en.txt"))[0];
+    $enB = $mailSplit((string) file_get_contents($fx . "mail.resend_{$what}.en.txt"))[0];
+    preg_match('/^Subject: .*$/m', $enA, $ea);
+    preg_match('/^Subject: .*$/m', $enB, $eb);
+    check("pro_profile mail resend_{$what}: and in English", $ea !== [] && $ea === $eb);
+}
+check('pro_profile mail resend_delete: the English subjects differ today, so the resend has its own key', t('mail.confirm_delete.subject', [], 'en') !== t('mail.confirm_delete_resend.subject', [], 'en'));
+// Catalog: the placeholders are the same, the 2-hour validity is a placeholder and not part of the copy.
+foreach (['mail.confirm_delete.body'] as $k) {
+    check("catalog: {$k} takes the hours as a placeholder in both languages", strpos(i18nCatalog('en')[$k], '{hours}') !== false && strpos(i18nCatalog('sv')[$k], '{hours}') !== false && strpos(i18nCatalog('en')[$k], '2 hours') === false);
+}
+// Scans of pro_profile.php.
+$profilePhpMail = (string) file_get_contents($root . '/pro_profile.php');
+check('scan: every pro_profile.php mail subject goes through mailEncodeSubject()', substr_count($profilePhpMail, 'mailEncodeSubject(t(') === 8 && substr_count($profilePhpMail, '@mail(') === 7);
+check('scan: no pro_profile.php mail subject or body is a literal any more', !preg_match('/\$subject = \'/', $profilePhpMail) && strpos($profilePhpMail, 'Hello,\n\n') === false && strpos($profilePhpMail, 'Regards,') === false);
+check('scan: no pro_profile.php mail link is built from base_url by hand', strpos($profilePhpMail, "\$config['email']['base_url'] ?? '') . \"pro_auth.php") === false && substr_count($profilePhpMail, "mailUrl(\$config, 'pro_auth.php?confirm_profile_change=' . urlencode(\$token), \$locale)") === 4);
+check('scan: every pro_profile.php mail locale is resolved with the page language as the fallback', substr_count($profilePhpMail, 'mailLocaleFor($pdo, $userId, $config[\'i18n\'] ?? [], i18nLocale())') === 5);
+check('scan: no pro_profile.php log line carries a locale beside an address', !preg_match('/logMessage\([^;]*locale[^;]*(?:email|\$to|\$newEmail)/i', $profilePhpMail));
+
 ms_test_cleanup($pp['root']);
 
 echo "\n{$passed} passed, {$failed} failed\n";

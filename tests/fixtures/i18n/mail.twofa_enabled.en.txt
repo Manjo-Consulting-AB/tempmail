@@ -1,0 +1,14 @@
+To: trial@example.com
+Subject: Two-factor authentication enabled for Mail Shield
+From: Mail Shield <noreply@manjo.me>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hello,
+
+Two-factor authentication was just enabled on your Mail Shield account. Signing in with your password will now also require a code from your authenticator app.
+
+If you did not make this change, sign in using your magic link and disable two-factor authentication immediately.
+
+Regards,
+The Mail Shield Team
