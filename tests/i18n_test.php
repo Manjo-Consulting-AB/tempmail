@@ -4077,19 +4077,21 @@ function ms_cm_run(string $root, string $script, array $request, string $dbPath,
     return ['mail' => $mails[0] ?? '', 'mails' => $mails, 'out' => (string) $out, 'err' => (string) $err, 'log' => (string) @file_get_contents($logPath), 'code' => $code];
 }
 
-/** The [timezone, hour] at which send-digests.php, run right now, treats $userId as due. */
+/**
+ * The [timezone, hour] at which send-digests.php, run right now, treats $userId as due. The timezone
+ * is a fixed UTC offset of minus the current minute, so the local time is always just past the top
+ * of an hour, whatever minute the suite runs at; the script's window is 10 minutes either side.
+ */
 function ms_cm_digest_schedule(int $userId): array
 {
-    foreach (['UTC', 'Asia/Kolkata', 'Asia/Kathmandu'] as $tz) {
-        for ($hour = 0; $hour < 24; $hour++) {
-            $now = new DateTime('now', new DateTimeZone($tz));
-            $due = new DateTime($now->format('Y-m-d') . ' ' . sprintf('%02d:00:00', $hour), new DateTimeZone($tz));
-            if (abs(time() - ($due->getTimestamp() + $userId % 600)) <= 400) {
-                return [$tz, $hour];
-            }
-        }
+    $minute = (int) gmdate('i');
+    $tz = sprintf('-%02d:%02d', 0, $minute);
+    $now = new DateTime('now', new DateTimeZone($tz));
+    $due = new DateTime($now->format('Y-m-d H') . ':00:00', new DateTimeZone($tz));
+    if (abs(time() - ($due->getTimestamp() + $userId % 600)) > 400) {
+        throw new RuntimeException('No digest hour is due right now');
     }
-    throw new RuntimeException('No digest hour is due right now');
+    return [$tz, (int) $now->format('H')];
 }
 
 /**
