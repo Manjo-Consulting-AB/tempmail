@@ -8,7 +8,7 @@ X-Mailer: PHP/<VERSION>
 
 Hello,
 
-Your Mail Shield account (alice@example.com) has been inactive for a while. To keep it, simply sign in within the next month:
+Your Mail Shield account (alice@example.com) has been inactive for a while. To keep it, simply sign in within the next 30 days:
 
 https://example.test/pro_login.php
 
