@@ -97,7 +97,7 @@ if (!function_exists('i18nSupportedLocales')) {
         }
         return $pages ?? [
             '@app'                 => ['en', 'sv'],
-            '@mail'                => ['en'],
+            '@mail'                => ['en', 'sv'],
             '/'                    => ['en', 'sv'],
             '/temporary-email.php' => ['en', 'sv'],
             '/pricing.php'         => ['en', 'sv'],

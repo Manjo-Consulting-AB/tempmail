@@ -2372,7 +2372,7 @@ function ms_mail_capture(string $root, string $kind, array $opts = []): string
 {
     $locales = $opts['locales'] ?? 'en';
     $account = $opts['account_locale'] ?? null;
-    $env = !empty($opts['mail_sv']) ? ['PROBE_MAIL_SV' => '1'] : [];
+    $env = !empty($opts['mail_sv']) ? ['PROBE_MAIL_SV' => '1'] : (!empty($opts['mail_closed']) ? ['PROBE_MAIL_CLOSED' => '1'] : []);
     $mailLog = $root . '/mail.log';
     @unlink($mailLog);
     $token = str_repeat('ab12', 12);
@@ -2420,7 +2420,9 @@ $mailPdoNoColumn->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY)');
 $mailPdoNoColumn->exec('INSERT INTO pro_users (id) VALUES (1)');
 $mailCfg = ['enabled' => ['en', 'sv']];
 $realMailPages = i18nTranslatedPages();
-same('mail gate: the shipped list has @mail at English only', ['en'], $realMailPages['@mail'] ?? null);
+same('mail gate: the shipped list has @mail at English and Swedish', ['en', 'sv'], $realMailPages['@mail'] ?? null);
+// The gate is closed explicitly here, so this holds whatever the shipped list says.
+i18nTranslatedPages(array_merge($realMailPages, ['@mail' => ['en']]));
 same('mailLocaleFor: @mail at en is always English (account sv)', 'en', mailLocaleFor($mailPdo, 1, $mailCfg, 'sv'));
 i18nTranslatedPages(array_merge($realMailPages, ['@mail' => ['en', 'sv']]));
 same('mailLocaleFor: account sv', 'sv', mailLocaleFor($mailPdo, 1, $mailCfg, null));
@@ -2467,8 +2469,9 @@ same('mailUrl: English without a query equals the previous concatenation', $urlC
 same('mailUrl: Swedish is <origin>/sv/pro_login.php?token=…', 'https://example.test/sv/pro_login.php?token=' . $tok, mailUrl($urlConfig, 'pro_login.php?token=' . $tok, 'sv'));
 same('mailUrl: Swedish with LOCALES_ENABLED=en stays English', 'https://example.test/pro_login.php', mailUrl(['email' => $urlConfig['email'], 'i18n' => ['enabled' => ['en']]], 'pro_login.php', 'sv'));
 
-// The seven mails. The probe's config gets one extra line so a case can open the '@mail' gate.
-file_put_contents($authProbe . '/config.php', "\nif (getenv('PROBE_MAIL_SV')) {\n    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en', 'sv']]));\n}\n", FILE_APPEND);
+// The seven mails. The probe's config gets one extra line so a case can open or close the '@mail' gate
+// (a case that sets neither gets the shipped list).
+file_put_contents($authProbe . '/config.php', "\nif (getenv('PROBE_MAIL_SV')) {\n    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en', 'sv']]));\n} elseif (getenv('PROBE_MAIL_CLOSED')) {\n    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en']]));\n}\n", FILE_APPEND);
 file_put_contents($authProbe . '/mail_probe.php', ms_mail_probe_script());
 $mailKinds = ['login', 'login_stay', 'verify', 'already', 'recovery', 'email_changed', 'password_changed'];
 $mailKeys = ['login' => 'mail.login', 'login_stay' => 'mail.login', 'verify' => 'mail.verify', 'already' => 'mail.already_registered', 'recovery' => 'mail.recovery_used', 'email_changed' => 'mail.email_changed', 'password_changed' => 'mail.password_changed'];
@@ -2494,7 +2497,7 @@ $mailSubject = static function (string $headers): string {
 foreach ($mailKinds as $kind) {
     $fixture = (string) file_get_contents($fx . "mail.{$kind}.en.txt");
     same("mail {$kind}: English is byte-identical to its fixture", $fixture, ms_mail_capture($authProbe, $kind));
-    same("mail {$kind}: with Swedish on but @mail closed it is still English (account sv)", $fixture, ms_mail_capture($authProbe, $kind, ['locales' => 'en,sv', 'account_locale' => 'sv', 'request_locale' => 'sv']));
+    same("mail {$kind}: with Swedish on but @mail closed it is still English (account sv)", $fixture, ms_mail_capture($authProbe, $kind, ['locales' => 'en,sv', 'account_locale' => 'sv', 'request_locale' => 'sv', 'mail_closed' => true]));
     same("mail {$kind}: with @mail open but LOCALES_ENABLED=en it is English", $fixture, ms_mail_capture($authProbe, $kind, ['locales' => 'en', 'account_locale' => 'sv', 'request_locale' => 'sv', 'mail_sv' => true]));
     same("mail {$kind}: an account with locale en stays English with everything open", $fixture, ms_mail_capture($authProbe, $kind, ['locales' => 'en,sv', 'account_locale' => 'en', 'request_locale' => 'sv', 'mail_sv' => true]));
 
@@ -2536,7 +2539,8 @@ check('scan: the operator notice is not built from t()', (bool) preg_match('/fun
 // Catalog hygiene for the mail keys.
 $enMail = i18nCatalog('en');
 foreach (array_filter(array_keys($enMail), fn($k) => strncmp($k, 'mail.', 5) === 0) as $mailKey) {
-    check("catalog: {$mailKey} has no markup", strip_tags((string) $enMail[$mailKey]) === (string) $enMail[$mailKey]);
+    $mailText = is_array($enMail[$mailKey]) ? implode("\n", $enMail[$mailKey]) : (string) $enMail[$mailKey];
+    check("catalog: {$mailKey} has no markup", strip_tags($mailText) === $mailText);
     same("catalog: {$mailKey} has the same placeholders in sv", placeholders($enMail[$mailKey]), placeholders(i18nCatalog('sv')[$mailKey] ?? ''));
 }
 check('catalog: no mail body writes the link lifetime into the text', strpos($enMail['mail.login.body'], '30') === false && strpos($enMail['mail.verify.body'], '30') === false && strpos(i18nCatalog('sv')['mail.login.body'], '30') === false);
@@ -3837,7 +3841,7 @@ function ms_pf_mail_capture(array $probe, string $kind, array $opts = []): strin
         }
     });
     $server = isset($opts['request_locale']) ? ['HTTP_X_MS_LOCALE' => $opts['request_locale']] : [];
-    file_put_contents($root . '/probe_extra.json', json_encode(['server' => $server, 'locales' => $opts['locales'] ?? 'en', 'app_sv' => !empty($opts['app_sv']), 'mail_sv' => !empty($opts['mail_sv'])]));
+    file_put_contents($root . '/probe_extra.json', json_encode(['server' => $server, 'locales' => $opts['locales'] ?? 'en', 'app_sv' => !empty($opts['app_sv']), 'mail_sv' => !empty($opts['mail_sv']), 'mail_closed' => !empty($opts['mail_closed'])]));
     $env = [
         'PROBE_PAGE' => 'pro_profile.php', 'PROBE_METHOD' => 'POST', 'PROBE_USER_ID' => (string) $probe['ids']['trial'], 'PROBE_USER_EMAIL' => 'trial@example.com',
         'PROBE_POST' => (string) json_encode($post()), 'PROBE_GET' => '[]', 'PROBE_ORIGIN' => MS_TEST_ORIGIN,
@@ -3855,7 +3859,7 @@ function ms_pf_mail_capture(array $probe, string $kind, array $opts = []): strin
 }
 
 // Same section, the tests (step 2/3). '@mail' is opened per request by a line in the probe's config.
-file_put_contents($pp['root'] . '/config.php', "\nif (!empty(\$MS_EXTRA['mail_sv'])) {\n    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en', 'sv']]));\n}\n", FILE_APPEND);
+file_put_contents($pp['root'] . '/config.php', "\nif (!empty(\$MS_EXTRA['mail_sv'])) {\n    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en', 'sv']]));\n} elseif (!empty(\$MS_EXTRA['mail_closed'])) {\n    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en']]));\n}\n", FILE_APPEND);
 $pfLink = 'http://localhost:8085/pro_auth.php?confirm_profile_change=<TOKEN>';
 // kind => [subject key, body key, body placeholders]
 $pfKeys = [
@@ -3874,7 +3878,7 @@ foreach (array_keys(ms_pf_mail_cases()) as $kind) {
     $fixture = (string) file_get_contents($fx . "mail.{$kind}.en.txt");
     check("pro_profile mail {$kind}: the fixture exists", $fixture !== '');
     same("pro_profile mail {$kind}: English is byte-identical to its fixture", $fixture, ms_pf_mail_capture($pp, $kind));
-    same("pro_profile mail {$kind}: Swedish on but @mail closed is still English (account sv, page sv)", $fixture, ms_pf_mail_capture($pp, $kind, ['locales' => 'en,sv', 'app_sv' => true, 'account_locale' => 'sv', 'request_locale' => 'sv']));
+    same("pro_profile mail {$kind}: Swedish on but @mail closed is still English (account sv, page sv)", $fixture, ms_pf_mail_capture($pp, $kind, ['locales' => 'en,sv', 'app_sv' => true, 'account_locale' => 'sv', 'request_locale' => 'sv', 'mail_closed' => true]));
     same("pro_profile mail {$kind}: @mail open but LOCALES_ENABLED=en is English", $fixture, ms_pf_mail_capture($pp, $kind, ['locales' => 'en', 'mail_sv' => true, 'account_locale' => 'sv', 'request_locale' => 'sv']));
     same("pro_profile mail {$kind}: an account with locale en stays English with everything open, even on a Swedish page", $fixture, ms_pf_mail_capture($pp, $kind, $pfOpen + ['account_locale' => 'en', 'request_locale' => 'sv']));
     same("pro_profile mail {$kind}: no stored language and an English page is English", $fixture, ms_pf_mail_capture($pp, $kind, $pfOpen + ['request_locale' => 'en']));
@@ -3932,6 +3936,454 @@ check('scan: every pro_profile.php mail locale is resolved with the page languag
 check('scan: no pro_profile.php log line carries a locale beside an address', !preg_match('/logMessage\([^;]*locale[^;]*(?:email|\$to|\$newEmail)/i', $profilePhpMail));
 
 ms_test_cleanup($pp['root']);
+
+// --- Cron mail probe (epic #437, step 3/3) -----------------------------------------------
+// cron/send-digests.php and cron/abuse-guard.php run for real, as CLI subprocesses against a stub
+// config.php on SQLite, with sendmail_path=cat >> mail.log (as tests/pii_crypto_test.php does).
+// cron/cleanup.php runs its whole cleanup on include, so the one function this step touches,
+// sendInactivityWarningEmail(), is cut out of the file as it stands and run on its own.
+
+function ms_cm_stub_config(): string
+{
+    return <<<'PHP'
+<?php
+// TEST DOUBLE of config.php for the cron mail probe. Never deployed.
+if (!defined('TEMPMAIL_APP')) {
+    define('TEMPMAIL_APP', true);
+}
+date_default_timezone_set('UTC');
+$probeRequest = json_decode((string) getenv('PROBE_REQUEST'), true) ?: [];
+require_once __DIR__ . '/i18n.php';
+$config = [
+    'email' => ['domain' => 'manjo.me', 'base_url' => 'https://example.test/'],
+    'i18n' => ['enabled' => i18nParseEnabled((string) ($probeRequest['locales'] ?? 'en'))],
+    'cron' => [],
+    'cleanup' => ['regular_inactivity_warn_days' => (int) ($probeRequest['warn_days'] ?? 335), 'regular_inactivity_days' => (int) ($probeRequest['delete_days'] ?? 365)],
+    'admin' => ['user_ids' => $probeRequest['admin_ids'] ?? []],
+    'abuse' => [],
+];
+if (!empty($probeRequest['mail_sv'])) {
+    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en', 'sv']]));
+} elseif (!empty($probeRequest['mail_closed'])) {
+    i18nTranslatedPages(array_merge(i18nTranslatedPages(), ['@mail' => ['en']]));
+}
+$pdo = new PDO('sqlite:' . getenv('PROBE_SQLITE'), null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$pdo->sqliteCreateFunction('NOW', static fn(): string => date('Y-m-d H:i:s'));
+function logMessage($level, $message, $context = null) {
+    file_put_contents((string) getenv('PROBE_LOG'), json_encode([$level, $message, $context]) . "\n", FILE_APPEND);
+}
+function tableHasColumn($table, $column) {
+    global $pdo;
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM pragma_table_info(?) WHERE lower(name) = lower(?)');
+    $stmt->execute([(string) $table, (string) $column]);
+    return (int) $stmt->fetchColumn() > 0;
+}
+function updateStat($name, $by = 1) {}
+function createDirectAdminForwarder($alias) { return true; }
+function directAdminRemoveForwarder($alias) { return true; }
+require_once __DIR__ . '/pii_crypto.php';
+PHP;
+}
+
+/** Builds the probe docroot; returns its path. Remove it with ms_cm_remove(). */
+function ms_cm_build(string $repoRoot): string
+{
+    $root = sys_get_temp_dir() . '/ms_cron_probe_' . bin2hex(random_bytes(6));
+    mkdir($root);
+    mkdir($root . '/cron');
+    foreach (['i18n.php', 'pii_crypto.php', 'abuse_guard.php', 'email_log_ref.php'] as $file) {
+        copy($repoRoot . '/' . $file, $root . '/' . $file);
+    }
+    foreach (['_guard.php', 'send-digests.php', 'abuse-guard.php'] as $file) {
+        copy($repoRoot . '/cron/' . $file, $root . '/cron/' . $file);
+    }
+    symlink($repoRoot . '/lang', $root . '/lang');
+    file_put_contents($root . '/config.php', ms_cm_stub_config());
+    // The function as it stands in cron/cleanup.php, run without the rest of the file.
+    $cleanup = (string) file_get_contents($repoRoot . '/cron/cleanup.php');
+    if (!preg_match('/^function sendInactivityWarningEmail\(.*?^\}$/ms', $cleanup, $m)) {
+        throw new RuntimeException('sendInactivityWarningEmail() not found in cron/cleanup.php');
+    }
+    file_put_contents($root . '/inactivity_probe.php', "<?php\nrequire __DIR__ . '/config.php';\nrequire_once __DIR__ . '/email_log_ref.php';\n" . $m[0] . "\n\$a = json_decode((string) \$argv[1], true);\nif (!empty(\$a['locale'])) { i18nSetLocale(\$a['locale']); }\nsendInactivityWarningEmail(\$a['email'], \$a['user_id']);\n");
+    return $root;
+}
+
+function ms_cm_remove(string $root): void
+{
+    @unlink($root . '/lang');
+    foreach (glob($root . '/cron/*') ?: [] as $f) {
+        @unlink($f);
+    }
+    @rmdir($root . '/cron');
+    foreach (glob($root . '/*') ?: [] as $f) {
+        @unlink($f);
+    }
+    @rmdir($root);
+}
+
+/**
+ * A fresh database: the accounts named in $locales (ids 1, 2, ...; locale as given) and the tables.
+ *
+ * @param array<string,?string> $locales name => pro_users.locale
+ * @return array{0:string,1:array<string,int>}
+ */
+function ms_cm_db(string $root, array $locales, ?callable $setup = null): array
+{
+    require_once $GLOBALS['root'] . '/pii_crypto.php';
+    $path = $root . '/case_' . bin2hex(random_bytes(4)) . '.sqlite';
+    $pdo = new PDO('sqlite:' . $path, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo->exec("CREATE TABLE pro_users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, email_enc TEXT NULL, email_hash CHAR(64) NULL UNIQUE,
+        account_type TEXT NOT NULL DEFAULT 'pro', pro_expires_at TEXT NULL, address_ttl_days INTEGER NOT NULL DEFAULT 2, suspended_at TEXT NULL, locale TEXT NULL,
+        digest_enabled INTEGER NOT NULL DEFAULT 1, digest_frequency_days INTEGER NOT NULL DEFAULT 1, digest_last_sent TEXT NULL, digest_hour INTEGER NULL, digest_tz TEXT NULL)");
+    $pdo->exec('CREATE TABLE temp_emails (id INTEGER PRIMARY KEY AUTOINCREMENT, unique_address TEXT, pro_user_id INTEGER, is_personal INTEGER NOT NULL DEFAULT 0, expires_at TEXT NULL)');
+    $pdo->exec('CREATE TABLE stored_emails (id INTEGER PRIMARY KEY AUTOINCREMENT, temp_email_id INTEGER, from_address TEXT NULL, subject TEXT NULL, received_at TEXT NULL, digest_included_at TEXT NULL)');
+    $pdo->exec('CREATE TABLE digest_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, pro_user_id INTEGER, scheduled_for TEXT, sent_at TEXT NULL, message_ids TEXT, message_count INTEGER, status TEXT, error_text TEXT NULL)');
+    $pdo->exec('CREATE TABLE abuse_counters (scope TEXT NOT NULL, subject TEXT NOT NULL, window_start TEXT NOT NULL, hits INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, strikes INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (scope, subject, window_start))');
+    $pdo->exec('CREATE TABLE address_quarantines (local_part TEXT PRIMARY KEY, temp_email_id INTEGER NOT NULL, pro_user_id INTEGER NULL, reason TEXT NOT NULL, quarantined_at TEXT NOT NULL, quarantined_until TEXT NULL, forwarder_removed INTEGER NOT NULL DEFAULT 0)');
+    $pdo->exec('CREATE TABLE abuse_events (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, kind TEXT NOT NULL, subject TEXT NULL, pro_user_id INTEGER NULL, detail TEXT NULL, notify INTEGER NOT NULL DEFAULT 0, notified_at TEXT NULL)');
+    $ids = [];
+    foreach ($locales as $name => $locale) {
+        $email = $name . '@example.com';
+        $pdo->prepare('INSERT INTO pro_users (email, email_enc, email_hash, locale) VALUES (?, ?, ?, ?)')
+            ->execute([$email, piiEmailEncrypt($email, MS_AUTH_ENC_KEY), piiEmailHash($email, MS_AUTH_IDX_KEY), $locale]);
+        $ids[$name] = (int) $pdo->lastInsertId();
+    }
+    if ($setup !== null) {
+        $setup($pdo, $ids);
+    }
+    return [$path, $ids];
+}
+
+/** Runs one script of the probe docroot; returns the whole message sendmail was handed (masked), stdout, stderr, the log and the exit code. */
+function ms_cm_run(string $root, string $script, array $request, string $dbPath, array $args = []): array
+{
+    $mailLog = $root . '/mail.log';
+    $logPath = $dbPath . '.log';
+    @unlink($mailLog);
+    @unlink($logPath);
+    $env = ['PROBE_SQLITE' => $dbPath, 'PROBE_LOG' => $logPath, 'PROBE_REQUEST' => json_encode($request), 'PATH' => (string) getenv('PATH'),
+        'PII_ENCRYPTION_KEY' => MS_AUTH_ENC_KEY, 'PII_INDEX_KEY' => MS_AUTH_IDX_KEY];
+    // Every message is followed by a marker line, so several can be told apart. The trailing '#'
+    // comments out the -f envelope option mail() appends.
+    $sendmail = 'cat >> ' . escapeshellarg($mailLog) . " && printf '\\n<<<MSG-END>>>\\n' >> " . escapeshellarg($mailLog) . ' #';
+    $proc = proc_open([PHP_BINARY, '-d', 'display_errors=0', '-d', 'log_errors=0', '-d', 'sendmail_path="' . $sendmail . '"', $root . '/' . $script, ...$args],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root, $env);
+    $out = stream_get_contents($pipes[1]);
+    $err = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($proc);
+    $mails = array_map('ms_mail_mask', array_values(array_filter(explode("\n<<<MSG-END>>>\n", (string) @file_get_contents($mailLog)), static fn(string $m): bool => $m !== '')));
+    return ['mail' => $mails[0] ?? '', 'mails' => $mails, 'out' => (string) $out, 'err' => (string) $err, 'log' => (string) @file_get_contents($logPath), 'code' => $code];
+}
+
+/**
+ * The [timezone, hour] at which send-digests.php, run right now, treats $userId as due. The timezone
+ * is a fixed UTC offset of minus the current minute, so the local time is always just past the top
+ * of an hour, whatever minute the suite runs at; the script's window is 10 minutes either side.
+ */
+function ms_cm_digest_schedule(int $userId): array
+{
+    $minute = (int) gmdate('i');
+    $tz = sprintf('-%02d:%02d', 0, $minute);
+    $now = new DateTime('now', new DateTimeZone($tz));
+    $due = new DateTime($now->format('Y-m-d H') . ':00:00', new DateTimeZone($tz));
+    if (abs(time() - ($due->getTimestamp() + $userId % 600)) > 400) {
+        throw new RuntimeException('No digest hour is due right now');
+    }
+    return [$tz, (int) $now->format('H')];
+}
+
+/**
+ * Runs the real cron/send-digests.php for 'alice' (a Pro account with $messages waiting) and returns the run.
+ * $opts: account_locale, locales (LOCALES_ENABLED), mail_sv ('@mail' open).
+ *
+ * @param list<array{0:?string,1:?string,2:string}> $messages [from, subject, received_at]
+ */
+function ms_cm_digest(string $root, array $messages, array $opts = []): array
+{
+    [$db] = ms_cm_db($root, ['alice' => $opts['account_locale'] ?? null], function (PDO $pdo, array $ids) use ($messages): void {
+        [$tz, $hour] = ms_cm_digest_schedule($ids['alice']);
+        $pdo->prepare('UPDATE pro_users SET digest_tz = ?, digest_hour = ? WHERE id = ?')->execute([$tz, $hour, $ids['alice']]);
+        $pdo->prepare("INSERT INTO temp_emails (unique_address, pro_user_id, is_personal) VALUES ('abcdef0123456789', ?, 1)")->execute([$ids['alice']]);
+        $ins = $pdo->prepare('INSERT INTO stored_emails (temp_email_id, from_address, subject, received_at) VALUES (1, ?, ?, ?)');
+        foreach ($messages as $m) {
+            $ins->execute($m);
+        }
+    });
+    $run = ms_cm_run($root, 'cron/send-digests.php', ['locales' => $opts['locales'] ?? 'en', 'mail_sv' => !empty($opts['mail_sv']), 'mail_closed' => !empty($opts['mail_closed'])], $db);
+    @unlink($db);
+    @unlink($db . '.log');
+    return $run;
+}
+
+/** Runs sendInactivityWarningEmail() for 'alice' and returns the run. */
+function ms_cm_inactivity(string $root, array $opts = []): array
+{
+    [$db, $ids] = ms_cm_db($root, ['alice' => $opts['account_locale'] ?? null]);
+    $run = ms_cm_run($root, 'inactivity_probe.php', ['locales' => $opts['locales'] ?? 'en', 'mail_sv' => !empty($opts['mail_sv']), 'mail_closed' => !empty($opts['mail_closed']), 'warn_days' => $opts['warn_days'] ?? 335, 'delete_days' => $opts['delete_days'] ?? 365], $db, [json_encode(['email' => 'alice@example.com', 'user_id' => $ids['alice'], 'locale' => $opts['request_locale'] ?? null])]);
+    @unlink($db);
+    @unlink($db . '.log');
+    return $run;
+}
+
+/**
+ * Runs the real cron/abuse-guard.php with $events queued: [kind, local part, account name|null, detail].
+ * Returns the run; its 'mail' holds every message sent, in order.
+ *
+ * @param array<string,?string> $locales name => pro_users.locale
+ */
+function ms_cm_abuse(string $root, array $locales, array $events, array $opts = []): array
+{
+    [$db, $ids] = ms_cm_db($root, $locales, function (PDO $pdo, array $ids) use ($events): void {
+        $ins = $pdo->prepare('INSERT INTO abuse_events (created_at, kind, subject, pro_user_id, detail, notify) VALUES (?, ?, ?, ?, ?, 1)');
+        foreach ($events as [$kind, $subject, $who, $detail]) {
+            $ins->execute([date('Y-m-d H:i:s'), $kind, $subject, $who === null ? null : $ids[$who], json_encode($detail)]);
+        }
+    });
+    $adminIds = array_map(static fn(string $n): int => $ids[$n], $opts['admins'] ?? []);
+    $run = ms_cm_run($root, 'cron/abuse-guard.php', ['locales' => $opts['locales'] ?? 'en', 'mail_sv' => !empty($opts['mail_sv']), 'mail_closed' => !empty($opts['mail_closed']), 'admin_ids' => $adminIds], $db);
+    @unlink($db);
+    @unlink($db . '.log');
+    return $run;
+}
+
+// Same section, the tests (step 3/3). The English fixtures were captured from the unmodified code;
+// every case that must stay English closes the '@mail' gate explicitly, so it holds whatever the
+// shipped list says. Swedish cases open it explicitly.
+require_once $root . '/abuse_guard.php';
+$cm = ms_cm_build($root);
+$cmOpen = ['locales' => 'en,sv', 'mail_sv' => true];
+$cmDigest3 = [
+    ['bob@example.org', 'Your receipt #1042', '2026-03-10 09:05:00'],
+    [null, null, '2026-03-10 08:30:00'],
+    ['news@shop.example', 'Weekly offers | 20% off', '2026-03-09 17:45:00'],
+];
+$cmDigest1 = [$cmDigest3[0]];
+$cmMailParts = static function (string $message): array {
+    $parts = explode("\n\n", $message, 2);
+    return [$parts[0], $parts[1] ?? ''];
+};
+$cmSubject = static function (string $headers): string {
+    preg_match('/^Subject: (.*(?:\n .*)*)$/m', $headers, $m);
+    return mb_decode_mimeheader($m[1] ?? '');
+};
+$cmLines = static function (array $messages, string $locale): string {
+    $lines = [];
+    foreach ($messages as [$from, $subject, $received]) {
+        $lines[] = t('mail.digest.line', [
+            'from' => $from ?? t('mail.digest.unknown_sender', [], $locale),
+            'subject' => $subject ?? t('mail.digest.no_subject', [], $locale),
+            'received' => date('Y-m-d H:i', strtotime($received)),
+        ], $locale);
+    }
+    return implode("\n", $lines);
+};
+
+// --- The digest (cron/send-digests.php, the real script) ---
+foreach (['1' => $cmDigest1, '3' => $cmDigest3] as $n => $messages) {
+    $fixture = (string) file_get_contents($fx . "mail.digest_{$n}.en.txt");
+    $run = ms_cm_digest($cm, $messages, ['mail_closed' => true]);
+    same("digest {$n}: English is byte-identical to its fixture", $fixture, $run['mail']);
+    same("digest {$n}: the run sent exactly one mail", 1, count($run['mails']));
+    same("digest {$n}: with Swedish on but @mail closed it is still English (account sv)", $fixture, ms_cm_digest($cm, $messages, ['locales' => 'en,sv', 'account_locale' => 'sv', 'mail_closed' => true])['mail']);
+    same("digest {$n}: with @mail open but LOCALES_ENABLED=en it is English", $fixture, ms_cm_digest($cm, $messages, ['locales' => 'en', 'account_locale' => 'sv', 'mail_sv' => true])['mail']);
+    same("digest {$n}: an account with locale en stays English with everything open", $fixture, ms_cm_digest($cm, $messages, $cmOpen + ['account_locale' => 'en'])['mail']);
+    same("digest {$n}: an account with no stored language is English", $fixture, ms_cm_digest($cm, $messages, $cmOpen)['mail']);
+
+    $svRun = ms_cm_digest($cm, $messages, $cmOpen + ['account_locale' => 'sv']);
+    [$svHeaders, $svBody] = $cmMailParts($svRun['mail']);
+    $count = count($messages);
+    $svSubject = tp('mail.digest.subject', $count, [], 'sv');
+    same("digest {$n}: Swedish subject decodes to the catalog string", $svSubject, $cmSubject($svHeaders));
+    check("digest {$n}: Swedish subject is RFC 2047 encoded", (bool) preg_match('/^Subject: =\?UTF-8\?B\?/m', $svHeaders), $svHeaders);
+    check("digest {$n}: Swedish headers carry no raw non-ASCII and keep From and charset", !preg_match('/[^\x00-\x7F]/', $svHeaders) && strpos($svHeaders, 'From: Mail Shield <noreply@manjo.me>') !== false && strpos($svHeaders, 'Content-Type: text/plain; charset=UTF-8') !== false);
+    same("digest {$n}: Swedish body is the catalog string", rtrim(tp('mail.digest.body', $count, ['link' => 'https://example.test/sv/pro_login.php', 'lines' => $cmLines($messages, 'sv')], 'sv')), rtrim($svBody));
+    check("digest {$n}: Swedish body links /sv/pro_login.php and uses the singular or plural form", strpos($svBody, "https://example.test/sv/pro_login.php\n") !== false && strpos($svBody, (int) $n === 1 ? 'Du har 1 meddelande som väntar' : 'Du har 3 meddelanden som väntar') !== false);
+    $enHeaders = $cmMailParts($fixture)[0];
+    foreach (['From: ', 'MIME-Version: ', 'Content-Type: '] as $h) {
+        preg_match('/^' . preg_quote($h, '/') . '.*$/m', $enHeaders, $a);
+        preg_match('/^' . preg_quote($h, '/') . '.*$/m', $svHeaders, $b);
+        same("digest {$n}: header {$h} is unchanged in Swedish", $a[0] ?? null, $b[0] ?? null);
+    }
+}
+check('digest: the no-subject and unknown-sender fallbacks are translated', strpos($cmMailParts(ms_cm_digest($cm, $cmDigest3, $cmOpen + ['account_locale' => 'sv'])['mail'])[1], '- (okänd) | (inget ämne) | 2026-03-10 08:30') !== false);
+check('digest: dates keep today\'s format in Swedish', strpos(ms_cm_digest($cm, $cmDigest1, $cmOpen + ['account_locale' => 'sv'])['mail'], '| 2026-03-10 09:05') !== false);
+
+// External data stays data: {count}, {link}, {from} and a CR/LF in a sender or subject come out as typed,
+// are not substituted, and cannot add a header (the subject line of the mail is the catalog's).
+$cmHostile = [
+    ['{link}@evil.example', "Re: {count} items {received}\r\nBcc: victim@example.com", '2026-03-10 09:05:00'],
+    ['a@example.org', '{subject} {from} {lines}', '2026-03-10 08:30:00'],
+];
+foreach (['en' => ['account_locale' => 'en'], 'sv' => ['account_locale' => 'sv']] as $loc => $o) {
+    $hostile = ms_cm_digest($cm, $cmHostile, $cmOpen + $o);
+    [$hh, $hb] = $cmMailParts($hostile['mail']);
+    check("digest hostile ({$loc}): one mail was sent", count($hostile['mails']) === 1, $hostile['out'] . $hostile['err']);
+    check("digest hostile ({$loc}): {count}, {link} and {received} in a sender or subject are not substituted", strpos($hb, '- {link}@evil.example | Re: {count} items {received}') !== false);
+    check("digest hostile ({$loc}): placeholders in a second subject are literal too", strpos($hb, '- a@example.org | {subject} {from} {lines} | 2026-03-10 08:30') !== false);
+    check("digest hostile ({$loc}): the CR/LF is in the body as typed", strpos($hb, "Re: {count} items {received}\nBcc: victim@example.com | 2026-03-10 09:05") !== false);
+    check("digest hostile ({$loc}): no extra header line", !preg_match('/^Bcc:/mi', $hh) && substr_count($hh, "\n") === substr_count($cmMailParts(ms_cm_digest($cm, $cmDigest1, $cmOpen + $o)['mail'])[0], "\n"));
+    check("digest hostile ({$loc}): the heading count is the real count", strpos($hb, $loc === 'en' ? 'You have 2 messages waiting' : 'Du har 2 meddelanden som väntar') !== false);
+}
+
+// --- The inactivity warning (sendInactivityWarningEmail(), cut out of cron/cleanup.php) ---
+$inactivityFixture = (string) file_get_contents($fx . 'mail.inactivity.en.txt');
+same('inactivity: English is byte-identical to its fixture', $inactivityFixture, ms_cm_inactivity($cm, ['mail_closed' => true])['mail']);
+same('inactivity: with Swedish on but @mail closed it is still English (account sv)', $inactivityFixture, ms_cm_inactivity($cm, ['locales' => 'en,sv', 'account_locale' => 'sv', 'mail_closed' => true])['mail']);
+same('inactivity: with @mail open but LOCALES_ENABLED=en it is English', $inactivityFixture, ms_cm_inactivity($cm, ['locales' => 'en', 'account_locale' => 'sv', 'mail_sv' => true])['mail']);
+same('inactivity: an account with locale en stays English with everything open', $inactivityFixture, ms_cm_inactivity($cm, $cmOpen + ['account_locale' => 'en'])['mail']);
+same('inactivity: the language of a request is not used (a cron has none)', $inactivityFixture, ms_cm_inactivity($cm, $cmOpen + ['account_locale' => 'en', 'request_locale' => 'sv'])['mail']);
+[$inHeaders, $inBody] = $cmMailParts(ms_cm_inactivity($cm, $cmOpen + ['account_locale' => 'sv'])['mail']);
+same('inactivity: Swedish subject decodes to the catalog string', t('mail.inactivity.subject', [], 'sv'), $cmSubject($inHeaders));
+check('inactivity: Swedish subject is encoded exactly when it is not ASCII, and the headers carry no raw non-ASCII', (bool) preg_match('/^Subject: =\?UTF-8\?B\?/m', $inHeaders) === (bool) preg_match('/[^\x00-\x7F]/', t('mail.inactivity.subject', [], 'sv')) && !preg_match('/[^\x00-\x7F]/', $inHeaders));
+same('inactivity: Swedish body is the catalog string, with the /sv/ link and 30 days', rtrim(t('mail.inactivity.body', ['email' => 'alice@example.com', 'link' => 'https://example.test/sv/pro_login.php', 'days' => 30], 'sv')), rtrim($inBody));
+[$enInHeaders] = $cmMailParts($inactivityFixture);
+foreach (['From: ', 'Reply-To: ', 'MIME-Version: ', 'Content-Type: ', 'X-Mailer: '] as $h) {
+    preg_match('/^' . preg_quote($h, '/') . '.*$/m', $enInHeaders, $a);
+    preg_match('/^' . preg_quote($h, '/') . '.*$/m', $inHeaders, $b);
+    same("inactivity: header {$h} is unchanged in Swedish", $a[0] ?? null, $b[0] ?? null);
+}
+// The day count comes from the thresholds, not from the text.
+check('inactivity: the day count follows REGULAR_INACTIVITY_DAYS - REGULAR_INACTIVITY_WARN_DAYS', strpos(ms_cm_inactivity($cm, ['mail_closed' => true, 'warn_days' => 300, 'delete_days' => 360])['mail'], 'deleted in about 60 days.') !== false && strpos(ms_cm_inactivity($cm, $cmOpen + ['account_locale' => 'sv', 'warn_days' => 300, 'delete_days' => 360])['mail'], 'om cirka 60 dagar.') !== false);
+same('inactivity: invalid thresholds fall back to 30 days, as config.php does', $inactivityFixture, ms_cm_inactivity($cm, ['mail_closed' => true, 'warn_days' => 400, 'delete_days' => 365])['mail']);
+
+// --- abuseNoticeText() ---
+$cmAbuseBase = 'https://example.test/';
+$cmAbuseDetail = ['until' => '2026-01-01 10:00:00', 'minutes' => 30, 'name' => 'Hook "A"', 'limit' => 60, 'user_id' => 42, 'rule' => 'generate'];
+$cmAbuseText = static fn(?array $t): string => $t === null ? '<null>' : 'Subject: ' . $t['subject'] . "\n\n" . $t['body'] . "\n";
+$cmAbuseUserKinds = ['address_warning', 'address_quarantined', 'address_closed', 'account_warning', 'account_quarantined', 'webhook_capped'];
+foreach ($cmAbuseUserKinds as $kind) {
+    $fixture = (string) file_get_contents($fx . "mail.abuse.{$kind}.en.txt");
+    $english = abuseNoticeText($kind, 'box@manjo.me', $cmAbuseDetail, $cmAbuseBase);
+    same("abuse {$kind}: English is byte-identical to its fixture", $fixture, $cmAbuseText($english));
+    same("abuse {$kind}: the default locale is English", $fixture, $cmAbuseText(abuseNoticeText($kind, 'box@manjo.me', $cmAbuseDetail, $cmAbuseBase, false, 'en')));
+    same("abuse {$kind}: asked for as an admin it is English whatever the locale", $fixture, $cmAbuseText(abuseNoticeText($kind, 'box@manjo.me', $cmAbuseDetail, $cmAbuseBase, true, 'sv')));
+    $sv = abuseNoticeText($kind, 'box@manjo.me', $cmAbuseDetail, $cmAbuseBase, false, 'sv');
+    check("abuse {$kind}: Swedish has a subject and a body that differ from English", $sv !== null && $sv['subject'] !== '' && $sv['subject'] !== $english['subject'] && $sv['body'] !== $english['body']);
+    check("abuse {$kind}: Swedish body is greeted and signed in Swedish", strncmp($sv['body'], "Hej,\n\n", 6) === 0 && substr($sv['body'], -strlen("Vänliga hälsningar,\nMail Shield-teamet")) === "Vänliga hälsningar,\nMail Shield-teamet");
+    check("abuse {$kind}: no placeholder is left in either language", strpos($sv['subject'] . $sv['body'] . $english['subject'] . $english['body'], '{') === false);
+    check("abuse {$kind}: the profile link is the same in both languages (an app page)", strpos($sv['body'], 'https://example.test/pro_profile_page.php') !== false && strpos($english['body'], 'https://example.test/pro_profile_page.php') !== false);
+}
+foreach (['address_quarantined', 'webhook_capped', 'account_quarantined'] as $kind) {
+    same("abuse {$kind}: English with no detail is byte-identical to its fixture", (string) file_get_contents($fx . "mail.abuse.{$kind}.nodetail.en.txt"), $cmAbuseText(abuseNoticeText($kind, 'box@manjo.me', [], $cmAbuseBase)));
+}
+check('abuse address_quarantined: the fallback for a missing time is translated', strpos((string) abuseNoticeText('address_quarantined', 'box@manjo.me', [], $cmAbuseBase, false, 'sv')['body'], 'pausat den till senare (serverns tid)') !== false);
+check('abuse webhook_capped: the fallback for a missing webhook name is translated', strpos((string) abuseNoticeText('webhook_capped', 'box@manjo.me', [], $cmAbuseBase, false, 'sv')['body'], 'Din webhook "webhook" nådde') !== false);
+check('abuse address_quarantined: the address and time are placeholders in Swedish', strpos(abuseNoticeText('address_quarantined', 'box@manjo.me', $cmAbuseDetail, $cmAbuseBase, false, 'sv')['body'], 'box@manjo.me fick mycket mer e-post än vanligt, så vi har pausat den till 2026-01-01 10:00:00 (serverns tid).') !== false);
+check('abuse account_quarantined: the minutes are a placeholder in Swedish', strpos(abuseNoticeText('account_quarantined', null, $cmAbuseDetail, $cmAbuseBase, false, 'sv')['body'], 'pausade i 30 minuter.') !== false);
+// The webhook name is the account holder's own text: it stays data.
+$cmHook = abuseNoticeText('webhook_capped', null, ['name' => '{limit} {profile}', 'limit' => 60], $cmAbuseBase, false, 'sv');
+check('abuse webhook_capped: a webhook name with placeholders in it is not substituted', strpos($cmHook['body'], 'Din webhook "{limit} {profile}" nådde sin gräns på 60 notiser') !== false);
+// The suspension proposal is for admins: English always, and nobody else gets it.
+$cmSuspendFixture = (string) file_get_contents($fx . 'mail.abuse.account_suspend_proposed.admin.en.txt');
+same('abuse account_suspend_proposed: the admin text is byte-identical to its fixture', $cmSuspendFixture, $cmAbuseText(abuseNoticeText('account_suspend_proposed', 'box@manjo.me', $cmAbuseDetail, $cmAbuseBase, true)));
+same('abuse account_suspend_proposed: stays English for an admin with locale sv', $cmSuspendFixture, $cmAbuseText(abuseNoticeText('account_suspend_proposed', 'box@manjo.me', $cmAbuseDetail, $cmAbuseBase, true, 'sv')));
+same('abuse account_suspend_proposed: mails nobody else, in any language', [null, null], [abuseNoticeText('account_suspend_proposed', null, $cmAbuseDetail, $cmAbuseBase), abuseNoticeText('account_suspend_proposed', null, $cmAbuseDetail, $cmAbuseBase, false, 'sv')]);
+same('abuse: an internal event mails nobody, in any language', [null, null], [abuseNoticeText('address_hold', 'x@y', [], $cmAbuseBase), abuseNoticeText('address_hold', 'x@y', [], $cmAbuseBase, false, 'sv')]);
+
+// --- cron/abuse-guard.php, the real script: one mail per recipient, in that recipient's language ---
+$cmEvents = [
+    ['address_warning', 'boxone', 'alice', []],
+    ['address_quarantined', 'boxtwo', 'bob', ['until' => '2026-01-01 10:00:00']],
+    ['webhook_capped', '', 'carol', ['name' => 'Hook', 'limit' => 60]],
+    ['account_suspend_proposed', 'user:1', null, ['user_id' => 1, 'rule' => 'generate']],
+];
+$cmLocales = ['alice' => 'sv', 'bob' => 'en', 'carol' => null, 'dave' => 'sv'];
+$cmAdminOpts = ['admins' => ['dave']];
+$cmEnAbuse = ms_cm_abuse($cm, $cmLocales, $cmEvents, $cmAdminOpts + ['mail_closed' => true]);
+same('abuse cron: with @mail closed four mails go out (three users and one admin)', 4, count($cmEnAbuse['mails']));
+$cmExpected = [
+    'alice@example.com' => abuseNoticeText('address_warning', 'boxone@manjo.me', [], $cmAbuseBase),
+    'bob@example.com' => abuseNoticeText('address_quarantined', 'boxtwo@manjo.me', ['until' => '2026-01-01 10:00:00'], $cmAbuseBase),
+    'carol@example.com' => abuseNoticeText('webhook_capped', null, ['name' => 'Hook', 'limit' => 60], $cmAbuseBase),
+    'dave@example.com' => abuseNoticeText('account_suspend_proposed', null, ['user_id' => 1, 'rule' => 'generate'], $cmAbuseBase, true),
+];
+$cmByRecipient = static function (array $run) use ($cmMailParts): array {
+    $by = [];
+    foreach ($run['mails'] as $mail) {
+        [$h, $b] = $cmMailParts($mail);
+        preg_match('/^To: (.*)$/m', $h, $to);
+        $by[$to[1] ?? '?'] = [$h, $b];
+    }
+    return $by;
+};
+$cmEnBy = $cmByRecipient($cmEnAbuse);
+foreach ($cmExpected as $to => $text) {
+    [$h, $b] = $cmEnBy[$to] ?? ['', ''];
+    same("abuse cron, English: {$to} gets the English text, byte for byte", ['Subject: ' . $text['subject'], $text['body']], [(string) (preg_match('/^Subject: .*$/m', $h, $m) ? $m[0] : null), rtrim($b)]);
+}
+foreach (['From: Mail Shield <noreply@manjo.me>', 'Reply-To: noreply@manjo.me', 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8'] as $header) {
+    check("abuse cron, English: every mail carries {$header}", count(array_filter($cmEnBy, static fn(array $p): bool => strpos($p[0], $header) !== false)) === 4);
+}
+same('abuse cron: with Swedish on but @mail closed every mail is English', $cmEnAbuse['mails'], ms_cm_abuse($cm, $cmLocales, $cmEvents, $cmAdminOpts + ['locales' => 'en,sv', 'mail_closed' => true])['mails']);
+same('abuse cron: with @mail open but LOCALES_ENABLED=en every mail is English', $cmEnAbuse['mails'], ms_cm_abuse($cm, $cmLocales, $cmEvents, $cmAdminOpts + ['locales' => 'en', 'mail_sv' => true])['mails']);
+
+$cmSvAbuse = ms_cm_abuse($cm, $cmLocales, $cmEvents, $cmAdminOpts + $cmOpen);
+same('abuse cron, open: still four mails', 4, count($cmSvAbuse['mails']));
+$cmSvBy = $cmByRecipient($cmSvAbuse);
+$cmSvText = abuseNoticeText('address_warning', 'boxone@manjo.me', [], $cmAbuseBase, false, 'sv');
+same('abuse cron: an account with locale sv gets the Swedish text', $cmSvText['body'], rtrim($cmSvBy['alice@example.com'][1] ?? ''));
+same('abuse cron: its subject decodes to the Swedish subject', $cmSvText['subject'], $cmSubject($cmSvBy['alice@example.com'][0] ?? ''));
+check('abuse cron: its subject is encoded exactly when it is not ASCII, and the headers carry no raw non-ASCII', (bool) preg_match('/^Subject: =\?UTF-8\?B\?/m', $cmSvBy['alice@example.com'][0] ?? '') === (bool) preg_match('/[^\x00-\x7F]/', $cmSvText['subject']) && !preg_match('/[^\x00-\x7F]/', $cmSvBy['alice@example.com'][0] ?? ''));
+// A notice whose Swedish subject is not ASCII ("har stängts") is encoded, and decodes to the catalog string.
+$cmClosed = $cmByRecipient(ms_cm_abuse($cm, ['alice' => 'sv'], [['address_closed', 'boxthree', 'alice', []]], $cmOpen));
+$cmClosedText = abuseNoticeText('address_closed', 'boxthree@manjo.me', [], $cmAbuseBase, false, 'sv');
+check('abuse cron: a non-ASCII Swedish subject is RFC 2047 encoded', (bool) preg_match('/^Subject: =\?UTF-8\?B\?/m', $cmClosed['alice@example.com'][0] ?? '') && !preg_match('/[^\x00-\x7F]/', $cmClosed['alice@example.com'][0] ?? ''));
+same('abuse cron: and decodes to the catalog string', $cmClosedText['subject'], $cmSubject($cmClosed['alice@example.com'][0] ?? ''));
+same('abuse cron: an account with locale en keeps English next to a Swedish one in the same run', $cmEnBy['bob@example.com'], $cmSvBy['bob@example.com'] ?? null);
+same('abuse cron: an account with no stored language is English', $cmEnBy['carol@example.com'], $cmSvBy['carol@example.com'] ?? null);
+same('abuse cron: the admin notice stays English for an admin whose locale is sv', $cmEnBy['dave@example.com'], $cmSvBy['dave@example.com'] ?? null);
+check('abuse cron: the admin subject is plain ASCII, not encoded', strpos($cmSvBy['dave@example.com'][0] ?? '', 'Subject: Mail Shield: account suspension proposed') !== false);
+// Nothing about when or to whom a notice goes changed.
+$cmDb = ms_cm_db($cm, $cmLocales, function (PDO $pdo, array $ids) use ($cmEvents): void {
+    $ins = $pdo->prepare('INSERT INTO abuse_events (created_at, kind, subject, pro_user_id, detail, notify) VALUES (?, ?, ?, ?, ?, 1)');
+    foreach ($cmEvents as [$kind, $subject, $who, $detail]) {
+        $ins->execute([date('Y-m-d H:i:s'), $kind, $subject, $who === null ? null : $ids[$who], json_encode($detail)]);
+    }
+});
+$cmRun = ms_cm_run($cm, 'cron/abuse-guard.php', ['locales' => 'en,sv', 'mail_sv' => true, 'admin_ids' => [4]], $cmDb[0]);
+$cmPdo = new PDO('sqlite:' . $cmDb[0]);
+same('abuse cron: every notified event is stamped notified_at', 4, (int) $cmPdo->query('SELECT COUNT(*) FROM abuse_events WHERE notify = 1 AND notified_at IS NOT NULL')->fetchColumn());
+$cmPdo = null;
+@unlink($cmDb[0]);
+@unlink($cmDb[0] . '.log');
+same('abuse cron: that run sent the same four mails', 4, count($cmRun['mails']));
+
+// --- Scans ---
+$cmSrc = [
+    'digest' => (string) file_get_contents($root . '/cron/send-digests.php'),
+    'cleanup' => (string) file_get_contents($root . '/cron/cleanup.php'),
+    'abuse' => (string) file_get_contents($root . '/cron/abuse-guard.php'),
+    'guard' => (string) file_get_contents($root . '/abuse_guard.php'),
+];
+check('scan: the digest subject goes through mailEncodeSubject() and tp()', strpos($cmSrc['digest'], 'mailEncodeSubject(tp(\'mail.digest.subject\', $count, [], $locale))') !== false);
+check('scan: the inactivity subject goes through mailEncodeSubject()', strpos($cmSrc['cleanup'], 'mailEncodeSubject(t(\'mail.inactivity.subject\', [], $locale))') !== false);
+check('scan: the abuse notices are sent with an encoded subject', strpos($cmSrc['abuse'], 'mail($to, mailEncodeSubject($subject), $body, $headers') !== false);
+check('scan: the digest, the warning and the abuse notices resolve the locale with mailLocaleFor() and no request language', strpos($cmSrc['digest'], 'mailLocaleFor($pdo, $userId, $config[\'i18n\'] ?? [])') !== false && strpos($cmSrc['cleanup'], 'mailLocaleFor($pdo ?? null') !== false && strpos($cmSrc['abuse'], 'mailLocaleFor($pdo, $userId, $config[\'i18n\'] ?? [])') !== false && !preg_match('/i18nLocale\(\)/', $cmSrc['digest'] . $cmSrc['abuse']));
+check('scan: the abuse text is built inside the recipient loop, after the address is read', (bool) preg_match('/foreach \(\$english !== null \? \$recipients : \[\] as \$userId\) \{.*?proUserEmail\(.*?mailLocaleFor\(.*?abuseNoticeText\(.*?\$locale\)/s', $cmSrc['abuse']));
+check('scan: the digest and the warning link through mailUrl(), not by hand', strpos($cmSrc['digest'], "mailUrl(\$config, 'pro_login.php', \$locale)") !== false && strpos($cmSrc['cleanup'], "mailUrl(\$config, 'pro_login.php', \$locale)") !== false && strpos($cmSrc['digest'], "'/pro_login.php'") === false && strpos($cmSrc['cleanup'], '"pro_login.php"') === false);
+check('scan: no mail text is a literal any more in the three cron scripts', strpos($cmSrc['digest'], 'Hello,') === false && strpos($cmSrc['digest'], 'waiting message') === false && strpos($cmSrc['abuse'], 'Hello,') === false && !preg_match('/function sendInactivityWarningEmail.*?Hello,/s', $cmSrc['cleanup']));
+check('scan: the suspension proposal is not built from t()', (bool) preg_match('/case \'account_suspend_proposed\':.*?default:/s', $cmSrc['guard'], $cmSuspendCase) && !preg_match('/\bt\(/', $cmSuspendCase[0]));
+check('scan: the referral digest and the contact-form mail are untouched (no t(), no mailLocaleFor())', !preg_match('/\bt\(|mailLocaleFor|mailEncodeSubject/', (string) file_get_contents($root . '/cron/referrals-digest.php')) && !preg_match('/mailLocaleFor|mailEncodeSubject/', (string) file_get_contents($root . '/pro_contact.php')));
+check('scan: no log line in the cron mail code carries a locale beside an address', !preg_match('/logMessage\([^;]*locale[^;]*(?:email|\$to)/i', $cmSrc['digest'] . $cmSrc['cleanup'] . $cmSrc['abuse']));
+// Catalog hygiene for the new keys.
+$cmEnCat = i18nCatalog('en');
+$cmSvCat = i18nCatalog('sv');
+foreach (['mail.digest.subject', 'mail.digest.body'] as $k) {
+    check("catalog: {$k} has a singular and a plural form in both languages", isset($cmEnCat[$k]['one'], $cmEnCat[$k]['other'], $cmSvCat[$k]['one'], $cmSvCat[$k]['other']));
+    foreach (['one', 'other'] as $form) {
+        same("catalog: {$k} ({$form}) has the same placeholders in sv", placeholders($cmEnCat[$k][$form]), placeholders($cmSvCat[$k][$form]));
+    }
+}
+check('catalog: the digest line takes sender, subject and time as placeholders in both languages', placeholders($cmEnCat['mail.digest.line']) === ['from', 'received', 'subject'] && placeholders($cmSvCat['mail.digest.line']) === ['from', 'received', 'subject']);
+check('catalog: no cron mail writes a number, link or address into the text', strpos($cmEnCat['mail.inactivity.body'], '30') === false && strpos($cmSvCat['mail.inactivity.body'], '30') === false && strpos(implode('', array_filter($cmEnCat, fn($k) => strncmp($k, 'mail.abuse.', 11) === 0, ARRAY_FILTER_USE_KEY)), 'http') === false && strpos(implode('', array_filter($cmSvCat, fn($k) => strncmp($k, 'mail.abuse.', 11) === 0, ARRAY_FILTER_USE_KEY)), 'http') === false);
+check('catalog: the suspension proposal has no catalog entry (operator mail)', !isset($cmEnCat['mail.abuse.account_suspend_proposed.subject']) && !isset($cmSvCat['mail.abuse.account_suspend_proposed.subject']));
+foreach (array_filter(array_keys($cmSvCat), fn($k) => strncmp($k, 'mail.', 5) === 0) as $k) {
+    check("catalog: sv {$k} also exists in en", array_key_exists($k, $cmEnCat));
+}
+ms_cm_remove($cm);
+
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

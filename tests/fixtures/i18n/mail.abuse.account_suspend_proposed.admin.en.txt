@@ -1,0 +1,5 @@
+Subject: Mail Shield: account suspension proposed
+
+Account #42 has had its addresses quarantined repeatedly for going over the rate limits (last rule: generate).
+
+Confirm or dismiss the suspension: https://example.test/abuse_admin.php

@@ -527,19 +527,20 @@ function cleanupExpiredProUsers() {
  * misslyckande. Mailtexten är på engelska, som övriga utskick.
  */
 function sendInactivityWarningEmail($email, $userId = null) {
-    global $config;
+    global $config, $pdo;
 
-    $loginUrl = $config['email']['base_url'] . "pro_login.php";
-    $subject = "Your Mail Shield account will be deleted soon";
-    $message = "Hello,\n\n"
-        . "Your Mail Shield account (" . $email . ") has been inactive for a while. "
-        . "To keep it, simply sign in within the next month:\n\n"
-        . $loginUrl . "\n\n"
-        . "If you do not sign in, your account and all of its email addresses "
-        . "will be automatically and permanently deleted in about 30 days.\n\n"
-        . "If you no longer need this account, no action is required - it will "
-        . "be removed automatically.\n\n"
-        . "Regards,\nThe Mail Shield Team";
+    // The recipient's language (epic #437): the account's, else English. A cron has no browser to ask.
+    $locale = mailLocaleFor($pdo ?? null, $userId === null ? null : (int)$userId, $config['i18n'] ?? []);
+    // Days from this warning to the deletion, from the same thresholds cleanupInactiveRegularAccounts() uses.
+    $warnDays = (int)($config['cleanup']['regular_inactivity_warn_days'] ?? 335);
+    $deleteDays = (int)($config['cleanup']['regular_inactivity_days'] ?? 365);
+    if ($warnDays >= $deleteDays) {
+        $warnDays = 335;
+        $deleteDays = 365;
+    }
+    $loginUrl = mailUrl($config, 'pro_login.php', $locale);
+    $subject = mailEncodeSubject(t('mail.inactivity.subject', [], $locale));
+    $message = t('mail.inactivity.body', ['email' => (string)$email, 'link' => $loginUrl, 'days' => $deleteDays - $warnDays], $locale);
 
     // Bestäm avsändaradress (kan sättas via ENV t.ex. EMAIL_FROM)
     $fromAddress = $_ENV['EMAIL_FROM'] ?? ('noreply@' . ($config['email']['domain'] ?? 'manjo.me'));

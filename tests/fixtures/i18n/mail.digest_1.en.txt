@@ -1,0 +1,18 @@
+To: alice@example.com
+Subject: Mail Shield: You have 1 waiting message
+From: Mail Shield <noreply@manjo.me>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hello,
+
+You have 1 message waiting in your Mail Shield account.
+
+Visit your inbox to read them:
+https://example.test/pro_login.php
+
+Messages:
+- bob@example.org | Your receipt #1042 | 2026-03-10 09:05
+
+This is an automated summary from Mail Shield.
+

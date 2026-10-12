@@ -1044,60 +1044,41 @@ if (!function_exists('abuseNoticeText')) {
      * mails nobody. $address is the full address the event is about.
      * $forAdmin selects the admin wording of a suspension proposal.
      *
+     * $locale is the language of the account the notice goes to (epic #437,
+     * resolved per recipient by cron/abuse-guard.php with mailLocaleFor()).
+     * The admin text is operator mail and is always English, whatever
+     * $locale is. The address, the profile link and the numbers and names in
+     * $detail are placeholder values, never part of a catalog string; a
+     * webhook name is the account holder's own text.
+     *
      * @return array{subject:string, body:string}|null
      */
-    function abuseNoticeText(string $kind, ?string $address, array $detail, string $baseUrl, bool $forAdmin = false): ?array
+    function abuseNoticeText(string $kind, ?string $address, array $detail, string $baseUrl, bool $forAdmin = false, string $locale = 'en'): ?array
     {
-        $sign = "\n\nRegards,\nThe Mail Shield Team";
+        if (!function_exists('t')) {
+            require_once __DIR__ . '/i18n.php';
+        }
+        if ($forAdmin) {
+            $locale = 'en';
+        }
         $profile = rtrim($baseUrl, '/') . '/pro_profile_page.php';
         switch ($kind) {
             case 'address_warning':
-                return [
-                    'subject' => 'Unusual amount of mail to ' . $address,
-                    'body' => "Hello,\n\n" . $address . " is receiving an unusual amount of mail right now.\n\n"
-                        . "If it goes on, we will pause the address for a while to protect it and our service. "
-                        . "While it is paused, mail to it is refused and returned to the sender.\n\n"
-                        . "Nothing needs doing on your part. If you no longer need the address, you can delete it here:\n" . $profile . $sign,
-                ];
-            case 'address_quarantined':
-                return [
-                    'subject' => $address . ' is paused',
-                    'body' => "Hello,\n\n" . $address . " received far more mail than normal, so we have paused it"
-                        . " until " . ($detail['until'] ?? 'later') . " (server time).\n\n"
-                        . "While it is paused, mail to the address is refused and returned to the sender. "
-                        . "It opens again by itself. Mail it already received is untouched.\n\n"
-                        . "Your addresses: " . $profile . $sign,
-                ];
             case 'address_closed':
-                return [
-                    'subject' => $address . ' has been closed',
-                    'body' => "Hello,\n\n" . $address . " has been paused several times in a short period because of the amount of mail sent to it,"
-                        . " so it is now closed and refuses all mail.\n\n"
-                        . "Mail it already received is untouched. We recommend deleting the address and creating a new one: " . $profile
-                        . "\n\nIf you need this exact address back, reply to this message." . $sign,
-                ];
+                $params = ['address' => (string)$address, 'profile' => $profile];
+                break;
+            case 'address_quarantined':
+                $params = ['address' => (string)$address, 'profile' => $profile, 'until' => (string)($detail['until'] ?? t('mail.abuse.until_later', [], $locale))];
+                break;
             case 'account_warning':
-                return [
-                    'subject' => 'Your Mail Shield account is creating addresses unusually fast',
-                    'body' => "Hello,\n\nYour account has reached a limit on how many addresses can be created in a short time.\n\n"
-                        . "If this continues, the addresses of the account will be paused for a while."
-                        . " If you did not do this yourself, change your password: " . $profile . $sign,
-                ];
+                $params = ['profile' => $profile];
+                break;
             case 'account_quarantined':
-                return [
-                    'subject' => 'The addresses of your Mail Shield account are paused',
-                    'body' => "Hello,\n\nYour account has repeatedly gone over the limits for creating addresses,"
-                        . " so all of its addresses are paused for " . (int)($detail['minutes'] ?? 0) . " minutes."
-                        . " Mail to them is refused and returned to the sender meanwhile; they open again by themselves.\n\n"
-                        . "If you did not do this yourself, change your password: " . $profile . $sign,
-                ];
+                $params = ['profile' => $profile, 'minutes' => (int)($detail['minutes'] ?? 0)];
+                break;
             case 'webhook_capped':
-                return [
-                    'subject' => 'A webhook reached its hourly limit',
-                    'body' => "Hello,\n\nYour webhook \"" . ($detail['name'] ?? 'webhook') . "\" reached its limit of "
-                        . (int)($detail['limit'] ?? 0) . " notifications per hour. Further notifications are skipped until the hour is over."
-                        . " Mail is still received and stored as usual.\n\nYour webhooks: " . $profile . $sign,
-                ];
+                $params = ['profile' => $profile, 'name' => (string)($detail['name'] ?? t('mail.abuse.webhook_name', [], $locale)), 'limit' => (int)($detail['limit'] ?? 0)];
+                break;
             case 'account_suspend_proposed':
                 if (!$forAdmin) {
                     return null;
@@ -1107,7 +1088,13 @@ if (!function_exists('abuseNoticeText')) {
                     'body' => "Account #" . (int)($detail['user_id'] ?? 0) . " has had its addresses quarantined repeatedly for going over the rate limits"
                         . " (last rule: " . ($detail['rule'] ?? '?') . ").\n\nConfirm or dismiss the suspension: " . rtrim($baseUrl, '/') . '/abuse_admin.php',
                 ];
+            default:
+                return null;
         }
-        return null;
+        $key = 'mail.abuse.' . $kind;
+        return [
+            'subject' => t($key . '.subject', $params, $locale),
+            'body' => t($key . '.body', $params, $locale),
+        ];
     }
 }

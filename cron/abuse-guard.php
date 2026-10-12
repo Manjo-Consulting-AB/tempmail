@@ -56,7 +56,8 @@ function abuseGuardSendMail(string $to, string $subject, string $body): bool
         'X-Mailer: PHP/' . phpversion(),
     ]);
     try {
-        return mail($to, $subject, $body, $headers, '-f' . $from) === true;
+        // A Swedish subject is not ASCII, so it is encoded (RFC 2047); an ASCII one is left as it is.
+        return mail($to, mailEncodeSubject($subject), $body, $headers, '-f' . $from) === true;
     } catch (Throwable $e) {
         return false;
     }
@@ -106,13 +107,19 @@ try {
             $recipients[] = (int)$event['pro_user_id'];
         }
 
-        $text = abuseNoticeText((string)$event['kind'], $address, $detail, $baseUrl, $forAdmin);
-        $delivered = $text === null || $recipients === [];
-        foreach ($text !== null ? $recipients : [] as $userId) {
+        // Whether this event mails anybody at all (null: an internal event, or a proposal that
+        // is not for a user). The English text decides that; what is sent is built per recipient.
+        $english = abuseNoticeText((string)$event['kind'], $address, $detail, $baseUrl, $forAdmin);
+        $delivered = $english === null || $recipients === [];
+        foreach ($english !== null ? $recipients : [] as $userId) {
             $to = proUserEmail($pdo, $userId);
             if ($to === null) {
                 continue;
             }
+            // Written in the recipient's own language (epic #437); an admin notice stays English
+            // whatever the admin's own language is. mailLocaleFor() never throws: English on doubt.
+            $locale = $forAdmin ? 'en' : mailLocaleFor($pdo, $userId, $config['i18n'] ?? []);
+            $text = abuseNoticeText((string)$event['kind'], $address, $detail, $baseUrl, $forAdmin, $locale) ?? $english;
             if (abuseGuardSendMail($to, $text['subject'], $text['body'])) {
                 $delivered = true;
                 $sent++;

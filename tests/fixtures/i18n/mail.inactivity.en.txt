@@ -1,0 +1,20 @@
+To: alice@example.com
+Subject: Your Mail Shield account will be deleted soon
+From: Mail Shield <noreply@manjo.me>
+Reply-To: noreply@manjo.me
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+X-Mailer: PHP/<VERSION>
+
+Hello,
+
+Your Mail Shield account (alice@example.com) has been inactive for a while. To keep it, simply sign in within the next month:
+
+https://example.test/pro_login.php
+
+If you do not sign in, your account and all of its email addresses will be automatically and permanently deleted in about 30 days.
+
+If you no longer need this account, no action is required - it will be removed automatically.
+
+Regards,
+The Mail Shield Team

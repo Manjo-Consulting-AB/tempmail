@@ -1,0 +1,13 @@
+Subject: Unusual amount of mail to box@manjo.me
+
+Hello,
+
+box@manjo.me is receiving an unusual amount of mail right now.
+
+If it goes on, we will pause the address for a while to protect it and our service. While it is paused, mail to it is refused and returned to the sender.
+
+Nothing needs doing on your part. If you no longer need the address, you can delete it here:
+https://example.test/pro_profile_page.php
+
+Regards,
+The Mail Shield Team
