@@ -97,19 +97,19 @@ if (!function_exists('i18nSupportedLocales')) {
             $pages = $override;
         }
         return $pages ?? [
-            '@app'                 => ['en', 'sv'],
-            '@mail'                => ['en', 'sv'],
-            '/'                    => ['en', 'sv'],
-            '/temporary-email.php' => ['en', 'sv'],
-            '/pricing.php'         => ['en', 'sv'],
-            '/faq.php'             => ['en', 'sv'],
-            '/blog.php'            => ['en', 'sv'],
-            '/register.php'        => ['en', 'sv'],
-            '/pro_login.php'       => ['en', 'sv'],
-            '/privacy.php'         => ['en', 'sv'],
-            '/refund-policy.php'   => ['en', 'sv'],
-            '/terms.php'           => ['en', 'sv'],
-            '/welcome.php'         => ['en', 'sv'],
+            '@app'                 => ['en', 'sv', 'de'],
+            '@mail'                => ['en', 'sv', 'de'],
+            '/'                    => ['en', 'sv', 'de'],
+            '/temporary-email.php' => ['en', 'sv', 'de'],
+            '/pricing.php'         => ['en', 'sv', 'de'],
+            '/faq.php'             => ['en', 'sv', 'de'],
+            '/blog.php'            => ['en', 'sv', 'de'],
+            '/register.php'        => ['en', 'sv', 'de'],
+            '/pro_login.php'       => ['en', 'sv', 'de'],
+            '/privacy.php'         => ['en', 'sv', 'de'],
+            '/refund-policy.php'   => ['en', 'sv', 'de'],
+            '/terms.php'           => ['en', 'sv', 'de'],
+            '/welcome.php'         => ['en', 'sv', 'de'],
         ];
     }
 
