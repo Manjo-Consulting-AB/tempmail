@@ -367,7 +367,7 @@ $msCtaLabel = $msSignedIn ? t('blog.go_to_inbox') : t('blog.create_inbox');
 <?php foreach ($msPostAlternates as $msAlt) : ?>
     <link rel="alternate" hreflang="<?php echo $msEsc($msAlt['hreflang']); ?>" href="<?php echo $msEsc($msAlt['href']); ?>">
 <?php endforeach; ?>
-    <meta property="og:locale" content="<?php echo $msEsc(['en' => 'en_GB', 'sv' => 'sv_SE'][$msLocale] ?? $msLocale); ?>">
+    <meta property="og:locale" content="<?php echo $msEsc(['en' => 'en_GB', 'sv' => 'sv_SE', 'de' => 'de_DE'][$msLocale] ?? $msLocale); ?>">
 <?php endif; ?>
 
     <meta property="og:type" content="<?php echo $msView === 'article' ? 'article' : 'website'; ?>">

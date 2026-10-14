@@ -43,6 +43,7 @@ if (!function_exists('i18nSupportedLocales')) {
         return [
             'en' => 'English',
             'sv' => 'Svenska',
+            'de' => 'Deutsch',
         ];
     }
 
@@ -605,12 +606,12 @@ if (!function_exists('i18nSupportedLocales')) {
     /**
      * A number in this request's language: a no-break space (U+00A0) between
      * thousands in every language, "." as the decimal separator in English and
-     * "," in Swedish.
+     * "," in Swedish and German.
      */
     function i18nNumber(int|float $n, int $decimals = 0, ?string $locale = null): string
     {
         $locale = $locale ?? i18nLocale();
-        $decimalSeparator = ($locale === 'sv') ? ',' : '.';
+        $decimalSeparator = in_array($locale, ['sv', 'de'], true) ? ',' : '.';
         return number_format($n, max(0, $decimals), $decimalSeparator, "\u{00A0}");
     }
 
