@@ -53,7 +53,7 @@ return [
     'lede'        => 'These terms are the agreement between you and us when you use Mail Shield. They are written to be read, so they are short where they can be.',
     'description' => 'The terms that apply when you use Mail Shield, including Pro plans sold through Paddle as Merchant of Record.',
     'path'        => '/terms.php',
-    'updated'     => '2026-10-10',
+    'updated'     => '2026-10-15',
     'sections'    => [
         [
             'id'      => 'who',
@@ -176,7 +176,7 @@ return [
         [
             'id'      => 'law',
             'heading' => 'Governing law and disputes',
-            'html'    => '<p>These terms are governed by Swedish law. Disputes are settled by the Swedish courts, with the Stockholm District Court as the first instance, unless mandatory consumer law gives you the right to bring a claim where you live.</p>'
+            'html'    => '<p>These terms are governed by Swedish law. Disputes are settled by the Swedish courts, with the Stockholm District Court as the first instance.</p>'
                 . '<p>If you are a consumer in the EU, you can also turn to the Swedish National Board for Consumer Disputes (Allmänna reklamationsnämnden, <a href="https://www.arn.se" rel="noopener">arn.se</a>). Please contact us at ' . $f['contact'] . ' first — most things are quicker to sort out directly.</p>',
         ],
     ],

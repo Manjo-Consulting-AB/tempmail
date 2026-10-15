@@ -1708,7 +1708,7 @@ foreach ($legalVariants as $name => [$referral, $trial]) {
     check("legal sv terms {$name}: the /sv/ canonical", strpos($raw, '<link rel="canonical" href="https://example.test/sv/terms.php">') !== false);
     check("legal sv terms {$name}: hreflang en, sv and x-default", strpos($raw, 'hreflang="en" href="https://example.test/terms.php"') !== false && strpos($raw, 'hreflang="sv" href="https://example.test/sv/terms.php"') !== false && strpos($raw, 'hreflang="x-default"') !== false);
     check("legal sv terms {$name}: no raw catalog key", !preg_match('/\blegal\.(?:shell|fact)\./', $raw));
-    check("legal sv terms {$name}: the shell is Swedish", strpos($raw, 'Gäller från 10 oktober 2026') !== false && strpos($raw, 'På den här sidan') !== false && strpos($raw, 'Effective') === false && strpos($raw, 'On this page') === false);
+    check("legal sv terms {$name}: the shell is Swedish", strpos($raw, 'Gäller från 15 oktober 2026') !== false && strpos($raw, 'På den här sidan') !== false && strpos($raw, 'Effective') === false && strpos($raw, 'On this page') === false);
     check("legal sv terms {$name}: every section id is on the page", (function () use ($raw, $legalSv) {
         foreach ($legalSv['sections'] as $s) {
             if (strpos($raw, 'id="' . $s['id'] . '"') === false) {
@@ -4437,6 +4437,14 @@ foreach (landingVariants() as $section => $variants) {
     }
 }
 i18nSetLocale('en');
+
+// Owner's decision: every dispute is settled by a Swedish court, and the terms
+// name no other country's courts in any language.
+foreach (glob($root . '/partials/content/legal/terms.*.php') as $termsFile) {
+    $termsRaw = (string) file_get_contents($termsFile);
+    check('terms: disputes go to Stockholms tingsrätt in ' . basename($termsFile), strpos($termsRaw, 'tingsrätt') !== false || strpos($termsRaw, 'Stockholm District Court') !== false);
+    check('terms: no claim where the consumer lives in ' . basename($termsFile), !preg_match('/claim where you live|väcka talan där du bor|an deinem Wohnort zu klagen/i', $termsRaw));
+}
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);
