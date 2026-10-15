@@ -124,6 +124,14 @@ i18nSetLocale('xx');
 same('setLocale: unknown code means English', 'en', i18nLocale());
 
 $en = i18nCatalog('en');
+// The source language is English: no Swedish text in an English value.
+foreach ($en as $enKey => $enValue) {
+    $enText = is_array($enValue) ? implode(' ', $enValue) : (string) $enValue;
+    if (preg_match('/[åäöÅÄÖ]/u', $enText)) {
+        check("catalog: en {$enKey} is English", false, $enText);
+    }
+}
+check('catalog: no en value contains å, ä or ö', !preg_match('/[åäöÅÄÖ]/u', implode(' ', array_map(fn($v) => is_array($v) ? implode(' ', $v) : (string) $v, $en))));
 same('tp: missing key shows the key', 'no.such.plural', tp('no.such.plural', 3));
 
 // --- Catalog parity -----------------------------------------------------------

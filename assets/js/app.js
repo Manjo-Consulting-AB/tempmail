@@ -360,7 +360,7 @@ class TempMailApp {
             e.preventDefault();
             var id = $(this).data('id');
             if (!id) return;
-            if (!confirm(msT('app.js.confirm_cancel_pending', 'Avbryt denna väntande ändring?'))) return;
+            if (!confirm(msT('app.js.confirm_cancel_pending', 'Cancel this pending change?'))) return;
             try {
                 const res = await $.post('pro_profile.php', { action: 'cancel_pending_change', id: id }, null, 'json');
                         if (res && res.success) {
@@ -378,7 +378,7 @@ class TempMailApp {
                                 }
                             });
                         } else {
-                    alert(msT('app.js.cancel_failed', 'Kunde inte avbryta: {reason}', { reason: res && res.error ? res.error : msT('app.js.unknown', 'Unknown') }));
+                    alert(msT('app.js.cancel_failed', 'Could not cancel: {reason}', { reason: res && res.error ? res.error : msT('app.js.unknown', 'Unknown') }));
                 }
             } catch (err) {
                 alert(msT('app.error.network', 'Network error'));
@@ -395,7 +395,7 @@ class TempMailApp {
                 if (res && res.success) {
                     alert(res.message || msT('app.js.resend_ok', 'Confirmation email resent successfully.'));
                 } else {
-                    alert(msT('app.js.resend_failed', 'Kunde inte skicka om: {reason}', { reason: res && res.error ? res.error : msT('app.js.unknown', 'Unknown') }));
+                    alert(msT('app.js.resend_failed', 'Could not resend: {reason}', { reason: res && res.error ? res.error : msT('app.js.unknown', 'Unknown') }));
                 }
             } catch (err) {
                 alert(msT('app.error.network', 'Network error'));
@@ -815,7 +815,7 @@ class TempMailApp {
                 // If the server indicates the message has expired, show a friendly toast
                 const err = (response && response.error) ? response.error.toString().toLowerCase() : '';
                 if (err.includes('förfall') || err.includes('expired') || err.includes('har förfallit')) {
-                    this.showNotification(msT('app.js.message_expired', 'Det här meddelandet har förfallit och kan inte visas.'), 'warning', 5000);
+                    this.showNotification(msT('app.js.message_expired', 'This message has expired and cannot be shown.'), 'warning', 5000);
                 } else {
                     this.showNotification(response.error || msT('app.error.load_message', 'Could not load email message'), 'error');
                 }
@@ -912,7 +912,7 @@ class TempMailApp {
         
         try {
             await navigator.clipboard.writeText(fullAddress);
-            this.showNotification(msT('app.js.address_copied', 'Adress kopierad!'), 'success');
+            this.showNotification(msT('app.js.address_copied', 'Address copied!'), 'success');
         } catch (error) {
             // Fallback för äldre webbläsare
             const textArea = document.createElement('textarea');
@@ -921,7 +921,7 @@ class TempMailApp {
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
-            this.showNotification(msT('app.js.address_copied', 'Adress kopierad!'), 'success');
+            this.showNotification(msT('app.js.address_copied', 'Address copied!'), 'success');
         }
     }
     
@@ -942,7 +942,7 @@ class TempMailApp {
         
         try {
             await navigator.clipboard.writeText(shareUrl);
-            this.showNotification(msT('app.js.link_copied', 'Länk kopierad! Andra kan nu använda samma adress.'), 'success');
+            this.showNotification(msT('app.js.link_copied', 'Link copied! Others can now use the same address.'), 'success');
         } catch (error) {
             // Fallback för äldre webbläsare
             const textArea = document.createElement('textarea');
@@ -951,7 +951,7 @@ class TempMailApp {
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
-            this.showNotification(msT('app.js.link_copied', 'Länk kopierad! Andra kan nu använda samma adress.'), 'success');
+            this.showNotification(msT('app.js.link_copied', 'Link copied! Others can now use the same address.'), 'success');
         }
     }
     
@@ -1021,12 +1021,12 @@ class TempMailApp {
         if (blocked) {
             btn.classList.add('btn-danger');
             btn.classList.remove('btn-outline-light');
-            btn.title = msT('app.js.images_blocked_title', 'Bilder blockeras (klicka för att visa)');
+            btn.title = msT('app.js.images_blocked_title', 'Images are blocked (click to show)');
             if (icon) icon.className = 'fas fa-eye-slash';
         } else {
             btn.classList.remove('btn-danger');
             btn.classList.add('btn-outline-light');
-            btn.title = msT('app.common.block_images_title', 'Blockera externa bilder');
+            btn.title = msT('app.common.block_images_title', 'Block external images');
             if (icon) icon.className = 'fas fa-image';
         }
     }
@@ -1192,7 +1192,7 @@ class TempMailApp {
             return;
         }
         if (diff <= 0) {
-            $('#validityText').text(msT('app.js.expired_deleted', 'Utgången – automatically deleted'));
+            $('#validityText').text(msT('app.js.expired_deleted', 'Expired – automatically deleted'));
             this.stopValidityCountdown();
             return;
         }
@@ -1344,7 +1344,7 @@ class TempMailApp {
      * Hämta förhandsvisning av e-post
      */
     getEmailPreview(content, maxLength = 150) {
-        if (!content) return msT('app.js.no_preview', 'Inget innehåll tillgängligt');
+        if (!content) return msT('app.js.no_preview', 'No content available');
         
         // Ta bort HTML-taggar
         const text = content.replace(/<[^>]*>/g, '');
@@ -1492,8 +1492,8 @@ class TempMailApp {
             const note = document.createElement('p');
             note.className = 'ms-mail-frame__note';
             note.textContent = blocked === 1
-                ? msT('app.js.images_blocked_one', '1 external image is blocked. Use "Visa bilder" to load it.')
-                : msT('app.js.images_blocked_many', '{count} external images are blocked. Use "Visa bilder" to load them.', { count: blocked });
+                ? msT('app.js.images_blocked_one', '1 external image is blocked. Use "Show images" to load it.')
+                : msT('app.js.images_blocked_many', '{count} external images are blocked. Use "Show images" to load them.', { count: blocked });
             nodes.push(note);
         }
         nodes.push(frame);
