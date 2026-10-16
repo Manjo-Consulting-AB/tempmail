@@ -746,6 +746,19 @@ a:hover {
     }
 }
 
+/* Between the collapse point and a laptop the row only just fits in English,
+   and Swedish or German labels are longer: tighter gaps keep it from pushing
+   the page sideways. */
+@media (min-width: 768px) and (max-width: 1023px) {
+    .ms-nav__inner,
+    .ms-nav__panel,
+    .ms-nav__panel[hidden],
+    .ms-nav__links,
+    .ms-nav__actions {
+        gap: var(--ms-space-3);
+    }
+}
+
 /* In the collapsed panel every row is a thumb target: the links are stacked
    rather than sitting in a line, so each needs the same 44px the buttons get.
    The logo is a link too, and the bar is 4rem tall, so the height costs the
@@ -869,29 +882,103 @@ a:hover {
 }
 
 /* Language switcher (partials/public_footer.php, i18n.php): rendered only when
-   the page exists in more than one language. One link per language, each in
-   its own language; the current one is marked with aria-current. */
+   the page exists in more than one language. A native <details> menu so it
+   scales to many languages, works without script (assets/js/langmenu.js only
+   adds Escape and click-outside) and keeps one crawlable link per language,
+   each named in its own language; the current one has aria-current. The
+   list opens upwards because the footer is the end of the page. */
 .ms-footer__langs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--ms-space-3);
     margin-top: var(--ms-space-4);
     font-size: var(--ms-fs-sm);
 }
 
-.ms-footer__langs a {
+.ms-langmenu {
+    position: relative;
+    display: inline-block;
+}
+
+.ms-langmenu__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ms-space-2);
+    min-height: 2.75rem;
+    padding: 0 var(--ms-space-3);
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-bg-raised);
+    color: var(--ms-text);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.ms-langmenu__toggle::-webkit-details-marker {
+    display: none;
+}
+
+.ms-langmenu__toggle:hover {
+    border-color: var(--ms-border-strong);
+}
+
+.ms-langmenu__toggle:focus-visible {
+    outline: 2px solid var(--ms-accent);
+    outline-offset: 2px;
+}
+
+.ms-langmenu__icon {
     color: var(--ms-text-muted);
 }
 
-.ms-footer__langs a:hover,
-.ms-footer__langs a[aria-current="true"] {
+.ms-langmenu__chevron {
+    color: var(--ms-text-muted);
+    transform: rotate(180deg);
+}
+
+.ms-langmenu[open] .ms-langmenu__chevron {
+    transform: none;
+}
+
+.ms-langmenu__list {
+    position: absolute;
+    bottom: calc(100% + var(--ms-space-1));
+    left: 0;
+    z-index: 40;
+    min-width: 100%;
+    max-height: 18rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: var(--ms-space-1);
+    list-style: none;
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-bg-raised);
+    box-shadow: var(--ms-shadow-md);
+}
+
+.ms-langmenu__list a {
+    display: flex;
+    align-items: center;
+    min-height: 2.5rem;
+    padding: 0 var(--ms-space-3);
+    border-radius: var(--ms-radius-sm);
+    color: var(--ms-text-muted);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.ms-langmenu__list a:hover,
+.ms-langmenu__list a:focus-visible {
+    background: var(--ms-bg-sunken);
     color: var(--ms-text);
 }
 
+.ms-langmenu__list a[aria-current="true"] {
+    color: var(--ms-text);
+    font-weight: var(--ms-fw-h3);
+}
+
 @media (max-width: 767px) {
-    .ms-footer__langs a {
-        display: inline-flex;
-        align-items: center;
+    .ms-langmenu__list a {
         min-height: 2.75rem;
     }
 }

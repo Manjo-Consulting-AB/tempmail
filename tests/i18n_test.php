@@ -188,6 +188,11 @@ check('head sv: og:locale', strpos($html, '<meta property="og:locale" content="s
 check('footer sv: switcher labelled in Swedish', strpos($html, 'aria-label="Språk"') !== false);
 check('footer sv: link to English', strpos($html, 'href="/terms.php"') !== false);
 check('footer sv: current language marked', (bool) preg_match('#href="/sv/terms\.php"\s+hreflang="sv"\s+lang="sv" aria-current="true"#', $html));
+check('footer sv: the switcher is a <details> menu', (bool) preg_match('#<nav class="ms-footer__langs"[^>]*>\s*<details class="ms-langmenu" data-ms-langmenu>\s*<summary class="ms-langmenu__toggle">#', $html));
+check('footer sv: the toggle names the current language in that language', (bool) preg_match('#<summary class="ms-langmenu__toggle">.*?<span lang="sv">Svenska</span>.*?</summary>#s', $html));
+check('footer sv: every language is a link in the menu list', preg_match_all('#<li><a href="[^"]+"\s+hreflang="[a-z]+"#', (string) (preg_match('#<ul class="ms-langmenu__list">(.*?)</ul>#s', $html, $mList) ? $mList[1] : '')) === count($both));
+check('footer sv: the menu script is local and loaded inside the switcher', (bool) preg_match('#<script src="/assets/js/langmenu\.js\?v=\d+" defer></script>\s*</nav>#', $html));
+check('footer sv: langmenu.js exists', is_file($root . '/assets/js/langmenu.js'));
 
 $html = renderShell('en', $onlyEn);
 check('head en-only: <html lang="en">', strpos($html, '<html lang="en">') !== false);
@@ -288,6 +293,18 @@ foreach ($svRequiredPrefixes as $prefix) {
     $lack = array_diff($need, array_keys($sv));
     check("sv complete: every {$prefix} key is translated", $need !== [] && $lack === [], implode(', ', $lack));
 }
+// German is offered on the same pages, so the same keys must exist in lang/de.php.
+$de = i18nCatalog('de');
+foreach ($svRequiredPrefixes as $prefix) {
+    $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
+    $lack = array_diff($need, array_keys($de));
+    check("de complete: every {$prefix} key is translated", $need !== [] && $lack === [], implode(', ', $lack));
+}
+same('number: decimals, de', "1\u{00A0}234,5", i18nNumber(1234.5, 1, 'de'));
+foreach (['partials/content/faq', 'partials/content/temporary-email', 'partials/content/legal/terms', 'partials/content/legal/privacy', 'partials/content/legal/refund-policy'] as $deDoc) {
+    check("de content: {$deDoc}.de.php exists", is_file($root . '/' . $deDoc . '.de.php'));
+}
+check('de content: every blog post has a German translation', count(glob($root . '/blog/*.md')) === count(glob($root . '/blog/de/*.md')));
 
 // --- Nav and footer: English fixtures, Swedish render -------------------------
 function renderPartial(string $file, bool $signedIn, string $locale, array $enabled): string
@@ -484,7 +501,7 @@ foreach (landingVariants() as $section => $variants) {
 i18nSetLocale('en');
 
 // --- Landing page in Swedish ----------------------------------------------------
-same('pages: the landing page is offered in Swedish', ['en', 'sv'], $realPages['/'] ?? null);
+same('pages: the landing page is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/'] ?? null);
 same('resolve: /sv/ is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/'], $both));
 same('resolve: ...and sets Swedish', 'sv', i18nLocale());
 same('resolve: /sv/ redirects to / while only English is on', '/', i18nResolveRequest(['REQUEST_URI' => '/sv/'], $onlyEn));
@@ -646,7 +663,7 @@ PHP);
     }
     $env = [
         'PROBE_ENABLED' => implode(',', $enabled),
-        'PROBE_URI' => $uri ?? (($locale === 'sv' ? '/sv' : '') . '/pricing.php'),
+        'PROBE_URI' => $uri ?? (($locale === 'en' ? '' : '/' . $locale) . '/pricing.php'),
         'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
         // 7 is on the stub's sandbox allow-list, 1 is not
         'PROBE_USER_ID' => $checkout ? '7' : '1',
@@ -684,7 +701,7 @@ foreach ($pricingVariants as $name => [$in, $co, $prod]) {
     same("fixture: pricing.config.{$name}.en.json", (string) file_get_contents($fx . "pricing.config.{$name}.en.json"), json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 }
 
-same('pages: pricing is offered in Swedish', ['en', 'sv'], $realPages['/pricing.php'] ?? null);
+same('pages: pricing is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/pricing.php'] ?? null);
 same('resolve: /sv/pricing.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/pricing.php'], $both));
 same('resolve: ...and redirects while only English is on', '/pricing.php', i18nResolveRequest(['REQUEST_URI' => '/sv/pricing.php'], $onlyEn));
 i18nSetLocale('en');
@@ -811,7 +828,7 @@ PHP);
     }
     $env = [
         'PROBE_ENABLED' => implode(',', $enabled),
-        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/faq.php',
+        'PROBE_URI' => ($locale === 'en' ? '' : '/' . $locale) . '/faq.php',
         'PROBE_SIGNIN' => $signIn ? '1' : '0',
         'PROBE_TRIAL' => (string) $trial,
         'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
@@ -852,7 +869,7 @@ foreach ($faqVariants as $name => [$signIn, $trial]) {
     same("fixture: faq.{$name}.en.html", faqNorm((string) file_get_contents($fx . "faq.{$name}.en.html")), faqNorm($r['raw']));
 }
 
-same('pages: the FAQ is offered in Swedish', ['en', 'sv'], $realPages['/faq.php'] ?? null);
+same('pages: the FAQ is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/faq.php'] ?? null);
 i18nTranslatedPages($realPages);
 
 // The two data files: same groups, same number of questions per group, same
@@ -1004,7 +1021,7 @@ PHP);
     }
     $env = [
         'PROBE_ENABLED' => implode(',', $enabled),
-        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/temporary-email.php',
+        'PROBE_URI' => ($locale === 'en' ? '' : '/' . $locale) . '/temporary-email.php',
         'PROBE_TRIAL' => (string) $trial,
         'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
         'PATH' => (string) getenv('PATH'),
@@ -1043,7 +1060,7 @@ foreach ($teVariants as $name => [$trial, $signedIn]) {
     same("fixture: temporary-email.{$name}.en.html", teNorm((string) file_get_contents($fx . "temporary-email.{$name}.en.html")), teNorm($r['raw']));
 }
 
-same('pages: temporary-email.php is offered in Swedish', ['en', 'sv'], $realPages['/temporary-email.php'] ?? null);
+same('pages: temporary-email.php is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/temporary-email.php'] ?? null);
 i18nTranslatedPages($realPages);
 
 // The two data files: the same section ids in the same order, the same variables
@@ -1197,7 +1214,7 @@ function blogRender(string $root, string $locale, array $enabled, string $query 
             }
         }
         // Only the posts: the images are referenced, never read.
-        foreach (['blog', 'blog/sv'] as $d) {
+        foreach (['blog', 'blog/sv', 'blog/de'] as $d) {
             if (!is_dir($root . '/' . $d)) {
                 continue;
             }
@@ -1242,7 +1259,7 @@ PHP);
     @unlink($statusFile);
     $env = [
         'PROBE_ENABLED' => implode(',', $enabled),
-        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/blog.php' . ($query !== '' ? '?' . $query : ''),
+        'PROBE_URI' => ($locale === 'en' ? '' : '/' . $locale) . '/blog.php' . ($query !== '' ? '?' . $query : ''),
         'PROBE_QUERY' => $query,
         'PROBE_SIGNED_IN' => $signedIn ? '1' : '0',
         'PROBE_STATUS_FILE' => $statusFile,
@@ -1347,7 +1364,7 @@ foreach ($blogFixtures as $name => [$file, $query, $status]) {
     check("blog en {$name}: no hreflang and no og:locale while English is alone", strpos($r['raw'], 'hreflang') === false && strpos($r['raw'], 'og:locale') === false);
 }
 
-same('pages: the blog is offered in Swedish', ['en', 'sv'], $realPages['/blog.php'] ?? null);
+same('pages: the blog is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/blog.php'] ?? null);
 
 // Every English post has a Swedish twin (same basename) and the other way round.
 $blogEn = array_map(fn($f) => basename($f, '.md'), glob($root . '/blog/*.md') ?: []);
@@ -1542,7 +1559,7 @@ PHP);
     }
     $env = [
         'PROBE_ENABLED' => implode(',', $enabled),
-        'PROBE_URI' => ($locale === 'sv' ? '/sv' : '') . '/' . $page,
+        'PROBE_URI' => ($locale === 'en' ? '' : '/' . $locale) . '/' . $page,
         'PROBE_REFERRAL' => $referral ? '1' : '0',
         'PROBE_TRIAL' => (string) $trial,
         'PATH' => (string) getenv('PATH'),
@@ -1578,9 +1595,9 @@ foreach (['terms', 'privacy', 'refund-policy'] as $legalPage) {
     }
 }
 
-same('pages: the refund policy is offered in Swedish', ['en', 'sv'], $realPages['/refund-policy.php'] ?? null);
-same('pages: the terms are offered in Swedish', ['en', 'sv'], $realPages['/terms.php'] ?? null);
-same('pages: the privacy policy is offered in Swedish', ['en', 'sv'], $realPages['/privacy.php'] ?? null);
+same('pages: the refund policy is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/refund-policy.php'] ?? null);
+same('pages: the terms are offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/terms.php'] ?? null);
+same('pages: the privacy policy is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/privacy.php'] ?? null);
 
 // The two content files: the same section ids in the same order, the same
 // 'updated', the same interpolated variables, and no number typed into the prose.
@@ -1704,7 +1721,7 @@ foreach ($legalVariants as $name => [$referral, $trial]) {
     check("legal sv terms {$name}: the /sv/ canonical", strpos($raw, '<link rel="canonical" href="https://example.test/sv/terms.php">') !== false);
     check("legal sv terms {$name}: hreflang en, sv and x-default", strpos($raw, 'hreflang="en" href="https://example.test/terms.php"') !== false && strpos($raw, 'hreflang="sv" href="https://example.test/sv/terms.php"') !== false && strpos($raw, 'hreflang="x-default"') !== false);
     check("legal sv terms {$name}: no raw catalog key", !preg_match('/\blegal\.(?:shell|fact)\./', $raw));
-    check("legal sv terms {$name}: the shell is Swedish", strpos($raw, 'Gäller från 10 oktober 2026') !== false && strpos($raw, 'På den här sidan') !== false && strpos($raw, 'Effective') === false && strpos($raw, 'On this page') === false);
+    check("legal sv terms {$name}: the shell is Swedish", strpos($raw, 'Gäller från 15 oktober 2026') !== false && strpos($raw, 'På den här sidan') !== false && strpos($raw, 'Effective') === false && strpos($raw, 'On this page') === false);
     check("legal sv terms {$name}: every section id is on the page", (function () use ($raw, $legalSv) {
         foreach ($legalSv['sections'] as $s) {
             if (strpos($raw, 'id="' . $s['id'] . '"') === false) {
@@ -1747,7 +1764,7 @@ foreach ((require $root . '/lang/sv.php') as $svTermKey => $svTermValue) {
 // =============================================================================
 
 // --- '@app' gate ---------------------------------------------------------------
-same("pages: '@app' offers Swedish now that every app page is translated (step 7/8)", ['en', 'sv'], $realPages['@app'] ?? null);
+same("pages: '@app' offers Swedish now that every app page is translated (step 7/8), and German", ['en', 'sv', 'de'], $realPages['@app'] ?? null);
 same("pages: '@app' is a pseudo-entry, i18nPageLocales() reads it as given", ['en', 'sv'], i18nPageLocales('@app', $both));
 same("pages: '@app' still yields to LOCALES_ENABLED=en", ['en'], i18nPageLocales('@app', $onlyEn));
 i18nTranslatedPages(['@app' => ['en', 'sv']]);
@@ -1792,7 +1809,7 @@ same('appLocale open: header beats account for an API', 'en', i18nAppLocale(['HT
 same('appLocale open: no header, an API falls to the account', 'sv', i18nAppLocale([], 'sv', $both, true));
 same('appLocale open: LOCALES_ENABLED=en overrides the account', 'en', i18nAppLocale(['HTTP_ACCEPT_LANGUAGE' => 'sv'], 'sv', $onlyEn, false));
 same('appLocale open: an unsupported account value is ignored', 'en', i18nAppLocale([], 'xx', $both, false));
-same('appLocale open: only sv in Accept-Language, no match for de', 'en', i18nAppLocale(['HTTP_ACCEPT_LANGUAGE' => 'de'], null, $both, false));
+same('appLocale open: only sv in Accept-Language, no match for fr', 'en', i18nAppLocale(['HTTP_ACCEPT_LANGUAGE' => 'fr'], null, $both, false));
 i18nTranslatedPages($realPages);
 
 // --- i18nUseAppLocale() --------------------------------------------------------
@@ -1828,7 +1845,7 @@ proUserSetLocale($withCol, 1, 'sv', true);
 same('setLocale: onlyIfEmpty leaves a chosen language alone', 'en', i18nAccountLocale($withCol, 1));
 check('setLocale: onlyIfEmpty sets a NULL one', proUserSetLocale($withCol, 2, 'sv', true));
 same('setLocale: onlyIfEmpty stored sv', 'sv', i18nAccountLocale($withCol, 2));
-check('setLocale: an unsupported language is refused', proUserSetLocale($withCol, 3, 'de', false) === false);
+check('setLocale: an unsupported language is refused', proUserSetLocale($withCol, 3, 'fr', false) === false);
 check('setLocale: an empty language is refused', proUserSetLocale($withCol, 3, '', false) === false);
 same('setLocale: nothing was stored for the refused ones', null, i18nAccountLocale($withCol, 3));
 $withCol->exec("UPDATE pro_users SET locale = 'xx' WHERE id = 3");
@@ -2428,7 +2445,7 @@ $mailPdoNoColumn->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY)');
 $mailPdoNoColumn->exec('INSERT INTO pro_users (id) VALUES (1)');
 $mailCfg = ['enabled' => ['en', 'sv']];
 $realMailPages = i18nTranslatedPages();
-same('mail gate: the shipped list has @mail at English and Swedish', ['en', 'sv'], $realMailPages['@mail'] ?? null);
+same('mail gate: the shipped list has @mail at English, Swedish and German', ['en', 'sv', 'de'], $realMailPages['@mail'] ?? null);
 // The gate is closed explicitly here, so this holds whatever the shipped list says.
 i18nTranslatedPages(array_merge($realMailPages, ['@mail' => ['en']]));
 same('mailLocaleFor: @mail at en is always English (account sv)', 'en', mailLocaleFor($mailPdo, 1, $mailCfg, 'sv'));
@@ -2438,7 +2455,7 @@ same('mailLocaleFor: the account beats the request (account en, request sv)', 'e
 same('mailLocaleFor: no stored language falls to the request', 'sv', mailLocaleFor($mailPdo, 2, $mailCfg, 'sv'));
 same('mailLocaleFor: no stored language and no request is English', 'en', mailLocaleFor($mailPdo, 2, $mailCfg, null));
 same('mailLocaleFor: an unsupported stored language is ignored', 'en', mailLocaleFor($mailPdo, 4, $mailCfg, null));
-same('mailLocaleFor: a request language that is not a candidate is ignored', 'en', mailLocaleFor($mailPdo, 2, $mailCfg, 'de'));
+same('mailLocaleFor: a request language that is not a candidate is ignored', 'en', mailLocaleFor($mailPdo, 2, $mailCfg, 'fr'));
 same('mailLocaleFor: a missing user is English', 'en', mailLocaleFor($mailPdo, 99, $mailCfg, null));
 same('mailLocaleFor: no user id uses the request', 'sv', mailLocaleFor($mailPdo, null, $mailCfg, 'sv'));
 same('mailLocaleFor: no PDO uses the request', 'sv', mailLocaleFor(null, 1, $mailCfg, 'sv'));
@@ -3634,7 +3651,7 @@ foreach (['signed_out' => false, 'signed_in' => true] as $wname => $win) {
     check("sv welcome ({$wname}): still noindex, with no analytics and no consent notice", strpos($wSv['html'], 'noindex, nofollow') !== false && !preg_match('/gtag|googletagmanager|ms-i18n-consent|consent\.js/', $wSv['html']));
     check("sv welcome ({$wname}): canonical and alternates name the Swedish page", strpos($wSv['html'], '<link rel="canonical" href="https://example.test/sv/welcome.php">') !== false && strpos($wSv['html'], 'hreflang="x-default" href="https://example.test/welcome.php"') !== false);
 }
-same('pages: welcome.php is offered in Swedish', ['en', 'sv'], $realPages['/welcome.php'] ?? null);
+same('pages: welcome.php is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/welcome.php'] ?? null);
 same('resolve: /sv/welcome.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $both));
 same('resolve: ...and redirects while only English is on', '/welcome.php', i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $onlyEn));
 i18nSetLocale('en');
@@ -4392,6 +4409,55 @@ foreach (array_filter(array_keys($cmSvCat), fn($k) => strncmp($k, 'mail.', 5) ==
 }
 ms_cm_remove($cm);
 
+// --- German (de) render: every page offered in German renders in German ------
+// MS_I18N_DUMP=<dir> also writes each German page there, for reading by hand.
+$deAll = ['en', 'sv', 'de'];
+$deDump = (string) getenv('MS_I18N_DUMP');
+$dePages = [
+    'pricing'         => fn($l) => pricingRender($root, $l, $deAll, false, true, null, true),
+    'faq'             => fn($l) => faqRender($root, $l, $deAll, true, 60),
+    'temporary-email' => fn($l) => teRender($root, $l, $deAll, 60),
+    'blog'            => fn($l) => blogRender($root, $l, $deAll),
+    'blog-post'       => fn($l) => blogRender($root, $l, $deAll, 'post=2026-10-05'),
+    'terms'           => fn($l) => legalRender($root, 'terms.php', $l, $deAll, true, 60),
+    'privacy'         => fn($l) => legalRender($root, 'privacy.php', $l, $deAll, true, 60),
+    'refund-policy'   => fn($l) => legalRender($root, 'refund-policy.php', $l, $deAll, true, 60),
+];
+foreach ($dePages as $name => $render) {
+    $deR = $render('de');
+    $enR = $render('en');
+    $deRaw = (string) ($deR['raw'] ?? '');
+    $deText = (string) preg_replace('#<script\b.*?</script>#s', '', $deRaw);
+    check("de render {$name}: the page rendered", $deRaw !== '', (string) ($deR['err'] ?? ''));
+    check("de render {$name}: <html lang=\"de\">", strpos($deRaw, '<html lang="de">') !== false);
+    check("de render {$name}: no raw key", !preg_match('/(?<![\/\w.-])(?:nav|footer|landing|pricing|faq|legal|blog|auth|consent|date)\.[a-z_]+\.[a-z_.0-9]+\b/', $deText));
+    check("de render {$name}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $deText));
+    check("de render {$name}: differs from English", $deRaw !== (string) ($enR['raw'] ?? ''));
+    if ($deDump !== '' && is_dir($deDump)) {
+        file_put_contents($deDump . '/' . $name . '.de.html', $deRaw);
+    }
+}
+foreach (landingVariants() as $section => $variants) {
+    foreach ($variants as $vName => $v) {
+        $deOut = renderLanding($section, $v, 'de', $deAll);
+        $label = "de landing {$section}" . ($vName === '' ? '' : " ({$vName})");
+        check("{$label}: no raw key", !preg_match('/\blanding\.[a-z_.]+\b/', $deOut));
+        check("{$label}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $deOut));
+        check("{$label}: no hard-coded manjo.me", stripos($deOut, 'manjo.me') === false);
+        if ($deDump !== '' && is_dir($deDump)) {
+            file_put_contents($deDump . '/landing.de.html', $deOut, FILE_APPEND);
+        }
+    }
+}
+i18nSetLocale('en');
+
+// Owner's decision: every dispute is settled by a Swedish court, and the terms
+// name no other country's courts in any language.
+foreach (glob($root . '/partials/content/legal/terms.*.php') as $termsFile) {
+    $termsRaw = (string) file_get_contents($termsFile);
+    check('terms: disputes go to Stockholms tingsrätt in ' . basename($termsFile), strpos($termsRaw, 'tingsrätt') !== false || strpos($termsRaw, 'Stockholm District Court') !== false);
+    check('terms: no claim where the consumer lives in ' . basename($termsFile), !preg_match('/claim where you live|väcka talan där du bor|an deinem Wohnort zu klagen/i', $termsRaw));
+}
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

@@ -43,6 +43,7 @@ if (!function_exists('i18nSupportedLocales')) {
         return [
             'en' => 'English',
             'sv' => 'Svenska',
+            'de' => 'Deutsch',
         ];
     }
 
@@ -96,19 +97,19 @@ if (!function_exists('i18nSupportedLocales')) {
             $pages = $override;
         }
         return $pages ?? [
-            '@app'                 => ['en', 'sv'],
-            '@mail'                => ['en', 'sv'],
-            '/'                    => ['en', 'sv'],
-            '/temporary-email.php' => ['en', 'sv'],
-            '/pricing.php'         => ['en', 'sv'],
-            '/faq.php'             => ['en', 'sv'],
-            '/blog.php'            => ['en', 'sv'],
-            '/register.php'        => ['en', 'sv'],
-            '/pro_login.php'       => ['en', 'sv'],
-            '/privacy.php'         => ['en', 'sv'],
-            '/refund-policy.php'   => ['en', 'sv'],
-            '/terms.php'           => ['en', 'sv'],
-            '/welcome.php'         => ['en', 'sv'],
+            '@app'                 => ['en', 'sv', 'de'],
+            '@mail'                => ['en', 'sv', 'de'],
+            '/'                    => ['en', 'sv', 'de'],
+            '/temporary-email.php' => ['en', 'sv', 'de'],
+            '/pricing.php'         => ['en', 'sv', 'de'],
+            '/faq.php'             => ['en', 'sv', 'de'],
+            '/blog.php'            => ['en', 'sv', 'de'],
+            '/register.php'        => ['en', 'sv', 'de'],
+            '/pro_login.php'       => ['en', 'sv', 'de'],
+            '/privacy.php'         => ['en', 'sv', 'de'],
+            '/refund-policy.php'   => ['en', 'sv', 'de'],
+            '/terms.php'           => ['en', 'sv', 'de'],
+            '/welcome.php'         => ['en', 'sv', 'de'],
         ];
     }
 
@@ -605,12 +606,12 @@ if (!function_exists('i18nSupportedLocales')) {
     /**
      * A number in this request's language: a no-break space (U+00A0) between
      * thousands in every language, "." as the decimal separator in English and
-     * "," in Swedish.
+     * "," in Swedish and German.
      */
     function i18nNumber(int|float $n, int $decimals = 0, ?string $locale = null): string
     {
         $locale = $locale ?? i18nLocale();
-        $decimalSeparator = ($locale === 'sv') ? ',' : '.';
+        $decimalSeparator = in_array($locale, ['sv', 'de'], true) ? ',' : '.';
         return number_format($n, max(0, $decimals), $decimalSeparator, "\u{00A0}");
     }
 

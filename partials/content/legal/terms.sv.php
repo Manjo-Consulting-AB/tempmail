@@ -50,7 +50,7 @@ return [
     'lede'        => 'Dessa villkor är avtalet mellan dig och oss när du använder Mail Shield. De är skrivna för att läsas, så de är korta där de kan vara det.',
     'description' => 'Villkoren som gäller när du använder Mail Shield, inklusive Pro-planer som säljs via Paddle som Merchant of Record.',
     'path'        => '/terms.php',
-    'updated'     => '2026-10-10',
+    'updated'     => '2026-10-15',
     'sections'    => [
         [
             'id'      => 'who',
@@ -173,7 +173,7 @@ return [
         [
             'id'      => 'law',
             'heading' => 'Tillämplig lag och tvister',
-            'html'    => '<p>Dessa villkor regleras av svensk rätt. Tvister avgörs av svenska domstolar, med Stockholms tingsrätt som första instans, om inte tvingande konsumentlagstiftning ger dig rätt att väcka talan där du bor.</p>'
+            'html'    => '<p>Dessa villkor regleras av svensk rätt. Tvister avgörs av svenska domstolar, med Stockholms tingsrätt som första instans.</p>'
                 . '<p>Om du är konsument i EU kan du också vända dig till Allmänna reklamationsnämnden (<a href="https://www.arn.se" rel="noopener">arn.se</a>). Kontakta oss gärna först på ' . $f['contact'] . ' – de flesta saker går snabbare att reda ut direkt.</p>',
         ],
     ],
