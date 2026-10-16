@@ -188,6 +188,11 @@ check('head sv: og:locale', strpos($html, '<meta property="og:locale" content="s
 check('footer sv: switcher labelled in Swedish', strpos($html, 'aria-label="Språk"') !== false);
 check('footer sv: link to English', strpos($html, 'href="/terms.php"') !== false);
 check('footer sv: current language marked', (bool) preg_match('#href="/sv/terms\.php"\s+hreflang="sv"\s+lang="sv" aria-current="true"#', $html));
+check('footer sv: the switcher is a <details> menu', (bool) preg_match('#<nav class="ms-footer__langs"[^>]*>\s*<details class="ms-langmenu" data-ms-langmenu>\s*<summary class="ms-langmenu__toggle">#', $html));
+check('footer sv: the toggle names the current language in that language', (bool) preg_match('#<summary class="ms-langmenu__toggle">.*?<span lang="sv">Svenska</span>.*?</summary>#s', $html));
+check('footer sv: every language is a link in the menu list', preg_match_all('#<li><a href="[^"]+"\s+hreflang="[a-z]+"#', (string) (preg_match('#<ul class="ms-langmenu__list">(.*?)</ul>#s', $html, $mList) ? $mList[1] : '')) === count($both));
+check('footer sv: the menu script is local and loaded inside the switcher', (bool) preg_match('#<script src="/assets/js/langmenu\.js\?v=\d+" defer></script>\s*</nav>#', $html));
+check('footer sv: langmenu.js exists', is_file($root . '/assets/js/langmenu.js'));
 
 $html = renderShell('en', $onlyEn);
 check('head en-only: <html lang="en">', strpos($html, '<html lang="en">') !== false);

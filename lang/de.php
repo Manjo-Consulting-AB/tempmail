@@ -14,9 +14,9 @@ return [
     'nav.features'      => 'Funktionen',
     'nav.how_it_works'  => 'So funktioniert’s',
     'nav.pricing'       => 'Preise',
-    'nav.faq'           => 'Häufige Fragen',
+    'nav.faq'           => 'FAQ',
     'nav.login'         => 'Anmelden',
-    'nav.create_inbox'  => 'Deinen Posteingang erstellen',
+    'nav.create_inbox'  => 'Posteingang erstellen',
     'nav.go_to_inbox'   => 'Zu deinem Posteingang',
 
     'footer.trust'           => 'Mail Shield wird von {company} betrieben.',

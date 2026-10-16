@@ -66,12 +66,23 @@ if (function_exists('i18nPageLocales')) {
                     <li><button type="button" class="ms-footer__cookie" data-ms-cookie-settings><?php echo te('footer.cookie_settings'); ?></button></li>
                 </ul>
 <?php if (count($msFooterLocales) > 1) : ?>
+                <?php $msFooterCurrent = i18nLocale(); ?>
                 <nav class="ms-footer__langs" aria-label="<?php echo te('lang.switcher.label'); ?>">
-                    <?php foreach ($msFooterLocales as $msFooterCode) : ?>
-                        <a href="<?php echo $msFooterEsc(i18nUrl($msFooterPath, $msFooterCode, $msFooterEnabled)); ?>"
-                           hreflang="<?php echo $msFooterEsc($msFooterCode); ?>"
-                           lang="<?php echo $msFooterEsc($msFooterCode); ?>"<?php echo $msFooterCode === i18nLocale() ? ' aria-current="true"' : ''; ?>><?php echo $msFooterEsc(i18nSupportedLocales()[$msFooterCode] ?? $msFooterCode); ?></a>
-                    <?php endforeach; ?>
+                    <details class="ms-langmenu" data-ms-langmenu>
+                        <summary class="ms-langmenu__toggle">
+                            <svg class="ms-langmenu__icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.75"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/></svg>
+                            <span lang="<?php echo $msFooterEsc($msFooterCurrent); ?>"><?php echo $msFooterEsc(i18nSupportedLocales()[$msFooterCurrent] ?? $msFooterCurrent); ?></span>
+                            <svg class="ms-langmenu__chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </summary>
+                        <ul class="ms-langmenu__list">
+                            <?php foreach ($msFooterLocales as $msFooterCode) : ?>
+                            <li><a href="<?php echo $msFooterEsc(i18nUrl($msFooterPath, $msFooterCode, $msFooterEnabled)); ?>"
+                                   hreflang="<?php echo $msFooterEsc($msFooterCode); ?>"
+                                   lang="<?php echo $msFooterEsc($msFooterCode); ?>"<?php echo $msFooterCode === $msFooterCurrent ? ' aria-current="true"' : ''; ?>><?php echo $msFooterEsc(i18nSupportedLocales()[$msFooterCode] ?? $msFooterCode); ?></a></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </details>
+                    <script src="/assets/js/langmenu.js?v=<?php echo $msFooterEsc((string) @filemtime(__DIR__ . '/../assets/js/langmenu.js')); ?>" defer></script>
                 </nav>
 <?php endif; ?>
                 <p class="ms-footer__legal">&copy; <?php echo $msFooterEsc($msFooterYear); ?> Manjo Consulting AB &middot; Mail Shield v<?php echo $msFooterEsc($msFooterVersion); ?></p>
