@@ -463,7 +463,7 @@ return [
     'service.mailbox.message_not_found'        => 'Meddelandet hittades inte',
     'service.mailbox.message_expired'          => 'Meddelandet har förfallit',
 
-    'app.error.invalid_request'                => 'Ogiltig förfrågan',
+    'app.error.invalid_request'                => 'Ogiltig begäran',
     'app.error.forbidden'                      => 'Förbjudet',
     'app.error.invalid_address'                => 'Ogiltig adress',
     'app.error.address_not_found'              => 'Adressen hittades inte',
@@ -652,7 +652,7 @@ return [
     'profile.error.pro_required' => 'Pro krävs',
     'profile.error.unknown_action' => 'Okänd åtgärd',
     'profile.error.invalid_origin' => 'Ogiltigt ursprung för förfrågan',
-    'profile.error.invalid_request' => 'Ogiltig förfrågan',
+    'profile.error.invalid_request' => 'Ogiltig begäran',
     'profile.error.user_not_found' => 'Användaren hittades inte',
     'profile.error.invalid_email' => 'Ogiltig e-postadress',
     'profile.error.own_domain' => 'Adresser på {domain} får inte användas för konton',
