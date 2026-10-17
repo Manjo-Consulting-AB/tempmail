@@ -289,7 +289,9 @@ check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], 
 $svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.security.', 'profile.apps.', 'profile.twofa.', 'profile.password.', 'profile.agent.', 'profile.delete.', 'contact.', 'welcome.', 'oauth.', 'mail.'];
 $sv = i18nCatalog('sv');
 // Every language besides English is offered on the same pages, so each catalog
-// must hold the same keys, and each must have its own long-text files.
+// must hold the same keys, and each must have its own long-text files. The
+// legal pages are the exception: a language has its own legal files only when
+// i18nTranslatedPages() offers the page in it (French does not, see below).
 $extraLocales = array_values(array_diff(array_keys(i18nSupportedLocales()), ['en']));
 foreach ($extraLocales as $loc) {
     $locCat = i18nCatalog($loc);
@@ -299,12 +301,40 @@ foreach ($extraLocales as $loc) {
         check("{$loc} complete: every {$prefix} key is translated", $need !== [] && $lack === [], implode(', ', $lack));
     }
     same("number: decimals, {$loc}", "1\u{00A0}234,5", i18nNumber(1234.5, 1, $loc));
-    foreach (['partials/content/faq', 'partials/content/temporary-email', 'partials/content/legal/terms', 'partials/content/legal/privacy', 'partials/content/legal/refund-policy'] as $locDoc) {
+    foreach (['partials/content/faq', 'partials/content/temporary-email'] as $locDoc) {
         check("{$loc} content: {$locDoc}.{$loc}.php exists", is_file($root . '/' . $locDoc . '.' . $loc . '.php'));
+    }
+    foreach (['terms', 'privacy', 'refund-policy'] as $legalDoc) {
+        $legalFile = $root . '/partials/content/legal/' . $legalDoc . '.' . $loc . '.php';
+        if (in_array($loc, $realPages['/' . $legalDoc . '.php'] ?? [], true)) {
+            check("{$loc} content: legal/{$legalDoc}.{$loc}.php exists", is_file($legalFile));
+        } else {
+            check("{$loc} content: no legal/{$legalDoc}.{$loc}.php while the page is not offered in {$loc}", !is_file($legalFile));
+        }
     }
     check("{$loc} content: every blog post has a translation", count(glob($root . '/blog/*.md')) === count(glob($root . '/blog/' . $loc . '/*.md')));
 }
 same('date: Spanish joins the parts with "de"', '5 de marzo de 2026', i18nDate((int) strtotime('2026-03-05 12:00:00'), 'es'));
+same('date: French writes the first of the month as "1er"', '1er mars 2026', i18nDate((int) strtotime('2026-03-01 12:00:00'), 'fr'));
+same('date: ...and any other day as a plain number', '5 mars 2026', i18nDate((int) strtotime('2026-03-05 12:00:00'), 'fr'));
+same('date: "1er" is French only', '1 March 2026', i18nDate((int) strtotime('2026-03-01 12:00:00'), 'en'));
+// French treats 0 as singular: "0 jour", "1 jour", "2 jours".
+same('plural: French 0 takes the singular form', '0 jour', tp('app.pro.ttl_days', 0, [], 'fr'));
+same('plural: French 1 takes the singular form', '1 jour', tp('app.pro.ttl_days', 1, [], 'fr'));
+same('plural: French 2 takes the plural form', '2 jours', tp('app.pro.ttl_days', 2, [], 'fr'));
+same('plural: English 0 still takes the plural form', '0 days', tp('app.pro.ttl_days', 0, [], 'en'));
+
+// French: the legal pages stay in English (English is the version that applies).
+$frAll = array_keys(i18nSupportedLocales());
+foreach (['/terms.php', '/privacy.php', '/refund-policy.php'] as $frLegal) {
+    same("pages: {$frLegal} is not offered in French", false, in_array('fr', $realPages[$frLegal] ?? [], true));
+    same("resolve: /fr{$frLegal} redirects to the English page", $frLegal, i18nResolveRequest(['REQUEST_URI' => '/fr' . $frLegal], $frAll));
+    same("url: {$frLegal} from a French page links the English page", $frLegal, i18nUrl($frLegal, 'fr', $frAll));
+}
+same('resolve: /fr/faq.php is served', null, i18nResolveRequest(['REQUEST_URI' => '/fr/faq.php'], $frAll));
+i18nSetLocale('fr');
+same('url: /terms.php with French as the current language', '/terms.php', i18nUrl('/terms.php'));
+i18nSetLocale('en');
 
 // --- Nav and footer: English fixtures, Swedish render -------------------------
 function renderPartial(string $file, bool $signedIn, string $locale, array $enabled): string
@@ -501,7 +531,7 @@ foreach (landingVariants() as $section => $variants) {
 i18nSetLocale('en');
 
 // --- Landing page in Swedish ----------------------------------------------------
-same('pages: the landing page is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/'] ?? null);
+same('pages: the landing page is offered in Swedish, German, Spanish and French', ['en', 'sv', 'de', 'es', 'fr'], $realPages['/'] ?? null);
 same('resolve: /sv/ is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/'], $both));
 same('resolve: ...and sets Swedish', 'sv', i18nLocale());
 same('resolve: /sv/ redirects to / while only English is on', '/', i18nResolveRequest(['REQUEST_URI' => '/sv/'], $onlyEn));
@@ -701,7 +731,7 @@ foreach ($pricingVariants as $name => [$in, $co, $prod]) {
     same("fixture: pricing.config.{$name}.en.json", (string) file_get_contents($fx . "pricing.config.{$name}.en.json"), json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 }
 
-same('pages: pricing is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/pricing.php'] ?? null);
+same('pages: pricing is offered in Swedish, German, Spanish and French', ['en', 'sv', 'de', 'es', 'fr'], $realPages['/pricing.php'] ?? null);
 same('resolve: /sv/pricing.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/pricing.php'], $both));
 same('resolve: ...and redirects while only English is on', '/pricing.php', i18nResolveRequest(['REQUEST_URI' => '/sv/pricing.php'], $onlyEn));
 i18nSetLocale('en');
@@ -869,7 +899,7 @@ foreach ($faqVariants as $name => [$signIn, $trial]) {
     same("fixture: faq.{$name}.en.html", faqNorm((string) file_get_contents($fx . "faq.{$name}.en.html")), faqNorm($r['raw']));
 }
 
-same('pages: the FAQ is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/faq.php'] ?? null);
+same('pages: the FAQ is offered in Swedish, German, Spanish and French', ['en', 'sv', 'de', 'es', 'fr'], $realPages['/faq.php'] ?? null);
 i18nTranslatedPages($realPages);
 
 // The two data files: same groups, same number of questions per group, same
@@ -1060,7 +1090,7 @@ foreach ($teVariants as $name => [$trial, $signedIn]) {
     same("fixture: temporary-email.{$name}.en.html", teNorm((string) file_get_contents($fx . "temporary-email.{$name}.en.html")), teNorm($r['raw']));
 }
 
-same('pages: temporary-email.php is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/temporary-email.php'] ?? null);
+same('pages: temporary-email.php is offered in Swedish, German, Spanish and French', ['en', 'sv', 'de', 'es', 'fr'], $realPages['/temporary-email.php'] ?? null);
 i18nTranslatedPages($realPages);
 
 // The two data files: the same section ids in the same order, the same variables
@@ -1214,7 +1244,7 @@ function blogRender(string $root, string $locale, array $enabled, string $query 
             }
         }
         // Only the posts: the images are referenced, never read.
-        foreach (['blog', 'blog/sv', 'blog/de', 'blog/es'] as $d) {
+        foreach (array_merge(['blog'], array_map(fn($p) => substr($p, strlen($root) + 1), glob($root . '/blog/*', GLOB_ONLYDIR) ?: [])) as $d) {
             if (!is_dir($root . '/' . $d)) {
                 continue;
             }
@@ -1364,7 +1394,7 @@ foreach ($blogFixtures as $name => [$file, $query, $status]) {
     check("blog en {$name}: no hreflang and no og:locale while English is alone", strpos($r['raw'], 'hreflang') === false && strpos($r['raw'], 'og:locale') === false);
 }
 
-same('pages: the blog is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/blog.php'] ?? null);
+same('pages: the blog is offered in Swedish, German, Spanish and French', ['en', 'sv', 'de', 'es', 'fr'], $realPages['/blog.php'] ?? null);
 
 // Every English post has a Swedish twin (same basename) and the other way round.
 $blogEn = array_map(fn($f) => basename($f, '.md'), glob($root . '/blog/*.md') ?: []);
@@ -1595,9 +1625,9 @@ foreach (['terms', 'privacy', 'refund-policy'] as $legalPage) {
     }
 }
 
-same('pages: the refund policy is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/refund-policy.php'] ?? null);
-same('pages: the terms are offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/terms.php'] ?? null);
-same('pages: the privacy policy is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/privacy.php'] ?? null);
+same('pages: the refund policy is offered in Swedish, German and Spanish (not French)', ['en', 'sv', 'de', 'es'], $realPages['/refund-policy.php'] ?? null);
+same('pages: the terms are offered in Swedish, German and Spanish (not French)', ['en', 'sv', 'de', 'es'], $realPages['/terms.php'] ?? null);
+same('pages: the privacy policy is offered in Swedish, German and Spanish (not French)', ['en', 'sv', 'de', 'es'], $realPages['/privacy.php'] ?? null);
 
 // The two content files: the same section ids in the same order, the same
 // 'updated', the same interpolated variables, and no number typed into the prose.
@@ -1764,7 +1794,7 @@ foreach ((require $root . '/lang/sv.php') as $svTermKey => $svTermValue) {
 // =============================================================================
 
 // --- '@app' gate ---------------------------------------------------------------
-same("pages: '@app' offers Swedish now that every app page is translated (step 7/8), German and Spanish", ['en', 'sv', 'de', 'es'], $realPages['@app'] ?? null);
+same("pages: '@app' offers Swedish now that every app page is translated (step 7/8), German, Spanish and French", ['en', 'sv', 'de', 'es', 'fr'], $realPages['@app'] ?? null);
 same("pages: '@app' is a pseudo-entry, i18nPageLocales() reads it as given", ['en', 'sv'], i18nPageLocales('@app', $both));
 same("pages: '@app' still yields to LOCALES_ENABLED=en", ['en'], i18nPageLocales('@app', $onlyEn));
 i18nTranslatedPages(['@app' => ['en', 'sv']]);
@@ -2445,7 +2475,7 @@ $mailPdoNoColumn->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY)');
 $mailPdoNoColumn->exec('INSERT INTO pro_users (id) VALUES (1)');
 $mailCfg = ['enabled' => ['en', 'sv']];
 $realMailPages = i18nTranslatedPages();
-same('mail gate: the shipped list has @mail at English, Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realMailPages['@mail'] ?? null);
+same('mail gate: the shipped list has @mail at English, Swedish, German, Spanish and French', ['en', 'sv', 'de', 'es', 'fr'], $realMailPages['@mail'] ?? null);
 // The gate is closed explicitly here, so this holds whatever the shipped list says.
 i18nTranslatedPages(array_merge($realMailPages, ['@mail' => ['en']]));
 same('mailLocaleFor: @mail at en is always English (account sv)', 'en', mailLocaleFor($mailPdo, 1, $mailCfg, 'sv'));
@@ -3651,7 +3681,7 @@ foreach (['signed_out' => false, 'signed_in' => true] as $wname => $win) {
     check("sv welcome ({$wname}): still noindex, with no analytics and no consent notice", strpos($wSv['html'], 'noindex, nofollow') !== false && !preg_match('/gtag|googletagmanager|ms-i18n-consent|consent\.js/', $wSv['html']));
     check("sv welcome ({$wname}): canonical and alternates name the Swedish page", strpos($wSv['html'], '<link rel="canonical" href="https://example.test/sv/welcome.php">') !== false && strpos($wSv['html'], 'hreflang="x-default" href="https://example.test/welcome.php"') !== false);
 }
-same('pages: welcome.php is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/welcome.php'] ?? null);
+same('pages: welcome.php is offered in Swedish, German, Spanish and French', ['en', 'sv', 'de', 'es', 'fr'], $realPages['/welcome.php'] ?? null);
 same('resolve: /sv/welcome.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $both));
 same('resolve: ...and redirects while only English is on', '/welcome.php', i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $onlyEn));
 i18nSetLocale('en');
@@ -4426,6 +4456,10 @@ $xPages = [
 foreach ($xPages as $name => $render) {
     $enR = $render('en');
     foreach ($extraLocales as $loc) {
+        // A legal page is rendered only in the languages it is offered in.
+        if (in_array($name, ['terms', 'privacy', 'refund-policy'], true) && !in_array($loc, $realPages['/' . $name . '.php'] ?? [], true)) {
+            continue;
+        }
         $xR = $render($loc);
         $xRaw = (string) ($xR['raw'] ?? '');
         $xText = (string) preg_replace('#<script\b.*?</script>#s', '', $xRaw);
@@ -4439,6 +4473,13 @@ foreach ($xPages as $name => $render) {
         }
     }
 }
+// The English terms page, with every language on, names no French alternate.
+$frTermsEn = (string) (legalRender($root, 'terms.php', 'en', $xAll, true, 60)['raw'] ?? '');
+check('fr: the English terms page rendered with every language on', $frTermsEn !== '' && strpos($frTermsEn, 'hreflang="es"') !== false);
+check('fr: the English terms page has no hreflang="fr"', strpos($frTermsEn, 'hreflang="fr"') === false);
+// Requested at /fr/terms.php the page is never rendered in French.
+$frTermsFr = legalRender($root, 'terms.php', 'fr', $xAll, true, 60);
+check('fr: /fr/terms.php does not render a French page', strpos((string) $frTermsFr['raw'], '<html lang="fr">') === false);
 foreach ($extraLocales as $loc) {
     foreach (landingVariants() as $section => $variants) {
         foreach ($variants as $vName => $v) {
