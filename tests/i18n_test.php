@@ -325,6 +325,7 @@ same('plural: French 2 takes the plural form', '2 jours', tp('app.pro.ttl_days',
 same('plural: English 0 still takes the plural form', '0 days', tp('app.pro.ttl_days', 0, [], 'en'));
 
 // French: the legal pages stay in English (English is the version that applies).
+i18nTranslatedPages($realPages);
 $frAll = array_keys(i18nSupportedLocales());
 foreach (['/terms.php', '/privacy.php', '/refund-policy.php'] as $frLegal) {
     same("pages: {$frLegal} is not offered in French", false, in_array('fr', $realPages[$frLegal] ?? [], true));
@@ -1875,7 +1876,7 @@ proUserSetLocale($withCol, 1, 'sv', true);
 same('setLocale: onlyIfEmpty leaves a chosen language alone', 'en', i18nAccountLocale($withCol, 1));
 check('setLocale: onlyIfEmpty sets a NULL one', proUserSetLocale($withCol, 2, 'sv', true));
 same('setLocale: onlyIfEmpty stored sv', 'sv', i18nAccountLocale($withCol, 2));
-check('setLocale: an unsupported language is refused', proUserSetLocale($withCol, 3, 'fr', false) === false);
+check('setLocale: an unsupported language is refused', proUserSetLocale($withCol, 3, 'it', false) === false);
 check('setLocale: an empty language is refused', proUserSetLocale($withCol, 3, '', false) === false);
 same('setLocale: nothing was stored for the refused ones', null, i18nAccountLocale($withCol, 3));
 $withCol->exec("UPDATE pro_users SET locale = 'xx' WHERE id = 3");

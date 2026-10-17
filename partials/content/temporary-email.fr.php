@@ -1,6 +1,6 @@
 <?php
 /**
- * La page « email temporaire » en français (France) : tout l’article sous forme de
+ * La page « email temporaire » en français (France) : tout l’article sous forme de
  * données. Chargé par temporary-email.php pour la page en français. Reprend la structure
  * de temporary-email.en.php : les mêmes ids de section dans le même ordre, les mêmes
  * branches conditionnelles (période d’essai activée/désactivée) et les mêmes variables ;
@@ -34,7 +34,7 @@ if (!defined('TEMPMAIL_APP')) {
 return [
     'title'       => 'Email temporaire — adresse email jetable gratuite · Mail Shield',
     'description' => 'Une adresse email temporaire pour les inscriptions, les téléchargements et les services dont tu n’as besoin que pour un temps. Lis les e-mails dans ta boîte de réception Mail Shield, puis laisse le nettoyage se faire automatiquement.',
-    'headline'    => 'Email temporaire : adresse jetable',
+    'headline'    => 'Email temporaire : adresse jetable',
     'lede'        => 'Certaines inscriptions ne méritent pas ta vraie adresse. Une adresse email temporaire t’en donne une jetable à la place — lis-la dans une vraie boîte de réception web, puis laisse Mail Shield la nettoyer pour toi.',
     'toc_label'   => 'Sur cette page',
     'toc_eyebrow' => 'Sur cette page',
