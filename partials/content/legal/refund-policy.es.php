@@ -73,7 +73,7 @@ return [
         [
             'id'      => 'cancel',
             'heading' => 'Cancelar sin reembolso',
-            'html'    => '<p>Puedes cancelar una suscripción en cualquier momento con <strong>Manage billing</strong> en tu perfil. Cancelar detiene las renovaciones futuras; conservas Pro hasta el final del periodo que has pagado. Si todavía estás dentro de los ' . $guaranteeDays . ' días siguientes al último pago y además quieres recuperar tu dinero, pide un reembolso como se describe más arriba.</p>',
+            'html'    => '<p>Puedes cancelar una suscripción en cualquier momento con <strong>Gestionar facturación</strong> en tu perfil. Cancelar detiene las renovaciones futuras; conservas Pro hasta el final del periodo que has pagado. Si todavía estás dentro de los ' . $guaranteeDays . ' días siguientes al último pago y además quieres recuperar tu dinero, pide un reembolso como se describe más arriba.</p>',
         ],
         [
             'id'      => 'after-30',

@@ -119,7 +119,7 @@ return [
             'html'    => '<p>Nuestro proceso de pedidos lo gestiona nuestro revendedor en línea Paddle.com. Paddle.com actúa como Merchant of Record (comerciante registrado) de todos nuestros pedidos. Paddle atiende todas las consultas de atención al cliente y gestiona las devoluciones.</p>'
                 . '<p>Eso significa que la compra en sí es un contrato entre tú y Paddle, conforme a <a href="https://www.paddle.com/legal/checkout-buyer-terms" rel="noopener">los términos de compra de Paddle</a>. Paddle cobra el pago, cobra y abona el impuesto sobre las ventas o el IVA que se aplique donde estés, y te envía el recibo. Los precios se muestran en tu moneda local, con ese impuesto incluido.</p>'
                 . '<h3>Suscripciones</h3>'
-                . '<p>Una suscripción mensual o anual se renueva automáticamente al final de cada periodo, al precio vigente en ese momento, hasta que la canceles. Puedes cancelarla en cualquier momento con <strong>Manage billing</strong> en tu perfil o a través de Paddle. Tras cancelar conservas Pro hasta el final del periodo que has pagado; después no se hace ningún cargo.</p>'
+                . '<p>Una suscripción mensual o anual se renueva automáticamente al final de cada periodo, al precio vigente en ese momento, hasta que la canceles. Puedes cancelarla en cualquier momento con <strong>Gestionar facturación</strong> en tu perfil o a través de Paddle. Tras cancelar conservas Pro hasta el final del periodo que has pagado; después no se hace ningún cargo.</p>'
                 . '<p>Si cambiamos el precio de una suscripción, te lo comunicamos por correo antes de que el cambio se aplique a tu próxima renovación, para que puedas cancelar antes.</p>'
                 . '<h3>Reembolsos</h3>'
                 . '<p>Puedes recuperar tu dinero dentro de los ' . $guaranteeDays . ' días siguientes a un pago. Los detalles están en nuestra <a href="' . $msU('/refund-policy.php') . '">política de reembolso</a>.</p>',
@@ -142,7 +142,7 @@ return [
         [
             'id'      => 'termination',
             'heading' => 'Fin del servicio',
-            'html'    => '<p>Puedes dejar de usar Mail Shield y eliminar tu cuenta en cualquier momento. Cancelar una suscripción es un paso aparte, que se hace con Manage billing; eliminar la cuenta no la cancela por sí solo.</p>'
+            'html'    => '<p>Puedes dejar de usar Mail Shield y eliminar tu cuenta en cualquier momento. Cancelar una suscripción es un paso aparte, que se hace con Gestionar facturación; eliminar la cuenta no la cancela por sí solo.</p>'
                 . '<p>Podemos terminar o restringir tu uso de Mail Shield de tres maneras distintas:</p>'
                 . '<ul>'
                 . '<li><strong>Suspensión inmediata.</strong> Cuando detectamos un abuso, o un riesgo para la seguridad de Mail Shield o de sus usuarios, podemos suspender una cuenta de inmediato y sin previo aviso mientras lo investigamos.</li>'
