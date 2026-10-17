@@ -45,6 +45,7 @@ if (!function_exists('i18nSupportedLocales')) {
             'sv' => 'Svenska',
             'de' => 'Deutsch',
             'es' => 'Español',
+            'fr' => 'Français',
         ];
     }
 
@@ -97,20 +98,23 @@ if (!function_exists('i18nSupportedLocales')) {
         if ($override !== null) {
             $pages = $override;
         }
+        // The legal pages are not translated into French: English is the
+        // version that applies, so /fr/terms.php redirects to /terms.php and
+        // i18nUrl() from a French page links the English one.
         return $pages ?? [
-            '@app'                 => ['en', 'sv', 'de', 'es'],
-            '@mail'                => ['en', 'sv', 'de', 'es'],
-            '/'                    => ['en', 'sv', 'de', 'es'],
-            '/temporary-email.php' => ['en', 'sv', 'de', 'es'],
-            '/pricing.php'         => ['en', 'sv', 'de', 'es'],
-            '/faq.php'             => ['en', 'sv', 'de', 'es'],
-            '/blog.php'            => ['en', 'sv', 'de', 'es'],
-            '/register.php'        => ['en', 'sv', 'de', 'es'],
-            '/pro_login.php'       => ['en', 'sv', 'de', 'es'],
+            '@app'                 => ['en', 'sv', 'de', 'es', 'fr'],
+            '@mail'                => ['en', 'sv', 'de', 'es', 'fr'],
+            '/'                    => ['en', 'sv', 'de', 'es', 'fr'],
+            '/temporary-email.php' => ['en', 'sv', 'de', 'es', 'fr'],
+            '/pricing.php'         => ['en', 'sv', 'de', 'es', 'fr'],
+            '/faq.php'             => ['en', 'sv', 'de', 'es', 'fr'],
+            '/blog.php'            => ['en', 'sv', 'de', 'es', 'fr'],
+            '/register.php'        => ['en', 'sv', 'de', 'es', 'fr'],
+            '/pro_login.php'       => ['en', 'sv', 'de', 'es', 'fr'],
             '/privacy.php'         => ['en', 'sv', 'de', 'es'],
             '/refund-policy.php'   => ['en', 'sv', 'de', 'es'],
             '/terms.php'           => ['en', 'sv', 'de', 'es'],
-            '/welcome.php'         => ['en', 'sv', 'de', 'es'],
+            '/welcome.php'         => ['en', 'sv', 'de', 'es', 'fr'],
         ];
     }
 
@@ -558,7 +562,9 @@ if (!function_exists('i18nSupportedLocales')) {
         $locale = $locale ?? i18nLocale();
         $value = i18nCatalog($locale)[$key] ?? i18nCatalog(i18nDefaultLocale())[$key] ?? $key;
         if (is_array($value)) {
-            $form = ($count === 1) ? 'one' : 'other';
+            // French treats 0 as singular too ("0 jour", "1 jour", "2 jours").
+            $isOne = ($count === 1) || ($locale === 'fr' && $count === 0);
+            $form = $isOne ? 'one' : 'other';
             $value = $value[$form] ?? $value['other'] ?? reset($value);
         }
         return i18nFormat((string) $value, $params + ['count' => $count]);
@@ -607,12 +613,12 @@ if (!function_exists('i18nSupportedLocales')) {
     /**
      * A number in this request's language: a no-break space (U+00A0) between
      * thousands in every language, "." as the decimal separator in English and
-     * "," in Swedish, German and Spanish.
+     * "," in Swedish, German, Spanish and French.
      */
     function i18nNumber(int|float $n, int $decimals = 0, ?string $locale = null): string
     {
         $locale = $locale ?? i18nLocale();
-        $decimalSeparator = in_array($locale, ['sv', 'de', 'es'], true) ? ',' : '.';
+        $decimalSeparator = in_array($locale, ['sv', 'de', 'es', 'fr'], true) ? ',' : '.';
         return number_format($n, max(0, $decimals), $decimalSeparator, "\u{00A0}");
     }
 
@@ -620,14 +626,19 @@ if (!function_exists('i18nSupportedLocales')) {
      * A date as "j F Y" in this request's language ("5 March 2026",
      * "5 mars 2026"), with the month names from the catalog keys
      * date.month.1 … date.month.12. English equals date('j F Y', $timestamp).
-     * Spanish joins the parts with "de" ("5 de marzo de 2026").
+     * Spanish joins the parts with "de" ("5 de marzo de 2026"); French
+     * writes the first of the month as "1er" ("1er mars 2026").
      */
     function i18nDate(int $timestamp, ?string $locale = null): string
     {
         $locale = $locale ?? i18nLocale();
         $monthKey = 'date.month.' . (int) date('n', $timestamp);
         $join = ($locale === 'es') ? ' de ' : ' ';
-        return date('j', $timestamp) . $join . t($monthKey, [], $locale) . $join . date('Y', $timestamp);
+        $day = date('j', $timestamp);
+        if ($locale === 'fr' && $day === '1') {
+            $day = '1er';
+        }
+        return $day . $join . t($monthKey, [], $locale) . $join . date('Y', $timestamp);
     }
 
     /**
