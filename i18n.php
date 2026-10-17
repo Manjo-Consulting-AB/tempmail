@@ -44,6 +44,7 @@ if (!function_exists('i18nSupportedLocales')) {
             'en' => 'English',
             'sv' => 'Svenska',
             'de' => 'Deutsch',
+            'es' => 'Español',
         ];
     }
 
@@ -97,19 +98,19 @@ if (!function_exists('i18nSupportedLocales')) {
             $pages = $override;
         }
         return $pages ?? [
-            '@app'                 => ['en', 'sv', 'de'],
-            '@mail'                => ['en', 'sv', 'de'],
-            '/'                    => ['en', 'sv', 'de'],
-            '/temporary-email.php' => ['en', 'sv', 'de'],
-            '/pricing.php'         => ['en', 'sv', 'de'],
-            '/faq.php'             => ['en', 'sv', 'de'],
-            '/blog.php'            => ['en', 'sv', 'de'],
-            '/register.php'        => ['en', 'sv', 'de'],
-            '/pro_login.php'       => ['en', 'sv', 'de'],
-            '/privacy.php'         => ['en', 'sv', 'de'],
-            '/refund-policy.php'   => ['en', 'sv', 'de'],
-            '/terms.php'           => ['en', 'sv', 'de'],
-            '/welcome.php'         => ['en', 'sv', 'de'],
+            '@app'                 => ['en', 'sv', 'de', 'es'],
+            '@mail'                => ['en', 'sv', 'de', 'es'],
+            '/'                    => ['en', 'sv', 'de', 'es'],
+            '/temporary-email.php' => ['en', 'sv', 'de', 'es'],
+            '/pricing.php'         => ['en', 'sv', 'de', 'es'],
+            '/faq.php'             => ['en', 'sv', 'de', 'es'],
+            '/blog.php'            => ['en', 'sv', 'de', 'es'],
+            '/register.php'        => ['en', 'sv', 'de', 'es'],
+            '/pro_login.php'       => ['en', 'sv', 'de', 'es'],
+            '/privacy.php'         => ['en', 'sv', 'de', 'es'],
+            '/refund-policy.php'   => ['en', 'sv', 'de', 'es'],
+            '/terms.php'           => ['en', 'sv', 'de', 'es'],
+            '/welcome.php'         => ['en', 'sv', 'de', 'es'],
         ];
     }
 
@@ -606,12 +607,12 @@ if (!function_exists('i18nSupportedLocales')) {
     /**
      * A number in this request's language: a no-break space (U+00A0) between
      * thousands in every language, "." as the decimal separator in English and
-     * "," in Swedish and German.
+     * "," in Swedish, German and Spanish.
      */
     function i18nNumber(int|float $n, int $decimals = 0, ?string $locale = null): string
     {
         $locale = $locale ?? i18nLocale();
-        $decimalSeparator = in_array($locale, ['sv', 'de'], true) ? ',' : '.';
+        $decimalSeparator = in_array($locale, ['sv', 'de', 'es'], true) ? ',' : '.';
         return number_format($n, max(0, $decimals), $decimalSeparator, "\u{00A0}");
     }
 
@@ -619,12 +620,14 @@ if (!function_exists('i18nSupportedLocales')) {
      * A date as "j F Y" in this request's language ("5 March 2026",
      * "5 mars 2026"), with the month names from the catalog keys
      * date.month.1 … date.month.12. English equals date('j F Y', $timestamp).
+     * Spanish joins the parts with "de" ("5 de marzo de 2026").
      */
     function i18nDate(int $timestamp, ?string $locale = null): string
     {
         $locale = $locale ?? i18nLocale();
         $monthKey = 'date.month.' . (int) date('n', $timestamp);
-        return date('j', $timestamp) . ' ' . t($monthKey, [], $locale) . ' ' . date('Y', $timestamp);
+        $join = ($locale === 'es') ? ' de ' : ' ';
+        return date('j', $timestamp) . $join . t($monthKey, [], $locale) . $join . date('Y', $timestamp);
     }
 
     /**

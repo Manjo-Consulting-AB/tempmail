@@ -19,7 +19,7 @@ $msI18nHeadOn      = $config['i18n']['enabled'] ?? ['en'];
 $msI18nHeadOrigin  = rtrim((string) ($config['email']['base_url'] ?? ''), '/');
 $msI18nHeadAlts    = function_exists('i18nAlternates') ? i18nAlternates((string) $msPath, $msI18nHeadOn, $msI18nHeadOrigin) : [];
 $msI18nHeadLocale  = function_exists('i18nLocale') ? i18nLocale() : 'en';
-$msI18nHeadOg      = ['en' => 'en_GB', 'sv' => 'sv_SE', 'de' => 'de_DE'];
+$msI18nHeadOg      = ['en' => 'en_GB', 'sv' => 'sv_SE', 'de' => 'de_DE', 'es' => 'es_ES'];
 $msI18nHeadEsc     = function ($value): string {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 };

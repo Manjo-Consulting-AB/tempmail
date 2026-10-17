@@ -288,23 +288,23 @@ check('scan: every literal msT() key exists in lang/en.php', $missingJs === [], 
 // --- Swedish completeness by prefix -------------------------------------------
 $svRequiredPrefixes = ['nav.', 'footer.', 'consent.', 'landing.', 'pricing.', 'date.', 'faq.', 'legal.', 'appnav.', 'blog.', 'auth.', 'voucher.', 'service.mailbox.', 'app.', 'profile.section.', 'profile.common.', 'profile.error.', 'profile.message.', 'profile.account.', 'profile.addresses.', 'profile.hold.', 'service.hold.', 'profile.automation.', 'profile.webhooks.', 'profile.feeds.', 'profile.digest.', 'profile.security.', 'profile.apps.', 'profile.twofa.', 'profile.password.', 'profile.agent.', 'profile.delete.', 'contact.', 'welcome.', 'oauth.', 'mail.'];
 $sv = i18nCatalog('sv');
-foreach ($svRequiredPrefixes as $prefix) {
-    $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
-    $lack = array_diff($need, array_keys($sv));
-    check("sv complete: every {$prefix} key is translated", $need !== [] && $lack === [], implode(', ', $lack));
+// Every language besides English is offered on the same pages, so each catalog
+// must hold the same keys, and each must have its own long-text files.
+$extraLocales = array_values(array_diff(array_keys(i18nSupportedLocales()), ['en']));
+foreach ($extraLocales as $loc) {
+    $locCat = i18nCatalog($loc);
+    foreach ($svRequiredPrefixes as $prefix) {
+        $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
+        $lack = array_diff($need, array_keys($locCat));
+        check("{$loc} complete: every {$prefix} key is translated", $need !== [] && $lack === [], implode(', ', $lack));
+    }
+    same("number: decimals, {$loc}", "1\u{00A0}234,5", i18nNumber(1234.5, 1, $loc));
+    foreach (['partials/content/faq', 'partials/content/temporary-email', 'partials/content/legal/terms', 'partials/content/legal/privacy', 'partials/content/legal/refund-policy'] as $locDoc) {
+        check("{$loc} content: {$locDoc}.{$loc}.php exists", is_file($root . '/' . $locDoc . '.' . $loc . '.php'));
+    }
+    check("{$loc} content: every blog post has a translation", count(glob($root . '/blog/*.md')) === count(glob($root . '/blog/' . $loc . '/*.md')));
 }
-// German is offered on the same pages, so the same keys must exist in lang/de.php.
-$de = i18nCatalog('de');
-foreach ($svRequiredPrefixes as $prefix) {
-    $need = array_filter(array_keys($en), fn($k) => strncmp($k, $prefix, strlen($prefix)) === 0);
-    $lack = array_diff($need, array_keys($de));
-    check("de complete: every {$prefix} key is translated", $need !== [] && $lack === [], implode(', ', $lack));
-}
-same('number: decimals, de', "1\u{00A0}234,5", i18nNumber(1234.5, 1, 'de'));
-foreach (['partials/content/faq', 'partials/content/temporary-email', 'partials/content/legal/terms', 'partials/content/legal/privacy', 'partials/content/legal/refund-policy'] as $deDoc) {
-    check("de content: {$deDoc}.de.php exists", is_file($root . '/' . $deDoc . '.de.php'));
-}
-check('de content: every blog post has a German translation', count(glob($root . '/blog/*.md')) === count(glob($root . '/blog/de/*.md')));
+same('date: Spanish joins the parts with "de"', '5 de marzo de 2026', i18nDate((int) strtotime('2026-03-05 12:00:00'), 'es'));
 
 // --- Nav and footer: English fixtures, Swedish render -------------------------
 function renderPartial(string $file, bool $signedIn, string $locale, array $enabled): string
@@ -501,7 +501,7 @@ foreach (landingVariants() as $section => $variants) {
 i18nSetLocale('en');
 
 // --- Landing page in Swedish ----------------------------------------------------
-same('pages: the landing page is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/'] ?? null);
+same('pages: the landing page is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/'] ?? null);
 same('resolve: /sv/ is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/'], $both));
 same('resolve: ...and sets Swedish', 'sv', i18nLocale());
 same('resolve: /sv/ redirects to / while only English is on', '/', i18nResolveRequest(['REQUEST_URI' => '/sv/'], $onlyEn));
@@ -701,7 +701,7 @@ foreach ($pricingVariants as $name => [$in, $co, $prod]) {
     same("fixture: pricing.config.{$name}.en.json", (string) file_get_contents($fx . "pricing.config.{$name}.en.json"), json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 }
 
-same('pages: pricing is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/pricing.php'] ?? null);
+same('pages: pricing is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/pricing.php'] ?? null);
 same('resolve: /sv/pricing.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/pricing.php'], $both));
 same('resolve: ...and redirects while only English is on', '/pricing.php', i18nResolveRequest(['REQUEST_URI' => '/sv/pricing.php'], $onlyEn));
 i18nSetLocale('en');
@@ -869,7 +869,7 @@ foreach ($faqVariants as $name => [$signIn, $trial]) {
     same("fixture: faq.{$name}.en.html", faqNorm((string) file_get_contents($fx . "faq.{$name}.en.html")), faqNorm($r['raw']));
 }
 
-same('pages: the FAQ is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/faq.php'] ?? null);
+same('pages: the FAQ is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/faq.php'] ?? null);
 i18nTranslatedPages($realPages);
 
 // The two data files: same groups, same number of questions per group, same
@@ -1060,7 +1060,7 @@ foreach ($teVariants as $name => [$trial, $signedIn]) {
     same("fixture: temporary-email.{$name}.en.html", teNorm((string) file_get_contents($fx . "temporary-email.{$name}.en.html")), teNorm($r['raw']));
 }
 
-same('pages: temporary-email.php is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/temporary-email.php'] ?? null);
+same('pages: temporary-email.php is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/temporary-email.php'] ?? null);
 i18nTranslatedPages($realPages);
 
 // The two data files: the same section ids in the same order, the same variables
@@ -1214,7 +1214,7 @@ function blogRender(string $root, string $locale, array $enabled, string $query 
             }
         }
         // Only the posts: the images are referenced, never read.
-        foreach (['blog', 'blog/sv', 'blog/de'] as $d) {
+        foreach (['blog', 'blog/sv', 'blog/de', 'blog/es'] as $d) {
             if (!is_dir($root . '/' . $d)) {
                 continue;
             }
@@ -1364,7 +1364,7 @@ foreach ($blogFixtures as $name => [$file, $query, $status]) {
     check("blog en {$name}: no hreflang and no og:locale while English is alone", strpos($r['raw'], 'hreflang') === false && strpos($r['raw'], 'og:locale') === false);
 }
 
-same('pages: the blog is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/blog.php'] ?? null);
+same('pages: the blog is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/blog.php'] ?? null);
 
 // Every English post has a Swedish twin (same basename) and the other way round.
 $blogEn = array_map(fn($f) => basename($f, '.md'), glob($root . '/blog/*.md') ?: []);
@@ -1595,9 +1595,9 @@ foreach (['terms', 'privacy', 'refund-policy'] as $legalPage) {
     }
 }
 
-same('pages: the refund policy is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/refund-policy.php'] ?? null);
-same('pages: the terms are offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/terms.php'] ?? null);
-same('pages: the privacy policy is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/privacy.php'] ?? null);
+same('pages: the refund policy is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/refund-policy.php'] ?? null);
+same('pages: the terms are offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/terms.php'] ?? null);
+same('pages: the privacy policy is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/privacy.php'] ?? null);
 
 // The two content files: the same section ids in the same order, the same
 // 'updated', the same interpolated variables, and no number typed into the prose.
@@ -1764,7 +1764,7 @@ foreach ((require $root . '/lang/sv.php') as $svTermKey => $svTermValue) {
 // =============================================================================
 
 // --- '@app' gate ---------------------------------------------------------------
-same("pages: '@app' offers Swedish now that every app page is translated (step 7/8), and German", ['en', 'sv', 'de'], $realPages['@app'] ?? null);
+same("pages: '@app' offers Swedish now that every app page is translated (step 7/8), German and Spanish", ['en', 'sv', 'de', 'es'], $realPages['@app'] ?? null);
 same("pages: '@app' is a pseudo-entry, i18nPageLocales() reads it as given", ['en', 'sv'], i18nPageLocales('@app', $both));
 same("pages: '@app' still yields to LOCALES_ENABLED=en", ['en'], i18nPageLocales('@app', $onlyEn));
 i18nTranslatedPages(['@app' => ['en', 'sv']]);
@@ -2445,7 +2445,7 @@ $mailPdoNoColumn->exec('CREATE TABLE pro_users (id INTEGER PRIMARY KEY)');
 $mailPdoNoColumn->exec('INSERT INTO pro_users (id) VALUES (1)');
 $mailCfg = ['enabled' => ['en', 'sv']];
 $realMailPages = i18nTranslatedPages();
-same('mail gate: the shipped list has @mail at English, Swedish and German', ['en', 'sv', 'de'], $realMailPages['@mail'] ?? null);
+same('mail gate: the shipped list has @mail at English, Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realMailPages['@mail'] ?? null);
 // The gate is closed explicitly here, so this holds whatever the shipped list says.
 i18nTranslatedPages(array_merge($realMailPages, ['@mail' => ['en']]));
 same('mailLocaleFor: @mail at en is always English (account sv)', 'en', mailLocaleFor($mailPdo, 1, $mailCfg, 'sv'));
@@ -3651,7 +3651,7 @@ foreach (['signed_out' => false, 'signed_in' => true] as $wname => $win) {
     check("sv welcome ({$wname}): still noindex, with no analytics and no consent notice", strpos($wSv['html'], 'noindex, nofollow') !== false && !preg_match('/gtag|googletagmanager|ms-i18n-consent|consent\.js/', $wSv['html']));
     check("sv welcome ({$wname}): canonical and alternates name the Swedish page", strpos($wSv['html'], '<link rel="canonical" href="https://example.test/sv/welcome.php">') !== false && strpos($wSv['html'], 'hreflang="x-default" href="https://example.test/welcome.php"') !== false);
 }
-same('pages: welcome.php is offered in Swedish and German', ['en', 'sv', 'de'], $realPages['/welcome.php'] ?? null);
+same('pages: welcome.php is offered in Swedish, German and Spanish', ['en', 'sv', 'de', 'es'], $realPages['/welcome.php'] ?? null);
 same('resolve: /sv/welcome.php is served once Swedish is on', null, i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $both));
 same('resolve: ...and redirects while only English is on', '/welcome.php', i18nResolveRequest(['REQUEST_URI' => '/sv/welcome.php'], $onlyEn));
 i18nSetLocale('en');
@@ -4409,43 +4409,47 @@ foreach (array_filter(array_keys($cmSvCat), fn($k) => strncmp($k, 'mail.', 5) ==
 }
 ms_cm_remove($cm);
 
-// --- German (de) render: every page offered in German renders in German ------
-// MS_I18N_DUMP=<dir> also writes each German page there, for reading by hand.
-$deAll = ['en', 'sv', 'de'];
-$deDump = (string) getenv('MS_I18N_DUMP');
-$dePages = [
-    'pricing'         => fn($l) => pricingRender($root, $l, $deAll, false, true, null, true),
-    'faq'             => fn($l) => faqRender($root, $l, $deAll, true, 60),
-    'temporary-email' => fn($l) => teRender($root, $l, $deAll, 60),
-    'blog'            => fn($l) => blogRender($root, $l, $deAll),
-    'blog-post'       => fn($l) => blogRender($root, $l, $deAll, 'post=2026-10-05'),
-    'terms'           => fn($l) => legalRender($root, 'terms.php', $l, $deAll, true, 60),
-    'privacy'         => fn($l) => legalRender($root, 'privacy.php', $l, $deAll, true, 60),
-    'refund-policy'   => fn($l) => legalRender($root, 'refund-policy.php', $l, $deAll, true, 60),
+// --- Every extra language: each page offered in it renders in it ------------
+// MS_I18N_DUMP=<dir> also writes each page there, for reading by hand.
+$xAll = array_keys(i18nSupportedLocales());
+$xDump = (string) getenv('MS_I18N_DUMP');
+$xPages = [
+    'pricing'         => fn($l) => pricingRender($root, $l, $xAll, false, true, null, true),
+    'faq'             => fn($l) => faqRender($root, $l, $xAll, true, 60),
+    'temporary-email' => fn($l) => teRender($root, $l, $xAll, 60),
+    'blog'            => fn($l) => blogRender($root, $l, $xAll),
+    'blog-post'       => fn($l) => blogRender($root, $l, $xAll, 'post=2026-10-05'),
+    'terms'           => fn($l) => legalRender($root, 'terms.php', $l, $xAll, true, 60),
+    'privacy'         => fn($l) => legalRender($root, 'privacy.php', $l, $xAll, true, 60),
+    'refund-policy'   => fn($l) => legalRender($root, 'refund-policy.php', $l, $xAll, true, 60),
 ];
-foreach ($dePages as $name => $render) {
-    $deR = $render('de');
+foreach ($xPages as $name => $render) {
     $enR = $render('en');
-    $deRaw = (string) ($deR['raw'] ?? '');
-    $deText = (string) preg_replace('#<script\b.*?</script>#s', '', $deRaw);
-    check("de render {$name}: the page rendered", $deRaw !== '', (string) ($deR['err'] ?? ''));
-    check("de render {$name}: <html lang=\"de\">", strpos($deRaw, '<html lang="de">') !== false);
-    check("de render {$name}: no raw key", !preg_match('/(?<![\/\w.-])(?:nav|footer|landing|pricing|faq|legal|blog|auth|consent|date)\.[a-z_]+\.[a-z_.0-9]+\b/', $deText));
-    check("de render {$name}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $deText));
-    check("de render {$name}: differs from English", $deRaw !== (string) ($enR['raw'] ?? ''));
-    if ($deDump !== '' && is_dir($deDump)) {
-        file_put_contents($deDump . '/' . $name . '.de.html', $deRaw);
+    foreach ($extraLocales as $loc) {
+        $xR = $render($loc);
+        $xRaw = (string) ($xR['raw'] ?? '');
+        $xText = (string) preg_replace('#<script\b.*?</script>#s', '', $xRaw);
+        check("{$loc} render {$name}: the page rendered", $xRaw !== '', (string) ($xR['err'] ?? ''));
+        check("{$loc} render {$name}: <html lang=\"{$loc}\">", strpos($xRaw, '<html lang="' . $loc . '">') !== false);
+        check("{$loc} render {$name}: no raw key", !preg_match('/(?<![\/\w.-])(?:nav|footer|landing|pricing|faq|legal|blog|auth|consent|date)\.[a-z_]+\.[a-z_.0-9]+\b/', $xText));
+        check("{$loc} render {$name}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $xText));
+        check("{$loc} render {$name}: differs from English", $xRaw !== (string) ($enR['raw'] ?? ''));
+        if ($xDump !== '' && is_dir($xDump)) {
+            file_put_contents($xDump . '/' . $name . '.' . $loc . '.html', $xRaw);
+        }
     }
 }
-foreach (landingVariants() as $section => $variants) {
-    foreach ($variants as $vName => $v) {
-        $deOut = renderLanding($section, $v, 'de', $deAll);
-        $label = "de landing {$section}" . ($vName === '' ? '' : " ({$vName})");
-        check("{$label}: no raw key", !preg_match('/\blanding\.[a-z_.]+\b/', $deOut));
-        check("{$label}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $deOut));
-        check("{$label}: no hard-coded manjo.me", stripos($deOut, 'manjo.me') === false);
-        if ($deDump !== '' && is_dir($deDump)) {
-            file_put_contents($deDump . '/landing.de.html', $deOut, FILE_APPEND);
+foreach ($extraLocales as $loc) {
+    foreach (landingVariants() as $section => $variants) {
+        foreach ($variants as $vName => $v) {
+            $xOut = renderLanding($section, $v, $loc, $xAll);
+            $label = "{$loc} landing {$section}" . ($vName === '' ? '' : " ({$vName})");
+            check("{$label}: no raw key", !preg_match('/\blanding\.[a-z_.]+\b/', $xOut));
+            check("{$label}: no unfilled placeholder", !preg_match('/\{[a-z_]+\}/', $xOut));
+            check("{$label}: no hard-coded manjo.me", stripos($xOut, 'manjo.me') === false);
+            if ($xDump !== '' && is_dir($xDump)) {
+                file_put_contents($xDump . '/landing.' . $loc . '.html', $xOut, FILE_APPEND);
+            }
         }
     }
 }
@@ -4456,7 +4460,7 @@ i18nSetLocale('en');
 foreach (glob($root . '/partials/content/legal/terms.*.php') as $termsFile) {
     $termsRaw = (string) file_get_contents($termsFile);
     check('terms: disputes go to Stockholms tingsrätt in ' . basename($termsFile), strpos($termsRaw, 'tingsrätt') !== false || strpos($termsRaw, 'Stockholm District Court') !== false);
-    check('terms: no claim where the consumer lives in ' . basename($termsFile), !preg_match('/claim where you live|väcka talan där du bor|an deinem Wohnort zu klagen/i', $termsRaw));
+    check('terms: no claim where the consumer lives in ' . basename($termsFile), !preg_match('/claim where you live|väcka talan där du bor|an deinem Wohnort zu klagen|demandar en (?:tu|el) (?:país|lugar) de residencia/i', $termsRaw));
 }
 
 echo "\n{$passed} passed, {$failed} failed\n";
