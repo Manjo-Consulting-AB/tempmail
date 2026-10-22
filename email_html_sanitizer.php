@@ -163,3 +163,105 @@ if (!function_exists('emailRowForDisplay')) {
         return $row;
     }
 }
+
+if (!function_exists('emailHtmlForFeed')) {
+    /**
+     * Loosen purified email HTML so it flows in a feed reader's column.
+     *
+     * Newsletters are fixed-width table layouts (typically 600px) with their
+     * own background and text colours. Shown as-is inside a feed reader they
+     * look like a small web page boxed into the article view. For the RSS
+     * feed only, this drops the fixed widths/heights and the colours so the
+     * content adapts to the reader's width and theme, and caps images and
+     * tables at 100% of the column. Structure, links, images, font sizes and
+     * the preheader-hiding properties (display, max-height, overflow,
+     * opacity) are kept.
+     *
+     * Must only be given purifyEmailHtml() output: it removes attributes and
+     * declarations and adds constant ones, nothing else. Returns the input
+     * unchanged if the DOM extension is missing or parsing fails.
+     */
+    function emailHtmlForFeed(string $html): string
+    {
+        if (trim($html) === '' || !class_exists('DOMDocument')) {
+            return $html;
+        }
+
+        // Declarations dropped everywhere: colours follow the reader's theme
+        // (dropping a background but keeping its text colour could leave
+        // white text on a white page, so both go).
+        $dropEverywhere = ['color', 'background-color', 'min-width'];
+        // Declarations dropped on everything but images: the fixed layout.
+        $dropLayout = ['width', 'height'];
+
+        try {
+            $doc = new DOMDocument();
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $doc->loadHTML(
+                '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><div id="ms-feed-root">'
+                . $html . '</div></body></html>',
+                LIBXML_NONET | LIBXML_COMPACT
+            );
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded) {
+                return $html;
+            }
+            $root = $doc->getElementById('ms-feed-root');
+            if ($root === null) {
+                return $html;
+            }
+
+            foreach (iterator_to_array($root->getElementsByTagName('*')) as $el) {
+                /** @var DOMElement $el */
+                $tag = strtolower($el->tagName);
+                $isImg = $tag === 'img';
+
+                $el->removeAttribute('bgcolor');
+                if ($tag === 'font') {
+                    $el->removeAttribute('color');
+                }
+                if (!$isImg) {
+                    $el->removeAttribute('width');
+                    $el->removeAttribute('height');
+                }
+
+                $kept = [];
+                foreach (explode(';', $el->getAttribute('style')) as $decl) {
+                    $parts = explode(':', $decl, 2);
+                    if (count($parts) !== 2) {
+                        continue;
+                    }
+                    $prop = strtolower(trim($parts[0]));
+                    if (in_array($prop, $dropEverywhere, true) || (!$isImg && in_array($prop, $dropLayout, true))) {
+                        continue;
+                    }
+                    if ($isImg && in_array($prop, ['max-width', 'height'], true)) {
+                        continue; // replaced below
+                    }
+                    $kept[] = $prop . ':' . trim($parts[1]);
+                }
+                if ($isImg || $tag === 'table') {
+                    $kept[] = 'max-width:100%';
+                }
+                if ($isImg) {
+                    $kept[] = 'height:auto';
+                }
+
+                if ($kept === []) {
+                    $el->removeAttribute('style');
+                } else {
+                    $el->setAttribute('style', implode(';', $kept));
+                }
+            }
+
+            $out = '';
+            foreach ($root->childNodes as $child) {
+                $out .= $doc->saveHTML($child);
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return $html;
+        }
+    }
+}

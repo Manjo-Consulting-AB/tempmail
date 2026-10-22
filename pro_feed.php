@@ -94,7 +94,9 @@ function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo
             $bodyHtml = !empty($cidMap) ? emailRewriteCidReferences($e['body_html'], $cidMap, $cidFallback) : $e['body_html'];
             $purified = purifyEmailHtml($bodyHtml);
             if ($purified !== null) {
-                $content = $purified;
+                // Fixed-width newsletter layouts would otherwise sit boxed
+                // in the reader's column; let them flow (feed only).
+                $content = emailHtmlForFeed($purified);
             } else {
                 // strip_tags() only removes the <style>/<script> tags themselves,
                 // not their text content, so CSS-heavy emails (nearly all of them
