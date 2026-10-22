@@ -431,7 +431,7 @@ ms_test_same('A45. limited: fail-open without the abuse guard tables', ['ok' => 
 $carol = ms_test_seed_user($pdo, 'carol@example.com', 'pro');
 mailboxCreateSticky($pdo, $carol, 'carol.mail');
 $carolMailId = (int) ms_mbx_address_row($pdo, 'carol.mail')['id'];
-$msgId = ms_mbx_seed_message($pdo, $carolMailId, 'carol.mail@' . MS_TEST_EMAIL_DOMAIN, ['subject' => 'Ownership test', 'body_html' => '<p>Hi</p>']);
+$msgId = ms_mbx_seed_message($pdo, $carolMailId, 'carol.mail@' . MS_TEST_EMAIL_DOMAIN, ['subject' => 'Ownership test', 'body_html' => '<p>Hi</p><script>alert(1)</script>']);
 $pdo->prepare('INSERT INTO email_attachments (email_id, filename, file_path, mime_type, created_at, content_id) VALUES (?, ?, ?, ?, ?, ?)')
     ->execute([$msgId, 'a.txt', '123_abc_a.txt', 'text/plain', date('Y-m-d H:i:s'), null]);
 
@@ -453,7 +453,11 @@ $r = mailboxGetMessage($pdo, $carol, $msgId);
 ms_test_same('A52. get message: the owner sees it', true, $r['ok'] ?? null);
 ms_test_same('A53. get message: with its attachment', 1, count($r['attachments'] ?? []));
 ms_test_check('A54. get message: the attachment carries a signed download_url', !empty($r['attachments'][0]['download_url'] ?? null));
-ms_test_check('A55. get message: body_html is purified or dropped, never the raw markup', ($r['email']['body_html'] ?? null) !== '<p>Hi</p>' || $r['email']['body_html'] === null);
+// The seeded body carries a <script> the purifier must remove: a harmless
+// body alone would come back unchanged from a working purifier and could
+// not tell "purified" from "passed through raw".
+$a55Html = $r['email']['body_html'] ?? null;
+ms_test_check('A55. get message: body_html is purified or dropped, never the raw markup', $a55Html === null || (!str_contains(strtolower($a55Html), '<script') && str_contains($a55Html, 'Hi')), ms_test_dump($a55Html));
 
 $r = mailboxGetMessage($pdo, $bob, $msgId);
 ms_test_same('A56. get message: another user\'s message answers "not found"', ['ok' => false, 'error' => 'Message not found'], ms_mbx_plain($r));
