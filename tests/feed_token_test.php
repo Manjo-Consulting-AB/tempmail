@@ -86,7 +86,7 @@ SQL;
  */
 function ms_feed_prepare_probe(string $repoRoot, string $probe, ?string $webhooksKey): void
 {
-    foreach (['pro_feed.php', 'feed_token.php', 'email_html_sanitizer.php'] as $file) {
+    foreach (['pro_feed.php', 'feed_token.php', 'email_html_sanitizer.php', 'email_cid_rewrite.php'] as $file) {
         if (!copy($repoRoot . '/' . $file, $probe . '/' . $file)) {
             throw new RuntimeException("Could not copy {$file} into the probe docroot");
         }

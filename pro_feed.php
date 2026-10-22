@@ -18,6 +18,8 @@ if (php_sapi_name() === 'cli') {
 // purifyEmailHtml() - the HTMLPurifier allowlist shared with the inbox
 // (index.php get_email) - lives in email_html_sanitizer.php.
 require_once __DIR__ . '/email_html_sanitizer.php';
+// cid: -> files.php rewrite, shared with the inbox (index.php get_email).
+require_once __DIR__ . '/email_cid_rewrite.php';
 require_once __DIR__ . '/pii_crypto.php';
 require_once __DIR__ . '/feed_token.php';
 
@@ -35,16 +37,49 @@ function feedDenyInvalidToken(): void {
 }
 
 /**
+ * How long a feed's attachment and inline-image links stay signed, counted
+ * from the message's received_at: EmailStorage's own retention cap
+ * (MAX_RETENTION_DAYS) plus a day. A feed reader stores an item's content the
+ * first time it sees it and rarely fetches it again, so the link must not die
+ * before the mail does - and files.php refuses it as soon as the mail is
+ * deleted or past its expires_at, which is what actually ends it. Counting
+ * from received_at keeps the URL identical on every fetch.
+ */
+const FEED_ATTACHMENT_LINK_SECONDS = (18250 + 1) * 86400;
+
+/**
  * Emit the <item> elements for a feed. Shared by the account-wide and the
  * per-address branch so purification, attachment enclosures and escaping
  * cannot drift apart between the two.
  */
-function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo, int $signatureTime): void {
+function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo): void {
+    $hasContentId = tableHasColumn('email_attachments', 'content_id');
     foreach ($emails as $e) {
         $eid = (int)$e['id'];
         $title = htmlspecialchars($e['subject'] ?: '(no subject)');
         $from = htmlspecialchars($e['from_address'] ?? '(unknown)');
-        $pub = isset($e['received_at']) ? date(DATE_RSS, strtotime($e['received_at'])) : date(DATE_RSS);
+        $receivedTs = !empty($e['received_at']) ? strtotime($e['received_at']) : false;
+        $pub = date(DATE_RSS, $receivedTs !== false ? $receivedTs : time());
+
+        // Attachments first: their signed URLs are both the enclosures and
+        // what the body's cid: references are rewritten to.
+        $attStmt = $pdo->prepare($hasContentId
+            ? "SELECT id, filename, mime_type, content_id FROM email_attachments WHERE email_id = ? ORDER BY id ASC"
+            : "SELECT id, filename, mime_type FROM email_attachments WHERE email_id = ? ORDER BY id ASC");
+        $attStmt->execute([$eid]);
+        $atts = $attStmt->fetchAll(PDO::FETCH_ASSOC);
+        $signBase = $receivedTs !== false ? $receivedTs : time();
+        $signUrl = static function (int $aid) use ($base, $signBase): string {
+            return function_exists('generateSignedAttachmentUrl')
+                ? generateSignedAttachmentUrl($aid, FEED_ATTACHMENT_LINK_SECONDS, $signBase)
+                : $base . '/files.php?id=' . $aid;
+        };
+        foreach ($atts as &$a) {
+            $a['download_url'] = $signUrl((int)$a['id']);
+        }
+        unset($a);
+        $cidMap = emailCidUrlMap($atts);
+        $cidFallback = $hasContentId ? emailCidDbFallback($pdo, $eid, $signUrl) : null;
 
         // Prefer HTML body if available. body_html is raw inbound email HTML -
         // fully attacker-controlled by anyone who emails this address, with no
@@ -53,7 +88,11 @@ function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo
         // unavailable for any reason, fall back to the safe plain-text flatten.
         $content = '';
         if (!empty($e['body_html'])) {
-            $purified = purifyEmailHtml($e['body_html']);
+            // Inline images: cid: -> signed files.php URL, before purifying
+            // (purifyEmailHtml() drops the cid: scheme). External images keep
+            // pointing at the sender.
+            $bodyHtml = !empty($cidMap) ? emailRewriteCidReferences($e['body_html'], $cidMap, $cidFallback) : $e['body_html'];
+            $purified = purifyEmailHtml($bodyHtml);
             if ($purified !== null) {
                 $content = $purified;
             } else {
@@ -61,7 +100,7 @@ function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo
                 // not their text content, so CSS-heavy emails (nearly all of them
                 // put their rules in a <head><style> block) would otherwise dump
                 // raw CSS source into the feed. Drop those elements entirely first.
-                $withoutStyleScript = preg_replace('/<(style|script)\b[^>]*>.*?<\/\1>/is', '', $e['body_html']);
+                $withoutStyleScript = preg_replace('/<(style|script)\b[^>]*>.*?<\/\1>/is', '', $bodyHtml);
                 $withBreaks = preg_replace('/<(br|\/p|\/div|\/tr|\/li)\s*\/?>/i', "\n", $withoutStyleScript);
                 $content = nl2br(htmlspecialchars(strip_tags($withBreaks)));
             }
@@ -73,11 +112,6 @@ function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo
         // CDATA section below, even if this code changes in the future.
         $content = str_replace(']]>', ']] >', $content);
 
-        // Fetch attachments for this email
-        $attStmt = $pdo->prepare("SELECT id, filename, mime_type FROM email_attachments WHERE email_id = ? ORDER BY id ASC");
-        $attStmt->execute([$eid]);
-        $atts = $attStmt->fetchAll(PDO::FETCH_ASSOC);
-
         echo "<item>\n";
         echo "<title>" . $title . "</title>\n";
         // Link points to the reader for this feed; full email content is in description
@@ -88,11 +122,8 @@ function renderFeedItems(array $emails, string $itemLink, string $base, PDO $pdo
 
         // Add enclosures for attachments
         foreach ($atts as $a) {
-            $aid = (int)$a['id'];
             $mime = htmlspecialchars($a['mime_type'] ?? 'application/octet-stream');
-            // Generate signed URL with consistent timestamp
-            $url = function_exists('generateSignedAttachmentUrl') ? generateSignedAttachmentUrl($aid, null, $signatureTime) : ($base . '/files.php?id=' . $aid);
-            echo "<enclosure url=\"" . htmlspecialchars($url) . "\" type=\"{$mime}\" />\n";
+            echo "<enclosure url=\"" . htmlspecialchars($a['download_url']) . "\" type=\"{$mime}\" />\n";
         }
 
         echo "</item>\n";
@@ -244,11 +275,8 @@ try {
     header('Cache-Control: private, max-age=60, s-maxage=60');
     header('Content-Type: application/rss+xml; charset=utf-8');
 
-    // Use a single timestamp for all attachment signatures in this feed
-    $signatureTime = time();
-
     // Determine last build date from newest email if available
-    $lastBuildTs = $signatureTime;
+    $lastBuildTs = time();
     if (!empty($emails) && !empty($emails[0]['received_at'])) {
         $t = strtotime($emails[0]['received_at']);
         if ($t !== false) $lastBuildTs = $t;
@@ -261,7 +289,7 @@ try {
     echo "<language>en</language>\n";
     echo "<lastBuildDate>" . date(DATE_RSS, $lastBuildTs) . "</lastBuildDate>\n";
 
-    renderFeedItems($emails, $itemLink, $base, $pdo, $signatureTime);
+    renderFeedItems($emails, $itemLink, $base, $pdo);
 
     echo "</channel>\n</rss>\n";
 
