@@ -683,118 +683,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         unset($aRow);
 
-                        // Build content-id -> signed URL mapping (if possible) and replace cid: references in the email body
-                        $cidMap = [];
-                        // Helper to normalize CID for reliable matching
-                        $normalizeCid = static function(string $cid): string {
-                            return strtolower(preg_replace('/[^a-z0-9]/i', '', $cid) ?? '');
-                        };
-                        
-                        foreach ($attachments as $a) {
-                            $aid = (int)($a['id'] ?? 0);
-                            if ($aid <= 0) continue;
-                            
-                            // Use the attachment's already-generated download_url (same signature)
-                            $signedUrl = $a['download_url'] ?? (function_exists('generateSignedAttachmentUrl')
-                                ? generateSignedAttachmentUrl($aid, null, $signatureTime)
-                                : (rtrim($config['email']['base_url'] ?? '', '/') ?: '') . '/files.php?id=' . $aid);
-                            
-                            // Map by content_id (original and normalized)
-                            if (!empty($a['content_id'])) {
-                                $cid = trim($a['content_id']);
-                                if ($cid !== '') {
-                                    $cidMap[$cid] = $signedUrl;
-                                    $normalizedCid = $normalizeCid($cid);
-                                    if ($normalizedCid !== '' && $normalizedCid !== $cid) {
-                                        $cidMap[$normalizedCid] = $signedUrl;
-                                    }
-                                }
-                            }
-                            
-                            // Fallback: map by filename for clients that reference attachments by name
-                            $fn = $a['filename'] ?? '';
-                            if ($fn !== '') {
-                                $base = pathinfo($fn, PATHINFO_FILENAME);
-                                if (preg_match('/^[A-Za-z0-9_-]{4,}$/', $base)) {
-                                    $cidMap[$base] = $signedUrl;
-                                    $normalizedBase = $normalizeCid($base);
-                                    if ($normalizedBase !== '' && $normalizedBase !== $base) {
-                                        $cidMap[$normalizedBase] = $signedUrl;
-                                    }
-                                }
-                            }
-                        }
-
+                        // Build the content-id -> signed URL mapping and replace cid:
+                        // references in the email body (email_cid_rewrite.php, shared
+                        // with pro_feed.php).
+                        require_once __DIR__ . '/email_cid_rewrite.php';
+                        $cidMap = emailCidUrlMap($attachments);
                         if (!empty($cidMap)) {
-                            // Use regex callback to robustly replace cid: variants (plain, <...>, url-encoded)
-                            $cidReplacer = function($matches) use ($cidMap, $pdo, $emailId, $config, $normalizeCid, $signatureTime) {
-                                $raw = $matches[1] ?? '';
-                                // Decode potential url-encoded values
-                                $token = rawurldecode($raw);
-                                $token = trim($token, "<> \t\n\r\0\x0B");
-                                
-                                // 1. Try direct mapping (exact match)
-                                if (isset($cidMap[$token])) {
-                                    return $cidMap[$token];
-                                }
-                                
-                                // 2. Try normalized matching
-                                $normalizedToken = $normalizeCid($token);
-                                if ($normalizedToken !== '' && isset($cidMap[$normalizedToken])) {
-                                    return $cidMap[$normalizedToken];
-                                }
-                                
-                                // 3. Try case-insensitive match against all keys
-                                $lk = strtolower($token);
-                                foreach ($cidMap as $k => $v) {
-                                    if (strtolower($k) === $lk) {
-                                        return $v;
-                                    }
-                                }
-
-                                // As a last resort, look up the attachment by content_id or filename in DB
-                                try {
-                                    // Try exact content_id matches (with and without <>)
-                                    $q = $pdo->prepare("SELECT id FROM email_attachments WHERE email_id = ? AND (content_id = ? OR content_id = ? OR content_id LIKE ?) LIMIT 1");
-                                    $q->execute([$emailId, $token, '<' . $token . '>', '%' . $token . '%']);
-                                    $r = $q->fetch(PDO::FETCH_ASSOC);
-                                    if ($r && !empty($r['id'])) {
-                                        $aid = (int)$r['id'];
-                                        // Generate URL with same timestamp for consistency
-                                        if (function_exists('generateSignedAttachmentUrl')) return generateSignedAttachmentUrl($aid, null, $signatureTime);
-                                        return (rtrim($config['email']['base_url'] ?? '', '/') ?: '') . '/files.php?id=' . $aid;
-                                    }
-
-                                    // Fallback: try matching filename (without extension)
-                                    $base = $token;
-                                    // strip surrounding quotes if present
-                                    $base = trim($base, '"\'');
-                                    $fn = pathinfo($base, PATHINFO_FILENAME);
-                                    if ($fn !== '') {
-                                        $q2 = $pdo->prepare("SELECT id FROM email_attachments WHERE email_id = ? AND (filename = ? OR filename LIKE ? ) LIMIT 1");
-                                        $q2->execute([$emailId, $base, $fn . '.%']);
-                                        $r2 = $q2->fetch(PDO::FETCH_ASSOC);
-                                        if ($r2 && !empty($r2['id'])) {
-                                            $aid = (int)$r2['id'];
-                                            // Generate URL with same timestamp for consistency
-                                            if (function_exists('generateSignedAttachmentUrl')) return generateSignedAttachmentUrl($aid, null, $signatureTime);
-                                            return (rtrim($config['email']['base_url'] ?? '', '/') ?: '') . '/files.php?id=' . $aid;
-                                        }
-                                    }
-                                } catch (Exception $_) {
-                                    // ignore DB errors in best-effort replacement
-                                }
-
-                                // No replacement found — return original match unchanged
-                                return $matches[0];
+                            $signCidUrl = static function (int $aid) use ($config, $signatureTime): string {
+                                if (function_exists('generateSignedAttachmentUrl')) return generateSignedAttachmentUrl($aid, null, $signatureTime);
+                                return (rtrim($config['email']['base_url'] ?? '', '/') ?: '') . '/files.php?id=' . $aid;
                             };
-
-                            $pattern = '/cid:\s*<?([^>\s"\']+)>?/i';
+                            $cidFallback = emailCidDbFallback($pdo, (int)$emailId, $signCidUrl);
                             if (!empty($email['body_html'])) {
-                                $email['body_html'] = preg_replace_callback($pattern, $cidReplacer, $email['body_html']);
+                                $email['body_html'] = emailRewriteCidReferences($email['body_html'], $cidMap, $cidFallback);
                             }
                             if (!empty($email['body_text'])) {
-                                $email['body_text'] = preg_replace_callback($pattern, $cidReplacer, $email['body_text']);
+                                $email['body_text'] = emailRewriteCidReferences($email['body_text'], $cidMap, $cidFallback);
                             }
                         }
                     } catch (Exception $_) {
