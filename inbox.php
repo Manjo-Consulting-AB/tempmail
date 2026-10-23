@@ -112,7 +112,7 @@ if (isset($_GET['address']) && !empty($_GET['address'])) {
                         document.getElementById('proExpiryLine').textContent = L.lifetime;
                         return;
                     }
-                    var d = new Date(proExpiry.expires + ' UTC');
+                    var d = new Date(String(proExpiry.expires).replace(' ', 'T') + 'Z');
                     var dd = String(d.getUTCDate()).padStart(2, '0');
                     var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
                     var yyyy = d.getUTCFullYear();
