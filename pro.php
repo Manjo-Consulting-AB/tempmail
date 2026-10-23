@@ -159,7 +159,7 @@ $msDomain = htmlspecialchars((string)($config['email']['domain'] ?? ''), ENT_QUO
                         document.getElementById('proExpiryLine').textContent = L.lifetime;
                         return;
                     }
-                    var d = new Date(ex + ' UTC');
+                    var d = new Date(String(ex).replace(' ', 'T') + 'Z');
                     var dd = String(d.getUTCDate()).padStart(2, '0');
                     var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
                     var yyyy = d.getUTCFullYear();

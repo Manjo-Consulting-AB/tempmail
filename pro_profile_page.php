@@ -981,7 +981,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     var left = parseInt(st.recovery_codes_left || 0, 10);
                     var text = msT('profile.twofa.status_active', 'Active');
                     if (st.confirmed_at) {
-                        var d = new Date(st.confirmed_at + ' UTC');
+                        var d = new Date(String(st.confirmed_at).replace(' ', 'T') + 'Z');
                         var dd = String(d.getUTCDate()).padStart(2, '0');
                         var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
                         var yyyy = d.getUTCFullYear();
@@ -1173,7 +1173,8 @@ require __DIR__ . '/partials/i18n_js.php';
 
             function tfaFormatDate(s) {
                 if (!s) return '';
-                var d = new Date(s + ' UTC');
+                var d = new Date(String(s).replace(' ', 'T') + 'Z');
+                if (isNaN(d.getTime())) return '';
                 var dd = String(d.getUTCDate()).padStart(2, '0');
                 var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
                 var yyyy = d.getUTCFullYear();
@@ -1510,7 +1511,7 @@ require __DIR__ . '/partials/i18n_js.php';
                     if (!res.profile.is_pro) {
                         $('#proExpiryLine').text(msT('app.common.expiry_free', 'Free')).css('color', '');
                     } else if (expires) {
-                        var d = new Date(expires + ' UTC');
+                        var d = new Date(String(expires).replace(' ', 'T') + 'Z');
                         // Format date as DD/MM/YYYY (no time)
                         var dd = String(d.getUTCDate()).padStart(2, '0');
                         var mm = String(d.getUTCMonth() + 1).padStart(2, '0');

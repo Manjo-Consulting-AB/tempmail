@@ -136,7 +136,7 @@ $isProAccount = proUserIsPro((int)$userId);
                         document.getElementById('proExpiryLine').textContent = L.lifetime;
                         return;
                     }
-                    var d = new Date(proExpiry + ' UTC');
+                    var d = new Date(String(proExpiry).replace(' ', 'T') + 'Z');
                     var dd = String(d.getUTCDate()).padStart(2, '0');
                     var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
                     var yyyy = d.getUTCFullYear();
