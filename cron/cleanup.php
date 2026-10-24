@@ -256,6 +256,79 @@ function optimizeDatabase() {
 }
 
 /**
+ * Ta bort bilagefiler i attachments/ som ingen rad i email_attachments pekar
+ * på (t.ex. efter en krasch mellan filskrivning och INSERT, eller mellan
+ * fil- och radborttagning). Bara filer äldre än ett dygn, så en bilaga som
+ * just skrivs aldrig rörs, och högst 5000 per körning.
+ */
+function cleanupOrphanAttachmentFiles() {
+    global $pdo;
+
+    $dir = __DIR__ . '/../attachments';
+    if (!is_dir($dir)) {
+        return 0;
+    }
+
+    try {
+        $lookup = $pdo->prepare("SELECT 1 FROM email_attachments WHERE file_path = ? OR file_path LIKE ? ESCAPE '|' LIMIT 1");
+        $cutoff = time() - 86400;
+        $deleted = 0;
+        $bytes = 0;
+
+        foreach (new FilesystemIterator($dir, FilesystemIterator::SKIP_DOTS) as $file) {
+            if ($deleted >= 5000) {
+                break;
+            }
+            $name = $file->getFilename();
+            if (!$file->isFile() || $file->isLink() || $name[0] === '.' || $file->getMTime() > $cutoff) {
+                continue;
+            }
+            $like = '%/' . str_replace(['|', '%', '_'], ['||', '|%', '|_'], $name);
+            $lookup->execute([$name, $like]);
+            if ($lookup->fetchColumn() !== false) {
+                continue;
+            }
+            $size = $file->getSize();
+            if (@unlink($file->getPathname())) {
+                $deleted++;
+                $bytes += $size;
+            }
+        }
+
+        if ($deleted > 0) {
+            logMessage('INFO', 'Orphan attachment files removed', ['files' => $deleted, 'bytes' => $bytes]);
+        }
+        return $deleted;
+    } catch (Throwable $e) {
+        logMessage('ERROR', 'Failed to remove orphan attachment files: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Rotera debug_logs/*.log (debug_logger.php skriver bara, ingen annan rensar).
+ * Över 5 MB flyttas filen till <namn>.1 och ersätter då den förra
+ * rotationen, så katalogen aldrig blir större än ca 2x gränsen per fil.
+ */
+function cleanupDebugLogs() {
+    $dir = __DIR__ . '/../debug_logs';
+    if (!is_dir($dir)) {
+        return 0;
+    }
+
+    $rotated = 0;
+    foreach (glob($dir . '/*.log') ?: [] as $file) {
+        if (is_file($file) && !is_link($file) && filesize($file) > 5 * 1048576 && @rename($file, $file . '.1')) {
+            $rotated++;
+        }
+    }
+    if ($rotated > 0) {
+        logMessage('INFO', 'Debug logs rotated', ['files' => $rotated]);
+    }
+    return $rotated;
+}
+
+/**
  * Rensa utgångna "remember this browser"-cookies (2FA trusted devices)
  */
 function cleanupExpiredTrustedDevices() {
@@ -1061,6 +1134,13 @@ function runCleanup($options = []) {
     if ($oauthResult !== false) {
         $results['oauth_cleaned'] = $oauthResult;
     }
+
+    // Bilagefiler utan databasrad och roterande debug-loggar
+    $orphanFilesResult = cleanupOrphanAttachmentFiles();
+    if ($orphanFilesResult !== false) {
+        $results['orphan_attachment_files_cleaned'] = $orphanFilesResult;
+    }
+    $results['debug_logs_rotated'] = cleanupDebugLogs();
 
     // Optimera databas (om begärt)
     if (isset($options['optimize']) && $options['optimize']) {

@@ -25,3 +25,6 @@ client/agent/storage/*.bak
 client/backend/storage/*.json
 # DeepSeek-watcherns arbetsträd, loggar och lås (.github/scripts/deepseek_watcher.sh)
 .claude/
+
+# Local debug logs (debug_logger.php), rotated by cron/cleanup.php
+/debug_logs/
