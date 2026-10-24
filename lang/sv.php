@@ -701,7 +701,7 @@ return [
     'profile.account.billing_opening' => 'Öppnar faktureringsportalen...',
     'profile.account.billing_open_failed' => 'Det gick inte att öppna faktureringsportalen',
     'profile.account.invite_title' => 'Bjud in vänner',
-    'profile.account.invite_lifetime' => 'Bjud in en vän. När vännen köper en Pro-plan på {plan_months} månader inom {window_days} dagar får vännen {total_months} månader – och du får {sticky_bonus} fler Sticky-adresser, för alltid. Ingen gräns.',
+    'profile.account.invite_lifetime' => 'Bjud in en vän. När vännen köper en Pro-plan på {plan_months} månader inom {window_days} dagar får vännen {total_months} månader – och du får {sticky_bonus} extra Sticky-adresser, för alltid. Ingen gräns.',
     'profile.account.invite_regular' => 'Ge {bonus_months} månader. Få {bonus_months} månader. När en vän registrerar sig via din länk och köper en Pro-plan på {plan_months} månader inom {window_days} dagar får vännen {total_months} månader Pro – och du får {bonus_months} extra månader. Ingen gräns: dina bonusmånader läggs ihop.',
     'profile.account.invite_link_label' => 'Din inbjudningslänk',
     'profile.account.invite_copy' => 'Kopiera länk',
