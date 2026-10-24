@@ -2864,7 +2864,7 @@ check('sv profile page (referral): the Invite friends card, the invited note and
     && strpos($svRef['body'], 'Registrerade: 0 · Väntar: 0 · Belönade: 0') !== false && strpos($svRef['body'], 'En belöning läggs till 30 dagar efter din väns betalning.') !== false
     && strpos($svRef['body'], 'Du har 3 bonusadresser från inbjudningar.') !== false);
 $svRefLife = ms_pp_page($pp, 'referral_lifetime', true, 'sv');
-check('sv profile page (referral, Lifetime): the Lifetime wording', strpos($svRefLife['body'], 'du får 3 fler Sticky-adresser, för alltid. Ingen gräns.') !== false);
+check('sv profile page (referral, Lifetime): the Lifetime wording', strpos($svRefLife['body'], 'du får 3 extra Sticky-adresser, för alltid. Ingen gräns.') !== false);
 // The Language card: the account's own choice is selected.
 $svAcct = ms_pp_page($pp, 'pro', true, '', 'sv');
 check('profile page: an account with locale sv gets Swedish without Accept-Language, and sv is selected', strpos($svAcct['body'], '<html lang="sv">') !== false && strpos($svAcct['body'], '<option value="sv" selected>Svenska</option>') !== false && strpos($svAcct['body'], '<option value="" selected>') === false);
